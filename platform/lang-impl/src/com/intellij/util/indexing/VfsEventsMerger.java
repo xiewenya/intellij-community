@@ -1,51 +1,62 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.indexing;
 
+import com.intellij.openapi.diagnostic.Log4jBasedLogger;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileWithId;
+import com.intellij.util.SystemProperties;
+import com.intellij.util.containers.ConcurrentIntObjectMap;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.IntObjectMap;
+import com.intellij.util.indexing.diagnostic.IndexDiagnosticDumper;
+import org.apache.log4j.Level;
+import org.apache.log4j.PatternLayout;
+import org.apache.log4j.RollingFileAppender;
+import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
-/**
- * @author Maxim.Mossienko on 11/10/2016.
- */
-public class VfsEventsMerger {
-  public void recordFileEvent(int fileId, @NotNull VirtualFile file, boolean contentChange) {
-    updateChange(fileId, file, contentChange ? FILE_CONTENT_CHANGED : FILE_ADDED);
+final class VfsEventsMerger {
+  private static final boolean DEBUG = FileBasedIndexImpl.DO_TRACE_STUB_INDEX_UPDATE || SystemProperties.is("log.index.vfs.events");
+  @Nullable
+  static final Logger LOG = MyLoggerFactory.getLoggerInstance();
+
+  void recordFileEvent(@NotNull VirtualFile file, boolean contentChange) {
+    if (LOG != null) LOG.info("Request build indices for file:" + file.getPath() + ", contentChange:" + contentChange);
+    updateChange(file, contentChange ? FILE_CONTENT_CHANGED : FILE_ADDED);
   }
 
-  public void recordBeforeFileEvent(int fileId, @NotNull VirtualFile file, boolean contentChanged) {
-    updateChange(fileId, file, contentChanged ? BEFORE_FILE_CONTENT_CHANGED : FILE_REMOVED);
+  void recordBeforeFileEvent(@NotNull VirtualFile file, boolean contentChanged) {
+    if (LOG != null) LOG.info("Request invalidate indices for file:" + file.getPath() + ", contentChange:" + contentChanged);
+    updateChange(file, contentChanged ? BEFORE_FILE_CONTENT_CHANGED : FILE_REMOVED);
+  }
+
+  void recordTransientStateChangeEvent(@NotNull VirtualFile file) {
+    if (LOG != null) LOG.info("Transient state changed for file:" + file.getPath());
+    updateChange(file, FILE_TRANSIENT_STATE_CHANGED);
   }
 
   private final AtomicInteger myPublishedEventIndex = new AtomicInteger();
-  
+
   int getPublishedEventIndex() {
     return myPublishedEventIndex.get();
   }
-  
+
+  private void updateChange(@NotNull VirtualFile file, @EventMask short mask) {
+    if (file instanceof VirtualFileWithId) {
+      updateChange(((VirtualFileWithId)file).getId(), file, mask);
+    }
+  }
+
   // NB: this code is executed not only during vfs events dispatch (in write action) but also during requestReindex (in read action)
-  private void updateChange(int fileId, @NotNull VirtualFile file, short mask) {
+  private void updateChange(int fileId, @NotNull VirtualFile file, @EventMask short mask) {
     while (true) {
       ChangeInfo existingChangeInfo = myChangeInfos.get(fileId);
       ChangeInfo newChangeInfo = new ChangeInfo(file, mask, existingChangeInfo);
@@ -53,6 +64,12 @@ public class VfsEventsMerger {
         myPublishedEventIndex.incrementAndGet();
         break;
       }
+    }
+  }
+
+  void applyMergedEvents(@NotNull VfsEventsMerger merger) {
+    for(ChangeInfo info:merger.myChangeInfos.values()) {
+      updateChange(info.getFileId(), info.file, info.eventMask);
     }
   }
 
@@ -66,7 +83,7 @@ public class VfsEventsMerger {
   // with the processing then set of events will be not empty
   // 3. Method regularly checks for cancellations (thus can finish with PCEs) but event processor should process the change info atomically
   // (without PCE)
-  public boolean processChanges(@NotNull VfsEventProcessor eventProcessor) {
+  boolean processChanges(@NotNull VfsEventProcessor eventProcessor) {
     if (!myChangeInfos.isEmpty()) {
       int[] fileIds = myChangeInfos.keys(); // snapshot of the keys
       for (int fileId : fileIds) {
@@ -75,6 +92,9 @@ public class VfsEventsMerger {
         if (info == null) continue;
 
         try {
+          if (LOG != null) {
+            LOG.info("Processing " + info);
+          }
           if (!eventProcessor.process(info)) return false;
         }
         catch (ProcessCanceledException pce) { // todo remove
@@ -86,7 +106,7 @@ public class VfsEventsMerger {
     return true;
   }
 
-  public boolean hasChanges() {
+  boolean hasChanges() {
     return !myChangeInfos.isEmpty();
   }
 
@@ -94,29 +114,37 @@ public class VfsEventsMerger {
     return myChangeInfos.size();
   }
 
+  @NotNull
   Stream<VirtualFile> getChangedFiles() {
     return myChangeInfos.values().stream().map(ChangeInfo::getFile);
   }
 
-  private final IntObjectMap<VfsEventsMerger.ChangeInfo> myChangeInfos = ContainerUtil.createConcurrentIntObjectMap();
+  private final ConcurrentIntObjectMap<ChangeInfo> myChangeInfos = ContainerUtil.createConcurrentIntObjectMap();
 
   private static final short FILE_ADDED = 1;
   private static final short FILE_REMOVED = 2;
   private static final short FILE_CONTENT_CHANGED = 4;
   private static final short BEFORE_FILE_CONTENT_CHANGED = 8;
+  private static final short FILE_TRANSIENT_STATE_CHANGED = 16;
 
-  public static class ChangeInfo {
+  @MagicConstant(flags = {FILE_ADDED, FILE_REMOVED, FILE_CONTENT_CHANGED, BEFORE_FILE_CONTENT_CHANGED, FILE_TRANSIENT_STATE_CHANGED})
+  @interface EventMask { }
+
+  static class ChangeInfo {
     private final VirtualFile file;
+
+    @EventMask
     private final short eventMask;
 
-    ChangeInfo(@NotNull VirtualFile file, short eventMask, @Nullable ChangeInfo previous) {
+    ChangeInfo(@NotNull VirtualFile file, @EventMask short eventMask, @Nullable ChangeInfo previous) {
       this.file = file;
-      this.eventMask = mergeEventMask(previous != null ? previous.eventMask : 0, eventMask);
+      this.eventMask = mergeEventMask(previous == null ? 0 : previous.eventMask, eventMask);
     }
 
-    private static short mergeEventMask(short existingOperation, short newOperation) {
+    @EventMask
+    private static short mergeEventMask(@EventMask short existingOperation, @EventMask short newOperation) {
       if (newOperation == FILE_REMOVED) {
-        return newOperation;
+        return FILE_REMOVED;
       }
       return (short)(existingOperation | newOperation);
     }
@@ -124,8 +152,9 @@ public class VfsEventsMerger {
     @Override
     public String toString() {
       StringBuilder builder = new StringBuilder();
-      builder.append("file: ").append(file.getPath()).append("\n")
+      builder.append("file: ").append(file.getPath()).append("; ")
         .append("operation: ");
+      if ((eventMask & FILE_TRANSIENT_STATE_CHANGED) != 0) builder.append("TRANSIENT_STATE_CHANGE ");
       if ((eventMask & BEFORE_FILE_CONTENT_CHANGED) != 0) builder.append("UPDATE-REMOVE ");
       if ((eventMask & FILE_CONTENT_CHANGED) != 0) builder.append("UPDATE ");
       if ((eventMask & FILE_REMOVED) != 0) builder.append("REMOVE ");
@@ -149,6 +178,10 @@ public class VfsEventsMerger {
       return (eventMask & FILE_ADDED) != 0;
     }
 
+    boolean isTransientStateChanged() {
+      return (eventMask & FILE_TRANSIENT_STATE_CHANGED) != 0;
+    }
+
     @NotNull
     VirtualFile getFile() {
       return file;
@@ -158,6 +191,50 @@ public class VfsEventsMerger {
       int fileId = FileBasedIndexImpl.getIdMaskingNonIdBasedFile(file);
       if (fileId < 0) fileId = -fileId;
       return fileId;
+    }
+  }
+
+  private static class MyLoggerFactory implements Logger.Factory {
+    @Nullable
+    private static final MyLoggerFactory ourFactory;
+
+    static {
+      MyLoggerFactory factory = null;
+      try {
+        if (DEBUG) {
+          factory = new MyLoggerFactory();
+        }
+      }
+      catch (IOException e) {
+        FileBasedIndexImpl.LOG.error(e);
+      }
+      ourFactory = factory;
+    }
+
+    @NotNull
+    private final RollingFileAppender myAppender;
+
+    MyLoggerFactory() throws IOException {
+      Path logPath = IndexDiagnosticDumper.INSTANCE.getIndexingDiagnosticDir().resolve("index-vfs-events.log");
+      PatternLayout pattern = new PatternLayout("%d [%7r] %6p - %m\n");
+      myAppender = new RollingFileAppender(pattern, logPath.toFile().getAbsolutePath());
+      myAppender.setMaxFileSize("20MB");
+      myAppender.setMaxBackupIndex(50);
+    }
+
+
+    @Override
+    public @NotNull Logger getLoggerInstance(@NotNull String category) {
+      final org.apache.log4j.Logger logger = org.apache.log4j.Logger.getLogger(category);
+      logger.removeAllAppenders();
+      logger.addAppender(myAppender);
+      logger.setAdditivity(false);
+      logger.setLevel(Level.INFO);
+      return new Log4jBasedLogger(logger);
+    }
+
+    public static @Nullable Logger getLoggerInstance() {
+      return ourFactory == null ? null : ourFactory.getLoggerInstance("#" + VfsEventsMerger.class.getName());
     }
   }
 }

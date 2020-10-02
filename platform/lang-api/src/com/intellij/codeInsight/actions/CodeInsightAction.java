@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.actions;
 
@@ -8,9 +8,11 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorActivityManager;
 import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.editor.actionSystem.DocCommandGroupId;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilBase;
@@ -18,21 +20,18 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
+ * Use {@link MultiCaretCodeInsightAction} for supporting multiple carets.
+ *
  * @author Dmitry Avdeev
  */
-public abstract class CodeInsightAction extends AnAction {
+public abstract class CodeInsightAction extends AnAction implements UpdateInBackground {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     if (project != null) {
       Editor editor = getEditor(e.getDataContext(), project, false);
       actionPerformedImpl(project, editor);
     }
-  }
-
-  @Override
-  public boolean startInTransaction() {
-    return true;
   }
 
   @Nullable
@@ -55,7 +54,7 @@ public abstract class CodeInsightAction extends AnAction {
 
     CommandProcessor.getInstance().executeCommand(project, () -> {
       final Runnable action = () -> {
-        if (!ApplicationManager.getApplication().isHeadlessEnvironment() && !editor.getContentComponent().isShowing()) return;
+        if (!EditorActivityManager.getInstance().isVisible(editor)) return;
         handler.invoke(project, editor, psiFile);
       };
       if (handler.startInWriteAction()) {
@@ -64,7 +63,7 @@ public abstract class CodeInsightAction extends AnAction {
       else {
         action.run();
       }
-    }, getCommandName(), DocCommandGroupId.noneGroupId(editor.getDocument()));
+    }, getCommandName(), DocCommandGroupId.noneGroupId(editor.getDocument()), editor.getDocument());
   }
 
   @Override
@@ -74,7 +73,7 @@ public abstract class CodeInsightAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
 
     Project project = e.getProject();
@@ -86,6 +85,7 @@ public abstract class CodeInsightAction extends AnAction {
     final DataContext dataContext = e.getDataContext();
     Editor editor = getEditor(dataContext, project, true);
     if (editor == null) {
+      presentation.setVisible(!ActionPlaces.isPopupPlace(e.getPlace()));
       presentation.setEnabled(false);
       return;
     }
@@ -115,7 +115,7 @@ public abstract class CodeInsightAction extends AnAction {
   @NotNull
   protected abstract CodeInsightActionHandler getHandler();
 
-  protected String getCommandName() {
+  protected @NlsContexts.Command String getCommandName() {
     String text = getTemplatePresentation().getText();
     return text == null ? "" : text;
   }

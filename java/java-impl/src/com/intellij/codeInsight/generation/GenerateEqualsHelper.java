@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.generation;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.MethodSignatureUtil;
@@ -27,7 +16,6 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.java.generate.GenerationUtil;
 import org.jetbrains.java.generate.template.TemplateResource;
@@ -38,7 +26,7 @@ import java.util.*;
  * @author dsl
  */
 public class GenerateEqualsHelper implements Runnable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateEqualsHelper");
+  private static final Logger LOG = Logger.getInstance(GenerateEqualsHelper.class);
 
   @NonNls private static final String INSTANCE_NAME = "instanceBaseName";
   @NonNls private static final String BASE_PARAM_NAME = "baseParamName";
@@ -86,7 +74,7 @@ public class GenerateEqualsHelper implements Runnable {
     ContainerUtil.addAll(myNonNullSet, nonNullFields);
     final PsiManager manager = PsiManager.getInstance(project);
 
-    myFactory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    myFactory = JavaPsiFacade.getElementFactory(manager.getProject());
 
     mySuperHasHashCode = superMethodExists(getHashCodeSignature());
     myCodeStyleManager = CodeStyleManager.getInstance(manager.getProject());
@@ -94,7 +82,7 @@ public class GenerateEqualsHelper implements Runnable {
   }
 
   private static boolean shouldAddOverrideAnnotation(PsiElement context) {
-    JavaCodeStyleSettings style = CodeStyleSettingsManager.getSettings(context.getProject()).getCustomSettings(JavaCodeStyleSettings.class);
+    JavaCodeStyleSettings style = JavaCodeStyleSettings.getInstance(context.getContainingFile());
 
     return style.INSERT_OVERRIDE_ANNOTATION && PsiUtil.isLanguageLevel5OrHigher(context);
   }
@@ -167,13 +155,12 @@ public class GenerateEqualsHelper implements Runnable {
     map.put(SUPER_HAS_HASH_CODE, PsiType.BOOLEAN);
     return map;
   }
-  
+
   private PsiMethod createEquals() throws IncorrectOperationException {
-    @NonNls StringBuilder buffer = new StringBuilder();
-    JavaCodeStyleSettings styleSettings = CodeStyleSettingsManager.getSettings(myProject).getCustomSettings(JavaCodeStyleSettings.class);
+    JavaCodeStyleSettings styleSettings = JavaCodeStyleSettings.getInstance(myClass.getContainingFile());
     ArrayList<PsiField> equalsFields = new ArrayList<>();
     ContainerUtil.addAll(equalsFields, myEqualsFields);
-    Collections.sort(equalsFields, EqualsFieldsComparator.INSTANCE);
+    equalsFields.sort(EqualsFieldsComparator.INSTANCE);
 
     final HashMap<String, Object> contextMap = new HashMap<>();
 
@@ -194,17 +181,16 @@ public class GenerateEqualsHelper implements Runnable {
     if (superEquals != null) {
       contextMap.put(SUPER_PARAM_NAME, superEquals.getParameterList().getParameters()[0].getName());
     }
-    
+
     contextMap.put(SUPER_HAS_EQUALS, superMethodExists(equalsSignature));
     contextMap.put(CHECK_PARAMETER_WITH_INSTANCEOF, myCheckParameterWithInstanceof);
 
     final String methodText = GenerationUtil
       .velocityGenerateCode(myClass, equalsFields, myNonNullSet, new HashMap<>(), contextMap,
                             EqualsHashCodeTemplatesManager.getInstance().getDefaultEqualsTemplate().getTemplate(), 0, false, myUseAccessors);
-    buffer.append(methodText);
     PsiMethod result;
     try {
-      result = myFactory.createMethodFromText(buffer.toString(), myClass);
+      result = myFactory.createMethodFromText(methodText, myClass);
     }
     catch (IncorrectOperationException e) {
       return null;
@@ -242,18 +228,15 @@ public class GenerateEqualsHelper implements Runnable {
   }
 
   private PsiMethod createHashCode() throws IncorrectOperationException {
-    @NonNls StringBuilder buffer = new StringBuilder();
-
     final HashMap<String, Object> contextMap = new HashMap<>();
     contextMap.put(SUPER_HAS_HASH_CODE, mySuperHasHashCode);
 
     final String methodText = GenerationUtil
       .velocityGenerateCode(myClass, Arrays.asList(myHashCodeFields), myNonNullSet, new HashMap<>(), contextMap,
                             EqualsHashCodeTemplatesManager.getInstance().getDefaultHashcodeTemplate().getTemplate(), 0, false, myUseAccessors);
-    buffer.append(methodText);
     PsiMethod hashCode;
     try {
-      hashCode = myFactory.createMethodFromText(buffer.toString(), null);
+      hashCode = myFactory.createMethodFromText(methodText, null);
     }
     catch (IncorrectOperationException e) {
       return null;

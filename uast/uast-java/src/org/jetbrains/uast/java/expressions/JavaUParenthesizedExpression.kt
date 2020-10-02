@@ -17,12 +17,13 @@ package org.jetbrains.uast.java
 
 import com.intellij.psi.PsiParenthesizedExpression
 import org.jetbrains.uast.UElement
+import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.UParenthesizedExpression
 
 class JavaUParenthesizedExpression(
-  override val psi: PsiParenthesizedExpression,
+  override val sourcePsi: PsiParenthesizedExpression,
   givenParent: UElement?
 ) : JavaAbstractUExpression(givenParent), UParenthesizedExpression {
-  override val expression by lz { JavaConverter.convertOrEmpty(psi.expression, this) }
-  override fun evaluate() = expression.evaluate()
+  override val expression: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.expression, this) }
+  override fun evaluate(): Any? = expression.evaluate()
 }

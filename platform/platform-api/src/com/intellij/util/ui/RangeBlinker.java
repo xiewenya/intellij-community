@@ -27,9 +27,6 @@ import com.intellij.util.ArrayUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public class RangeBlinker {
   private final Editor myEditor;
   private int myTimeToLive;
@@ -45,7 +42,7 @@ public class RangeBlinker {
     myTimeToLive = timeToLive;
   }
 
-  public void resetMarkers(final List<Segment> markers) {
+  public void resetMarkers(final List<? extends Segment> markers) {
     removeHighlights();
     myMarkers.clear();
     stopBlinking();

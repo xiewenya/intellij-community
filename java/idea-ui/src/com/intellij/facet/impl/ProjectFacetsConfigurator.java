@@ -39,11 +39,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public class ProjectFacetsConfigurator implements FacetsProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.facet.impl.ProjectFacetsConfigurator");
+  private static final Logger LOG = Logger.getInstance(ProjectFacetsConfigurator.class);
   private final Map<Module, ModifiableFacetModel> myModifiableModels = new HashMap<>();
   private final Map<Facet, FacetEditorImpl> myEditors = new LinkedHashMap<>();
   private final Map<Module, FacetTreeModel> myTreeModels = new HashMap<>();
@@ -177,7 +174,7 @@ public class ProjectFacetsConfigurator implements FacetsProvider {
   public FacetEditorImpl getEditor(Facet facet) {
     return myEditors.get(facet);
   }
-  
+
   @NotNull
   public FacetEditorImpl getOrCreateEditor(Facet facet) {
     FacetEditorImpl editor = myEditors.get(facet);
@@ -238,7 +235,7 @@ public class ProjectFacetsConfigurator implements FacetsProvider {
     for (Facet facet : myChangedFacets) {
       Module module = facet.getModule();
       if (!module.isDisposed()) {
-        module.getMessageBus().syncPublisher(FacetManager.FACETS_TOPIC).facetConfigurationChanged(facet);
+        FacetManager.getInstance(module).facetConfigurationChanged(facet);
       }
     }
     myChangedFacets.clear();
@@ -304,16 +301,18 @@ public class ProjectFacetsConfigurator implements FacetsProvider {
     myProjectData = null;
   }
 
-  @NotNull
-  public Facet[] getAllFacets(final Module module) {
+  @Override
+  public Facet @NotNull [] getAllFacets(final Module module) {
     return getFacetModel(module).getAllFacets();
   }
 
+  @Override
   @NotNull
   public <F extends Facet> Collection<F> getFacetsByType(final Module module, final FacetTypeId<F> type) {
     return getFacetModel(module).getFacetsByType(type);
   }
 
+  @Override
   @Nullable
   public <F extends Facet> F findFacet(final Module module, final FacetTypeId<F> type, final String name) {
     return getFacetModel(module).findFacet(type, name);
@@ -361,12 +360,13 @@ public class ProjectFacetsConfigurator implements FacetsProvider {
   private class MyProjectConfigurableContext extends ProjectConfigurableContext {
     private final LibrariesContainer myContainer;
 
-    public MyProjectConfigurableContext(final Facet facet, final FacetEditorContext parentContext, final ModuleConfigurationState state) {
+    MyProjectConfigurableContext(final Facet facet, final FacetEditorContext parentContext, final ModuleConfigurationState state) {
       super(facet, ProjectFacetsConfigurator.this.isNewFacet(facet), parentContext, state,
             ProjectFacetsConfigurator.this.getSharedModuleData(facet.getModule()), getProjectData());
       myContainer = LibrariesContainerFactory.createContainer(myContext);
     }
 
+    @Override
     public LibrariesContainer getContainer() {
       return myContainer;
     }

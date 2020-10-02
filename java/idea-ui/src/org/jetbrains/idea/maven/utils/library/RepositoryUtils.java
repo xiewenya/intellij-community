@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.utils.library;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.jarRepository.JarRepositoryManager;
 import com.intellij.jarRepository.RepositoryLibraryType;
 import com.intellij.notification.Notification;
@@ -29,21 +16,26 @@ import com.intellij.openapi.roots.JavadocOrderRootType;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.impl.libraries.LibraryEx;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.roots.libraries.ui.OrderRoot;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.NewLibraryEditor;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import java.util.*;
-import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
-public class RepositoryUtils {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.idea.maven.utils.library.RepositoryUtils");
+public final class RepositoryUtils {
+  private static final Logger LOG = Logger.getInstance(RepositoryUtils.class);
 
   public static boolean libraryHasSources(@Nullable Library library) {
     return library != null && library.getUrls(OrderRootType.SOURCES).length > 0;
@@ -59,6 +51,10 @@ public class RepositoryUtils {
 
   public static boolean libraryHasJavaDocs(@Nullable LibraryEditor libraryEditor) {
     return libraryEditor != null && libraryEditor.getUrls(JavadocOrderRootType.getInstance()).length > 0;
+  }
+
+  public static boolean libraryHasExternalAnnotations(@Nullable LibraryEditor libraryEditor) {
+    return libraryEditor != null && libraryEditor.getUrls(AnnotationOrderRootType.getInstance()).length > 0;
   }
 
   public static String getStorageRoot(Library library, Project project) {
@@ -80,76 +76,64 @@ public class RepositoryUtils {
       final Integer count = counts.get(root);
       counts.put(root, count != null ? count + 1 : 1);
     }
-    return Collections.max(counts.entrySet(), Comparator.comparing(Map.Entry::getValue)).getKey();
+    return Collections.max(counts.entrySet(), Map.Entry.comparingByValue()).getKey();
   }
 
-  /**
-   * Aether-based implementation understands version specification in terms of "LATEST" and "RELEASE"
-   */
-  @Deprecated
-  public static String resolveEffectiveVersion(@NotNull Project project, @NotNull RepositoryLibraryProperties properties) {
-    String version = properties.getVersion();
-    boolean isLatest = RepositoryLibraryDescription.LatestVersionId.equals(version);
-    boolean isRelease = RepositoryLibraryDescription.ReleaseVersionId.equals(version);
-    if (isLatest || isRelease) {
-      try {
-        final Collection<String> versions =  JarRepositoryManager.getAvailableVersions(
-          project, RepositoryLibraryDescription.findDescription(properties.getGroupId(), properties.getArtifactId())
-        ).get();
-        for (String ver : versions) {
-          if (!isRelease || !ver.endsWith(RepositoryLibraryDescription.SnapshotVersionSuffix)) {
-            version = ver;
-            break;
-          }
-        }
-      }
-      catch (InterruptedException | ExecutionException e) {
-        LOG.error("Got unexpected exception while resolving artifact versions", e);
-      }
-    }
-    return version;
-  }
-
-  public static void loadDependencies(@NotNull final Project project,
-                                      @NotNull final LibraryEx library,
-                                      boolean downloadSources,
-                                      boolean downloadJavaDocs,
-                                      @Nullable String copyTo) {
+  public static Promise<List<OrderRoot>> loadDependenciesToLibrary(@NotNull final Project project,
+                                                                   @NotNull final LibraryEx library,
+                                                                   boolean downloadSources,
+                                                                   boolean downloadJavaDocs,
+                                                                   @Nullable String copyTo) {
     if (library.getKind() != RepositoryLibraryType.REPOSITORY_LIBRARY_KIND) {
-      return;
+      return Promises.resolvedPromise(Collections.emptyList());
     }
     final RepositoryLibraryProperties properties = (RepositoryLibraryProperties)library.getProperties();
     String[] annotationUrls = library.getUrls(AnnotationOrderRootType.getInstance());
+    String[] excludedRootUrls = library.getExcludedRootUrls();
 
-    JarRepositoryManager.loadDependenciesAsync(
-      project, properties, downloadSources, downloadJavaDocs, null, copyTo,
-      roots -> {
-        ApplicationManager.getApplication().invokeLater(
-          roots == null || roots.isEmpty() ?
-          () -> Notifications.Bus.notify(new Notification(
-                "Repository", "Repository library synchronization", "No files were downloaded for " + properties.getMavenId(), NotificationType.ERROR
-                ), project) :
-          () -> {
-            if (!library.isDisposed()) {
-              WriteAction.run(() -> {
-                final NewLibraryEditor editor = new NewLibraryEditor(null, properties);
-                editor.setKeepInvalidUrls(false);
-                editor.removeAllRoots();
-                editor.addRoots(roots);
-                for (String url : annotationUrls) {
-                  editor.addRoot(url, AnnotationOrderRootType.getInstance());
+    return JarRepositoryManager.loadDependenciesAsync(
+      project, properties, downloadSources, downloadJavaDocs, null, copyTo).thenAsync(roots -> {
+      AsyncPromise<List<OrderRoot>> promise = new AsyncPromise<>();
+      ApplicationManager.getApplication().invokeLater(
+        roots == null || roots.isEmpty() ?
+        () -> {
+          String message = JavaUiBundle.message("notification.content.no.files.were.downloaded", properties.getMavenId());
+          Notifications.Bus.notify(new Notification("Repository", JavaUiBundle.message(
+            "notification.title.repository.library.synchronization"),
+                                                    message, NotificationType.ERROR), project);
+          promise.setError(message);
+        } :
+        () -> {
+          if (!library.isDisposed()) {
+            LOG.debug("Loaded dependencies for '" + properties.getMavenId() + "' repository library");
+            WriteAction.run(() -> {
+              final NewLibraryEditor editor = new NewLibraryEditor(null, properties);
+              editor.setKeepInvalidUrls(false);
+              editor.removeAllRoots();
+              editor.addRoots(roots);
+              for (String url : annotationUrls) {
+                editor.addRoot(url, AnnotationOrderRootType.getInstance());
+              }
+              List<String> allRootUrls = editor.getOrderRootTypes().stream()
+                                               .flatMap(type -> Arrays.stream(editor.getUrls(type)))
+                                               .collect(Collectors.toList());
+              for (String excludedRootUrl: excludedRootUrls) {
+                if (VfsUtilCore.isUnder(excludedRootUrl, allRootUrls)) {
+                  editor.addExcludedRoot(excludedRootUrl);
                 }
-                final Library.ModifiableModel model = library.getModifiableModel();
-                editor.applyTo((LibraryEx.ModifiableModelEx)model);
-                model.commit();
-              });
-            }
-          });
-      }
-    );
+              }
+              final LibraryEx.ModifiableModelEx model = library.getModifiableModel();
+              editor.applyTo(model);
+              model.commit();
+            });
+          }
+          promise.setResult(roots);
+        });
+      return promise;
+    });
   }
 
-  public static void reloadDependencies(@NotNull final Project project, @NotNull final LibraryEx library) {
-    loadDependencies(project, library, libraryHasSources(library), libraryHasJavaDocs(library), getStorageRoot(library, project));
+  public static Promise<List<OrderRoot>> reloadDependencies(@NotNull final Project project, @NotNull final LibraryEx library) {
+    return loadDependenciesToLibrary(project, library, libraryHasSources(library), libraryHasJavaDocs(library), getStorageRoot(library, project));
   }
 }

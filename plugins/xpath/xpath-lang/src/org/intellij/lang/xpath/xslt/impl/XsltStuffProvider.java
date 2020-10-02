@@ -17,12 +17,10 @@
 package org.intellij.lang.xpath.xslt.impl;
 
 import com.intellij.codeInspection.LocalInspectionTool;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiReference;
 import com.intellij.refactoring.util.MoveRenameUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usages.*;
@@ -37,6 +35,7 @@ import org.intellij.lang.xpath.xslt.validation.inspections.TemplateInvocationIns
 import org.intellij.lang.xpath.xslt.validation.inspections.UnusedElementInspection;
 import org.intellij.lang.xpath.xslt.validation.inspections.VariableShadowingInspection;
 import org.intellij.lang.xpath.xslt.validation.inspections.XsltDeclarationInspection;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,28 +59,23 @@ public class XsltStuffProvider implements UsageGroupingRuleProvider {
     }
 
   @Override
-  @NotNull
-    public UsageGroupingRule[] getActiveRules(Project project) {
+  public UsageGroupingRule @NotNull [] getActiveRules(@NotNull Project project) {
         return myUsageGroupingRules;
-    }
-
-    @Override
-    @NotNull
-    public AnAction[] createGroupingActions(UsageView view) {
-        return AnAction.EMPTY_ARRAY;
     }
 
     private static class TemplateUsageGroup implements UsageGroup {
         private final XsltTemplate myTemplate;
 
-        public TemplateUsageGroup(@NotNull XsltTemplate template) {
+        TemplateUsageGroup(@NotNull XsltTemplate template) {
             myTemplate = template;
         }
 
+        @Override
         public Icon getIcon(boolean isOpen) {
             return myTemplate.getIcon(0);
         }
 
+        @Override
         @NotNull
         public String getText(UsageView view) {
             final StringBuilder sb = new StringBuilder();
@@ -94,34 +88,41 @@ public class XsltStuffProvider implements UsageGroupingRuleProvider {
                 if (sb.length() > 0) sb.append(", ");
                 sb.append("mode='").append(mode.toString()).append("'");
             }
-            return "Template (" + sb.toString() + ")";
+            return XPathBundle.message("list.item.template", sb);
         }
 
+        @Override
         @Nullable
         public FileStatus getFileStatus() {
             return null;
         }
 
+        @Override
         public boolean isValid() {
             return myTemplate.isValid();
         }
 
+        @Override
         public void update() {
         }
 
+        @Override
         public int compareTo(@NotNull UsageGroup usageGroup) {
             final TemplateUsageGroup myUsageGroup = ((TemplateUsageGroup)usageGroup);
             return myTemplate.getTextOffset() - myUsageGroup.myTemplate.getTextOffset();
         }
 
+        @Override
         public void navigate(boolean requestFocus) {
             ((Navigatable)myTemplate.getTag()).navigate(requestFocus);
         }
 
+        @Override
         public boolean canNavigate() {
             return ((Navigatable)myTemplate.getTag()).canNavigate();
         }
 
+        @Override
         public boolean canNavigateToSource() {
             return canNavigate();
         }
@@ -146,7 +147,7 @@ public class XsltStuffProvider implements UsageGroupingRuleProvider {
     private static class TemplateUsageGroupingRule extends SingleParentUsageGroupingRule {
         @Nullable
         @Override
-        protected UsageGroup getParentGroupFor(@NotNull Usage usage, @NotNull UsageTarget[] targets) {
+        protected UsageGroup getParentGroupFor(@NotNull Usage usage, UsageTarget @NotNull [] targets) {
             if (usage instanceof UsageInfo2UsageAdapter) {
                 final UsageInfo2UsageAdapter u = (UsageInfo2UsageAdapter)usage;
                 final UsageInfo usageInfo = u.getUsageInfo();
@@ -154,11 +155,11 @@ public class XsltStuffProvider implements UsageGroupingRuleProvider {
                     final MoveRenameUsageInfo info = (MoveRenameUsageInfo)usageInfo;
                     return buildGroup(info.getReferencedElement(), usageInfo, true);
                 } else {
-                    final PsiReference[] references = u.getElement().getReferences();
-                    for (PsiReference reference : references) {
-                        if (reference.getRangeInElement().equals(usageInfo.getRangeInElement())) {
-                            return buildGroup(reference.resolve(), usageInfo, false);
-                        }
+                    for (UsageTarget target : targets) {
+                        UsageGroup group = target instanceof PsiElementUsageTarget ?
+                                           buildGroup(((PsiElementUsageTarget)target).getElement(), usageInfo, false) :
+                                           null;
+                        if (group != null) return group;
                     }
                 }
             }

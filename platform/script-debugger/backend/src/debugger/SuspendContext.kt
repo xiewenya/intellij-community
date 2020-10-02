@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.debugger
 
 import org.jetbrains.concurrency.Promise
@@ -8,21 +8,21 @@ import org.jetbrains.debugger.values.ValueManager
  * An object that matches the execution state of the VM while suspended
  */
 interface SuspendContext<out CALL_FRAME : CallFrame> {
-  val state: SuspendState
 
   val script: Script?
     get() = topFrame?.let { vm.scriptManager.getScript(it) }
 
   /**
-   * @return the current exception state, or `null` if current state is
-   * *         not `EXCEPTION`
-   * *
-   * @see .getState
+   * @return the current exception state if execution was paused because of exception, or `null` otherwise.
    */
   val exceptionData: ExceptionData?
     get() = null
 
   val topFrame: CALL_FRAME?
+
+  var methodReturnValue: Variable?
+    get() = null
+    set(_) {}
 
   /**
    * Call frames for the current suspended state (from the innermost (top) frame to the main (bottom) frame)
@@ -46,7 +46,7 @@ interface SuspendContext<out CALL_FRAME : CallFrame> {
 }
 
 abstract class ContextDependentAsyncResultConsumer<T>(private val context: SuspendContext<*>) : java.util.function.Consumer<T> {
-  override final fun accept(result: T) {
+  final override fun accept(result: T) {
     val vm = context.vm
     if (vm.attachStateManager.isAttached && !vm.suspendContextManager.isContextObsolete(context)) {
       accept(result, vm)

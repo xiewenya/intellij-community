@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.xml;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.model.psi.PsiSymbolReference;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.ItemPresentationWithSeparator;
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,7 +19,6 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlElementType;
 import com.intellij.psi.xml.XmlTokenType;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.intellij.lang.regexp.DefaultRegExpPropertiesProvider;
 import org.intellij.lang.regexp.RegExpLanguageHost;
@@ -43,14 +29,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.Arrays;
+import java.util.Collections;
 
-/**
- * @author Mike
- */
-public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttributeValue, PsiLanguageInjectionHost, RegExpLanguageHost, PsiMetaOwner, PsiMetaData {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.xml.XmlAttributeValueImpl");
-  private volatile PsiReference[] myCachedReferences;
-  private volatile long myModCount;
+public class XmlAttributeValueImpl extends XmlElementImpl
+  implements XmlAttributeValue, PsiLanguageInjectionHost, RegExpLanguageHost, PsiMetaOwner, PsiMetaData, HintedReferenceHost {
+  private static final Logger LOG = Logger.getInstance(XmlAttributeValueImpl.class);
 
   public XmlAttributeValueImpl() {
     super(XmlElementType.XML_ATTRIBUTE_VALUE);
@@ -66,6 +50,7 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
     }
   }
 
+  @NotNull
   @Override
   public String getValue() {
     // it is more correct way to strip quotes since injected xml may have quotes encoded
@@ -86,7 +71,7 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
     final TextRange range = getTextRange();
     final String value = getValue();
     if (value.isEmpty()) {
-      return range; 
+      return range;
     }
     final int start = range.getStartOffset() + getText().indexOf(value);
     final int end = start + value.length();
@@ -94,23 +79,24 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
   }
 
   @Override
-  public void clearCaches() {
-    super.clearCaches();
-    myCachedReferences = null;
+  public @NotNull Iterable<? extends @NotNull PsiSymbolReference> getOwnReferences() {
+    PsiReference[] references = getReferences();
+    return references.length == 0 ? Collections.emptyList() : Arrays.asList(references);
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferences() {
-    PsiReference[] cachedReferences = myCachedReferences;
-    final long curModCount = getManager().getModificationTracker().getModificationCount();
-    if (cachedReferences != null && myModCount == curModCount) {
-      return cachedReferences;
-    }
-    cachedReferences = ReferenceProvidersRegistry.getReferencesFromProviders(this);
-    myCachedReferences = cachedReferences;
-    myModCount = curModCount;
-    return cachedReferences;
+  public PsiReference @NotNull [] getReferences(PsiReferenceService.@NotNull Hints hints) {
+    return ReferenceProvidersRegistry.getReferencesFromProviders(this, hints);
+  }
+
+  @Override
+  public boolean shouldAskParentForReferences(PsiReferenceService.@NotNull Hints hints) {
+    return false;
+  }
+
+  @Override
+  public PsiReference @NotNull [] getReferences() {
+    return getReferences(PsiReferenceService.Hints.NO_HINTS);
   }
 
   @Override
@@ -128,7 +114,7 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
 
   @Override
   public boolean isValidHost() {
-    return getParent() instanceof XmlAttributeImpl;
+    return getParent() instanceof XmlAttribute;
   }
 
   @Override
@@ -137,7 +123,9 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
       final String quoteChar = getTextLength() > 0 ? getText().substring(0, 1) : "";
       String contents = StringUtil.containsAnyChar(quoteChar, "'\"") ?
               StringUtil.trimEnd(StringUtil.trimStart(text, quoteChar), quoteChar) : text;
-      XmlAttribute newAttribute = XmlElementFactory.getInstance(getProject()).createAttribute("q", contents, this);
+      XmlAttribute newAttribute = XmlElementFactory.getInstance(getProject()).createAttribute(
+        StringUtil.defaultIfEmpty((getParent() instanceof XmlAttribute) ? ((XmlAttribute)getParent()).getName() : null, "q"),
+        contents, this);
       XmlAttributeValue newValue = newAttribute.getValueElement();
 
       CheckUtil.checkWritable(this);
@@ -177,12 +165,6 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
 
   @Override
   public void init(final PsiElement element) {
-  }
-
-  @NotNull
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
@@ -256,9 +238,8 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
     return false;
   }
 
-  @NotNull
   @Override
-  public String[][] getAllKnownProperties() {
+  public String[] @NotNull [] getAllKnownProperties() {
     return DefaultRegExpPropertiesProvider.getInstance().getAllKnownProperties();
   }
 
@@ -268,9 +249,8 @@ public class XmlAttributeValueImpl extends XmlElementImpl implements XmlAttribut
     return DefaultRegExpPropertiesProvider.getInstance().getPropertyDescription(name);
   }
 
-  @NotNull
   @Override
-  public String[][] getKnownCharacterClasses() {
+  public String[] @NotNull [] getKnownCharacterClasses() {
     return DefaultRegExpPropertiesProvider.getInstance().getKnownCharacterClasses();
   }
 }

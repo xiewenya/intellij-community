@@ -35,7 +35,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.HashMap;
 
 public class NodeDescriptorFactoryImpl implements NodeDescriptorFactory {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.impl.watch.NodeDescriptorFactoryImpl");
+  private static final Logger LOG = Logger.getInstance(NodeDescriptorFactoryImpl.class);
   private DescriptorTree myCurrentHistoryTree = new DescriptorTree(true);
 
   private DescriptorTreeSearcher myDescriptorSearcher;
@@ -205,7 +205,7 @@ public class NodeDescriptorFactoryImpl implements NodeDescriptorFactory {
 
     private final HashMap<NodeDescriptor, NodeDescriptor> mySearchedDescriptors = new HashMap<>();
 
-    public DescriptorTreeSearcher(MarkedDescriptorTree descriptorTree) {
+    DescriptorTreeSearcher(MarkedDescriptorTree descriptorTree) {
       myDescriptorTree = descriptorTree;
     }
 
@@ -236,7 +236,7 @@ public class NodeDescriptorFactoryImpl implements NodeDescriptorFactory {
   }
 
   private class DisplayDescriptorTreeSearcher extends DescriptorTreeSearcher {
-    public DisplayDescriptorTreeSearcher(MarkedDescriptorTree descriptorTree) {
+    DisplayDescriptorTreeSearcher(MarkedDescriptorTree descriptorTree) {
       super(descriptorTree);
     }
 

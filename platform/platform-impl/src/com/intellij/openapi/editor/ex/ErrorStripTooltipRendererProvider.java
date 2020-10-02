@@ -20,8 +20,6 @@
 package com.intellij.openapi.editor.ex;
 
 import com.intellij.codeInsight.hint.TooltipRenderer;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.impl.TrafficTooltipRenderer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,12 +28,14 @@ import java.util.Collection;
 
 public interface ErrorStripTooltipRendererProvider {
   @Nullable
-  TooltipRenderer calcTooltipRenderer(@NotNull Collection<RangeHighlighter> highlighters);
+  TooltipRenderer calcTooltipRenderer(@NotNull Collection<? extends RangeHighlighter> highlighters);
   @NotNull
   TooltipRenderer calcTooltipRenderer(@NotNull String text);
   @NotNull
   TooltipRenderer calcTooltipRenderer(@NotNull String text, int width);
 
   @NotNull
-  TrafficTooltipRenderer createTrafficTooltipRenderer(@NotNull Runnable onHide, @NotNull Editor editor);
+  default TooltipRenderer calcTooltipRenderer(@NotNull String text, @Nullable TooltipAction action, int width) {
+    return calcTooltipRenderer(text, width);
+  }
 }

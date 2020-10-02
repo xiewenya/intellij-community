@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.server;
 
 import org.jetbrains.annotations.NotNull;
@@ -23,9 +9,12 @@ import java.io.File;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.Collection;
+import org.jetbrains.idea.maven.server.security.MavenToken;
 
 public class Maven3ServerImpl extends MavenRemoteObject implements MavenServer {
-  public void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener) throws RemoteException {
+  @Override
+  public void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven3ServerGlobals.set(logger, downloadListener);
     }
@@ -35,7 +24,8 @@ public class Maven3ServerImpl extends MavenRemoteObject implements MavenServer {
   }
 
   @Override
-  public MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings) throws RemoteException {
+  public MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven3ServerEmbedderImpl result = new Maven3ServerEmbedderImpl(settings);
       UnicastRemoteObject.exportObject(result, 0);
@@ -46,7 +36,9 @@ public class Maven3ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
-  public MavenServerIndexer createIndexer() throws RemoteException {
+  @Override
+  public MavenServerIndexer createIndexer(MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven3ServerIndexerImpl result = new Maven3ServerIndexerImpl(new Maven3ServerEmbedderImpl(new MavenEmbedderSettings(new MavenServerSettings()))) {
         @Override
@@ -62,29 +54,35 @@ public class Maven3ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   @NotNull
-  public MavenModel interpolateAndAlignModel(MavenModel model, File basedir) {
+  public MavenModel interpolateAndAlignModel(MavenModel model, File basedir, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
-      return Maven3ServerEmbedderImpl.interpolateAndAlignModel(model, basedir);
+      return Maven3XServerEmbedder.interpolateAndAlignModel(model, basedir);
     }
     catch (Exception e) {
       throw rethrowException(e);
     }
   }
 
-  public MavenModel assembleInheritance(MavenModel model, MavenModel parentModel) {
+  @Override
+  public MavenModel assembleInheritance(MavenModel model, MavenModel parentModel, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
-      return Maven3ServerEmbedderImpl.assembleInheritance(model, parentModel);
+      return Maven3XServerEmbedder.assembleInheritance(model, parentModel);
     }
     catch (Exception e) {
       throw rethrowException(e);
     }
   }
 
+  @Override
   public ProfileApplicationResult applyProfiles(MavenModel model,
                                                 File basedir,
                                                 MavenExplicitProfiles explicitProfiles,
-                                                Collection<String> alwaysOnProfiles) {
+                                                Collection<String> alwaysOnProfiles, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       return Maven3ServerEmbedderImpl.applyProfiles(model, basedir, explicitProfiles, alwaysOnProfiles);
     }

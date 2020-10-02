@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
 import com.intellij.debugger.DebuggerContext;
@@ -36,8 +22,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
-public final class EnumerationChildrenRenderer extends TypeRenderer implements ChildrenRenderer{
+public final class EnumerationChildrenRenderer extends ReferenceRenderer implements ChildrenRenderer{
   public static final @NonNls String UNIQUE_ID = "EnumerationChildrenRenderer";
 
   private boolean myAppendDefaultChildren;
@@ -65,14 +52,17 @@ public final class EnumerationChildrenRenderer extends TypeRenderer implements C
     return myAppendDefaultChildren;
   }
 
+  @Override
   public String getUniqueId() {
     return UNIQUE_ID;
   }
 
+  @Override
   public EnumerationChildrenRenderer clone() {
     return (EnumerationChildrenRenderer)super.clone();
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     super.readExternal(element);
 
@@ -90,6 +80,7 @@ public final class EnumerationChildrenRenderer extends TypeRenderer implements C
     }
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     super.writeExternal(element);
 
@@ -109,6 +100,7 @@ public final class EnumerationChildrenRenderer extends TypeRenderer implements C
     }
   }
 
+  @Override
   public void buildChildren(Value value, ChildrenBuilder builder, EvaluationContext evaluationContext) {
     NodeManager nodeManager = builder.getNodeManager();
     NodeDescriptorFactory descriptorFactory = builder.getDescriptorManager();
@@ -134,13 +126,20 @@ public final class EnumerationChildrenRenderer extends TypeRenderer implements C
     }
   }
 
+  @Override
   public PsiElement getChildValueExpression(DebuggerTreeNode node, DebuggerContext context) throws EvaluateException {
     return ((ValueDescriptor) node.getDescriptor()).getDescriptorEvaluation(context);
   }
 
-  public boolean isExpandable(Value value, EvaluationContext evaluationContext, NodeDescriptor parentDescriptor) {
-    return myChildren.size() > 0 ||
-           (myAppendDefaultChildren && DebugProcessImpl.getDefaultRenderer(value).isExpandable(value, evaluationContext, parentDescriptor));
+  @Override
+  public CompletableFuture<Boolean> isExpandableAsync(Value value, EvaluationContext evaluationContext, NodeDescriptor parentDescriptor) {
+    if (myChildren.size() > 0) {
+      return CompletableFuture.completedFuture(true);
+    }
+    if (myAppendDefaultChildren) {
+      return DebugProcessImpl.getDefaultRenderer(value).isExpandableAsync(value, evaluationContext, parentDescriptor);
+    }
+    return CompletableFuture.completedFuture(false);
   }
 
   public List<ChildInfo> getChildren() {
@@ -154,9 +153,9 @@ public final class EnumerationChildrenRenderer extends TypeRenderer implements C
   @Nullable
   public static EnumerationChildrenRenderer getCurrent(ValueDescriptorImpl valueDescriptor) {
     Renderer renderer = valueDescriptor.getLastRenderer();
-    if (renderer instanceof CompoundNodeRenderer &&
+    if (renderer instanceof CompoundReferenceRenderer &&
         NodeRendererSettings.getInstance().getCustomRenderers().contains((NodeRenderer)renderer)) {
-      ChildrenRenderer childrenRenderer = ((CompoundNodeRenderer)renderer).getChildrenRenderer();
+      ChildrenRenderer childrenRenderer = ((CompoundReferenceRenderer)renderer).getChildrenRenderer();
       if (childrenRenderer instanceof EnumerationChildrenRenderer) {
         return (EnumerationChildrenRenderer)childrenRenderer;
       }

@@ -16,6 +16,7 @@
 package com.intellij.codeInsight;
 
 import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -24,7 +25,6 @@ import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiModifierListOwner;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
@@ -38,7 +38,7 @@ public class MakeAnnotationExternal extends BaseIntentionAction {
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Annotate Externally";
+    return JavaBundle.message("intention.text.annotate.externally");
   }
 
   @Override
@@ -48,11 +48,11 @@ public class MakeAnnotationExternal extends BaseIntentionAction {
     if (annotation != null && annotation.getQualifiedName() != null &&
         annotation.getManager().isInProject(annotation)) {
       PsiModifierListOwner modifierListOwner = PsiTreeUtil.getParentOfType(annotation, PsiModifierListOwner.class);
-      if (modifierListOwner != null) {
+      if (modifierListOwner != null && ExternalAnnotationsManagerImpl.areExternalAnnotationsApplicable(modifierListOwner)) {
         VirtualFile virtualFile = PsiUtilCore.getVirtualFile(modifierListOwner);
         if (JavaCodeStyleSettings.getInstance(file).USE_EXTERNAL_ANNOTATIONS ||
             virtualFile != null && ExternalAnnotationsManager.getInstance(project).hasAnnotationRootsForFile(virtualFile)) {
-          setText("Annotate externally");
+          setText(JavaBundle.message("intention.text.annotate.externally"));
           return true;
         }
       }
@@ -82,7 +82,7 @@ public class MakeAnnotationExternal extends BaseIntentionAction {
       return;
     }
 
-    WriteAction.run(() -> annotation.delete());
+    WriteAction.run(annotation::delete);
   }
 
   @Override

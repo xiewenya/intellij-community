@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.vcs.log.graph.impl.print
 
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.util.containers.ContainerUtil
+import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.containers.SLRUMap
 import com.intellij.vcs.log.graph.EdgePrintElement
 import com.intellij.vcs.log.graph.api.EdgeFilter
@@ -37,7 +23,7 @@ import com.intellij.vcs.log.graph.utils.NormalEdge
 import org.jetbrains.annotations.TestOnly
 import java.util.*
 
-class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: LinearGraph,
+internal class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: LinearGraph,
                                                       private val printElementManager: PrintElementManager,
                                                       private val longEdgeSize: Int,
                                                       private val visiblePartSize: Int,
@@ -64,7 +50,7 @@ class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: L
       var sum = 0.0
       var sumSquares = 0.0
       var edgesCount = 0
-      val currentNormalEdges = ContainerUtil.newHashSet<NormalEdge>()
+      val currentNormalEdges = CollectionFactory.createSmallMemoryFootprintSet<NormalEdge>()
 
       for (i in 0 until n) {
         val adjacentEdges = linearGraph.getAdjacentEdges(i, EdgeFilter.ALL)
@@ -174,7 +160,7 @@ class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: L
   }
 
   private fun createEndPositionFunction(visibleRowIndex: Int, up: Boolean): (GraphEdge) -> Int? {
-    if (visibleRowIndex < 0 || visibleRowIndex >= linearGraph.nodesCount()) return { _ -> null }
+    if (visibleRowIndex < 0 || visibleRowIndex >= linearGraph.nodesCount()) return { null }
 
     val visibleElementsInNextRow = getSortedVisibleElementsInRow(visibleRowIndex)
 
@@ -220,14 +206,14 @@ class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: L
     if (edgeSize >= longEdgeSize) {
       if (upOffset == visiblePartSize) {
         LOG.assertTrue(downOffset != visiblePartSize,
-                       "Both up and down arrow at row " + rowIndex) // this can not happen due to how constants are picked out, but just in case
+                       "Both up and down arrow at row $rowIndex") // this can not happen due to how constants are picked out, but just in case
         return EdgePrintElement.Type.DOWN
       }
       if (downOffset == visiblePartSize) return EdgePrintElement.Type.UP
     }
     if (edgeSize >= edgeWithArrowSize) {
       if (upOffset == 1) {
-        LOG.assertTrue(downOffset != 1, "Both up and down arrow at row " + rowIndex)
+        LOG.assertTrue(downOffset != 1, "Both up and down arrow at row $rowIndex")
         return EdgePrintElement.Type.DOWN
       }
       if (downOffset == 1) return EdgePrintElement.Type.UP
@@ -236,8 +222,7 @@ class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: L
   }
 
   private fun isEdgeVisibleInRow(edge: GraphEdge, visibleRowIndex: Int): Boolean {
-    val normalEdge = asNormalEdge(edge) ?:
-                     return false // e.d. edge is special. See addSpecialEdges
+    val normalEdge = asNormalEdge(edge) ?: return false // e.d. edge is special. See addSpecialEdges
     return isEdgeVisibleInRow(normalEdge, visibleRowIndex)
   }
 
@@ -313,7 +298,7 @@ class PrintElementGeneratorImpl @TestOnly constructor(private val linearGraph: L
     private val LOG = Logger.getInstance(PrintElementGeneratorImpl::class.java)
 
     private const val VERY_LONG_EDGE_SIZE = 1000
-    const val LONG_EDGE_SIZE = 30
+    const val LONG_EDGE_SIZE: Int = 30
     private const val VERY_LONG_EDGE_PART_SIZE = 250
     private const val LONG_EDGE_PART_SIZE = 1
 

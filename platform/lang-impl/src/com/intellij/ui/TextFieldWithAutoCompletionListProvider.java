@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.codeInsight.completion.*;
@@ -20,6 +6,7 @@ import com.intellij.codeInsight.lookup.AutoCompletionPolicy;
 import com.intellij.codeInsight.lookup.CharFilter;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.concurrency.SensitiveProgressWrapper;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -28,6 +15,7 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.textCompletion.DefaultTextCompletionValueDescriptor;
 import com.intellij.util.textCompletion.TextCompletionProvider;
 import com.intellij.util.textCompletion.TextCompletionValueDescriptor;
@@ -54,8 +42,11 @@ import java.util.concurrent.TimeUnit;
 public abstract class TextFieldWithAutoCompletionListProvider<T> extends DefaultTextCompletionValueDescriptor<T> implements
                                                                                                                  TextCompletionProvider {
   private static final Logger LOG = Logger.getInstance(TextFieldWithAutoCompletionListProvider.class);
-  @NotNull protected Collection<T> myVariants;
+  @NotNull
+  protected Collection<T> myVariants;
+
   @Nullable
+  @NlsContexts.PopupAdvertisement
   private String myCompletionAdvertisement;
 
   protected TextFieldWithAutoCompletionListProvider(@Nullable final Collection<T> variants) {
@@ -119,7 +110,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
 
   private static <T> void addCompletionElements(final CompletionResultSet result,
                                                 final TextCompletionValueDescriptor<T> descriptor,
-                                                final Collection<T> items,
+                                                final Collection<? extends T> items,
                                                 final int index) {
     final AutoCompletionPolicy completionPolicy = ApplicationManager.getApplication().isUnitTestMode()
                                                   ? AutoCompletionPolicy.ALWAYS_AUTOCOMPLETE
@@ -148,7 +139,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
 
     final List<T> items = new ArrayList<>(myVariants);
 
-    Collections.sort(items, this);
+    items.sort(this);
     return items;
   }
 
@@ -158,7 +149,9 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
    *
    * @return text
    */
+  @Override
   @Nullable
+  @NlsContexts.PopupAdvertisement
   public String getAdvertisement() {
     if (myCompletionAdvertisement != null) return myCompletionAdvertisement;
     String shortcut = KeymapUtil.getFirstKeyboardShortcutText((IdeActions.ACTION_QUICK_JAVADOC));
@@ -166,7 +159,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
     if (advertisementTail == null) {
       return null;
     }
-    return "Pressing " + shortcut + " would show " + advertisementTail;
+    return LangBundle.message("textfield.autocompletion.advertisement", shortcut, advertisementTail);
   }
 
   @Nullable
@@ -174,7 +167,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
     return null;
   }
 
-  public void setAdvertisement(@Nullable String completionAdvertisement) {
+  public void setAdvertisement(@Nullable @NlsContexts.PopupAdvertisement String completionAdvertisement) {
     myCompletionAdvertisement = completionAdvertisement;
   }
 

@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.importing.configurers;
 
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -32,6 +20,7 @@ import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 import org.jetbrains.jps.model.java.impl.compiler.ProcessorConfigProfileImpl;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -50,9 +39,14 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
   public static final String DEFAULT_BSC_TEST_ANNOTATION_OUTPUT = "target/generated-sources/apt-test";
 
   @Override
-  public void configure(@NotNull MavenProject mavenProject, @NotNull Project project, @Nullable Module module) {
-    if (module == null) return;
+  public void configure(@NotNull MavenProject mavenProject, @NotNull Project project, @NotNull Module module) {
+    WriteAction.runAndWait(() -> doConfigure(mavenProject, project, module));
+  }
 
+  private static void doConfigure(@NotNull MavenProject mavenProject, @NotNull Project project, @NotNull Module module) {
+    if (project.isDisposed() || module.isDisposed()) {
+      return;
+    }
     Sdk sdk = ModuleRootManager.getInstance(module).getSdk();
     if (sdk != null) {
       String versionString = sdk.getVersionString();
@@ -83,11 +77,11 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
       }
 
       final boolean isDefault;
-      if (isMavenDefaultAnnotationProcessorConfiguration(annotationProcessorDirectory, testAnnotationProcessorDirectory, mavenProject)) {
+      if (isMavenDefaultAnnotationProcessorConfiguration(annotationProcessorDirectory, testAnnotationProcessorDirectory, mavenProject, project)) {
         moduleProfileName = MAVEN_DEFAULT_ANNOTATION_PROFILE;
         isDefault = true;
       }
-      else if (isMavenProcessorPluginDefaultConfiguration(annotationProcessorDirectory, testAnnotationProcessorDirectory, mavenProject)) {
+      else if (isMavenProcessorPluginDefaultConfiguration(annotationProcessorDirectory, testAnnotationProcessorDirectory, mavenProject, project)) {
         moduleProfileName = MAVEN_BSC_DEFAULT_ANNOTATION_PROFILE;
         isDefault = true;
       }
@@ -122,7 +116,7 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
       }
 
       moduleProfile.addModuleName(module.getName());
-      configureAnnotationProcessorPath(moduleProfile, mavenProject);
+      configureAnnotationProcessorPath(moduleProfile, mavenProject, project);
       cleanAndMergeModuleProfiles(rootProject, compilerConfiguration, moduleProfile, isDefault, module);
     }
     else {
@@ -130,11 +124,12 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
     }
   }
 
-  private static void configureAnnotationProcessorPath(ProcessorConfigProfile profile, MavenProject mavenProject) {
-    if (mavenProject.getAnnotationProcessors().isEmpty()) return;
-
-    profile.setObtainProcessorsFromClasspath(false);
-    profile.setProcessorPath(mavenProject.getAnnotationProcessorPath());
+  private static void configureAnnotationProcessorPath(ProcessorConfigProfile profile, MavenProject mavenProject, Project project) {
+    String annotationProcessorPath = mavenProject.getAnnotationProcessorPath(project);
+    if (StringUtil.isNotEmpty(annotationProcessorPath)) {
+      profile.setObtainProcessorsFromClasspath(false);
+      profile.setProcessorPath(annotationProcessorPath);
+    }
   }
 
   private static void cleanAndMergeModuleProfiles(@NotNull MavenProject rootProject,
@@ -142,7 +137,7 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
                                                   @Nullable ProcessorConfigProfile moduleProfile,
                                                   boolean isDefault,
                                                   @NotNull Module module) {
-    List<ProcessorConfigProfile> profiles = ContainerUtil.newArrayList(compilerConfiguration.getModuleProcessorProfiles());
+    List<ProcessorConfigProfile> profiles = new ArrayList<>(compilerConfiguration.getModuleProcessorProfiles());
     for (ProcessorConfigProfile p : profiles) {
       if (p != moduleProfile) {
         p.removeModuleName(module.getName());
@@ -152,6 +147,7 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
       }
 
       if (!isDefault && moduleProfile != null && isSimilarProfiles(p, moduleProfile)) {
+        moduleProfile.setEnabled(p.isEnabled());
         final String mavenProjectRootProfileName = PROFILE_PREFIX + rootProject.getDisplayName();
         ProcessorConfigProfile mergedProfile = compilerConfiguration.findModuleProcessorProfile(mavenProjectRootProfileName);
         if (mergedProfile == null) {
@@ -185,31 +181,37 @@ public class MavenAnnotationProcessorConfigurer extends MavenModuleConfigurer {
 
     ProcessorConfigProfileImpl p1 = new ProcessorConfigProfileImpl(profile1);
     p1.setName("tmp");
+    p1.setEnabled(true);
     p1.clearModuleNames();
     ProcessorConfigProfileImpl p2 = new ProcessorConfigProfileImpl(profile2);
     p2.setName("tmp");
+    p2.setEnabled(true);
     p2.clearModuleNames();
     return p1.equals(p2);
   }
 
   private static boolean isMavenDefaultAnnotationProcessorConfiguration(@NotNull String annotationProcessorDirectory,
                                                                         @NotNull String testAnnotationProcessorDirectory,
-                                                                        @NotNull MavenProject mavenProject) {
+                                                                        @NotNull MavenProject mavenProject,
+                                                                        @NotNull Project project) {
     Map<String, String> options = mavenProject.getAnnotationProcessorOptions();
     List<String> processors = mavenProject.getDeclaredAnnotationProcessors();
     return ContainerUtil.isEmpty(processors)
            && options.isEmpty()
+           && StringUtil.isEmpty(mavenProject.getAnnotationProcessorPath(project))
            && DEFAULT_ANNOTATION_PATH_OUTPUT.equals(annotationProcessorDirectory.replace('\\', '/'))
            && DEFAULT_TEST_ANNOTATION_OUTPUT.equals(testAnnotationProcessorDirectory.replace('\\', '/'));
   }
 
   private static boolean isMavenProcessorPluginDefaultConfiguration(@NotNull String annotationProcessorDirectory,
                                                                     @NotNull String testAnnotationProcessorDirectory,
-                                                                    @NotNull MavenProject mavenProject) {
+                                                                    @NotNull MavenProject mavenProject,
+                                                                    @NotNull Project project) {
     Map<String, String> options = mavenProject.getAnnotationProcessorOptions();
     List<String> processors = mavenProject.getDeclaredAnnotationProcessors();
     return ContainerUtil.isEmpty(processors)
            && options.isEmpty()
+           && StringUtil.isEmpty(mavenProject.getAnnotationProcessorPath(project))
            && DEFAULT_BSC_ANNOTATION_PATH_OUTPUT.equals(annotationProcessorDirectory.replace('\\', '/'))
            && DEFAULT_BSC_TEST_ANNOTATION_OUTPUT.equals(testAnnotationProcessorDirectory.replace('\\', '/'));
   }

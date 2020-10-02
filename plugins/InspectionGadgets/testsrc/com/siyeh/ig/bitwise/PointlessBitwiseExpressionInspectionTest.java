@@ -16,12 +16,16 @@
 package com.siyeh.ig.bitwise;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class PointlessBitwiseExpressionInspectionTest extends LightInspectionTestCase {
+public class PointlessBitwiseExpressionInspectionTest extends LightJavaInspectionTestCase {
 
   public void testPointlessBitwiseExpression() {
+    doTest();
+  }
+
+  public void testPointlessBitwiseExpressionNoConstants() {
     doTest();
   }
 
@@ -29,7 +33,7 @@ public class PointlessBitwiseExpressionInspectionTest extends LightInspectionTes
   @Override
   protected InspectionProfileEntry getInspection() {
     PointlessBitwiseExpressionInspection inspection = new PointlessBitwiseExpressionInspection();
-    inspection.m_ignoreExpressionsContainingConstants = false;
+    inspection.m_ignoreExpressionsContainingConstants = getTestName(false).endsWith("NoConstants");
     return inspection;
   }
 }

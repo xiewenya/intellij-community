@@ -22,14 +22,11 @@ import com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditorBase
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.LibraryProjectStructureElement
 
-/**
- * @author nik
- */
 class ConvertProjectLibraryToRepositoryLibraryAction(private val librariesConfigurable: BaseLibrariesConfigurable,
                                                      context: StructureConfigurableContext)
   : ConvertToRepositoryLibraryActionBase(context) {
 
-  override fun getSelectedLibrary() = (librariesConfigurable.selectedElement as? LibraryProjectStructureElement)?.library as? LibraryEx
+  override fun getSelectedLibrary(): LibraryEx? = (librariesConfigurable.selectedElement as? LibraryProjectStructureElement)?.library as? LibraryEx
 
   override fun replaceLibrary(library: Library, configureNewLibrary: (LibraryEditorBase) -> Unit) {
     val name = library.name

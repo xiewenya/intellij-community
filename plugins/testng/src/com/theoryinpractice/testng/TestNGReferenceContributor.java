@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.theoryinpractice.testng;
 
@@ -17,7 +17,7 @@ import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.filters.position.FilterPattern;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ProcessingContext;
 import com.theoryinpractice.testng.inspection.DependsOnGroupsInspection;
@@ -34,29 +34,30 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
     return PlatformPatterns.psiElement(PsiLiteral.class).and(new FilterPattern(new TestAnnotationFilter(annotation)));
   }
 
+  @Override
   public void registerReferenceProviders(@NotNull PsiReferenceRegistrar registrar) {
     registrar.registerReferenceProvider(getElementPattern("dependsOnMethods"), new PsiReferenceProvider() {
-      @NotNull
-      public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+      @Override
+      public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
         return new MethodReference[]{new MethodReference((PsiLiteral)element)};
       }
     });
 
     registrar.registerReferenceProvider(getElementPattern("dataProvider"), new PsiReferenceProvider() {
-      @NotNull
-      public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+      @Override
+      public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
         return new DataProviderReference[]{new DataProviderReference((PsiLiteral)element)};
       }
     });
     registrar.registerReferenceProvider(getElementPattern("groups"), new PsiReferenceProvider() {
-      @NotNull
-      public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+      @Override
+      public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
         return new GroupReference[]{new GroupReference(element.getProject(), (PsiLiteral)element)};
       }
     });
     registrar.registerReferenceProvider(getElementPattern("dependsOnGroups"), new PsiReferenceProvider() {
-      @NotNull
-      public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+      @Override
+      public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
         return new GroupReference[]{new GroupReference(element.getProject(), (PsiLiteral)element)};
       }
     });
@@ -64,7 +65,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
 
   private static class MethodReference extends PsiReferenceBase<PsiLiteral> {
 
-    public MethodReference(PsiLiteral element) {
+    MethodReference(PsiLiteral element) {
       super(element, false);
     }
 
@@ -76,6 +77,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
       return super.bindToElement(element);
     }
 
+    @Override
     @Nullable
     public PsiElement resolve() {
       @NonNls String val = getValue();
@@ -100,8 +102,8 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
                                            : JavaPsiFacade.getInstance(element.getProject()).findClass(className, element.getResolveScope());
     }
 
-    @NotNull
-    public Object[] getVariants() {
+    @Override
+    public Object @NotNull [] getVariants() {
       List<Object> list = new ArrayList<>();
       @NonNls String val = getValue();
       int hackIndex = val.indexOf(CompletionUtil.DUMMY_IDENTIFIER);
@@ -131,18 +133,19 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
   private static class GroupReference extends PsiReferenceBase<PsiLiteral> {
     private final Project myProject;
 
-    public GroupReference(Project project, PsiLiteral element) {
+    GroupReference(Project project, PsiLiteral element) {
       super(element, false);
       myProject = project;
     }
 
+    @Override
     @Nullable
     public PsiElement resolve() {
       return null;
     }
 
-    @NotNull
-    public Object[] getVariants() {
+    @Override
+    public Object @NotNull [] getVariants() {
       List<Object> list = new ArrayList<>();
 
       InspectionProfile inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).getCurrentProfile();
@@ -156,7 +159,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
       if (!list.isEmpty()) {
         return list.toArray();
       }
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
+      return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
     }
   }
 
@@ -164,10 +167,11 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
 
     private final String myParameterName;
 
-    public TestAnnotationFilter(@NotNull @NonNls String parameterName) {
+    TestAnnotationFilter(@NotNull @NonNls String parameterName) {
       myParameterName = parameterName;
     }
 
+    @Override
     public boolean isAcceptable(Object element, PsiElement context) {
       PsiNameValuePair pair = PsiTreeUtil.getParentOfType(context, PsiNameValuePair.class, false, PsiMember.class, PsiStatement.class, PsiCall.class);
       if (null == pair) return false;
@@ -178,6 +182,7 @@ public class TestNGReferenceContributor extends PsiReferenceContributor {
       return true;
     }
 
+    @Override
     public boolean isClassAcceptable(Class hintClass) {
       return PsiLiteral.class.isAssignableFrom(hintClass);
     }

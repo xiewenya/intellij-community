@@ -25,6 +25,7 @@ import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.codeStyle.CodeFormatterFacade;
 import com.intellij.psi.codeStyle.extractor.values.Value;
+import com.intellij.refactoring.RefactorJBundle;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -32,7 +33,6 @@ import java.util.LinkedList;
 
 /**
  * @author Roman.Shein
- * @since 05.08.2015
  */
 public class JavaExtractor implements LangCodeStyleExtractor {
   @NotNull
@@ -43,7 +43,7 @@ public class JavaExtractor implements LangCodeStyleExtractor {
       public String reformattedText() {
         JavaCodeFragment file = JavaCodeFragmentFactory.getInstance(project).createCodeBlockCodeFragment(myOrigText, myFile, false);
 
-        WriteCommandAction.runWriteCommandAction(myProject, "CodeStyleSettings extractor", "CodeStyleSettings extractor", () -> {
+        WriteCommandAction.runWriteCommandAction(myProject, RefactorJBundle.message("codestyle.settings.extractor.command.name"), "CodeStyleSettings extractor", () -> {
           ASTNode treeElement = SourceTreeToPsiMap.psiToTreeNotNull(file);
           SourceTreeToPsiMap.treeElementToPsi(new CodeFormatterFacade(mySettings, file.getLanguage()).processElement(treeElement));
         }, file);

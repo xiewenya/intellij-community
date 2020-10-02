@@ -15,11 +15,12 @@
  */
 package com.intellij.openapi.util;
 
+import org.jetbrains.annotations.NotNull;
+
 import javax.swing.*;
 
 /**
  * @author Konstantin Bulenkov
- * @since 15.0
  */
 public interface ScalableIcon extends Icon {
   /**
@@ -40,5 +41,6 @@ public interface ScalableIcon extends Icon {
    * @param scaleFactor scale
    * @return scaled icon instance
    */
+  @NotNull
   Icon scale(float scaleFactor);
 }

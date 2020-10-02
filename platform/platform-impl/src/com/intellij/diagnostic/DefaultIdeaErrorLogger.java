@@ -1,36 +1,26 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
 import com.intellij.diagnostic.VMOptions.MemoryKind;
+import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector;
+import com.intellij.ide.plugins.PluginUtil;
 import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationGroup;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.ErrorLogger;
 import com.intellij.openapi.diagnostic.ErrorReportSubmitter;
 import com.intellij.openapi.diagnostic.IdeaLoggingEvent;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.updateSettings.impl.UpdateChecker;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.io.MappingFailedException;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.lang.reflect.InvocationTargetException;
 
 /**
  * @author kir
@@ -41,28 +31,41 @@ public class DefaultIdeaErrorLogger implements ErrorLogger {
   private static boolean ourLoggerBroken = false;
   private static boolean ourMappingFailedNotificationPosted = false;
 
-  private static final String FATAL_ERROR_NOTIFICATION_PROPERTY = "idea.fatal.error.notification";
-  private static final String DISABLED_VALUE = "disabled";
-  private static final String ENABLED_VALUE = "enabled";
+  @NonNls private static final String FATAL_ERROR_NOTIFICATION_PROPERTY = "idea.fatal.error.notification";
+  @NonNls private static final String DISABLED_VALUE = "disabled";
+  @NonNls private static final String ENABLED_VALUE = "enabled";
 
   @Override
   public boolean canHandle(IdeaLoggingEvent event) {
     if (ourLoggerBroken) return false;
 
     try {
+      final Application app = ApplicationManager.getApplication();
+      if (app.isDisposed()) {
+        return false;
+      }
+
       UpdateChecker.checkForUpdate(event);
 
       boolean notificationEnabled = !DISABLED_VALUE.equals(System.getProperty(FATAL_ERROR_NOTIFICATION_PROPERTY, ENABLED_VALUE));
 
-      ErrorReportSubmitter submitter = IdeErrorsDialog.getSubmitter(event.getThrowable());
+      Throwable t = event.getThrowable();
+      PluginId pluginId = PluginUtil.getInstance().findPluginId(t);
+
+      ErrorReportSubmitter submitter = IdeErrorsDialog.getSubmitter(t, pluginId);
       boolean showPluginError = !(submitter instanceof ITNReporter) || ((ITNReporter)submitter).showErrorInRelease(event);
 
-      //noinspection ThrowableResultOfMethodCallIgnored
+      final MemoryKind kind = getOOMErrorKind(event.getThrowable());
+      boolean isOOM = kind != null;
+      boolean isMappingFailed = !isOOM && event.getThrowable() instanceof MappingFailedException;
+
+      LifecycleUsageTriggerCollector.onError(pluginId, t, kind);
+
       return notificationEnabled ||
              showPluginError ||
-             ApplicationManagerEx.getApplicationEx().isInternal() ||
-             getOOMErrorKind(event.getThrowable()) != null ||
-             event.getThrowable() instanceof MappingFailedException;
+             ApplicationManager.getApplication().isInternal() ||
+             isOOM ||
+             isMappingFailed;
     }
     catch (LinkageError e) {
       if (e.getMessage().contains("Could not initialize class com.intellij.diagnostic.IdeErrorsDialog")) {
@@ -78,8 +81,8 @@ public class DefaultIdeaErrorLogger implements ErrorLogger {
 
     try {
       Throwable throwable = event.getThrowable();
-      final MemoryKind kind = getOOMErrorKind(throwable);
-      if (kind != null) {
+      MemoryKind kind = getOOMErrorKind(throwable);
+      if (kind != null && System.getProperty("testscript.filename") == null) {
         ourOomOccurred = true;
         SwingUtilities.invokeAndWait(() -> new OutOfMemoryDialog(kind).show());
       }
@@ -87,8 +90,7 @@ public class DefaultIdeaErrorLogger implements ErrorLogger {
         processMappingFailed(event);
       }
       else if (!ourOomOccurred) {
-        MessagePool messagePool = MessagePool.getInstance();
-        messagePool.addIdeFatalMessage(event);
+        MessagePool.getInstance().addIdeFatalMessage(event);
       }
     }
     catch (Throwable e) {
@@ -102,11 +104,11 @@ public class DefaultIdeaErrorLogger implements ErrorLogger {
   }
 
   @Nullable
-  private static MemoryKind getOOMErrorKind(Throwable t) {
+  static MemoryKind getOOMErrorKind(Throwable t) {
     String message = t.getMessage();
 
     if (t instanceof OutOfMemoryError) {
-      if (message != null && message.contains("unable to create new native thread")) return null;
+      if (message != null && message.contains("unable to create") && message.contains("native thread")) return null;
       if (message != null && message.contains("Metaspace")) return MemoryKind.METASPACE;
       return MemoryKind.HEAP;
     }
@@ -118,14 +120,13 @@ public class DefaultIdeaErrorLogger implements ErrorLogger {
     return null;
   }
 
-  private static void processMappingFailed(IdeaLoggingEvent event) throws InterruptedException, InvocationTargetException {
+  private static void processMappingFailed(IdeaLoggingEvent event) {
     if (!ourMappingFailedNotificationPosted && SystemInfo.isWindows && SystemInfo.is32Bit) {
       ourMappingFailedNotificationPosted = true;
-      @SuppressWarnings("ThrowableResultOfMethodCallIgnored") String exceptionMessage = event.getThrowable().getMessage();
-      String text = exceptionMessage +
-        "<br>Possible cause: unable to allocate continuous memory chunk of necessary size.<br>" +
-        "Reducing JVM maximum heap size (-Xmx) may help.";
-      Notifications.Bus.notify(new Notification("Memory", "Memory Mapping Failed", text, NotificationType.WARNING), null);
+      String exceptionMessage = event.getThrowable().getMessage();
+      String text = DiagnosticBundle.message("notification.content.0.br.possible.cause.unable.to.allocate.memory", exceptionMessage);
+      Notifications.Bus.notify(new Notification(NotificationGroup.createIdWithTitle("Memory", DiagnosticBundle.message("notification.group.memory")),
+                                                DiagnosticBundle.message("notification.title.memory.mapping.failed"), text, NotificationType.WARNING), null);
     }
   }
 }

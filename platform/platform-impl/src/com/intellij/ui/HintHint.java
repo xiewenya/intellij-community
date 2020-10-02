@@ -20,8 +20,10 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 
@@ -30,6 +32,7 @@ public class HintHint {
   private Component myOriginalComponent;
   private Point myOriginalPoint;
 
+  private boolean myForcePopup;
   private boolean myAwtTooltip = false;
   private Balloon.Position myPreferredPosition = Balloon.Position.below;
 
@@ -41,6 +44,7 @@ public class HintHint {
   private Color myTextFg;
   private Color myTextBg;
   private Color myBorderColor;
+  private Border myComponentBorder = null;
   private Insets myBorderInsets;
   private Font myFont;
   private int myCalloutShift;
@@ -51,6 +55,7 @@ public class HintHint {
   private boolean myShowImmediately = false;
   private boolean myAnimationEnabled;
   private boolean myRequestFocus;
+  
 
   public HintHint() {
   }
@@ -91,6 +96,15 @@ public class HintHint {
     return myAwtTooltip;
   }
 
+  public boolean isPopupForced() {
+    return myForcePopup;
+  }
+
+  public HintHint setForcePopup(boolean forcePopup) {
+    myForcePopup = forcePopup;
+    return this;
+  }
+
   public Component getOriginalComponent() {
     return myOriginalComponent;
   }
@@ -102,7 +116,15 @@ public class HintHint {
   public RelativePoint getTargetPoint() {
     return new RelativePoint(getOriginalComponent(), getOriginalPoint());
   }
+  
+  public Border getComponentBorder() {
+    return myComponentBorder;
+  }
 
+  public void setComponentBorder(@Nullable Border border) {
+    myComponentBorder = border;
+  }
+  
   public Balloon.Position getPreferredPosition() {
     return myPreferredPosition;
   }

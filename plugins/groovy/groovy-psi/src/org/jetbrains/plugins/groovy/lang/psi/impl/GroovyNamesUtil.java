@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
@@ -24,7 +10,6 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.Function;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,7 +27,7 @@ import java.util.regex.Pattern;
 /**
  * @author ven
  */
-public class GroovyNamesUtil {
+public final class GroovyNamesUtil {
 
   private static final Pattern PATTERN = Pattern.compile("[A-Za-z][a-z0-9]*");
 
@@ -75,9 +60,9 @@ public class GroovyNamesUtil {
     ArrayList<String> res = new ArrayList<>();
     StringBuilder sb = new StringBuilder();
     Matcher matcher = PATTERN.matcher(str);
-    
+
     while (matcher.find()) {
-      res.add(matcher.group().toLowerCase());
+      res.add(StringUtil.toLowerCase(matcher.group()));
       sb.append(matcher.group());
     }
 
@@ -93,7 +78,7 @@ public class GroovyNamesUtil {
 
   public static String fromLowerLetter(String str) {
     if (str.isEmpty()) return "";
-    if (str.length() == 1) return str.toLowerCase();
+    if (str.length() == 1) return StringUtil.toLowerCase(str);
     char c = Character.toLowerCase(str.charAt(0));
     if (c == str.charAt(0)) return str;
     return c + str.substring(1);

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.completion;
 
 import com.intellij.JavaTestUtil;
@@ -28,6 +14,7 @@ import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.PsiClass;
+import com.intellij.testFramework.NeedsIndex;
 import com.intellij.testFramework.TestDataPath;
 
 import java.io.IOException;
@@ -46,6 +33,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
     return JavaTestUtil.getRelativeJavaTestDataPath() + "/codeInsight/completion/className/";
   }
 
+  @NeedsIndex.Full
   public void testImportAfterNew() {
     createClass("package pack; public class AAClass {}");
     createClass("package pack; public class WithInnerAClass{\n" +
@@ -74,17 +62,18 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
       myFixture.getFile().findElementAt(myFixture.getEditor().getCaretModel().getOffset())
     );
 
-    assertEquals(doc,
-                 "<html>Candidates for new <b>Time</b>() are:<br>&nbsp;&nbsp;<a href=\"psi_element://Time#Time()\">Time()</a><br>&nbsp;" +
-                 "&nbsp;<a href=\"psi_element://Time#Time(long)\">Time(long time)</a><br></html>");
+    assertEquals("<html>Candidates for new <b>Time</b>() are:<br>&nbsp;&nbsp;<a href=\"psi_element://Time#Time()\">Time()</a>" +
+                 "<br>&nbsp;&nbsp;<a href=\"psi_element://Time#Time(long)\">Time(long time)</a><br></html>",
+                 doc);
   }
 
+  @NeedsIndex.SmartMode(reason = "For now ConstructorInsertHandler.createOverrideRunnable doesn't work in dumb mode")
   public void testTypeParametersTemplate() {
     createClass("package pack; public interface Foo<T> {void foo(T t};");
 
     String path = "/template";
 
-    TemplateManagerImpl.setTemplateTesting(getProject(), myFixture.getTestRootDisposable());
+    TemplateManagerImpl.setTemplateTesting(myFixture.getTestRootDisposable());
     configureByFile(path + "/before1.java");
     selectItem(myItems[0]);
     TemplateState state = TemplateManagerImpl.getTemplateState(myFixture.getEditor());
@@ -105,6 +94,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
   }
 
   private void createClass(String text) {
+    //noinspection LanguageMismatch
     myFixture.addClass(text);
   }
 
@@ -125,6 +115,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
                 "}");
   }
 
+  @NeedsIndex.Full
   public void testAfterNewThrowable2() {
     addClassesForAfterNewThrowable();
     String path = "/afterNewThrowable";
@@ -140,15 +131,17 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
 
   public void testBracesAfterNew() { doTest(); }
 
-  public void testInPlainTextFile() {
-    configureByFile(getTestName(false) + ".txt");
-    checkResultByFile(getTestName(false) + "_after.txt");
-  }
-
+  @NeedsIndex.SmartMode(reason = "Smart completion in dumb mode not supported for property files")
   public void testInPropertiesFile() {
     myFixture.configureByText("a.properties", "abc = StrinBui<caret>");
     complete();
     myFixture.checkResult("abc = java.lang.StringBuilder<caret>");
+  }
+
+  public void testInsideForwardReferencingTypeBound() {
+    myFixture.configureByText("a.java", "class F<T extends Zo<caret>o, Zoo> {}");
+    complete();
+    myFixture.assertPreferredCompletionItems(0, "Zoo");
   }
 
   public void testDoubleStringBuffer() {
@@ -157,6 +150,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
     assertNull(myItems);
   }
 
+  @NeedsIndex.Full
   public void testReplaceReferenceExpressionWithTypeElement() {
     createClass("package foo.bar; public class ABCDEF {}");
     doTest();
@@ -207,6 +201,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
     checkResultByFile(path + "/implements3-result.java");
   }
 
+  @NeedsIndex.Full
   public void testAnnotationFiltering() {
     createClass("@interface MyObjectType {}");
 
@@ -253,6 +248,7 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
 
   private void cleanupVfs() {
     WriteCommandAction.runWriteCommandAction(null, new Runnable() {
+      @Override
       public void run() {
         FileDocumentManager.getInstance().saveAllDocuments();
         for (VirtualFile file : myFixture.getTempDirFixture().getFile("").getChildren()) {
@@ -288,18 +284,34 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
     checkResultByFile(path + "/varType-result.java");
   }
 
-  public void testExtraSpace() { doJavaTest(); }
+  @NeedsIndex.ForStandardLibrary
+  public void testExtraSpace() { doJavaTest('\n'); }
 
-  public void testAnnotation() { doJavaTest(); }
+  public void testAnnotation() { doJavaTest('\n'); }
 
-  public void testInStaticImport() { doJavaTest(); }
+  @NeedsIndex.ForStandardLibrary
+  public void testInStaticImport() { doJavaTest('\n'); }
 
-  public void testInCommentWithPackagePrefix() { doJavaTest(); }
+  @NeedsIndex.ForStandardLibrary
+  public void testInCommentWithPackagePrefix() { doJavaTest('\n'); }
 
-  private void doJavaTest() {
+  public void testNestedAnonymousTab() { doJavaTest('\t');}
+
+  @NeedsIndex.Full
+  public void testClassStartsWithUnderscore() {
+    myFixture.addClass("package foo; public class _SomeClass {}");
+    doJavaTest('\n');
+  }
+
+  public void testNoInnerInaccessibleClass() {
+    myFixture.addClass("package foo; interface Intf { interface InnerInterface {} }");
+    doAntiTest();
+  }
+
+  private void doJavaTest(char toType) {
     final String path = "/nameCompletion/java";
     myFixture.configureByFile(path + "/" + getTestName(false) + "-source.java");
-    performAction();
+    performAction(toType);
     checkResultByFile(path + "/" + getTestName(false) + "-result.java");
   }
 
@@ -309,9 +321,12 @@ public class ClassNameCompletionTest extends LightFixtureCompletionTestCase {
   }
 
   private void performAction() {
+    performAction('\n');
+  }
+  private void performAction(char toType) {
     complete();
     if (LookupManager.getActiveLookup(myFixture.getEditor()) != null) {
-      myFixture.type('\n');
+      myFixture.type(toType);
     }
   }
 }

@@ -1,32 +1,20 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.SimpleTextAttributes;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 
 public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
-
   private PresentationData myTemplatePresentation;
   private PresentationData myUpdatedPresentation;
 
@@ -44,26 +32,25 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     return false;
   }
 
-  protected final boolean apply(PresentationData presentation) {
+  protected final boolean apply(@NotNull PresentationData presentation) {
     return apply(presentation, null);
   }
 
   @Override
-  public void applyFrom(NodeDescriptor desc) {
+  public void applyFrom(@NotNull NodeDescriptor desc) {
     if (desc instanceof PresentableNodeDescriptor) {
-      PresentableNodeDescriptor pnd = (PresentableNodeDescriptor)desc;
-      apply(pnd.getPresentation());
+      apply(((PresentableNodeDescriptor<?>)desc).getPresentation());
     }
     else {
       super.applyFrom(desc);
     }
   }
 
-  protected final boolean apply(PresentationData presentation, @Nullable PresentationData before) {
+  protected final boolean apply(@NotNull PresentationData presentation, @Nullable PresentationData before) {
     setIcon(presentation.getIcon(false));
     myName = presentation.getPresentableText();
     myColor = presentation.getForcedTextForeground();
-    boolean updated = before == null || !presentation.equals(before);
+    boolean updated = !presentation.equals(before);
 
     if (myUpdatedPresentation == null) {
       myUpdatedPresentation = createPresentation();
@@ -81,6 +68,7 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     return updated;
   }
 
+  @NotNull
   private PresentationData getUpdatedPresentation() {
     PresentationData presentation = myUpdatedPresentation != null ? myUpdatedPresentation : createPresentation();
     myUpdatedPresentation = presentation;
@@ -115,20 +103,14 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     return true;
   }
 
-  protected abstract void update(PresentationData presentation);
+  protected abstract void update(@NotNull PresentationData presentation);
 
   @NotNull
   public final PresentationData getPresentation() {
-    PresentationData result;
-    if (myUpdatedPresentation == null) {
-      result = getTemplatePresentation();
-    }
-    else {
-      result = myUpdatedPresentation;
-    }
-    return result;
+    return myUpdatedPresentation == null ? getTemplatePresentation() : myUpdatedPresentation;
   }
 
+  @NotNull
   protected final PresentationData getTemplatePresentation() {
     if (myTemplatePresentation == null) {
       myTemplatePresentation = createPresentation();
@@ -141,15 +123,15 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     return false;
   }
 
-  public boolean isHighlightableContentNode(final PresentableNodeDescriptor kid) {
+  public boolean isHighlightableContentNode(@NotNull PresentableNodeDescriptor kid) {
     return true;
   }
 
-  public PresentableNodeDescriptor getChildToHighlightAt(int index) {
+  public PresentableNodeDescriptor<?> getChildToHighlightAt(int index) {
     return null;
   }
 
-  public boolean isParentOf(NodeDescriptor eachNode) {
+  public boolean isParentOf(@NotNull NodeDescriptor eachNode) {
     NodeDescriptor eachParent = eachNode.getParentDescriptor();
     while (eachParent != null) {
       if (eachParent == this) return true;
@@ -159,7 +141,7 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
   }
 
   public boolean isAncestorOrSelf(NodeDescriptor selectedNode) {
-    NodeDescriptor node = selectedNode;
+    NodeDescriptor<?> node = selectedNode;
     while (node != null) {
       if (equals(node)) return true;
       node = node.getParentDescriptor();
@@ -167,30 +149,31 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     return false;
   }
 
+  @NotNull
   public Color getHighlightColor() {
-    return UIUtil.isUnderDarcula() ? ColorUtil.shift(UIUtil.getTreeBackground(), 1.1) : UIUtil.getTreeBackground().brighter();
+    return StartupUiUtil.isUnderDarcula() ? ColorUtil.shift(UIUtil.getTreeBackground(), 1.1) : UIUtil.getTreeBackground().brighter();
   }
 
   public static class ColoredFragment {
-    private final String myText;
-    private final String myToolTip;
+    private final @NlsSafe String myText;
+    private final @NlsSafe String myToolTip;
     private final SimpleTextAttributes myAttributes;
 
-    public ColoredFragment(String aText, SimpleTextAttributes aAttributes) {
+    public ColoredFragment(@NlsSafe String aText, SimpleTextAttributes aAttributes) {
       this(aText, null, aAttributes);
     }
 
-    public ColoredFragment(String aText, String toolTip, SimpleTextAttributes aAttributes) {
+    public ColoredFragment(@NlsSafe String aText, @NlsSafe String toolTip, SimpleTextAttributes aAttributes) {
       myText = aText == null? "" : aText;
       myAttributes = aAttributes;
       myToolTip = toolTip;
     }
 
-    public String getToolTip() {
+    public @NlsSafe String getToolTip() {
       return myToolTip;
     }
 
-    public String getText() {
+    public @NlsSafe String getText() {
       return myText;
     }
 
@@ -199,6 +182,7 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     }
 
 
+    @Override
     public boolean equals(final Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
@@ -212,16 +196,16 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
       return true;
     }
 
+    @Override
     public int hashCode() {
-      int result;
-      result = (myText != null ? myText.hashCode() : 0);
+      int result = myText != null ? myText.hashCode() : 0;
       result = 31 * result + (myToolTip != null ? myToolTip.hashCode() : 0);
       result = 31 * result + (myAttributes != null ? myAttributes.hashCode() : 0);
       return result;
     }
   }
 
-  public String getName() {
+  public @NlsSafe String getName() {
     if (!getPresentation().getColoredText().isEmpty()) {
       StringBuilder result = new StringBuilder();
       for (ColoredFragment each : getPresentation().getColoredText()) {
@@ -231,5 +215,4 @@ public abstract class PresentableNodeDescriptor<E> extends NodeDescriptor<E>  {
     }
     return myName;
   }
-
 }

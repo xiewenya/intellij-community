@@ -28,7 +28,7 @@ abstract class UpdateTask<Type> {
   private final Set<Type> myItemsBeingIndexed = ContainerUtil.newConcurrentSet();
   private static final boolean DEBUG = false;
 
-  final boolean processAll(Collection<Type> itemsToProcess, Project project) {
+  final boolean processAll(Collection<? extends Type> itemsToProcess, Project project) {
     if (DEBUG) trace("enter processAll");
     try {
       boolean hasMoreToProcess;
@@ -57,9 +57,10 @@ abstract class UpdateTask<Type> {
           ProgressManager.checkCanceled();
         }
 
-        while (!myUpdateSemaphore.waitFor(500)) { // may need to wait until another threads are done with indexing
+        do {
+          ProgressManager.checkCanceled();
         }
-        ProgressManager.checkCanceled();
+        while (!myUpdateSemaphore.waitFor(500));
         if (DEBUG) if (hasMoreToProcess) trace("reiterating");
       }
       while (hasMoreToProcess);

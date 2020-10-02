@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.hint;
 
@@ -26,6 +12,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts.HintText;
 import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
@@ -33,7 +20,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.IntroduceTargetChooser;
 import com.intellij.ui.LightweightHint;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
@@ -41,10 +27,7 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
 public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
   private final boolean myRequestFocus;
@@ -58,6 +41,7 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
     return false;
   }
 
+  @Override
   public void invoke(@NotNull final Project project, @NotNull final Editor editor, @NotNull PsiFile file) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
@@ -69,7 +53,7 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
     Pass<PsiElement> callback = new Pass<PsiElement>() {
       @Override
       public void pass(@NotNull PsiElement expression) {
-        ExpressionTypeProvider provider = ObjectUtils.assertNotNull(map.get(expression));
+        ExpressionTypeProvider provider = Objects.requireNonNull(map.get(expression));
         //noinspection unchecked
         final String informationHint = provider.getInformationHint(expression);
         TextRange range = expression.getTextRange();
@@ -79,7 +63,7 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
     };
     if (map.isEmpty()) {
       ApplicationManager.getApplication().invokeLater(() -> {
-        String errorHint = ObjectUtils.assertNotNull(ContainerUtil.getFirstItem(handlers)).getErrorHint();
+        String errorHint = Objects.requireNonNull(ContainerUtil.getFirstItem(handlers)).getErrorHint();
         HintManager.getInstance().showErrorHint(editor, errorHint);
       });
     }
@@ -98,13 +82,13 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
     }
     else {
       IntroduceTargetChooser.showChooser(
-        editor, ContainerUtil.newArrayList(map.keySet()), callback,
+        editor, new ArrayList<>(map.keySet()), callback,
         PsiElement::getText
       );
     }
   }
 
-  private void displayHint(@NotNull DisplayedTypeInfo typeInfo, String informationHint) {
+  private void displayHint(@NotNull DisplayedTypeInfo typeInfo, @HintText String informationHint) {
     ApplicationManager.getApplication().invokeLater(() -> {
       HintManager.getInstance().setRequestFocusForNextHint(myRequestFocus);
       typeInfo.showHint(informationHint);
@@ -122,13 +106,13 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
   @NotNull
   private static Map<PsiElement, ExpressionTypeProvider> getExpressions(@NotNull PsiFile file,
                                                                         @NotNull Editor editor,
-                                                                        @NotNull Set<ExpressionTypeProvider> handlers) {
+                                                                        @NotNull Set<? extends ExpressionTypeProvider> handlers) {
     if (handlers.isEmpty()) return Collections.emptyMap();
     boolean exactRange = false;
     TextRange range = EditorUtil.getSelectionInAnyMode(editor);
-    final Map<PsiElement, ExpressionTypeProvider> map = ContainerUtil.newLinkedHashMap();
-    int offset = TargetElementUtil.adjustOffset(file, editor.getDocument(), range.getStartOffset());
-    for (int i = 0; i < 3 && map.isEmpty() && offset > i; i++) {
+    final Map<PsiElement, ExpressionTypeProvider> map = new LinkedHashMap<>();
+    int offset = !range.isEmpty() ? range.getStartOffset() : TargetElementUtil.adjustOffset(file, editor.getDocument(), range.getStartOffset());
+    for (int i = 0; i < 3 && map.isEmpty() && offset >= i; i++) {
       PsiElement elementAt = file.findElementAt(offset - i);
       if (elementAt == null) continue;
       for (ExpressionTypeProvider handler : handlers) {
@@ -145,8 +129,10 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
 
   @NotNull
   public static Set<ExpressionTypeProvider> getHandlers(final Project project, Language... languages) {
+    DumbService dumbService = DumbService.getInstance(project);
     return JBIterable.of(languages).flatten(
-      language -> DumbService.getInstance(project).filterByDumbAwareness(LanguageExpressionTypes.INSTANCE.allForLanguage(language))).addAllTo(ContainerUtil.newLinkedHashSet());
+      language -> dumbService.filterByDumbAwareness(LanguageExpressionTypes.INSTANCE.allForLanguage(language))).addAllTo(
+      new LinkedHashSet<>());
   }
 
   static final class DisplayedTypeInfo {
@@ -178,7 +164,7 @@ public class ShowExpressionTypeHandler implements CodeInsightActionHandler {
       return this.equals(ourCurrentInstance);
     }
 
-    void showHint(String informationHint) {
+    void showHint(@HintText String informationHint) {
       JComponent label = HintUtil.createInformationLabel(informationHint);
       setInstance(this);
       AccessibleContextUtil.setName(label, "Expression type hint");

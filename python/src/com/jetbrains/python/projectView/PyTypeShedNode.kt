@@ -25,6 +25,7 @@ import com.intellij.openapi.roots.OrderRootType.CLASSES
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.PlatformIcons
+import com.jetbrains.python.PyBundle
 import com.jetbrains.python.codeInsight.typing.PyTypeShed
 
 /**
@@ -32,7 +33,7 @@ import com.jetbrains.python.codeInsight.typing.PyTypeShed
  */
 class PyTypeShedNode(project: Project?, sdk: Sdk, viewSettings: ViewSettings) : ProjectViewNode<Sdk>(project, sdk, viewSettings) {
   companion object {
-    fun create(project : Project?, sdk: Sdk, viewSettings: ViewSettings) =
+    fun create(project : Project?, sdk: Sdk, viewSettings: ViewSettings): PyTypeShedNode? =
         if (sdk.rootProvider.getFiles(CLASSES).any { PyTypeShed.isInside(it) })
           PyTypeShedNode(project, sdk, viewSettings)
         else null
@@ -50,11 +51,10 @@ class PyTypeShedNode(project: Project?, sdk: Sdk, viewSettings: ViewSettings) : 
         .toMutableList()
   }
 
-  override fun contains(file: VirtualFile) = PyTypeShed.isInside(file)
+  override fun contains(file: VirtualFile): Boolean = PyTypeShed.isInside(file)
 
-  override fun update(presentation: PresentationData?) {
-    val p = presentation ?: return
-    p.presentableText = "Typeshed Stubs"
-    p.setIcon(PlatformIcons.LIBRARY_ICON)
+  override fun update(presentation: PresentationData) {
+    presentation.presentableText = PyBundle.message("python.project.view.typeshed.stubs")
+    presentation.setIcon(PlatformIcons.LIBRARY_ICON)
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.wizard;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -40,7 +26,7 @@ import com.intellij.uiDesigner.compiler.AlienFormFileException;
 import com.intellij.uiDesigner.compiler.Utils;
 import com.intellij.uiDesigner.lw.LwComponent;
 import com.intellij.uiDesigner.lw.LwRootContainer;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -55,7 +41,7 @@ import java.util.HashMap;
  * @author Vladimir Kondratyev
  */
 public final class Generator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.wizard.Generator");
+  private static final Logger LOG = Logger.getInstance(Generator.class);
 
   private Generator() {
   }
@@ -99,6 +85,7 @@ public final class Generator {
     FormEditingUtil.iterate(
       _rootContainer,
       new FormEditingUtil.ComponentVisitor<LwComponent>() {
+        @Override
         public boolean visit(final LwComponent component) {
           final String binding = component.getBinding();
           if (binding == null) {
@@ -258,9 +245,9 @@ public final class Generator {
     final LwRootContainer[] rootContainer = new LwRootContainer[1];
     final FormProperty[] formProperties = exposeForm(data.myProject, data.myFormFile, rootContainer);
 
-    final StringBuffer getDataBody = new StringBuffer();
-    final StringBuffer setDataBody = new StringBuffer();
-    final StringBuffer isModifiedBody = new StringBuffer();
+    final StringBuilder getDataBody = new StringBuilder();
+    final StringBuilder setDataBody = new StringBuilder();
+    final StringBuilder isModifiedBody = new StringBuilder();
 
     // iterate exposed formproperties
 
@@ -338,15 +325,15 @@ public final class Generator {
 
     final String textOfMethods =
       "public void setData(" + dataBeanClassName + " data){\n" +
-      setDataBody.toString() +
+      setDataBody +
       "}\n" +
       "\n" +
       "public void getData(" + dataBeanClassName + " data){\n" +
-      getDataBody.toString() +
+      getDataBody +
       "}\n" +
       "\n" +
       "public boolean isModified(" + dataBeanClassName + " data){\n" +
-      isModifiedBody.toString() +
+      isModifiedBody +
       "}\n";
 
     // put them to the bound class
@@ -475,7 +462,7 @@ public final class Generator {
         property2fqClassName.put(binding.myBeanProperty.myName, propertyClassName);
       }
 
-      generateBean(beanClass, ArrayUtil.toStringArray(properties), property2fqClassName);
+      generateBean(beanClass, ArrayUtilRt.toStringArray(properties), property2fqClassName);
 
       return beanClass;
     }
@@ -569,7 +556,6 @@ public final class Generator {
     methodsBuffer.append(";}\n");
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
   private static String suggestGetterName(final String propertyName, final String propertyType) {
     return PropertyUtilBase.suggestGetterName(propertyName, "boolean".equals(propertyType) ? PsiType.BOOLEAN : null);
   }
@@ -583,9 +569,8 @@ public final class Generator {
     PsiClass beanClass = null;
 
     // find get/set pair and bean class
-    outer: for (int i = 0; i < allGetDataMethods.length; i++) {
-      final PsiMethod _getMethod = allGetDataMethods[i];
-
+    outer:
+    for (final PsiMethod _getMethod : allGetDataMethods) {
       if (!PsiType.VOID.equals(_getMethod.getReturnType())) {
         continue;
       }

@@ -22,15 +22,15 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.usageView.UsageViewBundle;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
   private final PsiElement[] myPsiElements;
   private String myProcessedElementsHeader;
-  private final String myCodeReferencesText;
+  private final @Nls String myCodeReferencesText;
 
-  public MoveMultipleElementsViewDescriptor(PsiElement[] psiElements,
-                                            String targetName) {
+  public MoveMultipleElementsViewDescriptor(PsiElement @NotNull [] psiElements, @NotNull String targetName) {
     myPsiElements = psiElements;
     if (psiElements.length == 1) {
       myProcessedElementsHeader = StringUtil.capitalize(
@@ -49,8 +49,7 @@ public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getElements() {
+  public PsiElement @NotNull [] getElements() {
     return myPsiElements;
   }
 
@@ -59,6 +58,7 @@ public class MoveMultipleElementsViewDescriptor implements UsageViewDescriptor {
     return myProcessedElementsHeader;
   }
 
+  @NotNull
   @Override
   public String getCodeReferencesText(int usagesCount, int filesCount) {
     return myCodeReferencesText + UsageViewBundle.getReferencesString(usagesCount, filesCount);

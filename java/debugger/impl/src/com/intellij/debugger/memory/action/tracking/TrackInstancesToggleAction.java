@@ -15,21 +15,20 @@
  */
 package com.intellij.debugger.memory.action.tracking;
 
-import com.intellij.debugger.memory.component.InstancesTracker;
-import com.intellij.debugger.memory.tracking.TrackingType;
-import com.intellij.debugger.memory.ui.ClassesTable;
+import com.intellij.debugger.memory.action.ActionUtil;
+import com.intellij.xdebugger.memory.component.InstancesTracker;
+import com.intellij.xdebugger.memory.tracking.TrackingType;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
 import com.intellij.openapi.project.Project;
 import com.sun.jdi.ArrayType;
 import com.sun.jdi.ReferenceType;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public class TrackInstancesToggleAction extends ToggleAction {
   @Override
   public void update(@NotNull AnActionEvent e) {
-    ReferenceType selectedClass = getSelectedClass(e);
+    ReferenceType selectedClass = ActionUtil.getSelectedClass(e);
     if (selectedClass instanceof ArrayType) {
       e.getPresentation().setEnabled(false);
     }
@@ -39,8 +38,8 @@ public class TrackInstancesToggleAction extends ToggleAction {
   }
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
-    ReferenceType selectedClass = getSelectedClass(e);
+  public boolean isSelected(@NotNull AnActionEvent e) {
+    ReferenceType selectedClass = ActionUtil.getSelectedClass(e);
     final Project project = e.getProject();
     if (project != null && selectedClass != null && !project.isDisposed()) {
       InstancesTracker tracker = InstancesTracker.getInstance(project);
@@ -51,8 +50,8 @@ public class TrackInstancesToggleAction extends ToggleAction {
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
-    final ReferenceType selectedClass = getSelectedClass(e);
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
+    final ReferenceType selectedClass = ActionUtil.getSelectedClass(e);
     final Project project = e.getProject();
     if (selectedClass != null && project != null && !project.isDisposed()) {
       InstancesTracker tracker = InstancesTracker.getInstance(project);
@@ -68,8 +67,5 @@ public class TrackInstancesToggleAction extends ToggleAction {
     }
   }
 
-  @Nullable
-  private static ReferenceType getSelectedClass(AnActionEvent e) {
-    return e.getData(ClassesTable.SELECTED_CLASS_KEY);
-  }
+
 }

@@ -1,42 +1,43 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.patch;
 
 import org.jetbrains.annotations.NotNull;
 
-class StaticPathDescription implements PathDescription {
-  private final String myPath;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+final class StaticPathDescription implements PathDescription {
+  private final Path myPath;
   private final boolean myIsDirectory;
   private final long myLastModified;
 
-  StaticPathDescription(boolean isDirectory, long lastModified, String path) {
+  StaticPathDescription(boolean isDirectory, @NotNull Path path) {
     myIsDirectory = isDirectory;
+
+    long lastModified;
+    try {
+      lastModified = Files.getLastModifiedTime(path).toMillis();
+    }
+    catch (IOException e) {
+      lastModified = 0;
+    }
     myLastModified = lastModified;
+
     myPath = path;
   }
 
-  @NotNull
-  public String getPath() {
+  @Override
+  public @NotNull Path getPath() {
     return myPath;
   }
 
+  @Override
   public boolean isDirectory() {
     return myIsDirectory;
   }
 
+  @Override
   public long lastModified() {
     return myLastModified;
   }

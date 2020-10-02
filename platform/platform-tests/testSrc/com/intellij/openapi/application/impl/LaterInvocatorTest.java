@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application.impl;
 
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.DefaultLogger;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -26,7 +13,7 @@ import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.testFramework.*;
 import com.intellij.util.ThrowableRunnable;
-import com.intellij.util.ref.GCUtil;
+import com.intellij.util.ref.GCWatcher;
 import com.intellij.util.ui.UIUtil;
 import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
@@ -39,11 +26,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertNotEquals;
 
 @SuppressWarnings({"SSBasedInspection", "SynchronizeOnThis"})
 @SkipInHeadlessEnvironment
-public class LaterInvocatorTest extends PlatformTestCase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.application.impl.LaterInvokatorTest");
+public class LaterInvocatorTest extends HeavyPlatformTestCase {
+  private static final Logger LOG = Logger.getInstance(LaterInvocatorTest.class);
   
   private final ArrayList<String> myOrder = new ArrayList<>();
 
@@ -72,7 +63,7 @@ public class LaterInvocatorTest extends PlatformTestCase {
   };
 
   @Override
-  protected void setUp() {
+  protected void setUp() throws Exception {
     myWindow1 = new Frame() {
       public String toString() {
         return "Window1";
@@ -97,33 +88,15 @@ public class LaterInvocatorTest extends PlatformTestCase {
   }
 
   @Override
-  protected void runBareRunnable(ThrowableRunnable<Throwable> runnable) throws Throwable {
+  protected void runBareRunnable(@NotNull ThrowableRunnable<Throwable> runnable) throws Throwable {
     runnable.run();
   }
 
   @Override
-  protected void tearDown() {
+  protected void tearDown() throws Exception {
     myOrder.clear();
-    final boolean[] inModalState = {true};
-    ApplicationManager.getApplication().invokeLater(() -> {
-      synchronized (inModalState) {
-        inModalState[0] = false;
-      }
-    }, ModalityState.NON_MODAL);
     flushSwingQueue();
-    flushSwingQueue();
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
-      while (true) {
-        synchronized (inModalState) {
-          if (!inModalState[0]) break;
-        }
-        flushSwingQueue();
-        synchronized (inModalState) {
-          if (inModalState[0] && LaterInvocator.isInModalContext()) LaterInvocator.leaveAllModals();
-        }
-      }
-    });
-
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> LaterInvocator.leaveAllModals());
     EdtTestUtil.runInEdtAndWait(() -> super.tearDown());
   }
 
@@ -214,16 +187,16 @@ public class LaterInvocatorTest extends PlatformTestCase {
         LaterInvocator.invokeLater(new Runnable() {
           @Override
           public void run() {
-            TestCase.assertTrue(!LaterInvocator.isInModalContext());
+            assertFalse(LaterInvocator.isInModalContext());
           }
 
           public String toString() {
             return "ass2";
           }
-        }, ModalityState.NON_MODAL);
-        LaterInvocator.invokeLater(ENTER_MODAL, ModalityState.NON_MODAL);
+        }, ModalityState.NON_MODAL, true);
+        LaterInvocator.invokeLater(ENTER_MODAL, ModalityState.NON_MODAL, true);
 
-        LaterInvocator.invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL);
+        LaterInvocator.invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL, true);
 
         //some weird things like MyFireIdleRequest may still sneak in
         //java.util.List<Object> dump = LaterInvocator.dumpQueue();
@@ -240,10 +213,9 @@ public class LaterInvocatorTest extends PlatformTestCase {
 
         SwingUtilities.invokeLater(LEAVE_MODAL);
         flushSwingQueue();
-        TestCase.assertTrue(!LaterInvocator.isInModalContext());
+        assertFalse(LaterInvocator.isInModalContext());
 
         checkOrder(1);
-
 
         LaterInvocator.leaveAllModals();
         myOrder.clear();
@@ -335,25 +307,22 @@ public class LaterInvocatorTest extends PlatformTestCase {
     });
   }
 
-  public void testDeadLock() throws InterruptedException {
+  public void testDeadLock() throws InterruptedException, ExecutionException {
     final Object lock = new Object();
     final boolean[] started = { false };
-    final Thread thread = new Thread("later invokator test") {
-      @Override
-      public void run() {
-        synchronized (lock) {
-          started[0] = true;
-          ApplicationManager.getApplication().invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL);
-          lock.notifyAll();
-        }
-      }
-    };
+    final AtomicReference<Future<?>> thread = new AtomicReference<>();
 
     UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
       synchronized (this) {
         blockSwingThread();
         ApplicationManager.getApplication().invokeLater(() -> {
-          thread.start();
+          thread.set(ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            synchronized (lock) {
+              started[0] = true;
+              ApplicationManager.getApplication().invokeLater(new MyRunnable("1"), ModalityState.NON_MODAL);
+              lock.notifyAll();
+            }
+          }));
           while (!started[0]) {
             try {
               //noinspection BusyWait
@@ -372,7 +341,7 @@ public class LaterInvocatorTest extends PlatformTestCase {
       flushSwingQueue();
       checkOrder(1);
     });
-    thread.join();
+    thread.get().get();
   }
 
   static void flushSwingQueue() {
@@ -448,15 +417,16 @@ public class LaterInvocatorTest extends PlatformTestCase {
       }
     }
 
+    @Override
     public String toString() {
-      return "myrun " + myId;
+      return "run #" + myId;
     }
   }
 
   private static class Lock implements Runnable {
     private final Object myLock;
 
-    public Lock(Object lock) {
+    Lock(Object lock) {
       myLock = lock;
     }
 
@@ -474,7 +444,7 @@ public class LaterInvocatorTest extends PlatformTestCase {
       LaterInvocator.enterModal(myWindow2);
       ModalityState window2State = ModalityState.current();
       LaterInvocator.leaveModal(myWindow2);
-      LaterInvocator.invokeLater(new MyRunnable("1"), window2State);
+      LaterInvocator.invokeLater(new MyRunnable("1"), window2State, true);
 
       LaterInvocator.enterModal(myWindow1);
       flushSwingQueue();
@@ -484,7 +454,7 @@ public class LaterInvocatorTest extends PlatformTestCase {
       flushSwingQueue();
       checkOrder(1);
 
-      LaterInvocator.invokeLater(new MyRunnable("2"), window2State);
+      LaterInvocator.invokeLater(new MyRunnable("2"), window2State, true);
       flushSwingQueue();
       checkOrder(2);
     });
@@ -549,14 +519,14 @@ public class LaterInvocatorTest extends PlatformTestCase {
   }
 
   public void testModalityStateCurrentAllowedOnlyFromEDT() throws Exception {
-    LoggedErrorProcessor.getInstance().disableStderrDumping(getTestRootDisposable());
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
     Future<ModalityState> future = ApplicationManager.getApplication().executeOnPooledThread(() -> ModalityState.current());
     try {
       future.get(1000, TimeUnit.MILLISECONDS);
       fail("should fail");
     }
     catch (ExecutionException e) {
-      assertTrue(e.getMessage(), e.getMessage().contains("Access is allowed from event dispatch thread only"));
+      assertThat(e.getMessage()).contains("EventQueue.isDispatchThread()=false");
     }
   }
 
@@ -589,14 +559,19 @@ public class LaterInvocatorTest extends PlatformTestCase {
 
   }
 
+  @SuppressWarnings("StringOperationCanBeSimplified")
   public void testDifferentStatesAreNotEqualAfterGc() {
-    ModalityStateEx state1 = new ModalityStateEx("common", new String("foo"));
-    ModalityStateEx state2 = new ModalityStateEx("common", new String("bar"));
-    
-    assertFalse(state1.equals(state2));
+    String s1 = new String("foo");
+    String s2 = new String("bar");
+    ModalityStateEx state1 = new ModalityStateEx("common", s1);
+    ModalityStateEx state2 = new ModalityStateEx("common", s2);
+    assertNotEquals(state1, state2);
 
-    GCUtil.tryGcSoftlyReachableObjects();
-    assertFalse(state1.equals(state2));
+    GCWatcher watcher = GCWatcher.tracking(s1, s2);
+    //noinspection UnusedAssignment
+    s1 = s2 = null;
+    watcher.ensureCollected();
+    assertNotEquals(state1, state2);
   }
 
   public void testStateForComponentIdentity() {
@@ -616,7 +591,7 @@ public class LaterInvocatorTest extends PlatformTestCase {
   }
 
   public void testProgressModality() {
-    ApplicationManager.getApplication().invokeAndWait(() -> ProgressManager.getInstance().run(new Task.Modal(myProject, "", false) {
+    ApplicationManager.getApplication().invokeAndWait(() -> ProgressManager.getInstance().run(new Task.Modal(getProject(), "", false) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         ModalityState state = indicator.getModalityState();
@@ -687,6 +662,32 @@ public class LaterInvocatorTest extends PlatformTestCase {
       AtomicBoolean invoked = new AtomicBoolean();
       ApplicationManager.getApplication().invokeLater(() -> invoked.set(true), state);
       
+      UIUtil.dispatchAllInvocationEvents();
+      assertTrue(invoked.get());
+    });
+  }
+
+  public void testInvokeLaterGoesIntoTransparentModality() {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      AtomicBoolean invoked = new AtomicBoolean();
+      ApplicationManager.getApplication().invokeLater(() -> invoked.set(true), ModalityState.NON_MODAL);
+      LaterInvocator.enterModal(myWindow1);
+
+      UIUtil.dispatchAllInvocationEvents();
+      assertFalse(invoked.get());
+
+      LaterInvocator.markTransparent(ModalityState.current());
+      UIUtil.dispatchAllInvocationEvents();
+      assertTrue(invoked.get());
+    });
+  }
+
+  public void testInvokeLaterGoesIntoModalityDeclaredTransparentBeforeEntering() {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      AtomicBoolean invoked = new AtomicBoolean();
+      LaterInvocator.markTransparent(ModalityState.stateForComponent(myModalDialog));
+      ApplicationManager.getApplication().invokeLater(() -> invoked.set(true), ModalityState.NON_MODAL);
+      LaterInvocator.enterModal(myModalDialog);
       UIUtil.dispatchAllInvocationEvents();
       assertTrue(invoked.get());
     });

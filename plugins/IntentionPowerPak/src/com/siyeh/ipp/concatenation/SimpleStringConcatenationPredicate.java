@@ -26,13 +26,13 @@ class SimpleStringConcatenationPredicate implements PsiElementPredicate {
 
   private final boolean excludeConcatenationsInsideAnnotations;
 
-  public SimpleStringConcatenationPredicate(boolean excludeConcatenationsInsideAnnotations) {
+  SimpleStringConcatenationPredicate(boolean excludeConcatenationsInsideAnnotations) {
     this.excludeConcatenationsInsideAnnotations = excludeConcatenationsInsideAnnotations;
   }
 
   @Override
   public boolean satisfiedBy(PsiElement element) {
-    if (!ExpressionUtils.isConcatenation(element)) {
+    if (!ExpressionUtils.isStringConcatenation(element)) {
       return false;
     }
     return !(excludeConcatenationsInsideAnnotations && (AnnotationUtil.isInsideAnnotation(element) || 

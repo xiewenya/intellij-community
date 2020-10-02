@@ -17,9 +17,6 @@ import com.intellij.project.IntelliJProjectConfiguration;
 import com.intellij.testFramework.VfsTestUtil;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class PackagingElementsTestCase extends ArtifactsTestCase {
   protected Artifact addArtifact(TestPackagingElementBuilder builder) {
     return addArtifact("a", builder);
@@ -90,7 +87,6 @@ public abstract class PackagingElementsTestCase extends ArtifactsTestCase {
       if (module != null) {
         ModuleRootModificationUtil.addDependency(module, library, scope, false);
       }
-      ;
       return library;
     });
   }

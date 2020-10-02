@@ -38,7 +38,6 @@ import java.util.List;
 
 /**
  * @author Dmitry Avdeev
- * @since 10/1/12
  */
 public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
   private final static Logger LOG = Logger.getInstance(ArchivedTemplatesFactory.class);
@@ -57,7 +56,7 @@ public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
 
   @NotNull
   static String getCustomTemplatesPath() {
-    return PathManager.getConfigPath() + "/projectTemplates";
+    return PathManager.getConfigPath() + "/projectTemplates"; //NON-NLS
   }
 
   @NotNull
@@ -65,15 +64,13 @@ public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
     return Paths.get(getCustomTemplatesPath(), name + ".zip");
   }
 
-  @NotNull
   @Override
-  public String[] getGroups() {
+  public String @NotNull [] getGroups() {
     return new String[]{CUSTOM_GROUP};
   }
 
-  @NotNull
   @Override
-  public ProjectTemplate[] createTemplates(@Nullable String group, WizardContext context) {
+  public ProjectTemplate @NotNull [] createTemplates(@Nullable String group, WizardContext context) {
     // myGroups contains only not-null keys
     if (!CUSTOM_GROUP.equals(group)) {
       return ProjectTemplate.EMPTY_ARRAY;
@@ -104,6 +101,6 @@ public class ArchivedTemplatesFactory extends ProjectTemplatesFactory {
 
   @Override
   public Icon getGroupIcon(String group) {
-    return CUSTOM_GROUP.equals(group) ? AllIcons.Modules.Types.UserDefined : super.getGroupIcon(group);
+    return CUSTOM_GROUP.equals(group) ? AllIcons.General.User : super.getGroupIcon(group);
   }
 }

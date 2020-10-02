@@ -1,5 +1,7 @@
 import sys
-
+sys.stderr.write("Warning: You are using test runners in legacy mode\n. "
+                 "That means you have 'python.tests.enableUniversalTests=false' in registry.\n"
+                 "This mode will be dropped in 2021. Consider removing this entry from registry and migrating to new test runners")
 has_pytest = False
 #there is the difference between 1.3.4 and 2.0.2 versions
 #Since version 1.4, the testing tool "py.test" is part of its own pytest distribution.
@@ -10,7 +12,7 @@ except:
   try:
     import py
   except:
-    raise NameError("No py.test runner found in selected interpreter")
+    raise NameError("No pytest runner found in selected interpreter")
 
 def get_plugin_manager():
   try:

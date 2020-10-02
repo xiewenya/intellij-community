@@ -1,9 +1,7 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.spellchecker.dictionary;
 
-
 import com.intellij.spellchecker.inspection.SpellcheckerInspectionTestCase;
-import com.intellij.util.containers.HashSet;
 
 import java.util.*;
 
@@ -31,17 +29,13 @@ public class ProjectDictionaryTest extends SpellcheckerInspectionTestCase {
   private static void doContainTest(String wordToCheck, Boolean expected) {
     assertEquals(expected, myProjectDictionary.contains(wordToCheck));
   }
-  
+
   public void testContainsProject() {
     doContainTest(BBBB);
   }
 
   public void testContainsNeg() {
     doContainTest("eeeee", null);
-  }
-
-  public void testSize() {
-    assertEquals(2, myProjectDictionary.size());
   }
 
   public void testWords() {
@@ -79,15 +73,6 @@ public class ProjectDictionaryTest extends SpellcheckerInspectionTestCase {
     assert PROJECT_WORDS.stream().allMatch(w -> projectDictionary.contains(w) == null);
   }
 
-  public void testEmpty() {
-    final ProjectDictionary projectDictionary = createProjectDictionary(asList());
-    assertFalse(projectDictionary.isEmpty()); // current behavior
-  }
-
-  public void testNotEmpty() {
-    assertFalse(myProjectDictionary.isEmpty());
-  }
-
   public void testAdd() {
     final ProjectDictionary projectDictionary = createProjectDictionary(PROJECT_WORDS);
     projectDictionary.addToDictionary("EEEE");
@@ -112,22 +97,15 @@ public class ProjectDictionaryTest extends SpellcheckerInspectionTestCase {
     assert PROJECT_WORDS.stream().allMatch(projectWord -> projectDictionary.contains(projectWord) == null);
   }
 
-  public void testTraverse() {
-    final Set<String> traversedWords = new HashSet<>();
-    myProjectDictionary.traverse(traversedWords::add);
-
-    assertEquals(traversedWords, myProjectDictionary.getWords());
+  public void testGetSuggestions() {
+    final List<String> suggestions = new ArrayList<>();
+    myProjectDictionary.consumeSuggestions("AAAB", suggestions::add);
+    assert suggestions.isEmpty(); // TODO: change current behavior
   }
 
-  public void testGetSuggestions(){
+  public void testNoSuggestions() {
     final List<String> suggestions = new ArrayList<>();
-    myProjectDictionary.getSuggestions("AAAB", suggestions::add);
-    assert suggestions.isEmpty(); // TODO: change current behavior 
-  }
-
-  public void testNoSuggestions(){
-    final List<String> suggestions = new ArrayList<>();
-    myProjectDictionary.getSuggestions("EEEE", suggestions::add);
+    myProjectDictionary.consumeSuggestions("EEEE", suggestions::add);
     assert suggestions.isEmpty();
   }
 }

@@ -31,11 +31,8 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.util.Collection;
 
-/**
- * @author nik
- */
 public class ChangeLibraryLevelAction extends ChangeLibraryLevelActionBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.ui.configuration.projectRoot.ChangeLibraryLevelAction");
+  private static final Logger LOG = Logger.getInstance(ChangeLibraryLevelAction.class);
   private final JComponent myParentComponent;
   private final BaseLibrariesConfigurable mySourceConfigurable;
   private final BaseLibrariesConfigurable myTargetConfigurable;
@@ -51,7 +48,7 @@ public class ChangeLibraryLevelAction extends ChangeLibraryLevelActionBase {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final ProjectStructureElement selectedElement = mySourceConfigurable.getSelectedElement();
     if (!(selectedElement instanceof LibraryProjectStructureElement)) return;
     final StructureConfigurableContext context = mySourceConfigurable.myContext;

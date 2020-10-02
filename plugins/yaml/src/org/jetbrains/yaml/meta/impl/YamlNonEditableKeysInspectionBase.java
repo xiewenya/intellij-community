@@ -1,25 +1,24 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.meta.impl;
 
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.PsiRecursiveElementVisitor;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.yaml.YAMLBundle;
 import org.jetbrains.yaml.psi.YAMLKeyValue;
+import org.jetbrains.yaml.psi.YamlRecursivePsiElementVisitor;
 
 import java.util.ArrayList;
+import java.util.Objects;
 
-@ApiStatus.Experimental
+@ApiStatus.Internal
 public abstract class YamlNonEditableKeysInspectionBase extends YamlMetaTypeInspectionBase {
 
   @Override
@@ -33,7 +32,7 @@ public abstract class YamlNonEditableKeysInspectionBase extends YamlMetaTypeInsp
     private final ProblemsHolder myProblemsHolder;
     private final StripNonEditableKeysQuickFix myQuickFix;
 
-    public StructureChecker(@NotNull ProblemsHolder problemsHolder, @NotNull YamlMetaTypeProvider metaTypeProvider) {
+    StructureChecker(@NotNull ProblemsHolder problemsHolder, @NotNull YamlMetaTypeProvider metaTypeProvider) {
       myProblemsHolder = problemsHolder;
       myMetaTypeProvider = metaTypeProvider;
       myQuickFix = new StripNonEditableKeysQuickFix(myMetaTypeProvider);
@@ -53,7 +52,7 @@ public abstract class YamlNonEditableKeysInspectionBase extends YamlMetaTypeInsp
       }
     }
 
-    private static class StripNonEditableKeysQuickFix implements LocalQuickFix {
+    private static final class StripNonEditableKeysQuickFix implements LocalQuickFix {
       @NotNull
       private final YamlMetaTypeProvider myMetaTypeProvider;
 
@@ -63,29 +62,33 @@ public abstract class YamlNonEditableKeysInspectionBase extends YamlMetaTypeInsp
       @NotNull
       @Override
       public String getFamilyName() {
-        return YAMLBundle.message("YamlNonEditableKeyInspectionBase.strip.noneditable.keys.quickfix.name", new Object[]{});
+        return YAMLBundle.message("YamlNonEditableKeyInspectionBase.strip.noneditable.keys.quickfix.name");
       }
 
       @Override
       public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
         final ArrayList<YAMLKeyValue> keysToDelete = new ArrayList<>();
 
-        descriptor.getPsiElement().getContainingFile().accept(new PsiRecursiveElementVisitor() {
+        descriptor.getPsiElement().getContainingFile().accept(new YamlRecursivePsiElementVisitor() {
           @Override
-          public void visitElement(PsiElement element) {
-            if (element instanceof YAMLKeyValue) {
-              final YamlMetaTypeProvider.MetaTypeProxy meta = myMetaTypeProvider.getKeyValueMetaType((YAMLKeyValue)element);
-              if (meta != null && !meta.getField().isEditable()) {
-                keysToDelete.add((YAMLKeyValue)element);
-                return;
+          public void visitKeyValue(@NotNull YAMLKeyValue keyValue) {
+            final YamlMetaTypeProvider.MetaTypeProxy meta = myMetaTypeProvider.getKeyValueMetaType(keyValue);
+            if (meta != null && !meta.getField().isEditable()) {
+              if (keyValue.getParentMapping() != null) {
+                keysToDelete.add(keyValue);
               }
+              else {
+                Logger.getInstance(YamlNonEditableKeysInspectionBase.class)
+                  .warn("Wanted to remove KV, but it does not have a parent mapping");
+              }
+              return;
             }
-            super.visitElement(element);
+            super.visitKeyValue(keyValue);
           }
         });
 
         for (YAMLKeyValue keyValue : keysToDelete) {
-          keyValue.getParentMapping().deleteKeyValue(keyValue);
+          Objects.requireNonNull(keyValue.getParentMapping()).deleteKeyValue(keyValue);
         }
       }
     }

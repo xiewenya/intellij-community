@@ -5,14 +5,22 @@ import com.intellij.execution.CommandLineWrapperUtil
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.util.SystemProperties
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import org.apache.tools.ant.AntClassLoader
 import org.apache.tools.ant.types.Path
+import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.CompilationTasks
 import org.jetbrains.intellij.build.TestingOptions
 import org.jetbrains.intellij.build.TestingTasks
+import org.jetbrains.intellij.build.causal.CausalProfilingOptions
+import org.jetbrains.intellij.build.impl.compilation.PortableCompilationCache
+import org.jetbrains.jps.model.java.JpsJavaClasspathKind
+import org.jetbrains.jps.model.java.JpsJavaDependenciesEnumerator
+import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.jetbrains.jps.model.java.JpsJavaSdkType
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
@@ -21,13 +29,10 @@ import org.jetbrains.jps.util.JpsPathUtil
 import java.util.function.Predicate
 import java.util.jar.Manifest
 
-/**
- * @author nik
- */
 @CompileStatic
 class TestingTasksImpl extends TestingTasks {
-  private final CompilationContext context
-  private final TestingOptions options
+  protected final CompilationContext context
+  protected final TestingOptions options
 
   TestingTasksImpl(CompilationContext context, TestingOptions options) {
     this.options = options
@@ -36,7 +41,7 @@ class TestingTasksImpl extends TestingTasks {
 
   @Override
   void runTests(List<String> additionalJvmOptions, String defaultMainModule, Predicate<File> rootExcludeCondition) {
-    if (options.testDiscoveryEnabled && isPerformanceRun()) {
+    if (options.testDiscoveryEnabled && options.performanceTestsOnly) {
       context.messages.buildStatus("Skipping performance testing with Test Discovery, {build.status.text}")
       return
     }
@@ -45,7 +50,8 @@ class TestingTasksImpl extends TestingTasks {
 
     def compilationTasks = CompilationTasks.create(context)
     def runConfigurations = options.testConfigurations?.split(";")?.collect { String name ->
-      JUnitRunConfigurationProperties.findRunConfiguration(context.paths.projectHome, name, context.messages)
+      def file = JUnitRunConfigurationProperties.findRunConfiguration(context.paths.projectHome, name, context.messages)
+      JUnitRunConfigurationProperties.loadRunConfiguration(file, context.messages)
     }
     if (runConfigurations != null) {
       compilationTasks.compileModules(["intellij.tools.testsBootstrap"], ["intellij.platform.buildScripts"] + runConfigurations.collect { it.moduleName })
@@ -78,25 +84,30 @@ class TestingTasksImpl extends TestingTasks {
     }
   }
 
-  private static boolean isPerformanceRun() {
-    System.getProperty("idea.performance.tests") == "true"
-  }
-
   private void checkOptions() {
     if (options.testConfigurations != null) {
+      def testConfigurationsOptionName = "intellij.build.test.configurations"
       if (options.testPatterns != null) {
-        context.messages.warning("'intellij.build.test.configurations' option is specified so 'intellij.build.test.patterns' will be ignored.")
+        warnOptionIgnored(testConfigurationsOptionName, "intellij.build.test.patterns")
       }
       if (options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
-        context.messages.warning("'intellij.build.test.configurations' option is specified so 'intellij.build.test.groups' will be ignored.")
+        warnOptionIgnored(testConfigurationsOptionName, "intellij.build.test.groups")
       }
-      if (options.testConfigurations != null && options.mainModule != null) {
-        context.messages.warning("'intellij.build.test.configurations' option is specified so 'intellij.build.test.main.module' will be ignored.")
+      if (options.mainModule != null) {
+        warnOptionIgnored(testConfigurationsOptionName, "intellij.build.test.main.module")
       }
     }
     else if (options.testPatterns != null && options.testGroups != TestingOptions.ALL_EXCLUDE_DEFINED_GROUP) {
-      context.messages.warning("'intellij.build.test.patterns' option is specified so 'intellij.build.test.groups' will be ignored.")
+      warnOptionIgnored("intellij.build.test.patterns", "intellij.build.test.groups")
     }
+
+    if (options.batchTestIncludes != null && !isRunningInBatchMode()) {
+      context.messages.warning("'intellij.build.test.batchTest.includes' option will be ignored as other tests matching options are specified.")
+    }
+  }
+
+  private void warnOptionIgnored(String specifiedOption, String ignoredOption) {
+    context.messages.warning("'$specifiedOption' option is specified so '$ignoredOption' will be ignored.")
   }
 
   private void runTestsFromRunConfigurations(List<String> additionalJvmOptions,
@@ -159,6 +170,14 @@ class TestingTasksImpl extends TestingTasks {
       if (agentJar == null) context.messages.error("Can't find the agent in $testDiscovery library, but test discovery capturing enabled.")
 
       additionalJvmOptions.add("-javaagent:${agentJar.absolutePath}" as String)
+
+      def excludeRoots = new LinkedHashSet<String>()
+      context.projectModel.global.getLibraryCollection()
+        .getLibraries(JpsJavaSdkType.INSTANCE)
+        .each { excludeRoots.add(it.getProperties().getHomePath()) }
+      excludeRoots.add(context.paths.buildOutputRoot)
+      excludeRoots.add("$context.paths.projectHome/out".toString())
+
       additionalSystemProperties.putAll(
         [
           "test.discovery.listener"                 : "com.intellij.TestDiscoveryBasicListener",
@@ -166,6 +185,8 @@ class TestingTasksImpl extends TestingTasks {
           "org.jetbrains.instrumentation.trace.file": getTestDiscoveryTraceFilePath(),
           "test.discovery.include.class.patterns"   : options.testDiscoveryIncludePatterns,
           "test.discovery.exclude.class.patterns"   : options.testDiscoveryExcludePatterns,
+          "test.discovery.affected.roots"           : FileUtilRt.toSystemDependentName(context.paths.projectHome),
+          "test.discovery.excluded.roots"           : excludeRoots.collect { FileUtilRt.toSystemDependentName(it) }.join(";"),
         ] as Map<String, String>)
     }
   }
@@ -178,6 +199,7 @@ class TestingTasksImpl extends TestingTasks {
     if (options.testDiscoveryEnabled) {
       def file = getTestDiscoveryTraceFilePath()
       def serverUrl = System.getProperty("intellij.test.discovery.url")
+      def token = System.getProperty("intellij.test.discovery.token")
       context.messages.info("Trying to upload $file into $serverUrl.")
       if (file != null && new File(file).exists()) {
         if (serverUrl == null) {
@@ -185,7 +207,7 @@ class TestingTasksImpl extends TestingTasks {
                                    "Will not upload to remote server. Please set 'intellij.test.discovery.url' system property.")
           return
         }
-        def uploader = new TraceFileUploader(serverUrl) {
+        def uploader = new TraceFileUploader(serverUrl, token) {
           @Override
           protected void log(String message) {
             context.messages.info(message)
@@ -198,14 +220,15 @@ class TestingTasksImpl extends TestingTasks {
             'teamcity-build-configuration-name': System.getenv('TEAMCITY_BUILDCONF_NAME'),
             'teamcity-build-project-name'      : System.getenv('TEAMCITY_PROJECT_NAME'),
             'branch'                           : System.getProperty('intellij.platform.vcs.branch') ?: 'master',
-            'project'                          : 'intellij',
+            'project'                          : System.getProperty('intellij.test.discovery.project') ?: 'intellij',
+            'checkout-root-prefix'             : System.getProperty("intellij.build.test.discovery.checkout.root.prefix"),
           ])
         }
         catch (Exception e) {
           context.messages.error(e.message, e)
         }
       }
-      context.messages.buildStatus("Runned with Test Discovery, {build.status.text}")
+      context.messages.buildStatus("With Discovery, {build.status.text}")
     }
   }
 
@@ -218,7 +241,13 @@ class TestingTasksImpl extends TestingTasks {
     def testObject = System.getProperty("teamcity.remote-debug.junit.type")
     def junitClass = System.getProperty("teamcity.remote-debug.junit.class")
     if (testObject != "class") {
-      context.messages.error("Remote debugging supports debugging all test methods in a class for now, debugging isn't supported for '$testObject'")
+      def message = "Remote debugging supports debugging all test methods in a class for now, debugging isn't supported for '$testObject'"
+      if (testObject == "method") {
+        context.messages.warning(message)
+        context.messages.warning("Launching all test methods in the class $junitClass")
+      } else {
+        context.messages.error(message)
+      }
     }
     if (junitClass == null) {
       context.messages.error("Remote debugging supports debugging all test methods in a class for now, but target class isn't specified")
@@ -235,114 +264,54 @@ class TestingTasksImpl extends TestingTasks {
   }
 
   private void runTestsProcess(String mainModule, String testGroups, String testPatterns,
-                               List<String> additionalJvmOptions, Map<String, String> additionalSystemProperties, Map<String, String> envVariables, boolean remoteDebugging) {
+                               List<String> jvmArgs, Map<String, String> systemProperties, Map<String, String> envVariables, boolean remoteDebugging) {
     List<String> testsClasspath = context.getModuleRuntimeClasspath(context.findRequiredModule(mainModule), true)
     List<String> bootstrapClasspath = context.getModuleRuntimeClasspath(context.findRequiredModule("intellij.tools.testsBootstrap"), false)
+
     def classpathFile = new File("$context.paths.temp/junit.classpath")
     FileUtilRt.createParentDirs(classpathFile)
     classpathFile.text = testsClasspath.findAll({ new File(it).exists() }).join('\n')
 
-    File snapshotsDir = createSnapshotsDirectory()
-    String hprofSnapshotFilePath = new File(snapshotsDir, "intellij-tests-oom.hprof").absolutePath
-    List<String> jvmArgs = [
-      "-ea",
-      "-server",
-      "-XX:+HeapDumpOnOutOfMemoryError",
-      "-XX:HeapDumpPath=$hprofSnapshotFilePath".toString(),
-      "-XX:ReservedCodeCacheSize=300m",
-      "-XX:SoftRefLRUPolicyMSPerMB=50",
-      "-XX:+UseConcMarkSweepGC",
-      "-XX:-OmitStackTraceInFastThrow"
-    ]
-    jvmArgs.addAll(additionalJvmOptions)
-    if (options.jvmMemoryOptions != null) {
-      jvmArgs.addAll(options.jvmMemoryOptions.split())
-    }
-    else {
-      jvmArgs.addAll([
-        "-Xmx750m",
-        "-Xms750m",
-        "-Dsun.io.useCanonCaches=false"
-      ])
-    }
+    def allSystemProperties = new HashMap<String, String>(systemProperties)
+    [
+      "classpath.file"                            : classpathFile.absolutePath,
+      "intellij.build.test.patterns"              : testPatterns,
+      "intellij.build.test.groups"                : testGroups,
+      "intellij.build.test.sorter"                : System.getProperty("intellij.build.test.sorter"),
+      "bootstrap.testcases"                       : "com.intellij.AllTests",
+      (TestingOptions.PERFORMANCE_TESTS_ONLY_FLAG)  : options.performanceTestsOnly.toString(),
+    ].each { k, v -> allSystemProperties.putIfAbsent(k, v) }
 
-    String tempDir = System.getProperty("teamcity.build.tempDir", System.getProperty("java.io.tmpdir"))
+    def allJvmArgs = new ArrayList<String>(jvmArgs)
 
-    Map<String, String> systemProperties = [
-      "classpath.file"                         : classpathFile.absolutePath,
-      "idea.platform.prefix"                   : options.platformPrefix,
-      "idea.home.path"                         : context.paths.projectHome,
-      "idea.config.path"                       : "$tempDir/config".toString(),
-      "idea.system.path"                       : "$tempDir/system".toString(),
-      "intellij.build.test.patterns"           : testPatterns,
-      "intellij.build.test.groups"             : testGroups,
-      "idea.performance.tests"                 : System.getProperty("idea.performance.tests"),
-      "idea.coverage.enabled.build"            : System.getProperty("idea.coverage.enabled.build"),
-      "teamcity.buildConfName"                 : System.getProperty("teamcity.buildConfName"),
-      "bootstrap.testcases"                    : "com.intellij.AllTests",
-      "java.io.tmpdir"                         : tempDir,
-      "teamcity.build.tempDir"                 : tempDir,
-      "teamcity.tests.recentlyFailedTests.file": System.getProperty("teamcity.tests.recentlyFailedTests.file"),
-      "jna.nosys"                              : "true",
-      "file.encoding"                          : "UTF-8",
-      "io.netty.leakDetectionLevel"            : "PARANOID",
-    ] as Map<String, String>
-    systemProperties.putAll(additionalSystemProperties)
+    prepareEnvForTestRun(allJvmArgs, allSystemProperties, bootstrapClasspath, remoteDebugging)
 
-    (System.getProperties() as Hashtable<String, String>).each { String key, String value ->
-      if (key.startsWith("pass.")) {
-        systemProperties[key.substring("pass.".length())] = value
-      }
+    if (isRunningInBatchMode()) {
+      context.messages.info("Running tests from ${mainModule} matched by '${options.batchTestIncludes}' pattern.")
+    } else {
+      context.messages.info("Starting ${testGroups != null ? "test from groups '${testGroups}'" : "all tests"}")
     }
-
-    boolean suspendDebugProcess = options.suspendDebugProcess
-    if (isPerformanceRun()) {
-      context.messages.info("Debugging disabled for performance tests")
-      suspendDebugProcess = false
-    }
-    else if (remoteDebugging) {
-      context.messages.info("Remote debugging via TeamCity plugin is activated.")
-      if (suspendDebugProcess) {
-        context.messages.warning("'intellij.build.test.debug.suspend' option is ignored while debugging via TeamCity plugin")
-        suspendDebugProcess = false
-      }
-    }
-    else {
-      String debuggerParameter = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=${suspendDebugProcess ? "y" : "n"}"
-      if (options.debugPort != -1) {
-        debuggerParameter += ",address=$options.debugPort"
-      }
-      jvmArgs.add(debuggerParameter)
-    }
-
-    context.messages.info("Starting ${testGroups != null ? "test from groups '${testGroups}'" : "all tests"}")
     if (options.customJrePath != null) {
       context.messages.info("JVM: $options.customJrePath")
     }
-    context.messages.info("JVM options: $jvmArgs")
-    context.messages.info("System properties: $systemProperties")
+    context.messages.info("JVM options: $allJvmArgs")
+    context.messages.info("System properties: $allSystemProperties")
     context.messages.info("Bootstrap classpath: $bootstrapClasspath")
     context.messages.info("Tests classpath: $testsClasspath")
     if (!envVariables.isEmpty()) {
       context.messages.info("Environment variables: $envVariables")
     }
 
-    if (suspendDebugProcess) {
-      context.messages.info("""
-------------->------------- The process suspended until remote debugger connects to debug port -------------<-------------
----------------------------------------^------^------^------^------^------^------^----------------------------------------
-""")
-    }
-    if (isBootstrapSuiteDefault()) {
-      runJUnitTask(jvmArgs, systemProperties, envVariables, bootstrapClasspath)
-    }
-    else {
-      //run other suites instead of BootstrapTests
-      runJUnitTask(jvmArgs, systemProperties, envVariables, testsClasspath)
-    }
+    runJUnitTask(mainModule, allJvmArgs, allSystemProperties, envVariables, isBootstrapSuiteDefault() && !isRunningInBatchMode() ? bootstrapClasspath : testsClasspath)
 
-    if (new File(hprofSnapshotFilePath).exists()) {
-      context.notifyArtifactBuilt(hprofSnapshotFilePath)
+    notifySnapshotBuilt(allJvmArgs)
+  }
+
+  private void notifySnapshotBuilt(List<String> jvmArgs) {
+    def option = "-XX:HeapDumpPath="
+    def filePath = jvmArgs.find { it.startsWith(option) }.substring(option.length())
+    if (new File(filePath).exists()) {
+      context.notifyArtifactBuilt(filePath)
     }
   }
 
@@ -355,9 +324,101 @@ class TestingTasksImpl extends TestingTasks {
     return snapshotsDir
   }
 
+  @Override
+  void prepareEnvForTestRun(List<String> jvmArgs, Map<String, String> systemProperties, List<String> classPath, boolean remoteDebugging) {
+    if (jvmArgs.contains("-Djava.system.class.loader=com.intellij.util.lang.UrlClassLoader")) {
+      def utilModule = context.findRequiredModule("intellij.platform.util")
+      JpsJavaDependenciesEnumerator enumerator = JpsJavaExtensionService.dependencies(utilModule).recursively().withoutSdk().includedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME)
+      def utilClasspath = enumerator.classes().roots.collect { it.absolutePath }
+      classPath.addAll(utilClasspath - classPath)
+    }
+
+    File snapshotsDir = createSnapshotsDirectory()
+    String hprofSnapshotFilePath = new File(snapshotsDir, "intellij-tests-oom.hprof").absolutePath
+    List<String> defaultJvmArgs = VmOptionsGenerator.COMMON_VM_OPTIONS + [
+      '-XX:+HeapDumpOnOutOfMemoryError',
+      '-XX:HeapDumpPath=' + hprofSnapshotFilePath,
+      '-Dkotlinx.coroutines.debug=on', // re-enable coroutine debugging in tests (its is explicitly disabled in VmOptionsGenerator)
+    ]
+    jvmArgs.addAll(0, defaultJvmArgs)
+    if (options.jvmMemoryOptions != null) {
+      jvmArgs.addAll(options.jvmMemoryOptions.split())
+    }
+    else {
+      jvmArgs.addAll([
+        "-Xmx750m",
+        "-Xms750m",
+        "-Dsun.io.useCanonPrefixCache=false"
+      ])
+    }
+
+    String tempDir = System.getProperty("teamcity.build.tempDir", System.getProperty("java.io.tmpdir"))
+    Map<String, String> defaultSystemProperties = [
+      "idea.platform.prefix"                              : options.platformPrefix,
+      "idea.home.path"                                    : context.paths.projectHome,
+      "idea.config.path"                                  : "$tempDir/config".toString(),
+      "idea.system.path"                                  : "$tempDir/system".toString(),
+      "intellij.build.compiled.classes.archives.metadata" : System.getProperty("intellij.build.compiled.classes.archives.metadata"),
+      "intellij.build.compiled.classes.archive"           : System.getProperty("intellij.build.compiled.classes.archive"),
+      "idea.coverage.enabled.build"                       : System.getProperty("idea.coverage.enabled.build"),
+      "teamcity.buildConfName"                            : System.getProperty("teamcity.buildConfName"),
+      "java.io.tmpdir"                                    : tempDir,
+      "teamcity.build.tempDir"                            : tempDir,
+      "teamcity.tests.recentlyFailedTests.file"           : System.getProperty("teamcity.tests.recentlyFailedTests.file"),
+      "teamcity.build.branch.is_default"                  : System.getProperty("teamcity.build.branch.is_default"),
+      "jna.nosys"                                         : "true",
+      "file.encoding"                                     : "UTF-8",
+      "io.netty.leakDetectionLevel"                       : "PARANOID",
+    ] as Map<String, String>
+    defaultSystemProperties.each { k, v -> systemProperties.putIfAbsent(k, v) }
+
+    (System.getProperties() as Hashtable<String, String>).each { String key, String value ->
+      if (key.startsWith("pass.")) {
+        systemProperties[key.substring("pass.".length())] = value
+      }
+    }
+
+    if (PortableCompilationCache.CAN_BE_USED) {
+      def compiledClassesDir = "$context.paths.buildOutputRoot/$CompilationContextImpl.CLASSES_DIR_NAME"
+      systemProperties[BuildOptions.PROJECT_CLASSES_OUTPUT_DIRECTORY_PROPERTY] = compiledClassesDir.toString()
+      systemProperties[BuildOptions.USE_COMPILED_CLASSES_PROPERTY] = "true"
+    }
+
+    boolean suspendDebugProcess = options.suspendDebugProcess
+    if (options.performanceTestsOnly) {
+      context.messages.info("Debugging disabled for performance tests")
+      suspendDebugProcess = false
+    }
+    else if (remoteDebugging) {
+      context.messages.info("Remote debugging via TeamCity plugin is activated.")
+      if (suspendDebugProcess) {
+        context.messages.warning("'intellij.build.test.debug.suspend' option is ignored while debugging via TeamCity plugin")
+        suspendDebugProcess = false
+      }
+    }
+    else if (options.debugEnabled) {
+      String debuggerParameter = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=${suspendDebugProcess ? "y" : "n"},address=localhost:$options.debugPort"
+      jvmArgs.add(debuggerParameter)
+    }
+
+    if (options.enableCausalProfiling) {
+      def causalProfilingOptions = CausalProfilingOptions.IMPL
+      systemProperties["intellij.build.test.patterns"] = causalProfilingOptions.testClass.replace(".", "\\.")
+      jvmArgs.addAll(buildCausalProfilingAgentJvmArg(causalProfilingOptions))
+    }
+
+    if (suspendDebugProcess) {
+      context.messages.info("""
+------------->------------- The process suspended until remote debugger connects to debug port -------------<-------------
+---------------------------------------^------^------^------^------^------^------^----------------------------------------
+""")
+    }
+  }
+
   @SuppressWarnings("GrUnresolvedAccess")
   @CompileDynamic
-  private void runJUnitTask(List<String> jvmArgs, Map<String, String> systemProperties, Map<String, String> envVariables, List<String> bootstrapClasspath) {
+  private void runJUnitTask(String mainModule, List<String> jvmArgs, Map<String, String> systemProperties,
+                            Map<String, String> envVariables, List<String> bootstrapClasspath) {
     defineJunitTask(context.ant, "$context.paths.communityHome/lib")
 
     String junitTemp = "$context.paths.temp/junit"
@@ -366,7 +427,7 @@ class TestingTasksImpl extends TestingTasks {
     List<String> teamCityFormatterClasspath = createTeamCityFormatterClasspath()
 
     String jvmExecutablePath = options.customJrePath != null ? "$options.customJrePath/bin/java" : ""
-    context.ant.junit(fork: true, showoutput: true, logfailedtests: false, tempdir: junitTemp, jvm: jvmExecutablePath, printsummary: (underTeamCity ? "off" : "on")) {
+    context.ant.junit(fork: true, showoutput: isShowAntJunitOutput(), logfailedtests: false, tempdir: junitTemp, jvm: jvmExecutablePath, printsummary: (underTeamCity ? "off" : "on")) {
       jvmArgs.each { jvmarg(value: it) }
       systemProperties.each { key, value ->
         if (value != null) {
@@ -393,8 +454,8 @@ class TestingTasksImpl extends TestingTasks {
         formatter(classname: "org.jetbrains.intellij.build.JUnitLiveTestProgressFormatter", usefile: false)
       }
 
-      //if it is Windows OS, test classpath may exceed the maximum command line, so we need to wrap a classpath in a jar
-      if (SystemInfo.isWindows && !isBootstrapSuiteDefault()) {
+      //test classpath may exceed the maximum command line, so we need to wrap a classpath in a jar
+      if (!isBootstrapSuiteDefault()) {
         def classpathJarFile = CommandLineWrapperUtil.createClasspathJarFile(new Manifest(), bootstrapClasspath)
         classpath {
           pathelement(location: classpathJarFile.path)
@@ -407,8 +468,24 @@ class TestingTasksImpl extends TestingTasks {
         }
       }
 
-      test(name: options.bootstrapSuite)
+      if (isRunningInBatchMode()) {
+        def mainModuleTestsOutput = context.getModuleTestsOutputPath(context.findModule(mainModule))
+        batchtest {
+          fileset dir: mainModuleTestsOutput, includes: options.batchTestIncludes
+        }
+      } else {
+        test(name: options.bootstrapSuite)
+      }
     }
+  }
+
+  /**
+   * Allows to disable duplicated lines in TeamCity build log (IDEA-240814).
+   *
+   * Note! Build statistics (and other TeamCity Service Message) can be reported only with this option enabled (IDEA-241221).
+   */
+  private static boolean isShowAntJunitOutput() {
+    return SystemProperties.getBooleanProperty("intellij.test.show.ant.junit.output", true)
   }
 
   /**
@@ -444,15 +521,15 @@ class TestingTasksImpl extends TestingTasks {
     return classpath
   }
 
-  private static boolean isUnderTeamCity() {
-    System.getProperty("teamcity.buildType.id") != null
+  protected static boolean isUnderTeamCity() {
+    System.getenv("TEAMCITY_VERSION") != null
   }
 
   static boolean dependenciesInstalled
-  private def setupTestingDependencies() {
+  void setupTestingDependencies() {
     if (!dependenciesInstalled) {
       dependenciesInstalled = true
-      context.gradle.run('Setting up testing dependencies', 'setupKotlinPlugin')
+      context.gradle.run('Setting up testing dependencies', 'setupKotlinPlugin', 'setupThirdPartyPlugins', 'setupBundledMaven')
     }
   }
 
@@ -474,7 +551,34 @@ class TestingTasksImpl extends TestingTasks {
     ant.taskdef(name: "junit", classname: "org.apache.tools.ant.taskdefs.optional.junit.JUnitTask", loaderRef: junitTaskLoaderRef)
   }
 
-  private boolean isBootstrapSuiteDefault() {
+  protected boolean isBootstrapSuiteDefault() {
     return options.bootstrapSuite == TestingOptions.BOOTSTRAP_SUITE_DEFAULT
+  }
+
+  protected boolean isRunningInBatchMode() {
+    return options.batchTestIncludes != null &&
+           options.testPatterns == null &&
+           options.testConfigurations == null &&
+           options.testGroups == TestingOptions.ALL_EXCLUDE_DEFINED_GROUP
+  }
+
+  private List<String> buildCausalProfilingAgentJvmArg(CausalProfilingOptions options) {
+    List<String> causalProfilingJvmArgs = []
+
+    String causalProfilerAgentName = SystemInfo.isLinux || SystemInfo.isMac ? "liblagent.so" : null
+    if (causalProfilerAgentName != null) {
+      def agentArgs = options.buildAgentArgsString()
+      if (agentArgs != null) {
+        causalProfilingJvmArgs << "-agentpath:${System.getProperty("teamcity.build.checkoutDir")}/$causalProfilerAgentName=$agentArgs".toString()
+      }
+      else {
+        context.messages.info("Could not find agent options")
+      }
+    }
+    else {
+      context.messages.info("Causal profiling is supported for Linux and Mac only")
+    }
+
+    return causalProfilingJvmArgs
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.repo;
 
 import com.intellij.openapi.application.PluginPathManager;
@@ -22,7 +8,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsTestUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.ZipUtil;
 import com.intellij.vcs.log.Hash;
@@ -40,13 +25,13 @@ import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 @RunWith(Parameterized.class)
 public class GitRepositoryReaderTest extends GitPlatformTest {
-
   @NotNull private final File myTestCaseDir;
 
   private File myTempDir;
@@ -61,29 +46,21 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
     return ContainerUtil.map(testCases, file -> new Object[] { file.getName(), file });
   }
 
-  @SuppressWarnings({"UnusedParameters", "JUnitTestCaseWithNonTrivialConstructors"})
+  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors"})
   public GitRepositoryReaderTest(@NotNull String name, @NotNull File testDir) {
     myTestCaseDir = testDir;
   }
 
-  @Override
   @Before
-  public void setUp() throws Exception {
-    EdtTestUtil.runInEdtAndWait(() -> super.setUp());
-    myTempDir = new File(projectRoot.getPath(), "test");
+  public void before() throws IOException {
+    myTempDir = new File(getProjectRoot().getPath(), "test");
     prepareTest(myTestCaseDir);
   }
 
   @After
-  @Override
-  public void tearDown() {
-    try {
-      if (myTempDir != null) {
-        FileUtil.delete(myTempDir);
-      }
-    }
-    finally {
-      EdtTestUtil.runInEdtAndWait(() -> super.tearDown());
+  public void after() {
+    if (myTempDir != null) {
+      FileUtil.delete(myTempDir);
     }
   }
 
@@ -102,7 +79,6 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
     VirtualFile gitDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(myGitDir);
     myRepositoryReader = new GitRepositoryReader(GitRepositoryFiles.getInstance(gitDir));
   }
-
 
   @NotNull
   private static String readHead(@NotNull File dir) throws IOException {
@@ -149,7 +125,7 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
   @NotNull
   private static Collection<Branch> readBranches(@NotNull File resultDir, boolean local) throws IOException {
     String content = FileUtil.loadFile(new File(resultDir, local ? "local-branches.txt" : "remote-branches.txt"));
-    Collection<Branch> branches = ContainerUtil.newArrayList();
+    Collection<Branch> branches = new ArrayList<>();
     for (String line : StringUtil.splitByLines(content)) {
       branches.add(readBranchFromLine(line));
     }
@@ -160,7 +136,7 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
     return actualBranch.getFullName().equals(expected.name) && actualHash.equals(expected.hash);
   }
 
-  private static class Branch {
+  private static final class Branch {
     final String name;
     final Hash hash;
 

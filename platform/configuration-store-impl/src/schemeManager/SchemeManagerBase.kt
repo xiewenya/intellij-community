@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore.schemeManager
 
 import com.intellij.openapi.options.SchemeProcessor
@@ -9,7 +9,7 @@ abstract class SchemeManagerBase<T : Any, in MUTABLE_SCHEME : T>(internal val pr
    * Schemes can be lazy loaded, so, client should be able to set current scheme by name, not only by instance.
    */
   @Volatile
-  protected var currentPendingSchemeName: String? = null
+  internal var currentPendingSchemeName: String? = null
 
   override var activeScheme: T? = null
     internal set
@@ -18,19 +18,21 @@ abstract class SchemeManagerBase<T : Any, in MUTABLE_SCHEME : T>(internal val pr
     get() = activeScheme?.let { processor.getSchemeKey(it) } ?: currentPendingSchemeName
     set(schemeName) = setCurrentSchemeName(schemeName, true)
 
-  internal fun processPendingCurrentSchemeName(newScheme: T) {
+  internal fun processPendingCurrentSchemeName(newScheme: T): Boolean {
     if (processor.getSchemeKey(newScheme) == currentPendingSchemeName) {
       setCurrent(newScheme, false)
+      return true
     }
+    return false
   }
 
-  override fun setCurrent(scheme: T?, notify: Boolean) {
+  override fun setCurrent(scheme: T?, notify: Boolean, processChangeSynchronously: Boolean) {
     currentPendingSchemeName = null
 
     val oldCurrent = activeScheme
     activeScheme = scheme
     if (notify && oldCurrent !== scheme) {
-      processor.onCurrentSchemeSwitched(oldCurrent, scheme)
+      processor.onCurrentSchemeSwitched(oldCurrent, scheme, processChangeSynchronously)
     }
   }
 

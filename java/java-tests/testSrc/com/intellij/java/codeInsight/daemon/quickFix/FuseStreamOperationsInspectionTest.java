@@ -8,15 +8,12 @@ import org.jetbrains.annotations.NotNull;
 
 
 public class FuseStreamOperationsInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     FuseStreamOperationsInspection inspection = new FuseStreamOperationsInspection();
     inspection.myStrictMode = getTestName(false).contains("Strict");
     return new LocalInspectionTool[]{inspection};
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.util;
 
 import com.intellij.codeInsight.ExpectedTypeInfo;
@@ -20,47 +6,50 @@ import com.intellij.codeInsight.ExpectedTypesProvider;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.daemon.impl.analysis.JavaHighlightUtil;
 import com.intellij.codeInsight.highlighting.HighlightManager;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
-import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
+import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.javadoc.PsiDocTagValue;
+import com.intellij.psi.search.GlobalSearchScopes;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.*;
 import com.intellij.refactoring.PackageWrapper;
+import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.introduceField.ElementToWorkOn;
 import com.intellij.refactoring.introduceVariable.IntroduceVariableBase;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.Stack;
 import com.intellij.util.text.UniqueNameGenerator;
 import gnu.trove.THashMap;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class RefactoringUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.util.RefactoringUtil");
+public final class RefactoringUtil {
+  private static final Logger LOG = Logger.getInstance(RefactoringUtil.class);
   public static final int EXPR_COPY_SAFE = 0;
   public static final int EXPR_COPY_UNSAFE = 1;
   public static final int EXPR_COPY_PROHIBITED = 2;
@@ -80,6 +69,9 @@ public class RefactoringUtil {
     return PsiUtil.getEnclosingStaticElement(element, aClass) != null;
   }
 
+  /**
+   * @deprecated use {@link PsiTypesUtil#hasUnresolvedComponents(PsiType)}
+   */
   @Deprecated
   public static boolean isResolvableType(PsiType type) {
     return !PsiTypesUtil.hasUnresolvedComponents(type);
@@ -211,7 +203,7 @@ public class RefactoringUtil {
       parent = parent.getParent();
     }
     PsiElement parentStatement = parent;
-    while (parent instanceof PsiStatement) {
+    while (parent instanceof PsiStatement && !(parent instanceof PsiSwitchLabeledRuleStatement)) {
       if (!skipScopingStatements && ((parent instanceof PsiForStatement && parentStatement == ((PsiForStatement)parent).getBody()) || (
         parent instanceof PsiForeachStatement && parentStatement == ((PsiForeachStatement)parent).getBody()) || (
         parent instanceof PsiWhileStatement && parentStatement == ((PsiWhileStatement)parent).getBody()) || (
@@ -356,7 +348,7 @@ public class RefactoringUtil {
   }
 
   public static PsiType getTypeByExpressionWithExpectedType(PsiExpression expr) {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(expr.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(expr.getProject());
     PsiType typeByExpression = getTypeByExpression(expr, factory);
     PsiType type = typeByExpression;
     final boolean isFunctionalType = LambdaUtil.notInferredType(type);
@@ -379,7 +371,7 @@ public class RefactoringUtil {
   }
 
   public static PsiType getTypeByExpression(PsiExpression expr) {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(expr.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(expr.getProject());
     PsiType type = getTypeByExpression(expr, factory);
     if (LambdaUtil.notInferredType(type)) {
       type = factory.createTypeByFQClassName(CommonClassNames.JAVA_LANG_OBJECT, expr.getResolveScope());
@@ -391,8 +383,12 @@ public class RefactoringUtil {
     PsiType type = RefactoringChangeUtil.getTypeByExpression(expr);
     if (PsiType.NULL.equals(type)) {
       ExpectedTypeInfo[] infos = ExpectedTypesProvider.getExpectedTypes(expr, false);
-      if (infos.length == 1) {
+      if (infos.length > 0) {
         type = infos[0].getType();
+        if (type instanceof PsiPrimitiveType) {
+          type = infos.length > 1 && !(infos[1].getType() instanceof PsiPrimitiveType) ? infos[1].getType()
+                                                                                       : ((PsiPrimitiveType)type).getBoxedType(expr);
+        }
       }
       else {
         type = factory.createTypeByFQClassName(CommonClassNames.JAVA_LANG_OBJECT, expr.getResolveScope());
@@ -417,7 +413,7 @@ public class RefactoringUtil {
     }
   }
 
-  public static PsiElement getAnchorElementForMultipleExpressions(@NotNull PsiExpression[] occurrences, PsiElement scope) {
+  public static PsiElement getAnchorElementForMultipleExpressions(PsiExpression @NotNull [] occurrences, PsiElement scope) {
     PsiElement anchor = null;
     for (PsiExpression occurrence : occurrences) {
       if (scope != null && !PsiTreeUtil.isAncestor(scope, occurrence, false)) {
@@ -540,18 +536,17 @@ public class RefactoringUtil {
   public static List<RangeHighlighter> highlightAllOccurrences(Project project, PsiElement[] occurrences, Editor editor) {
     ArrayList<RangeHighlighter> highlighters = new ArrayList<>();
     HighlightManager highlightManager = HighlightManager.getInstance(project);
-    EditorColorsManager colorsManager = EditorColorsManager.getInstance();
-    TextAttributes attributes = colorsManager.getGlobalScheme().getAttributes(EditorColors.SEARCH_RESULT_ATTRIBUTES);
     if (occurrences.length > 1) {
       for (PsiElement occurrence : occurrences) {
         final RangeMarker rangeMarker = occurrence.getUserData(ElementToWorkOn.TEXT_RANGE);
         if (rangeMarker != null && rangeMarker.isValid()) {
-          highlightManager
-            .addRangeHighlight(editor, rangeMarker.getStartOffset(), rangeMarker.getEndOffset(), attributes, true, highlighters);
+          highlightManager.addRangeHighlight(editor, rangeMarker.getStartOffset(), rangeMarker.getEndOffset(),
+                                             EditorColors.SEARCH_RESULT_ATTRIBUTES, true, highlighters);
         }
         else {
           final TextRange textRange = occurrence.getTextRange();
-          highlightManager.addRangeHighlight(editor, textRange.getStartOffset(), textRange.getEndOffset(), attributes, true, highlighters);
+          highlightManager.addRangeHighlight(editor, textRange.getStartOffset(), textRange.getEndOffset(),
+                                             EditorColors.SEARCH_RESULT_ATTRIBUTES, true, highlighters);
         }
       }
     }
@@ -568,7 +563,7 @@ public class RefactoringUtil {
     final String prefix = suggestedNames.length > 0 ? suggestedNames[0] : "var";
     final String id = JavaCodeStyleManager.getInstance(project).suggestUniqueVariableName(prefix, context, true);
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(expr.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(expr.getProject());
 
     if (expr instanceof PsiParenthesizedExpression) {
       PsiExpression expr1 = ((PsiParenthesizedExpression)expr).getExpression();
@@ -647,7 +642,7 @@ public class RefactoringUtil {
       return initializer;
     }
     LOG.assertTrue(initializerType instanceof PsiArrayType);
-    PsiElementFactory factory = JavaPsiFacade.getInstance(initializer.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(initializer.getProject());
     PsiNewExpression result =
       (PsiNewExpression)factory.createExpressionFromText("new " + initializerType.getPresentableText() + "{}", null);
     result = (PsiNewExpression)CodeStyleManager.getInstance(initializer.getProject()).reformat(result);
@@ -733,7 +728,7 @@ public class RefactoringUtil {
   }
 
   public static void visitImplicitSuperConstructorUsages(PsiClass subClass,
-                                                         final ImplicitConstructorUsageVisitor implicitConstructorUsageVistor,
+                                                         final ImplicitConstructorUsageVisitor implicitConstructorUsageVisitor,
                                                          PsiClass superClass) {
     final PsiMethod baseDefaultConstructor = findDefaultConstructor(superClass);
     final PsiMethod[] constructors = subClass.getConstructors();
@@ -743,12 +738,12 @@ public class RefactoringUtil {
         if (body == null) continue;
         final PsiStatement[] statements = body.getStatements();
         if (statements.length < 1 || !JavaHighlightUtil.isSuperOrThisCall(statements[0], true, true)) {
-          implicitConstructorUsageVistor.visitConstructor(constructor, baseDefaultConstructor);
+          implicitConstructorUsageVisitor.visitConstructor(constructor, baseDefaultConstructor);
         }
       }
     }
     else {
-      implicitConstructorUsageVistor.visitClassWithoutConstructors(subClass);
+      implicitConstructorUsageVisitor.visitClassWithoutConstructors(subClass);
     }
   }
 
@@ -762,7 +757,7 @@ public class RefactoringUtil {
   }
 
   public static void replaceMovedMemberTypeParameters(final PsiElement member,
-                                                      final Iterable<PsiTypeParameter> parametersIterable,
+                                                      final Iterable<? extends PsiTypeParameter> parametersIterable,
                                                       final PsiSubstitutor substitutor,
                                                       final PsiElementFactory factory) {
     final Map<PsiElement, PsiElement> replacement = new LinkedHashMap<>();
@@ -856,7 +851,7 @@ public class RefactoringUtil {
     return null;
   }
 
-  public static boolean isInMovedElement(PsiElement element, Set<PsiMember> membersToMove) {
+  public static boolean isInMovedElement(PsiElement element, Set<? extends PsiMember> membersToMove) {
     for (PsiMember member : membersToMove) {
       if (PsiTreeUtil.isAncestor(member, element, false)) return true;
     }
@@ -892,7 +887,7 @@ public class RefactoringUtil {
                                                     PsiElement finalAnchorStatement,
                                                     boolean replaceBody)
     throws IncorrectOperationException {
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(container.getProject()).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(container.getProject());
     if(isLoopOrIf(container)) {
       PsiStatement loopBody = getLoopBody(container, finalAnchorStatement);
       PsiStatement loopBodyCopy = loopBody != null ? (PsiStatement) loopBody.copy() : null;
@@ -929,7 +924,7 @@ public class RefactoringUtil {
       if (PsiType.VOID.equals(LambdaUtil.getFunctionalInterfaceReturnType(lambdaExpression))) {
         if (replaceBody) {
           lastBodyStatement = null;
-        } else {  
+        } else {
           lastBodyStatement = elementFactory.createStatementFromText("a;", lambdaExpression);
           ((PsiExpressionStatement)lastBodyStatement).getExpression().replace(lambdaExpressionBody);
         }
@@ -981,7 +976,7 @@ public class RefactoringUtil {
     final PsiElement body = lambdaExpression.getBody();
     if (!(body instanceof PsiExpression)) return (PsiCodeBlock)body;
 
-    String newLambdaText = "{";
+    @NonNls String newLambdaText = "{";
     if (!PsiType.VOID.equals(LambdaUtil.getFunctionalInterfaceReturnType(lambdaExpression))) newLambdaText += "return ";
     newLambdaText += "a;}";
 
@@ -996,105 +991,22 @@ public class RefactoringUtil {
     else if (statement instanceof PsiExpressionStatement){
       ((PsiExpressionStatement)statement).getExpression().replace(body);
     }
+    PsiElement arrow = PsiTreeUtil.skipWhitespacesBackward(body);
+    if (arrow != null && arrow.getNextSibling() != body) {
+      lambdaExpression.deleteChildRange(arrow.getNextSibling(), body.getPrevSibling());
+    }
     return (PsiCodeBlock)CodeStyleManager.getInstance(project).reformat(body.replace(codeBlock));
   }
 
-  /**
-   * Ensures that given call is surrounded by {@link PsiCodeBlock} (that is, it has a parent statement
-   * which is located inside the code block). If not, tries to create a code block.
-   *
-   * <p>
-   * Note that the expression is not necessarily a child of {@link PsiExpressionStatement}; it could be a subexpression,
-   * {@link PsiIfStatement}, etc.
-   * </p>
-   *
-   * <p>
-   * This method works if {@link com.siyeh.ig.psiutils.ControlFlowUtils#canExtractStatement(PsiExpression)}
-   * returns true on the same expression.
-   * </p>
-   *
-   * @param expression an expression which should be located inside the code block
-   * @return a passed expression if it's already surrounded by code block and no changes are necessary;
-   *         a replacement expression (which is equivalent to the passed expression) if a new code block was created;
-   *         {@code null} if the expression cannot be surrounded with code block.
-   */
-  @Nullable
-  public static <T extends PsiExpression> T ensureCodeBlock(@NotNull T expression) {
-    PsiElement parent = getParentStatement(expression, false);
-    if (parent == null) {
-      parent = PsiTreeUtil.getParentOfType(expression, PsiField.class, true, PsiClass.class);
-      if (parent == null) return null;
-    }
-    PsiElement grandParent = parent.getParent();
-    if (parent instanceof PsiStatement && grandParent instanceof PsiCodeBlock) {
-      if (!(parent instanceof PsiForStatement) ||
-          !PsiTreeUtil.isAncestor(((PsiForStatement)parent).getInitialization(), expression, true) ||
-          !hasNameCollision(((PsiForStatement)parent).getInitialization(), grandParent)) {
-        return expression;
+  @NlsContexts.DialogMessage
+  public static String checkEnumConstantInSwitchLabel(PsiExpression expr) {
+    if (PsiImplUtil.getSwitchLabel(expr) != null) {
+      PsiReferenceExpression ref = ObjectUtils.tryCast(PsiUtil.skipParenthesizedExprDown(expr), PsiReferenceExpression.class);
+      if (ref != null && ref.resolve() instanceof PsiEnumConstant) {
+        return RefactoringBundle.getCannotRefactorMessage(JavaRefactoringBundle.message("refactoring.introduce.variable.enum.in.label.message"));
       }
     }
-    Object marker = new Object();
-    PsiTreeUtil.mark(expression, marker);
-    PsiElement copy = parent.copy();
-    PsiElement newParent;
-    PsiElementFactory factory = JavaPsiFacade.getElementFactory(expression.getProject());
-    if (parent instanceof PsiExpression) {
-      PsiLambdaExpression lambda = (PsiLambdaExpression)grandParent;
-      String replacement = PsiType.VOID.equals(LambdaUtil.getFunctionalInterfaceReturnType(lambda)) ? "{a;}" : "{return a;}";
-      PsiElement block = parent.replace(factory.createCodeBlockFromText(replacement, lambda));
-      newParent = LambdaUtil.extractSingleExpressionFromBody(block).replace(copy);
-    }
-    else if (parent instanceof PsiField) {
-      PsiField field = (PsiField)parent;
-      PsiClassInitializer initializer =
-        ObjectUtils.tryCast(PsiTreeUtil.skipWhitespacesAndCommentsForward(field), PsiClassInitializer.class);
-      boolean isStatic = field.hasModifierProperty(PsiModifier.STATIC);
-      if (initializer == null || initializer.hasModifierProperty(PsiModifier.STATIC) != isStatic) {
-        initializer = factory.createClassInitializer();
-        if (isStatic) {
-          Objects.requireNonNull(initializer.getModifierList()).setModifierProperty(PsiModifier.STATIC, true);
-        }
-        initializer = (PsiClassInitializer)field.getParent().addAfter(initializer, field);
-      }
-      PsiCodeBlock body = initializer.getBody();
-      // There are at least two children: open and close brace
-      // we will insert an initializer after the first brace and any whitespace which follow it
-      PsiElement anchor = PsiTreeUtil.skipWhitespacesForward(body.getFirstChild());
-      assert anchor != null;
-      anchor = anchor.getPrevSibling();
-      assert anchor != null;
-
-      PsiExpressionStatement assignment =
-        (PsiExpressionStatement)factory.createStatementFromText(field.getName() + "=null;", initializer);
-      assignment = (PsiExpressionStatement)body.addAfter(assignment, anchor);
-      PsiExpression fieldInitializer = ((PsiField)copy).getInitializer();
-      if (fieldInitializer instanceof PsiArrayInitializerExpression) {
-        fieldInitializer = createNewExpressionFromArrayInitializer((PsiArrayInitializerExpression)fieldInitializer, field.getType());
-      }
-      PsiExpression rExpression = ((PsiAssignmentExpression)assignment.getExpression()).getRExpression();
-      assert fieldInitializer != null;
-      assert rExpression != null;
-      rExpression.replace(fieldInitializer);
-      Objects.requireNonNull(field.getInitializer()).delete();
-      newParent = assignment;
-    } else {
-      PsiBlockStatement blockStatement = (PsiBlockStatement)parent.replace(factory.createStatementFromText("{}", parent));
-      newParent = blockStatement.getCodeBlock().add(copy);
-    }
-    //noinspection unchecked
-    return (T)PsiTreeUtil.releaseMark(newParent, marker);
-  }
-
-  private static boolean hasNameCollision(PsiElement declaration, PsiElement context) {
-    if (declaration instanceof PsiDeclarationStatement) {
-      PsiResolveHelper helper = JavaPsiFacade.getInstance(context.getProject()).getResolveHelper();
-      return StreamEx.of(((PsiDeclarationStatement)declaration).getDeclaredElements())
-            .select(PsiLocalVariable.class)
-            .map(PsiLocalVariable::getName)
-            .nonNull()
-            .anyMatch(name -> helper.resolveReferencedVariable(name, context) != null);
-    }
-    return false;
+    return null;
   }
 
   public interface ImplicitConstructorUsageVisitor {
@@ -1110,16 +1022,16 @@ public class RefactoringUtil {
   }
 
   /**
-   * Returns subset of {@code graph.getVertices()} that is a tranistive closure (by <code>graph.getTargets()<code>)
+   * Returns subset of {@code graph.getVertices()} that is a transitive closure (by <code>graph.getTargets()<code>)
    * of the following property: initialRelation.value() of vertex or {@code graph.getTargets(vertex)} is true.
    * <p/>
-   * Note that {@code graph.getTargets()} is not neccesrily a subset of {@code graph.getVertex()}
+   * Note that {@code graph.getTargets()} is not necessarily a subset of {@code graph.getVertex()}
    *
    * @param graph
    * @param initialRelation
    * @return subset of graph.getVertices()
    */
-  public static <T> Set<T> transitiveClosure(Graph<T> graph, Condition<T> initialRelation) {
+  public static <T> Set<T> transitiveClosure(Graph<T> graph, Condition<? super T> initialRelation) {
     Set<T> result = new HashSet<>();
 
     final Set<T> vertices = graph.getVertices();
@@ -1193,21 +1105,28 @@ public class RefactoringUtil {
     return dataElements[0].getText();
   }
 
-  public static void fixJavadocsForParams(PsiMethod method, Set<PsiParameter> newParameters) throws IncorrectOperationException {
+  public static void fixJavadocsForParams(PsiMethod method, Set<? extends PsiParameter> newParameters) throws IncorrectOperationException {
     fixJavadocsForParams(method, newParameters, Conditions.alwaysFalse());
   }
 
   public static void fixJavadocsForParams(PsiMethod method,
-                                        Set<PsiParameter> newParameters,
-                                        Condition<Pair<PsiParameter, String>> eqCondition) throws IncorrectOperationException {
+                                          Set<? extends PsiParameter> newParameters,
+                                          Condition<? super Pair<PsiParameter, String>> eqCondition) throws IncorrectOperationException {
     fixJavadocsForParams(method, newParameters, eqCondition, Conditions.alwaysTrue());
   }
 
-  public static void fixJavadocsForParams(PsiMethod method,
-                                          Set<PsiParameter> newParameters,
-                                          Condition<Pair<PsiParameter, String>> eqCondition,
-                                          Condition<String> matchedToOldParam) throws IncorrectOperationException {
-    final PsiDocComment docComment = method.getDocComment();
+  public static void fixJavadocsForParams(@NotNull PsiMethod method,
+                                          @NotNull Set<? extends PsiParameter> newParameters,
+                                          @NotNull Condition<? super Pair<PsiParameter, String>> eqCondition,
+                                          @NotNull Condition<? super String> matchedToOldParam) throws IncorrectOperationException {
+    fixJavadocsForParams(method, method.getDocComment(), newParameters, eqCondition, matchedToOldParam);
+  }
+
+  public static void fixJavadocsForParams(@NotNull PsiMethod method,
+                                          @Nullable PsiDocComment docComment,
+                                          @NotNull Set<? extends PsiParameter> newParameters,
+                                          @NotNull Condition<? super Pair<PsiParameter, String>> eqCondition,
+                                          @NotNull Condition<? super String> matchedToOldParam) throws IncorrectOperationException {
     if (docComment == null) return;
     final PsiParameter[] parameters = method.getParameterList().getParameters();
     final PsiDocTag[] paramTags = docComment.findTagsByName("param");
@@ -1271,22 +1190,26 @@ public class RefactoringUtil {
     }
   }
 
-  private static PsiDocTag createParamTag(PsiParameter parameter) {
-    return JavaPsiFacade.getInstance(parameter.getProject()).getElementFactory().createParamTag(parameter.getName(), "");
+  @NotNull
+  private static PsiDocTag createParamTag(@NotNull PsiParameter parameter) {
+    return JavaPsiFacade.getElementFactory(parameter.getProject()).createParamTag(parameter.getName(), "");
   }
 
-  public static PsiDirectory createPackageDirectoryInSourceRoot(PackageWrapper aPackage, final VirtualFile sourceRoot)
+  @NotNull
+  public static PsiDirectory createPackageDirectoryInSourceRoot(@NotNull PackageWrapper aPackage, @NotNull final VirtualFile sourceRoot)
     throws IncorrectOperationException {
-    final PsiDirectory[] directories = aPackage.getDirectories();
-    for (PsiDirectory directory : directories) {
-      if (VfsUtil.isAncestor(sourceRoot, directory.getVirtualFile(), false)) {
-        return directory;
-      }
+    PsiDirectory[] existing = aPackage.getDirectories(
+        GlobalSearchScopes.directoryScope(aPackage.getManager().getProject(), sourceRoot, true));
+    if (existing.length > 0) {
+      return existing[0];
     }
     String qNameToCreate = qNameToCreateInSourceRoot(aPackage, sourceRoot);
-    final String[] shortNames = qNameToCreate.split("\\.");
     PsiDirectory current = aPackage.getManager().findDirectory(sourceRoot);
     LOG.assertTrue(current != null);
+    if (qNameToCreate.isEmpty()) {
+      return current;
+    }
+    final String[] shortNames = qNameToCreate.split("\\.");
     for (String shortName : shortNames) {
       PsiDirectory subdirectory = current.findSubdirectory(shortName);
       if (subdirectory == null) {
@@ -1312,7 +1235,7 @@ public class RefactoringUtil {
 
   public static boolean canCreateInSourceRoot(final String sourceRootPackage, final String targetQName) {
     if (sourceRootPackage == null || !targetQName.startsWith(sourceRootPackage)) return false;
-    if (sourceRootPackage.length() == 0 || targetQName.length() == sourceRootPackage.length()) return true;
+    if (sourceRootPackage.isEmpty() || targetQName.length() == sourceRootPackage.length()) return true;
     return targetQName.charAt(sourceRootPackage.length()) == '.';
   }
 
@@ -1321,7 +1244,7 @@ public class RefactoringUtil {
   public static PsiDirectory findPackageDirectoryInSourceRoot(PackageWrapper aPackage, final VirtualFile sourceRoot) {
     final PsiDirectory[] directories = aPackage.getDirectories();
     for (PsiDirectory directory : directories) {
-      if (VfsUtil.isAncestor(sourceRoot, directory.getVirtualFile(), false)) {
+      if (VfsUtilCore.isAncestor(sourceRoot, directory.getVirtualFile(), false)) {
         return directory;
       }
     }
@@ -1346,14 +1269,15 @@ public class RefactoringUtil {
   }
 
   public static class ConditionCache<T> implements Condition<T> {
-    private final Condition<T> myCondition;
+    private final Condition<? super T> myCondition;
     private final HashSet<T> myProcessedSet = new HashSet<>();
     private final HashSet<T> myTrueSet = new HashSet<>();
 
-    public ConditionCache(Condition<T> condition) {
+    public ConditionCache(Condition<? super T> condition) {
       myCondition = condition;
     }
 
+    @Override
     public boolean value(T object) {
       if (!myProcessedSet.contains(object)) {
         myProcessedSet.add(object);
@@ -1377,26 +1301,27 @@ public class RefactoringUtil {
       myConditionCache = new ConditionCache<>(aClass1 -> InheritanceUtil.isInheritorOrSelf(aClass1, myClass, true));
     }
 
+    @Override
     public boolean value(PsiClass aClass) {
       return myConditionCache.value(aClass);
     }
   }
 
   @Nullable
-  public static PsiTypeParameterList createTypeParameterListWithUsedTypeParameters(@NotNull final PsiElement... elements) {
+  public static PsiTypeParameterList createTypeParameterListWithUsedTypeParameters(final PsiElement @NotNull ... elements) {
     return createTypeParameterListWithUsedTypeParameters(null, elements);
   }
 
   @Nullable
   public static PsiTypeParameterList createTypeParameterListWithUsedTypeParameters(@Nullable final PsiTypeParameterList fromList,
-                                                                                   @NotNull final PsiElement... elements) {
+                                                                                   final PsiElement @NotNull ... elements) {
     return createTypeParameterListWithUsedTypeParameters(fromList, Conditions.alwaysTrue(), elements);
   }
 
   @Nullable
   public static PsiTypeParameterList createTypeParameterListWithUsedTypeParameters(@Nullable final PsiTypeParameterList fromList,
-                                                                                   Condition<PsiTypeParameter> filter,
-                                                                                   @NotNull final PsiElement... elements) {
+                                                                                   Condition<? super PsiTypeParameter> filter,
+                                                                                   final PsiElement @NotNull ... elements) {
     if (elements.length == 0) return null;
     final Set<PsiTypeParameter> used = new HashSet<>();
     for (final PsiElement element : elements) {
@@ -1406,7 +1331,7 @@ public class RefactoringUtil {
     }
 
     collectTypeParametersInDependencies(filter, used);
-    
+
     if (fromList != null) {
       used.retainAll(Arrays.asList(fromList.getTypeParameters()));
     }
@@ -1415,7 +1340,7 @@ public class RefactoringUtil {
 
     Arrays.sort(typeParameters, Comparator.comparingInt(tp -> tp.getTextRange().getStartOffset()));
 
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(elements[0].getProject()).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(elements[0].getProject());
     try {
       final PsiClass aClass = elementFactory.createClassFromText("class A {}", null);
       PsiTypeParameterList list = aClass.getTypeParameterList();
@@ -1432,7 +1357,7 @@ public class RefactoringUtil {
     }
   }
 
-  private static void collectTypeParametersInDependencies(Condition<PsiTypeParameter> filter, Set<PsiTypeParameter> used) {
+  private static void collectTypeParametersInDependencies(Condition<? super PsiTypeParameter> filter, Set<PsiTypeParameter> used) {
     Stack<PsiTypeParameter> toProcess = new Stack<>();
     toProcess.addAll(used);
     while (!toProcess.isEmpty()) {
@@ -1444,11 +1369,11 @@ public class RefactoringUtil {
     }
   }
 
-  public static void collectTypeParameters(final Set<PsiTypeParameter> used, final PsiElement element) {
+  public static void collectTypeParameters(final Set<? super PsiTypeParameter> used, final PsiElement element) {
     collectTypeParameters(used, element, Conditions.alwaysTrue());
   }
-  public static void collectTypeParameters(final Set<PsiTypeParameter> used, final PsiElement element,
-                                           final Condition<PsiTypeParameter> filter) {
+  public static void collectTypeParameters(final Set<? super PsiTypeParameter> used, final PsiElement element,
+                                           final Condition<? super PsiTypeParameter> filter) {
     element.accept(new JavaRecursiveElementVisitor() {
       @Override public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
         super.visitReferenceElement(reference);

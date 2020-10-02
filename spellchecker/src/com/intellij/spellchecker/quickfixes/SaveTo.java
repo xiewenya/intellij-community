@@ -31,8 +31,6 @@ public class SaveTo implements SpellCheckerQuickFix, LowPriorityAction {
   private DictionaryLevel myLevel = DictionaryLevel.NOT_SPECIFIED;
   private String myWord;
 
-  public static final String FIX_NAME = SpellCheckerBundle.message("save.0.to.1", "", DOTS);
-
   private SaveTo(@NotNull DictionaryLevel level) {
     myLevel = level;
   }
@@ -46,22 +44,17 @@ public class SaveTo implements SpellCheckerQuickFix, LowPriorityAction {
     myLevel = level;
   }
 
+  @Override
   @NotNull
   public String getName() {
-    final String dictionary = myLevel != DictionaryLevel.NOT_SPECIFIED ? myLevel.getName() + DICTIONARY : DOTS;
-    final String word = myWord != null ? SpellCheckerBundle.message("0.in.qoutes", myWord) : "";
-    return SpellCheckerBundle.message("save.0.to.1", word, dictionary);
+    return SpellCheckerBundle.message("save.0.to.1", myWord != null ? SpellCheckerBundle.message("0.in.qoutes", myWord) : "");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     final String dictionary = myLevel != DictionaryLevel.NOT_SPECIFIED ? myLevel.getName() + DICTIONARY : DOTS;
     return SpellCheckerBundle.message("save.0.to.1", "", dictionary);
-  }
-
-  @NotNull
-  public Anchor getPopupActionAnchor() {
-    return Anchor.LAST;
   }
 
   @Override
@@ -69,37 +62,49 @@ public class SaveTo implements SpellCheckerQuickFix, LowPriorityAction {
     return false;
   }
 
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     DataManager.getInstance()
-               .getDataContextFromFocusAsync()
-               .onSuccess(context -> {
-                 final SpellCheckerManager spellCheckerManager = SpellCheckerManager.getInstance(project);
-                 final String wordToSave = myWord != null ? myWord : extractHighlightedText(descriptor, descriptor.getPsiElement());
-                 final VirtualFile file = descriptor.getPsiElement().getContainingFile().getVirtualFile();
-                 if (myLevel == DictionaryLevel.NOT_SPECIFIED) {
-                   final List<String> dictionaryList = Arrays.asList(DictionaryLevel.PROJECT.getName(), DictionaryLevel.APP.getName());
-                   final JBList<String> dictList = new JBList<>(dictionaryList);
-                   JBPopupFactory.getInstance()
-                                 .createListPopupBuilder(dictList)
-                                 .setTitle(SpellCheckerBundle.message("select.dictionary.title"))
-                                 .setItemChoosenCallback(
-                                   () -> CommandProcessor.getInstance().executeCommand(project, () -> spellCheckerManager
-                                                                                         .acceptWordAsCorrect(wordToSave, file, project, getLevelByName(dictList.getSelectedValue())),
-                                                                                       getName(), null))
-                                 .createPopup()
-                                 .showInBestPositionFor(context);
-                 }
-                 else {
-                   spellCheckerManager.acceptWordAsCorrect(wordToSave, file, project, myLevel);
-                 }
-               });
+      .getDataContextFromFocusAsync()
+      .onSuccess(context -> {
+        final SpellCheckerManager manager = SpellCheckerManager.getInstance(project);
+        final String wordToSave = myWord != null ? myWord : extractHighlightedText(descriptor, descriptor.getPsiElement());
+        final VirtualFile file = descriptor.getPsiElement().getContainingFile().getVirtualFile();
+        if (myLevel == DictionaryLevel.NOT_SPECIFIED) {
+          final List<String> dictionaryList = Arrays.asList(DictionaryLevel.PROJECT.getName(), DictionaryLevel.APP.getName());
+          final JBList<String> dictList = new JBList<>(dictionaryList);
+
+          JBPopupFactory.getInstance()
+            .createListPopupBuilder(dictList)
+            .setTitle(SpellCheckerBundle.message("select.dictionary.title"))
+            .setItemChoosenCallback(
+              () ->
+                CommandProcessor.getInstance().executeCommand(
+                  project,
+                  () -> manager.acceptWordAsCorrect(wordToSave, file, project, getLevelByName(dictList.getSelectedValue())),
+                  getName(),
+                  null
+                )
+            )
+            .createPopup()
+            .showInBestPositionFor(context);
+        }
+        else {
+          manager.acceptWordAsCorrect(wordToSave, file, project, myLevel);
+        }
+      });
   }
 
   public static SaveTo getSaveToLevelFix(DictionaryLevel level) {
     return DictionaryLevel.PROJECT == level ? SAVE_TO_PROJECT_FIX : SAVE_TO_APP_FIX;
   }
 
+  @Override
   public Icon getIcon(int flags) {
     return SpellcheckerIcons.Spellcheck;
+  }
+
+  public static String getFixName() {
+    return SpellCheckerBundle.message("save.0.to.1", "", DOTS);
   }
 }

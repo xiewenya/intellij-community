@@ -15,6 +15,7 @@
  */
 package org.intellij.lang.xpath.xslt.psi.impl;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlTag;
 import icons.XpathIcons;
@@ -48,7 +49,7 @@ public class XsltTemplateImpl extends XsltElementImpl implements XsltTemplate {
         return buildSignature();
     }
 
-    public String buildSignature() {
+    public @NlsSafe String buildSignature() {
         final StringBuilder sb = new StringBuilder(getName());
         final XsltParameter[] parameters = getParameters();
         if (parameters.length > 0) {
@@ -73,8 +74,8 @@ public class XsltTemplateImpl extends XsltElementImpl implements XsltTemplate {
         return "XsltTemplate: " + getName();
     }
 
-    @NotNull
-    public XsltParameter[] getParameters() {
+    @Override
+    public XsltParameter @NotNull [] getParameters() {
         final PsiElement[] elements = ResolveUtil.collect(new ParamMatcher(getTag(), null));
 
         final XsltParameter[] xsltParameters = new XsltParameter[elements.length];
@@ -83,22 +84,26 @@ public class XsltTemplateImpl extends XsltElementImpl implements XsltTemplate {
         return xsltParameters;
     }
 
+    @Override
     @Nullable
     public XsltParameter getParameter(String name) {
         return (XsltParameter)ResolveUtil.resolve(new ParamMatcher(getTag(), name));
     }
 
+    @Override
     @Nullable
     public XPathExpression getMatchExpression() {
         return XsltCodeInsightUtil.getXPathExpression(this, "match");
     }
 
+    @Override
     @Nullable
     public QName getMode() {
       final String mode = getTag().getAttributeValue("mode");
       return mode != null ? QNameUtil.createQName(mode, getTag()) : null;
     }
 
+    @Override
     public boolean isAbstract() {
         return "true".equals(getTag().getAttributeValue("abstract", XsltSupport.PLUGIN_EXTENSIONS_NS));
     }

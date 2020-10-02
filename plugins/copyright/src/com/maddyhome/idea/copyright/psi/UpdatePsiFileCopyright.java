@@ -16,6 +16,7 @@
 
 package com.maddyhome.idea.copyright.psi;
 
+import com.intellij.copyright.CopyrightBundle;
 import com.intellij.copyright.CopyrightManager;
 import com.intellij.lang.Commenter;
 import com.intellij.lang.LanguageCommenters;
@@ -34,7 +35,6 @@ import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
 import com.maddyhome.idea.copyright.CopyrightProfile;
 import com.maddyhome.idea.copyright.options.LanguageOptions;
-import com.maddyhome.idea.copyright.util.FileTypeUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -55,7 +55,7 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
 
     PsiManager manager = PsiManager.getInstance(project);
     file = manager.findFile(root);
-    FileType type = FileTypeUtil.getInstance().getFileTypeByFile(root);
+    FileType type = root.getFileType();
     langOpts = CopyrightManager.getInstance(project).getOptions().getMergedOptions(type.getName());
   }
 
@@ -148,16 +148,8 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
           // Check to see if current copyright comment matches new one.
           String newComment = getCommentText("", "");
           resetCommentText();
-          String oldComment = doc.getCharsSequence()
-            .subSequence(range.getFirst().getTextRange().getStartOffset(), range.getLast().getTextRange().getEndOffset()).toString().trim();
-          final String replaceRegexp = myOptions.getAllowReplaceRegexp();
-          if (!StringUtil.isEmptyOrSpaces(replaceRegexp)) {
-            final Pattern pattern = Pattern.compile(replaceRegexp);
-            final Matcher matcher = pattern.matcher(oldComment);
-            if (!matcher.find()) {
-              return;
-            }
-          }
+          String oldComment = getCommentText(doc, range);
+          if (!allowToReplaceRegexp(oldComment)) return;
           if (newComment.trim().equals(oldComment)) {
             if (!getLanguageOptions().isAddBlankAfter()) {
               // TODO - do we need option to remove blank line after?
@@ -208,17 +200,12 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
             end = getNextSibling(range.getLast()).getTextRange().getEndOffset();
           }
         }
-        // If this is the last comment then remove the whitespace before the comment
-        else if (range.getLast() == comments.get(comments.size() - 1)) {
-          if (getPreviousSibling(range.getFirst()) instanceof PsiWhiteSpace &&
-              countNewline(getPreviousSibling(range.getFirst()).getText()) > 1) {
-            start = getPreviousSibling(range.getFirst()).getTextRange().getStartOffset();
-          }
-        }
         // If this is the first or middle comment then remove the whitespace after the comment
         else if (getNextSibling(range.getLast()) instanceof PsiWhiteSpace) {
           end = getNextSibling(range.getLast()).getTextRange().getEndOffset();
         }
+
+        if (!allowToReplaceRegexp(getCommentText(doc, range))) continue;
 
         addAction(new CommentAction(CommentAction.ACTION_DELETE, start, end));
       }
@@ -269,6 +256,23 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
     catch (Exception e) {
       logger.error(e);
     }
+  }
+
+  private static String getCommentText(Document doc, CommentRange range) {
+    return doc.getCharsSequence()
+      .subSequence(range.getFirst().getTextRange().getStartOffset(), range.getLast().getTextRange().getEndOffset()).toString().trim();
+  }
+
+  private boolean allowToReplaceRegexp(String oldComment) {
+    final String replaceRegexp = myOptions.getAllowReplaceRegexp();
+    if (!StringUtil.isEmptyOrSpaces(replaceRegexp)) {
+      final Pattern pattern = Pattern.compile(replaceRegexp);
+      final Matcher matcher = pattern.matcher(oldComment);
+      if (!matcher.find()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static CommentRange getLineCopyrightComments(List<PsiComment> comments, Document doc, int i, PsiComment comment) {
@@ -333,7 +337,7 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
   }
 
   protected void processActions(final boolean allowReplacement) throws IncorrectOperationException {
-    WriteCommandAction.writeCommandAction(file.getProject()).withName("Update copyright").run(() -> {
+    WriteCommandAction.writeCommandAction(file.getProject()).withName(CopyrightBundle.message("command.name.update.copyright")).run(() -> {
       Document doc = FileDocumentManager.getInstance().getDocument(getRoot());
       if (doc != null) {
         PsiDocumentManager.getInstance(file.getProject()).doPostponedOperationsAndUnblockDocument(doc);
@@ -366,7 +370,7 @@ public abstract class UpdatePsiFileCopyright extends AbstractUpdateCopyright {
   }
 
   private static class CommentRange {
-    public CommentRange(@NotNull PsiElement first, @NotNull PsiElement last) {
+    CommentRange(@NotNull PsiElement first, @NotNull PsiElement last) {
       this.first = first;
       this.last = last;
       LOG.assertTrue(first.getContainingFile() == last.getContainingFile());

@@ -21,17 +21,33 @@ import java.util.BitSet;
 
 public class RollbackLineStatusAction extends LineStatusActionBase {
   @Override
-  protected void doAction(@NotNull LineStatusTrackerBase<?> tracker, @NotNull Editor editor) {
+  protected void doAction(@NotNull LineStatusTrackerI<?> tracker, @NotNull Editor editor) {
     rollback(tracker, editor);
   }
 
-  public static void rollback(@NotNull LineStatusTrackerBase<?> tracker, @NotNull Editor editor) {
+  public static void rollback(@NotNull LineStatusTrackerI<?> tracker, @NotNull Editor editor) {
     BitSet selectedLines = DiffUtil.getSelectedLines(editor);
     tracker.rollbackChanges(selectedLines);
   }
 
-  public static void rollback(@NotNull LineStatusTrackerBase<?> tracker, @NotNull Range range, @Nullable Editor editor) {
+  public static void rollback(@NotNull LineStatusTrackerI<?> tracker, @NotNull Range range, @Nullable Editor editor) {
     if (editor != null) DiffUtil.moveCaretToLineRangeIfNeeded(editor, range.getLine1(), range.getLine2());
     tracker.rollbackChanges(range);
+  }
+
+  /**
+   * @deprecated Use {@link #rollback(LineStatusTrackerI, Range, Editor)}
+   */
+  @Deprecated
+  public static void rollback(@NotNull LineStatusTrackerBase<?> tracker, @NotNull Range range, @Nullable Editor editor) {
+    rollback((LineStatusTrackerI<?>)tracker, range, editor);
+  }
+
+  /**
+   * @deprecated Use {@link #rollback(LineStatusTrackerI, Editor)}
+   */
+  @Deprecated
+  public static void rollback(@NotNull LineStatusTrackerBase<?> tracker, @NotNull Editor editor) {
+    rollback((LineStatusTrackerI<?>)tracker, editor);
   }
 }

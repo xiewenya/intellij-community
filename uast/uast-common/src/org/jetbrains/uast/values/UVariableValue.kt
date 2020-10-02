@@ -26,14 +26,14 @@ class UVariableValue private constructor(
 
   override fun identityEquals(other: UValue): UValue =
     if (this == other) super.valueEquals(other)
-    else when (variable.psi.type) {
+    else when (variable.type) {
       PsiType.BYTE, PsiType.FLOAT, PsiType.DOUBLE, PsiType.LONG,
       PsiType.SHORT, PsiType.INT, PsiType.CHAR, PsiType.BOOLEAN -> super.valueEquals(other)
 
       else -> UUndeterminedValue
     }
 
-  override fun merge(other: UValue) = when (other) {
+  override fun merge(other: UValue): UValue = when (other) {
     this -> this
     value -> this
     is UDependentValue -> {
@@ -54,7 +54,7 @@ class UVariableValue private constructor(
     if (constant == toConstant()) this
     else create(variable, value.coerceConstant(constant), dependencies)
 
-  override fun equals(other: Any?) =
+  override fun equals(other: Any?): Boolean =
     other is UVariableValue
     && variable == other.variable
     && value == other.value
@@ -68,7 +68,7 @@ class UVariableValue private constructor(
     return result
   }
 
-  override fun toString() = "(var ${variable.name ?: "<unnamed>"} = ${super.toString()})"
+  override fun toString(): String = "(var ${variable.name ?: "<unnamed>"} = ${super.toString()})"
 
   companion object {
 
@@ -76,12 +76,12 @@ class UVariableValue private constructor(
       filterTo(linkedSetOf()) { it !is UVariableValue || variable != it.variable }
 
     fun create(variable: UVariable, value: UValue, dependencies: Set<UDependency> = emptySet()): UVariableValue {
-      when (variable.psi.type) {
+      when (variable.type) {
         PsiType.BYTE, PsiType.SHORT -> {
           val constant = value.toConstant()
           if (constant is UIntConstant && constant.type == UNumericType.INT) {
-            val castConstant = UIntConstant(constant.value, variable.psi.type)
-            return create(variable, value.coerceConstant(castConstant), dependencies)
+            val castConstant = UIntConstant(constant.value, variable.type)
+            return UVariableValue(variable, value.coerceConstant(castConstant), dependencies)
           }
         }
       }

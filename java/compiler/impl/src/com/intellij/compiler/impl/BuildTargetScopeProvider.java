@@ -19,6 +19,7 @@ import com.intellij.openapi.compiler.CompileScope;
 import com.intellij.openapi.compiler.CompilerFilter;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
@@ -28,8 +29,6 @@ import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage
 
 /**
  * Allows to control the list of build targets which are compiled when the Make action is invoked for a specific scope.
- *
- * @author nik
  */
 public abstract class BuildTargetScopeProvider {
   public static final ExtensionPointName<BuildTargetScopeProvider> EP_NAME = ExtensionPointName.create("com.intellij.compiler.buildTargetScopeProvider");
@@ -37,24 +36,28 @@ public abstract class BuildTargetScopeProvider {
   /**
    * @deprecated override {@link #getBuildTargetScopes(CompileScope, Project, boolean)} instead
    */
-  @SuppressWarnings("DeprecatedIsStillUsed")
+  @Deprecated
   @NotNull
+  @Contract(pure = true)
   public List<TargetTypeBuildScope> getBuildTargetScopes(@NotNull CompileScope baseScope, @NotNull CompilerFilter filter,
-                                                                  @NotNull Project project) {
+                                                         @NotNull Project project) {
     return Collections.emptyList();
   }
 
   /**
    * @deprecated override {@link #getBuildTargetScopes(CompileScope, Project, boolean)} instead
    */
+  @Deprecated
   @SuppressWarnings("DeprecatedIsStillUsed")
   @NotNull
+  @Contract(pure = true)
   public List<TargetTypeBuildScope> getBuildTargetScopes(@NotNull CompileScope baseScope, @NotNull CompilerFilter filter,
-                                                                  @NotNull Project project, boolean forceBuild) {
+                                                         @NotNull Project project, boolean forceBuild) {
     return getBuildTargetScopes(baseScope, filter, project);
   }
 
   @NotNull
+  @Contract(pure = true)
   public List<TargetTypeBuildScope> getBuildTargetScopes(@NotNull CompileScope baseScope, @NotNull Project project, boolean forceBuild) {
     return getBuildTargetScopes(baseScope, CompilerFilter.ALL, project, forceBuild);
   }

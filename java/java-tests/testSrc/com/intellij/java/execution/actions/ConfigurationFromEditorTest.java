@@ -20,18 +20,19 @@ import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.junit.JUnitConfiguration;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.testFramework.MapDataContext;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 
 import java.util.Set;
 
-public class ConfigurationFromEditorTest extends LightCodeInsightFixtureTestCase {
+public class ConfigurationFromEditorTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
     myFixture.addClass("package org.junit; public @interface Test{}");
+    myFixture.addClass("package org.junit.runner; public @interface RunWith{ Class<?> value();}");
   }
 
-  private JUnitConfiguration setupConfigurationContext(final String fileText) {
+  private <T> T setupConfigurationContext(final String fileText) {
     myFixture.configureByText("MyTest.java", fileText);
 
     MapDataContext dataContext = new MapDataContext();
@@ -41,7 +42,17 @@ public class ConfigurationFromEditorTest extends LightCodeInsightFixtureTestCase
 
     ConfigurationContext context = ConfigurationContext.getFromContext(dataContext);
     RunnerAndConfigurationSettings settings = context.getConfiguration();
-    return (JUnitConfiguration)settings.getConfiguration();
+    //noinspection unchecked
+    return settings != null ? (T)settings.getConfiguration() : null;
+  }
+
+  public void testApplicationConfigurationForUnknownMethod() {
+    assertNull(setupConfigurationContext("public class Foo {\n" +
+                              "  public static void x<caret>xx(String[] args) {}\n" +
+                              "}"));
+    assertNotNull(setupConfigurationContext("public class Foo {\n" +
+                              "  public static void m<caret>ain(String[] args) {}\n" +
+                              "}"));
   }
 
   public void testPatternConfigurationFromSelection() {
@@ -75,5 +86,15 @@ public class ConfigurationFromEditorTest extends LightCodeInsightFixtureTestCase
                                                                  "}");
     Set<String> patterns = configuration.getPersistentData().getPatterns();
     assertSameElements(patterns, "MyTest,t1", "MyTest,t2");
+  }
+
+  public void testStaticNestedClassWithAnnotations() {
+    JUnitConfiguration configuration = setupConfigurationContext("import org.junit.runner.RunWith; " +
+                                                                 "@RunWith(Suite.class)\n" +
+                                                                 "public class MyTest {\n" +
+                                                                 "  @RunWith(Suite.class)\n" +
+                                                                 "  public static class Nes<caret>ted {}\n" +
+                                                                 "}");
+    assertEquals("MyTest$Nested", configuration.getPersistentData().getMainClassName());
   }
 }

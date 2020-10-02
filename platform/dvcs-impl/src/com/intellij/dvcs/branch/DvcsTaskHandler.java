@@ -17,8 +17,10 @@ package com.intellij.dvcs.branch;
 
 import com.intellij.dvcs.repo.AbstractRepositoryManager;
 import com.intellij.dvcs.repo.Repository;
+import com.intellij.dvcs.ui.DvcsBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsTaskHandler;
@@ -26,7 +28,7 @@ import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FactoryMap;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.util.containers.hash.HashSet;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -57,12 +59,12 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
     List<R> map = new ArrayList<>();
     if (!problems.isEmpty()) {
       if (ApplicationManager.getApplication().isUnitTestMode() ||
-          Messages.showDialog(myProject,
-                              "<html>The following repositories already have specified " + myBranchType + "<b>" + taskName + "</b>:<br>" +
-                              StringUtil.join(problems, "<br>") + ".<br>" +
-                              "Do you want to checkout existing " + myBranchType + "?", StringUtil.capitalize(myBranchType) + " Already Exists",
-                              new String[]{Messages.YES_BUTTON, Messages.NO_BUTTON}, 0,
-                              Messages.getWarningIcon()) == 0) {
+          MessageDialogBuilder
+            .yesNo(DvcsBundle.message("dialog.title.already.exists", StringUtil.capitalize(myBranchType)),
+                   DvcsBundle.message("dialog.message.following.repositories.already.have.specified",
+                                      myBranchType, taskName, StringUtil.join(problems, UIUtil.BR), myBranchType))
+            .icon(Messages.getWarningIcon())
+            .ask(myProject)) {
         checkout(taskName, problems, null);
         map.addAll(problems);
       }
@@ -77,17 +79,19 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
   }
 
   @Override
-  public void switchToTask(@NotNull TaskInfo taskInfo, @Nullable Runnable invokeAfter) {
-    final String branchName = taskInfo.getName();
+  public boolean switchToTask(@NotNull TaskInfo taskInfo, @Nullable Runnable invokeAfter) {
     List<R> repositories = getRepositories(taskInfo.getRepositories());
     List<R> notFound = ContainerUtil.filter(repositories, repository -> !hasBranch(repository, taskInfo));
+    final String branchName = taskInfo.getName();
     if (!notFound.isEmpty()) {
       checkoutAsNewBranch(branchName, notFound);
     }
     repositories.removeAll(notFound);
     if (!repositories.isEmpty()) {
       checkout(branchName, repositories, invokeAfter);
+      return true;
     }
+    return false;
   }
 
   @Override
@@ -101,11 +105,9 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
     return myRepositoryManager.isSyncEnabled();
   }
 
-  @NotNull
   @Override
-  public TaskInfo[] getCurrentTasks() {
+  public TaskInfo @NotNull [] getCurrentTasks() {
     List<R> repositories = myRepositoryManager.getRepositories();
-    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
     Map<String, TaskInfo> tasks = FactoryMap.create(key -> new TaskInfo(key, new ArrayList<>()));
     for (R repository : repositories) {
       String branch = getActiveBranch(repository);
@@ -148,9 +150,9 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
     return ContainerUtil.mapNotNull(urls, (NullableFunction<String, R>)s -> ContainerUtil.find(repositories, repository -> s.equals(repository.getPresentableUrl())));
   }
 
-  protected abstract void checkout(@NotNull String taskName, @NotNull List<R> repos, @Nullable Runnable callInAwtLater);
+  protected abstract void checkout(@NotNull String taskName, @NotNull List<? extends R> repos, @Nullable Runnable callInAwtLater);
 
-  protected abstract void checkoutAsNewBranch(@NotNull String name, @NotNull List<R> repositories);
+  protected abstract void checkoutAsNewBranch(@NotNull String name, @NotNull List<? extends R> repositories);
 
   @Nullable
   protected abstract String getActiveBranch(R repository);
@@ -158,7 +160,7 @@ public abstract class DvcsTaskHandler<R extends Repository> extends VcsTaskHandl
   @NotNull
   protected abstract Iterable<TaskInfo> getAllBranches(@NotNull R repository);
 
-  protected abstract void mergeAndClose(@NotNull String branch, @NotNull List<R> repositories);
+  protected abstract void mergeAndClose(@NotNull String branch, @NotNull List<? extends R> repositories);
 
   protected abstract boolean hasBranch(@NotNull R repository, @NotNull TaskInfo name);
 }

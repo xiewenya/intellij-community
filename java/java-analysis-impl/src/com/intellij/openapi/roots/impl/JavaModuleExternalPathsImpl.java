@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.openapi.roots.*;
@@ -8,21 +8,18 @@ import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerContainer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
-import com.intellij.util.ArrayUtil;
-import gnu.trove.THashMap;
+import com.intellij.serviceContainer.NonInjectable;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension;
 
-import java.util.Map;
+import java.util.*;
 
-/**
- * @author nik
- */
-public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
+public final class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
   private static final String ROOT_ELEMENT = JpsJavaModelSerializerExtension.ROOT_TAG;
 
-  private final Map<OrderRootType, VirtualFilePointerContainer> myOrderRootPointerContainers = new THashMap<>();
+  private final Map<OrderRootType, VirtualFilePointerContainer> myOrderRootPointerContainers = new HashMap<>();
   private final JavaModuleExternalPathsImpl mySource;
 
   @SuppressWarnings("unused")
@@ -30,6 +27,7 @@ public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
     this(null);
   }
 
+  @NonInjectable
   private JavaModuleExternalPathsImpl(JavaModuleExternalPathsImpl source) {
     mySource = source;
     if (source != null) {
@@ -37,6 +35,7 @@ public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
     }
   }
 
+  @NotNull
   @Override
   public ModuleExtension getModifiableModel(boolean writable) {
     return new JavaModuleExternalPathsImpl(this);
@@ -47,38 +46,35 @@ public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
     mySource.copyContainersFrom(this);
   }
 
-  @NotNull
   @Override
-  public String[] getJavadocUrls() {
+  public String @NotNull [] getJavadocUrls() {
     final VirtualFilePointerContainer container = myOrderRootPointerContainers.get(JavadocOrderRootType.getInstance());
-    return container != null ? container.getUrls() : ArrayUtil.EMPTY_STRING_ARRAY;
+    return container != null ? container.getUrls() : ArrayUtilRt.EMPTY_STRING_ARRAY;
   }
 
-  @NotNull
   @Override
-  public VirtualFile[] getExternalAnnotationsRoots() {
+  public VirtualFile @NotNull [] getExternalAnnotationsRoots() {
     final VirtualFilePointerContainer container = myOrderRootPointerContainers.get(AnnotationOrderRootType.getInstance());
     return container != null ? container.getFiles() : VirtualFile.EMPTY_ARRAY;
   }
 
-  @NotNull
   @Override
-  public String[] getExternalAnnotationsUrls() {
+  public String @NotNull [] getExternalAnnotationsUrls() {
     final VirtualFilePointerContainer container = myOrderRootPointerContainers.get(AnnotationOrderRootType.getInstance());
-    return container != null ? container.getUrls() : ArrayUtil.EMPTY_STRING_ARRAY;
+    return container != null ? container.getUrls() : ArrayUtilRt.EMPTY_STRING_ARRAY;
   }
 
   @Override
-  public void setJavadocUrls(@NotNull String[] urls) {
+  public void setJavadocUrls(String @NotNull [] urls) {
     setRootUrls(JavadocOrderRootType.getInstance(), urls);
   }
 
   @Override
-  public void setExternalAnnotationUrls(@NotNull String[] urls) {
+  public void setExternalAnnotationUrls(String @NotNull [] urls) {
     setRootUrls(AnnotationOrderRootType.getInstance(), urls);
   }
 
-  private void setRootUrls(final OrderRootType orderRootType, @NotNull final String[] urls) {
+  private void setRootUrls(final OrderRootType orderRootType, final String @NotNull [] urls) {
     VirtualFilePointerContainer container = myOrderRootPointerContainers.get(orderRootType);
     if (container == null) {
       if (urls.length == 0) {
@@ -101,13 +97,12 @@ public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
   }
 
   @Override
-  @SuppressWarnings("deprecation")
   public void readExternal(@NotNull Element element) throws InvalidDataException {
     for (PersistentOrderRootType orderRootType : OrderRootType.getAllPersistentTypes()) {
       String paths = orderRootType.getModulePathsName();
       if (paths != null) {
         final Element pathsElement = element.getChild(paths);
-        if (pathsElement != null) {
+        if (pathsElement != null && !pathsElement.getChildren(ROOT_ELEMENT).isEmpty()) {
           VirtualFilePointerContainer container = VirtualFilePointerManager.getInstance().createContainer(this, null);
           myOrderRootPointerContainers.put(orderRootType, container);
           container.readExternal(pathsElement, ROOT_ELEMENT, false);
@@ -117,14 +112,23 @@ public class JavaModuleExternalPathsImpl extends JavaModuleExternalPaths {
   }
 
   @Override
-  @SuppressWarnings("deprecation")
   public void writeExternal(@NotNull Element element) throws WriteExternalException {
+    List<Element> toWrite = null;
     for (OrderRootType orderRootType : myOrderRootPointerContainers.keySet()) {
       VirtualFilePointerContainer container = myOrderRootPointerContainers.get(orderRootType);
       if (container != null && container.size() > 0) {
-        final Element javaDocPaths = new Element(((PersistentOrderRootType)orderRootType).getModulePathsName());
-        container.writeExternal(javaDocPaths, ROOT_ELEMENT, false);
-        element.addContent(javaDocPaths);
+        final Element content = new Element(((PersistentOrderRootType)orderRootType).getModulePathsName());
+        container.writeExternal(content, ROOT_ELEMENT, false);
+        if (toWrite == null) {
+          toWrite = new ArrayList<>();
+        }
+        toWrite.add(content);
+      }
+    }
+    if (toWrite != null) {
+      toWrite.sort(Comparator.comparing(Element::getName));
+      for (Element content : toWrite) {
+        element.addContent(content);
       }
     }
   }

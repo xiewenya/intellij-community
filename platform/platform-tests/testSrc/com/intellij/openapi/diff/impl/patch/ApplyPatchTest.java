@@ -1,5 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.patch;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -11,14 +10,19 @@ import com.intellij.openapi.vcs.changes.patch.ApplyPatchAction;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.HeavyPlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.testFramework.TestDataFile;
+import com.intellij.testFramework.TestDataPath;
+import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ApplyPatchTest extends PlatformTestCase {
+@TestDataPath("$CONTENT_ROOT/testData/diff/applyPatch/")
+public class ApplyPatchTest extends HeavyPlatformTestCase {
   public void testAddLine() throws Exception {
     doTest(1, ApplyPatchStatus.SUCCESS, null);
   }
@@ -99,13 +103,12 @@ public class ApplyPatchTest extends PlatformTestCase {
     doTest(1, ApplyPatchStatus.SUCCESS, null);
   }
 
+  public void testRenameFileGitStyle() throws Exception {
+    doTest(1, ApplyPatchStatus.SUCCESS, null);
+  }
+
   public void testRenameDir() throws Exception {
-    doTest(1, ApplyPatchStatus.SUCCESS, new VirtualFileFilter() {
-      @Override
-      public boolean accept(final VirtualFile file) {
-        return !"empty".equals(file.getNameWithoutExtension());
-      }
-    });
+    doTest(1, ApplyPatchStatus.SUCCESS, file -> !"empty".equals(file.getNameWithoutExtension()));
   }
 
   public void testDeleteLastLineWithLineBreak() throws Exception {
@@ -176,29 +179,38 @@ public class ApplyPatchTest extends PlatformTestCase {
     doTest(1, ApplyPatchStatus.SUCCESS, null);
   }
 
+  public void testFileWithGitStyleCyrillicPaths() throws Exception {
+    doTest(0, ApplyPatchStatus.SUCCESS, null);
+  }
+
+  public void testFileWithGitStylePathsWithSpaces() throws Exception {
+    doTest(0, ApplyPatchStatus.SUCCESS, null);
+  }
+
   private void doTest(final int skipTopDirs, final ApplyPatchStatus expectedStatus, final VirtualFileFilter fileFilter) throws Exception {
-    ApplicationManager.getApplication()
-      .runWriteAction(() -> FileTypeManager.getInstance().associate(FileTypes.PLAIN_TEXT, new ExtensionFileNameMatcher("old")));
+    ApplicationManager.getApplication().runWriteAction(() -> {
+      FileTypeManager.getInstance().associate(FileTypes.PLAIN_TEXT, new ExtensionFileNameMatcher("old"));
+    });
 
-    String testDataPath = PlatformTestUtil.getPlatformTestDataPath() + "diff/applyPatch/" + getTestName(true);
-    String beforePath = testDataPath + "/before";
-    String afterPath = testDataPath + "/after";
-    VirtualFile afterDir = LocalFileSystem.getInstance().refreshAndFindFileByPath(afterPath.replace(File.separatorChar, '/'));
+    Path testDataPath = Paths.get(getTestDir(getTestName(true)));
+    Path beforePath = testDataPath.resolve("before");
+    Path afterPath = testDataPath.resolve("after");
+    VirtualFile afterDir = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(afterPath);
+    VirtualFile patchedDir = createTestProjectStructure(beforePath.toString());
 
-    VirtualFile patchedDir = createTestProjectStructure(beforePath);
-
-    String patchPath = testDataPath + "/apply.patch";
-    VirtualFile patchFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(patchPath.replace(File.separatorChar, '/'));
-
-    PatchReader reader = PatchVirtualFileReader.create(patchFile);
-    List<FilePatch> patches = new ArrayList<>(reader.readTextPatches());
+    List<FilePatch> patches = new ArrayList<>(new PatchReader(testDataPath.resolve("apply.patch")).readTextPatches());
 
     ApplyPatchAction.applySkipDirs(patches, skipTopDirs);
-    final PatchApplier patchApplier = new PatchApplier<BinaryFilePatch>(myProject, patchedDir, patches, null, null);
+    PatchApplier patchApplier = new PatchApplier(myProject, patchedDir, patches, null, null);
     ApplyPatchStatus applyStatus = patchApplier.execute(false, false);
 
     assertEquals(expectedStatus, applyStatus);
 
     PlatformTestUtil.assertDirectoriesEqual(patchedDir, afterDir, fileFilter);
+  }
+
+  @NotNull
+  private static String getTestDir(@TestDataFile String dirName) {
+    return PlatformTestUtil.getPlatformTestDataPath() + "diff/applyPatch/" + dirName;
   }
 }

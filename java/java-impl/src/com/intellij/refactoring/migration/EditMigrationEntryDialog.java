@@ -1,21 +1,8 @@
 
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.migration;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.Language;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Document;
@@ -24,10 +11,10 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.psi.*;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.LanguageTextField;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -43,7 +30,7 @@ public class EditMigrationEntryDialog extends DialogWrapper{
   public EditMigrationEntryDialog(Project project) {
     super(project, true);
     myProject = project;
-    setTitle(RefactoringBundle.message("edit.migration.entry.title"));
+    setTitle(JavaRefactoringBundle.message("edit.migration.entry.title"));
     setHorizontalStretch(1.2f);
     init();
   }
@@ -68,13 +55,13 @@ public class EditMigrationEntryDialog extends DialogWrapper{
     gbConstraints.gridwidth = GridBagConstraints.RELATIVE;
     gbConstraints.fill = GridBagConstraints.BOTH;
     gbConstraints.weightx = 0;
-    myRbPackage = new JRadioButton(RefactoringBundle.message("migration.entry.package"));
+    myRbPackage = new JRadioButton(JavaRefactoringBundle.message("migration.entry.package"));
     panel.add(myRbPackage, gbConstraints);
 
     gbConstraints.gridwidth = GridBagConstraints.RELATIVE;
     gbConstraints.fill = GridBagConstraints.BOTH;
     gbConstraints.weightx = 0;
-    myRbClass = new JRadioButton(RefactoringBundle.message("migration.entry.class"));
+    myRbClass = new JRadioButton(JavaRefactoringBundle.message("migration.entry.class"));
     panel.add(myRbClass, gbConstraints);
 
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
@@ -89,7 +76,7 @@ public class EditMigrationEntryDialog extends DialogWrapper{
     gbConstraints.weightx = 0;
     gbConstraints.gridwidth = GridBagConstraints.RELATIVE;
     gbConstraints.fill = GridBagConstraints.NONE;
-    JLabel oldNamePrompt = new JLabel(RefactoringBundle.message("migration.entry.old.name"));
+    JLabel oldNamePrompt = new JLabel(JavaRefactoringBundle.message("migration.entry.old.name"));
     panel.add(oldNamePrompt, gbConstraints);
 
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
@@ -110,7 +97,7 @@ public class EditMigrationEntryDialog extends DialogWrapper{
     gbConstraints.weightx = 0;
     gbConstraints.gridwidth = GridBagConstraints.RELATIVE;
     gbConstraints.fill = GridBagConstraints.NONE;
-    JLabel newNamePrompt = new JLabel(RefactoringBundle.message("migration.entry.new.name"));
+    JLabel newNamePrompt = new JLabel(JavaRefactoringBundle.message("migration.entry.new.name"));
     panel.add(newNamePrompt, gbConstraints);
 
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
@@ -122,7 +109,7 @@ public class EditMigrationEntryDialog extends DialogWrapper{
 
     final DocumentListener documentAdapter = new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         validateOKButton();
       }
     };

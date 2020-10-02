@@ -18,28 +18,30 @@ package com.intellij.application.options;
 import com.intellij.application.options.codeStyle.CommenterForm;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInspection.util.SpecialAnnotationsUtil;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.codeStyle.CodeStyleConfigurable;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.JavaVisibilityPanel;
 import com.intellij.ui.SortedListModel;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Comparator;
+import java.util.function.Predicate;
 
 public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
   private final JavaVisibilityPanel myJavaVisibilityPanel;
@@ -63,37 +65,40 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
   private JCheckBox myInsertOverrideAnnotationCheckBox;
   private JCheckBox myRepeatSynchronizedCheckBox;
   private JPanel myVisibilityPanel;
-  
+
   @SuppressWarnings("unused") private JPanel myCommenterPanel;
   private JPanel myOverridePanel;
   private JBCheckBox myReplaceInstanceOfCb;
-  private JBCheckBox myReplaceCastCb;
   private JBCheckBox myReplaceNullCheckCb;
   private JTextField myTestClassPrefix;
   private JTextField myTestClassSuffix;
   private JTextField mySubclassPrefix;
   private JTextField mySubclassSuffix;
+  private JBCheckBox myReplaceSumCb;
   private CommenterForm myCommenterForm;
   private SortedListModel<String> myRepeatAnnotationsModel;
 
   public CodeStyleGenerationConfigurable(CodeStyleSettings settings) {
     mySettings = settings;
-    myPanel.setBorder(JBUI.Borders.empty(2, 2, 2, 2));
-    myJavaVisibilityPanel = new JavaVisibilityPanel(false, true, RefactoringBundle.message("default.visibility.border.title"));
+    myPanel.setBorder(JBUI.Borders.empty(2));
+    myJavaVisibilityPanel = new JavaVisibilityPanel(false, true, JavaRefactoringBundle.message("default.visibility.border.title"));
   }
 
+  @Override
   public JComponent createComponent() {
     myVisibilityPanel.add(myJavaVisibilityPanel, BorderLayout.CENTER);
     GridBagConstraints gc =
       new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1, 1, GridBagConstraints.NORTHEAST, GridBagConstraints.BOTH,
                              new JBInsets(0, 0, 0, 0), 0, 0);
-    final Condition<PsiClass> isApplicable = aClass -> aClass.isAnnotationType();
+    Predicate<PsiClass> isApplicable = PsiClass::isAnnotationType;
     //noinspection Convert2Diamond
     myRepeatAnnotationsModel = new SortedListModel<String>(Comparator.naturalOrder());
-    myOverridePanel.add(SpecialAnnotationsUtil.createSpecialAnnotationsListControl("Annotations to Copy", false, isApplicable, myRepeatAnnotationsModel), gc);
+    myOverridePanel.add(SpecialAnnotationsUtil.createSpecialAnnotationsListControl(JavaBundle.message("separator.annotations.to.copy"), 
+                                                                                   false, myRepeatAnnotationsModel, isApplicable), gc);
     return myPanel;
   }
 
+  @Override
   public String getDisplayName() {
     return ApplicationBundle.message("title.code.generation");
   }
@@ -103,6 +108,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return "reference.settingsdialog.IDE.globalcodestyle.codegen";
   }
 
+  @Override
   public void reset(@NotNull CodeStyleSettings settings) {
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
     myCbPreferLongerNames.setSelected(javaSettings.PREFER_LONGER_NAMES);
@@ -129,19 +135,21 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     myRepeatSynchronizedCheckBox.setSelected(javaSettings.REPEAT_SYNCHRONIZED);
     myJavaVisibilityPanel.setVisibility(javaSettings.VISIBILITY);
 
-    myReplaceCastCb.setSelected(javaSettings.REPLACE_CAST);
-    myReplaceInstanceOfCb.setSelected(javaSettings.REPLACE_INSTANCEOF);
+    myReplaceInstanceOfCb.setSelected(javaSettings.REPLACE_INSTANCEOF_AND_CAST);
     myReplaceNullCheckCb.setSelected(javaSettings.REPLACE_NULL_CHECK);
+    myReplaceSumCb.setSelected(javaSettings.REPLACE_SUM);
 
     myRepeatAnnotationsModel.clear();
     myRepeatAnnotationsModel.addAll(javaSettings.getRepeatAnnotations());
     myCommenterForm.reset(settings);
   }
 
+  @Override
   public void reset() {
     reset(mySettings);
   }
 
+  @Override
   public void apply(@NotNull CodeStyleSettings settings) throws ConfigurationException {
     JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
     javaSettings.PREFER_LONGER_NAMES = myCbPreferLongerNames.isSelected();
@@ -166,12 +174,12 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     javaSettings.USE_EXTERNAL_ANNOTATIONS = myCbUseExternalAnnotations.isSelected();
     javaSettings.INSERT_OVERRIDE_ANNOTATION = myInsertOverrideAnnotationCheckBox.isSelected();
     javaSettings.REPEAT_SYNCHRONIZED = myRepeatSynchronizedCheckBox.isSelected();
-    
+
     javaSettings.VISIBILITY = myJavaVisibilityPanel.getVisibility();
 
-    javaSettings.REPLACE_CAST = myReplaceCastCb.isSelected();
-    javaSettings.REPLACE_INSTANCEOF = myReplaceInstanceOfCb.isSelected();
+    javaSettings.REPLACE_INSTANCEOF_AND_CAST = myReplaceInstanceOfCb.isSelected();
     javaSettings.REPLACE_NULL_CHECK = myReplaceNullCheckCb.isSelected();
+    javaSettings.REPLACE_SUM = myReplaceSumCb.isSelected();
 
 
     myCommenterForm.apply(settings);
@@ -186,11 +194,15 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     text = text.trim();
     if (text.isEmpty()) return text;
     if (!StringUtil.isJavaIdentifier(text)) {
-      throw new ConfigurationException("Not a valid java identifier part in " + (prefix ? "prefix" : "suffix") + " \'" + text + "\'");
+      final @Nls String message = JavaBundle.message(prefix
+                                                     ? "code.style.generation.settings.error.not.valid.identifier.part.in.prefix"
+                                                     : "code.style.generation.settings.error.not.valid.identifier.part.in.suffix", text);
+      throw new ConfigurationException(message);
     }
     return text;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     apply(mySettings);
   }
@@ -220,12 +232,12 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     isModified |= isModified(myInsertOverrideAnnotationCheckBox, javaSettings.INSERT_OVERRIDE_ANNOTATION);
     isModified |= isModified(myRepeatSynchronizedCheckBox, javaSettings.REPEAT_SYNCHRONIZED);
 
-    isModified |= isModified(myReplaceCastCb, javaSettings.REPLACE_CAST);
-    isModified |= isModified(myReplaceInstanceOfCb, javaSettings.REPLACE_INSTANCEOF);
+    isModified |= isModified(myReplaceInstanceOfCb, javaSettings.REPLACE_INSTANCEOF_AND_CAST);
     isModified |= isModified(myReplaceNullCheckCb, javaSettings.REPLACE_NULL_CHECK);
+    isModified |= isModified(myReplaceSumCb, javaSettings.REPLACE_SUM);
 
     isModified |= !javaSettings.VISIBILITY.equals(myJavaVisibilityPanel.getVisibility());
-    
+
     isModified |= myCommenterForm.isModified(settings);
 
     isModified |= !myRepeatAnnotationsModel.getItems().equals(javaSettings.getRepeatAnnotations());
@@ -233,6 +245,7 @@ public class CodeStyleGenerationConfigurable implements CodeStyleConfigurable {
     return isModified;
   }
 
+  @Override
   public boolean isModified() {
     return isModified(mySettings);
   }

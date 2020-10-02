@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.navigation;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.find.FindUtil;
@@ -28,7 +15,6 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
@@ -37,11 +23,14 @@ import com.intellij.openapi.ui.popup.IPopupChooserBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNamedElement;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.usages.UsageView;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
@@ -52,8 +41,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public abstract class GotoTargetHandler implements CodeInsightActionHandler {
   private static final Logger LOG = Logger.getInstance(GotoTargetHandler.class);
@@ -79,14 +68,19 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
       }
     }
     catch (IndexNotReadyException e) {
-      DumbService.getInstance(project).showDumbModeNotification("Navigation is not available here during index update");
+      DumbService.getInstance(project).showDumbModeNotification(
+        CodeInsightBundle.message("message.navigation.is.not.available.here.during.index.update"));
     }
   }
 
-  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<GotoData> successCallback) { }
+  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<? super GotoData> successCallback) { }
 
   @NonNls
   protected abstract String getFeatureUsedKey();
+
+  protected boolean useEditorFont() {
+    return true;
+  }
 
   @Nullable
   protected abstract GotoData getSourceAndTargetElements(Editor editor, PsiFile file);
@@ -95,6 +89,8 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
                     @NotNull Editor editor,
                     @NotNull PsiFile file,
                     @NotNull GotoData gotoData) {
+    if (gotoData.isCanceled) return;
+
     PsiElement[] targets = gotoData.targets;
     List<AdditionalAction> additionalActions = gotoData.additionalActions;
 
@@ -126,25 +122,26 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
 
     final IPopupChooserBuilder<Object> builder = JBPopupFactory.getInstance().createPopupChooserBuilder(allElements);
     final Ref<UsageView> usageView = new Ref<>();
-    final JBPopup popup = builder.setNamerForFiltering(o -> {
+    builder.setNamerForFiltering(o -> {
       if (o instanceof AdditionalAction) {
         return ((AdditionalAction)o).getText();
       }
       return getRenderer(o, gotoData).getElementText((PsiElement)o);
-    }).
-      setTitle(title).
-      setFont(EditorUtil.getEditorFont()).
-      setRenderer(new DefaultListCellRenderer() {
-        @Override
-        public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-          if (value == null) return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-          if (value instanceof AdditionalAction) {
-            return myActionElementRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-          }
-          PsiElementListCellRenderer renderer = getRenderer(value, gotoData);
-          return renderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+    }).setTitle(title);
+    if (useEditorFont()) {
+      builder.setFont(EditorUtil.getEditorFont());
+    }
+    builder.setRenderer(new DefaultListCellRenderer() {
+      @Override
+      public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+        if (value == null) return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+        if (value instanceof AdditionalAction) {
+          return myActionElementRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
         }
-      }).
+        PsiElementListCellRenderer renderer = getRenderer(value, gotoData);
+        return renderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+      }
+    }).
       setItemsChosenCallback(selectedElements -> {
         for (Object element : selectedElements) {
           if (element instanceof AdditionalAction) {
@@ -158,7 +155,8 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
               }
             }
             catch (IndexNotReadyException e) {
-              DumbService.getInstance(project).showDumbModeNotification("Navigation is not available while indexing");
+              DumbService.getInstance(project).showDumbModeNotification(
+                CodeInsightBundle.message("notification.navigation.is.not.available.while.indexing"));
             }
           }
         }
@@ -173,22 +171,28 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
         return true;
       }).
       setCouldPin(popup1 -> {
-        usageView.set(FindUtil.showInUsageView(gotoData.source, gotoData.targets, getFindUsagesTitle(gotoData.source, name, gotoData.targets.length), gotoData.source.getProject()));
+        usageView.set(FindUtil.showInUsageView(gotoData.source, gotoData.targets,
+                                               getFindUsagesTitle(gotoData.source, name, gotoData.targets.length),
+                                               gotoData.source.getProject()));
         popup1.cancel();
         return false;
       }).
-      setAdText(getAdText(gotoData.source, targets.length)).
-      createPopup();
+      setAdText(getAdText(gotoData.source, targets.length));
+    final JBPopup popup = builder.createPopup();
 
     JScrollPane pane = builder instanceof PopupChooserBuilder ? ((PopupChooserBuilder)builder).getScrollPane() : null;
     if (pane != null) {
-        pane.setBorder(null);
-        pane.setViewportBorder(null);
+      pane.setBorder(null);
+      pane.setViewportBorder(null);
     }
 
     if (gotoData.listUpdaterTask != null) {
       Alarm alarm = new Alarm(popup);
-      alarm.addRequest(() -> popup.showInBestPositionFor(editor), 300);
+      alarm.addRequest(() -> {
+        if (!editor.isDisposed()) {
+          popup.showInBestPositionFor(editor);
+        }
+      }, 300);
       gotoData.listUpdaterTask.init(popup, builder.getBackgroundUpdater(), usageView);
       ProgressManager.getInstance().run(gotoData.listUpdaterTask);
     }
@@ -218,7 +222,7 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
   }
 
   public static PsiElementListCellRenderer createRenderer(@NotNull GotoData gotoData, @NotNull PsiElement eachTarget) {
-    for (GotoTargetRendererProvider eachProvider : Extensions.getExtensions(GotoTargetRendererProvider.EP_NAME)) {
+    for (GotoTargetRendererProvider eachProvider : GotoTargetRendererProvider.EP_NAME.getExtensionList()) {
       PsiElementListCellRenderer renderer = eachProvider.getRenderer(eachTarget, gotoData);
       if (renderer != null) return renderer;
     }
@@ -246,33 +250,33 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
   /**
    * @deprecated, use getChooserTitle(PsiElement, String, int, boolean) instead
    */
+  @Deprecated
   @NotNull
-  protected String getChooserTitle(PsiElement sourceElement, String name, int length) {
+  protected @NlsContexts.PopupTitle String getChooserTitle(PsiElement sourceElement, String name, int length) {
     LOG.warn("Please override getChooserTitle(PsiElement, String, int, boolean) instead");
     return "";
   }
 
   @NotNull
-  protected String getChooserTitle(@NotNull PsiElement sourceElement, String name, int length, boolean finished) {
+  protected @NlsContexts.PopupTitle String getChooserTitle(@NotNull PsiElement sourceElement, @Nullable String name, int length, boolean finished) {
     return getChooserTitle(sourceElement, name, length);
   }
 
   @NotNull
-  protected String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
+  protected @NlsContexts.TabTitle String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
     return getChooserTitle(sourceElement, name, length, true);
   }
 
   @NotNull
-  protected abstract String getNotFoundMessage(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file);
+  protected abstract @NlsContexts.HintText String getNotFoundMessage(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file);
 
   @Nullable
-  protected String getAdText(PsiElement source, int length) {
+  protected @NlsContexts.PopupAdvertisement String getAdText(PsiElement source, int length) {
     return null;
   }
 
   public interface AdditionalAction {
-    @NotNull
-    String getText();
+    @NlsActions.ActionText @NotNull String getText();
 
     Icon getIcon();
 
@@ -283,13 +287,14 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
     @NotNull public final PsiElement source;
     public PsiElement[] targets;
     public final List<AdditionalAction> additionalActions;
+    public boolean isCanceled;
 
     private boolean hasDifferentNames;
     public BackgroundUpdaterTask listUpdaterTask;
     protected final Set<String> myNames;
     public Map<Object, PsiElementListCellRenderer> renderers = new HashMap<>();
 
-    public GotoData(@NotNull PsiElement source, @NotNull PsiElement[] targets, @NotNull List<AdditionalAction> additionalActions) {
+    public GotoData(@NotNull PsiElement source, PsiElement @NotNull [] targets, @NotNull List<AdditionalAction> additionalActions) {
       this.source = source;
       this.targets = targets;
       this.additionalActions = additionalActions;
@@ -335,7 +340,13 @@ public abstract class GotoTargetHandler implements CodeInsightActionHandler {
           return name;
         }
       }
-      return element.getContainingFile().getName();
+      PsiFile file = element.getContainingFile();
+      if (file == null) {
+        PsiUtilCore.ensureValid(element);
+        LOG.error("No file for " + element.getClass());
+        return element.toString();
+      }
+      return file.getName();
     }
 
     @Override

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.graph.impl.facade;
 
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.graph.*;
 import com.intellij.vcs.log.graph.actions.ActionController;
@@ -33,10 +20,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 
-import static com.intellij.vcs.log.graph.utils.LinearGraphUtils.getCursor;
+import static com.intellij.vcs.log.graph.utils.LinearGraphUtils.*;
 
 public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
   @NotNull private final LinearGraphController myGraphController;
@@ -86,20 +75,21 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
     return new ActionControllerImpl();
   }
 
-  private void updatePrintElementGenerator() {
+  void updatePrintElementGenerator() {
     myPrintElementManager = new PrintElementManagerImpl(myGraphController.getCompiledGraph(), myPermanentGraph, myColorManager);
     myPrintElementGenerator = new PrintElementGeneratorImpl(myGraphController.getCompiledGraph(), myPrintElementManager, myShowLongEdges);
   }
 
   @NotNull
-  public SimpleGraphInfo<CommitId> buildSimpleGraphInfo() {
+  public SimpleGraphInfo<CommitId> buildSimpleGraphInfo(int visibleRow, int visibleRange) {
     return SimpleGraphInfo.build(myGraphController.getCompiledGraph(),
                                  myPermanentGraph.getPermanentGraphLayout(),
                                  myPermanentGraph.getPermanentCommitsInfo(),
                                  myPermanentGraph.getLinearGraph().nodesCount(),
-                                 myPermanentGraph.getBranchNodeIds());
+                                 myPermanentGraph.getBranchNodeIds(), visibleRow, visibleRange);
   }
 
+  @Override
   public int getRecommendedWidth() {
     return myPrintElementGenerator.getRecommendedWidth();
   }
@@ -111,6 +101,15 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
   @NotNull
   public PermanentGraphInfo<CommitId> getPermanentGraph() {
     return myPermanentGraph;
+  }
+
+  @Override
+  public String toString() {
+    Collection<CommitId> commits = new ArrayList<>();
+    for (int i = 0; i < getVisibleCommitCount(); i++) {
+      commits.add(getRowInfo(i).getCommit());
+    }
+    return "VisibleGraph[" + StringUtil.join(commits, ", ") + "]";
   }
 
   private class ActionControllerImpl implements ActionController<CommitId> {
@@ -148,14 +147,15 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
       if (targetId == null) return null;
 
       if (action.getType() == GraphAction.Type.MOUSE_OVER) {
-        myPrintElementManager.setSelectedElement(affectedElement);
+        boolean selectionChanged = myPrintElementManager.setSelectedElement(affectedElement);
         return new GraphAnswerImpl<>(getCursor(true), myPermanentGraph.getPermanentCommitsInfo().getCommitId(targetId), null,
-                                     false);
+                                     false, selectionChanged);
       }
 
       if (action.getType() == GraphAction.Type.MOUSE_CLICK) {
+        boolean selectionChanged = myPrintElementManager.setSelectedElements(Collections.emptySet());
         return new GraphAnswerImpl<>(getCursor(false), myPermanentGraph.getPermanentCommitsInfo().getCommitId(targetId), null,
-                                     true);
+                                     true, selectionChanged);
       }
 
       return null;
@@ -164,17 +164,22 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
     @NotNull
     @Override
     public GraphAnswer<CommitId> performAction(@NotNull GraphAction graphAction) {
-      myPrintElementManager.setSelectedElements(Collections.emptySet());
-
       LinearGraphAction action = convert(graphAction);
+
       GraphAnswer<CommitId> graphAnswer = performArrowAction(action);
       if (graphAnswer != null) return graphAnswer;
 
       LinearGraphController.LinearGraphAnswer answer = myGraphController.performLinearGraphAction(action);
-      if (answer.getSelectedNodeIds() != null) myPrintElementManager.setSelectedElements(answer.getSelectedNodeIds());
+      boolean selectionChanged;
+      if (answer.getSelectedNodeIds() != null) {
+        selectionChanged = myPrintElementManager.setSelectedElements(answer.getSelectedNodeIds());
+      }
+      else {
+        selectionChanged = myPrintElementManager.setSelectedElements(Collections.emptySet());
+      }
 
       if (answer.getGraphChanges() != null) updatePrintElementGenerator();
-      return convert(answer);
+      return convert(answer, selectionChanged);
     }
 
     @Override
@@ -195,8 +200,10 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
       if (affectedElement != null) {
         if (affectedElement instanceof PrintElementWithGraphElement) {
           printElement = (PrintElementWithGraphElement)affectedElement;
-        } else {
-          printElement = ContainerUtil.find(myPrintElementGenerator.getPrintElements(affectedElement.getRowIndex()), it -> it.equals(affectedElement));
+        }
+        else {
+          printElement = ContainerUtil.find(myPrintElementGenerator.getPrintElements(affectedElement.getRowIndex()),
+                                            it -> it.equals(affectedElement));
           if (printElement == null) {
             throw new IllegalStateException("Not found graphElement for this printElement: " + affectedElement);
           }
@@ -205,26 +212,38 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
       return new LinearGraphActionImpl(printElement, graphAction.getType());
     }
 
-    private GraphAnswer<CommitId> convert(@NotNull final LinearGraphController.LinearGraphAnswer answer) {
+    private GraphAnswer<CommitId> convert(@NotNull LinearGraphController.LinearGraphAnswer answer, boolean selectionChanged) {
       final Runnable graphUpdater = answer.getGraphUpdater();
-      return new GraphAnswerImpl<>(answer.getCursorToSet(), null, graphUpdater == null ? null : (Runnable)() -> {
+      return new GraphAnswerImpl<>(answer.getCursorToSet(), null, graphUpdater == null ? null : () -> {
         graphUpdater.run();
         updatePrintElementGenerator();
-      }, false);
+      }, false, selectionChanged);
+    }
+
+    @Override
+    public boolean isActionSupported(@NotNull GraphAction action) {
+      if (action.getType() == GraphAction.Type.BUTTON_COLLAPSE || action.getType() == GraphAction.Type.BUTTON_EXPAND) {
+        return !(myGraphController instanceof FilteredController);
+      }
+
+      return ActionController.super.isActionSupported(action);
     }
   }
 
-  private static class GraphAnswerImpl<CommitId> implements GraphAnswer<CommitId> {
+  private static final class GraphAnswerImpl<CommitId> implements GraphAnswer<CommitId> {
     @Nullable private final Cursor myCursor;
     @Nullable private final CommitId myCommitToJump;
     @Nullable private final Runnable myUpdater;
     private final boolean myDoJump;
+    private final boolean myIsRepaintRequired;
 
-    private GraphAnswerImpl(@Nullable Cursor cursor, @Nullable CommitId commitToJump, @Nullable Runnable updater, boolean doJump) {
+    private GraphAnswerImpl(@Nullable Cursor cursor, @Nullable CommitId commitToJump, @Nullable Runnable updater, boolean doJump,
+                            boolean isRepaintRequired) {
       myCursor = cursor;
       myCommitToJump = commitToJump;
       myUpdater = updater;
       myDoJump = doJump;
+      myIsRepaintRequired = isRepaintRequired;
     }
 
     @Nullable
@@ -248,6 +267,11 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
     @Override
     public boolean doJump() {
       return myDoJump;
+    }
+
+    @Override
+    public boolean isRepaintRequired() {
+      return myIsRepaintRequired;
     }
   }
 
@@ -277,7 +301,7 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
     private final int myNodeId;
     private final int myVisibleRow;
 
-    public RowInfoImpl(int nodeId, int visibleRow) {
+    RowInfoImpl(int nodeId, int visibleRow) {
       myNodeId = nodeId;
       myVisibleRow = visibleRow;
     }
@@ -313,6 +337,13 @@ public class VisibleGraphImpl<CommitId> implements VisibleGraph<CommitId> {
         default:
           throw new UnsupportedOperationException("Unsupported node type: " + nodeType);
       }
+    }
+
+    @NotNull
+    @Override
+    public List<Integer> getAdjacentRows(boolean parent) {
+      return parent ? getDownNodes(myGraphController.getCompiledGraph(), myVisibleRow)
+                    : getUpNodes(myGraphController.getCompiledGraph(), myVisibleRow);
     }
   }
 }

@@ -17,20 +17,20 @@ package com.intellij.ide.todo;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.vcs.changes.Change;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.LocalChangeList;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.changes.*;
 import com.intellij.openapi.vcs.checkin.TodoCheckinHandlerWorker;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.PsiTodoSearchHelper;
 import com.intellij.psi.search.TodoItem;
 import com.intellij.psi.search.TodoPattern;
+import com.intellij.util.Processor;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultTreeModel;
 import java.util.*;
 
 /**
@@ -38,127 +38,152 @@ import java.util.*;
  */
 public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
   public static final TodoItem[] EMPTY_ITEMS = new TodoItem[0];
-  private final Project myProject;
-  private final String myTitle;
-  private final MultiMap<PsiFile, TodoItem> myMap;
+
+  private final PsiTodoSearchHelper myPsiTodoSearchHelper = new MyPsiTodoSearchHelper();
+  private final MultiMap<PsiFile, TodoItem> myMap = new MultiMap<>();
+
   private final Set<PsiFile> myIncludedFiles;
-  private PsiTodoSearchHelper myPsiTodoSearchHelper;
-  private final ChangeListManager myChangeListManager;
+  @Nullable private final Set<String> myIncludedChangeListsIds;
 
-  public CustomChangelistTodosTreeBuilder(JTree tree, DefaultTreeModel treeModel, Project project, final String title,
-                                          final List<TodoItem> list) {
-    super(tree, treeModel, project);
-    myProject = project;
-    myTitle = title;
-    myMap = new MultiMap<>();
-    myIncludedFiles = new HashSet<>();
-    myChangeListManager = ChangeListManager.getInstance(myProject);
-    initMap(list);
-    initHelper();
+  public CustomChangelistTodosTreeBuilder(@NotNull JTree tree,
+                                          @NotNull Project project,
+                                          @NotNull List<Change> changes,
+                                          @NotNull Collection<? extends TodoItem> todoItems) {
+    super(tree, project);
+
+    myIncludedFiles = collectIncludedFiles(todoItems);
+    myIncludedChangeListsIds = collectIncludedChangeListsIds(project, changes);
+
+    buildMap(todoItems);
   }
 
-  private void initMap(List<TodoItem> list) {
-    buildMap(list);
-    myIncludedFiles.addAll(myMap.keySet());
+  @NotNull
+  private static Set<PsiFile> collectIncludedFiles(@NotNull Collection<? extends TodoItem> todoItems) {
+    HashSet<PsiFile> files = new HashSet<>();
+    for (TodoItem item : todoItems) {
+      files.add(item.getFile());
+    }
+    return files;
   }
 
-  private void buildMap(List<TodoItem> list) {
-    for (TodoItem todoItem : list) {
+  @Nullable
+  private static Set<String> collectIncludedChangeListsIds(@NotNull Project project, @NotNull List<Change> changes) {
+    if (!ChangeListManager.getInstance(project).areChangeListsEnabled()) return null;
+
+    HashSet<String> ids = new HashSet<>();
+    for (Change change : changes) {
+      if (change instanceof ChangeListChange) {
+        ChangeListChange changeListChange = (ChangeListChange)change;
+        ids.add(changeListChange.getChangeListId());
+      }
+      else {
+        return null; // Show all changelists
+      }
+    }
+    return ids;
+  }
+
+  private void buildMap(Collection<? extends TodoItem> todoItems) {
+    myMap.clear();
+    for (TodoItem todoItem : todoItems) {
       myMap.putValue(todoItem.getFile(), todoItem);
     }
   }
 
-  private void initHelper() {
-    myPsiTodoSearchHelper = new PsiTodoSearchHelper() {
-      @NotNull
-      @Override
-      public PsiFile[] findFilesWithTodoItems() {
-        final List<Change> changes = new ArrayList<>();
-        final List<LocalChangeList> changeLists = myChangeListManager.getChangeLists();
-        final Map<VirtualFile, Change> allChanges = new HashMap<>();
-        for (LocalChangeList changeList : changeLists) {
-          final Collection<Change> currChanges = changeList.getChanges();
-          for (Change currChange : currChanges) {
-            if (currChange.getAfterRevision() != null && currChange.getAfterRevision().getFile().getVirtualFile() != null) {
-              allChanges.put(currChange.getAfterRevision().getFile().getVirtualFile(), currChange);
-            }
+  private class MyPsiTodoSearchHelper implements PsiTodoSearchHelper {
+    @Override
+    public PsiFile @NotNull [] findFilesWithTodoItems() {
+      MultiMap<VirtualFile, Change> allChanges = new MultiMap<>();
+      if (myIncludedChangeListsIds == null) {
+        putChangesForLocalFiles(allChanges, ChangeListManager.getInstance(myProject).getAllChanges());
+      }
+      else {
+        for (String changeListId : myIncludedChangeListsIds) {
+          LocalChangeList changeList = ChangeListManager.getInstance(myProject).getChangeList(changeListId);
+          if (changeList != null) {
+            putChangesForLocalFiles(allChanges, changeList.getChanges());
           }
         }
-        for (Iterator<PsiFile> iterator = myIncludedFiles.iterator(); iterator.hasNext(); ) {
-          final PsiFile next = iterator.next();
-          final Change change = allChanges.get(next.getVirtualFile());
-          if (change != null) {
-            changes.add(change);
-          }
+      }
+
+      List<Change> changes = new ArrayList<>();
+      for (PsiFile next : myIncludedFiles) {
+        changes.addAll(allChanges.get(next.getVirtualFile()));
+      }
+
+      // a hack here with _todo filter
+      final TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, getTodoTreeStructure().getTodoFilter());
+      worker.execute();
+      buildMap(worker.inOneList());
+
+      final Set<PsiFile> files = myMap.keySet();
+      return files.toArray(PsiFile.EMPTY_ARRAY);
+    }
+
+    private void putChangesForLocalFiles(@NotNull MultiMap<VirtualFile, Change> changesMap, @NotNull Collection<Change> changes) {
+      for (Change change : changes) {
+        FilePath afterPath = ChangesUtil.getAfterPath(change);
+        VirtualFile file = afterPath != null ? afterPath.getVirtualFile() : null;
+        if (file != null) {
+          changesMap.putValue(file, change);
         }
-        // a hack here with _todo filter
-        final TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, getTodoTreeStructure().getTodoFilter());
-        worker.execute();
-        buildMap(worker.inOneList());
-
-        final Set<PsiFile> files = myMap.keySet();
-        return files.toArray(PsiFile.EMPTY_ARRAY);
       }
+    }
 
-      @NotNull
-      @Override
-      public TodoItem[] findTodoItems(@NotNull PsiFile file) {
-        return findPatternedTodoItems(file, getTodoTreeStructure().getTodoFilter());
+    @Override
+    public TodoItem @NotNull [] findTodoItems(@NotNull PsiFile file) {
+      return findPatternedTodoItems(file, getTodoTreeStructure().getTodoFilter());
+    }
+
+    @Override
+    public TodoItem @NotNull [] findTodoItemsLight(@NotNull PsiFile file) {
+      return findTodoItems(file);
+    }
+
+    @Override
+    public TodoItem @NotNull [] findTodoItemsLight(@NotNull PsiFile file, int startOffset, int endOffset) {
+      return findTodoItems(file, startOffset, endOffset);
+    }
+
+    @Override
+    public TodoItem @NotNull [] findTodoItems(@NotNull PsiFile file, int startOffset, int endOffset) {
+      final TodoItem[] todoItems = findTodoItems(file);
+      if (todoItems.length == 0) {
+        return todoItems;
       }
-
-      @NotNull
-      @Override
-      public TodoItem[] findTodoItemsLight(@NotNull PsiFile file) {
-        return findTodoItems(file);
-      }
-
-      @NotNull
-      @Override
-      public TodoItem[] findTodoItemsLight(@NotNull PsiFile file, int startOffset, int endOffset) {
-        return findTodoItems(file, startOffset, endOffset);
-      }
-
-      @NotNull
-      @Override
-      public TodoItem[] findTodoItems(@NotNull PsiFile file, int startOffset, int endOffset) {
-        final TodoItem[] todoItems = findTodoItems(file);
-        if (todoItems.length == 0) {
-          return todoItems;
+      final TextRange textRange = new TextRange(startOffset, endOffset);
+      final List<TodoItem> result = new ArrayList<>();
+      for (TodoItem todoItem : todoItems) {
+        if (todoItem.getTextRange().contains(textRange)) {
+          result.add(todoItem);
         }
-        final TextRange textRange = new TextRange(startOffset, endOffset);
-        final List<TodoItem> result = new ArrayList<>();
-        for (TodoItem todoItem : todoItems) {
-          if (todoItem.getTextRange().contains(textRange)) {
-            result.add(todoItem);
-          }
-        }
-        return result.isEmpty() ? EMPTY_ITEMS : result.toArray(new TodoItem[0]);
       }
+      return result.isEmpty() ? EMPTY_ITEMS : result.toArray(new TodoItem[0]);
+    }
 
-      @Override
-      public int getTodoItemsCount(@NotNull PsiFile file) {
-        return findTodoItems(file).length;
-      }
+    @Override
+    public int getTodoItemsCount(@NotNull PsiFile file) {
+      return findTodoItems(file).length;
+    }
 
-      @Override
-      public int getTodoItemsCount(@NotNull PsiFile file, @NotNull TodoPattern pattern) {
-        final TodoFilter filter = new TodoFilter();
-        filter.addTodoPattern(pattern);
-        return findPatternedTodoItems(file, filter).length;
-      }
-    };
+    @Override
+    public int getTodoItemsCount(@NotNull PsiFile file, @NotNull TodoPattern pattern) {
+      final TodoFilter filter = new TodoFilter();
+      filter.addTodoPattern(pattern);
+      return findPatternedTodoItems(file, filter).length;
+    }
   }
 
   private TodoItem[] findPatternedTodoItems(PsiFile file, final TodoFilter todoFilter) {
     if (! myIncludedFiles.contains(file)) return EMPTY_ITEMS;
     if (myDirtyFileSet.contains(file.getVirtualFile())) {
       myMap.remove(file);
-      final Change change = myChangeListManager.getChange(file.getVirtualFile());
+      final Change change = ChangeListManager.getInstance(myProject).getChange(file.getVirtualFile());
       if (change != null) {
         final TodoCheckinHandlerWorker
           worker = new TodoCheckinHandlerWorker(myProject, Collections.singletonList(change), todoFilter);
         worker.execute();
-        final List<TodoItem> todoItems = worker.inOneList();
+        final Collection<TodoItem> todoItems = worker.inOneList();
         if (todoItems != null && ! todoItems.isEmpty()) {
           for (TodoItem todoItem : todoItems) {
             myMap.putValue(file, todoItem);
@@ -167,7 +192,7 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
       }
     }
     final Collection<TodoItem> todoItems = myMap.get(file);
-    return todoItems == null || todoItems.isEmpty() ? EMPTY_ITEMS : todoItems.toArray(new TodoItem[0]);
+    return todoItems.isEmpty() ? EMPTY_ITEMS : todoItems.toArray(new TodoItem[0]);
   }
 
   @NotNull
@@ -177,21 +202,13 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
   }
 
   @Override
-  void rebuildCache() {
-    myMap.clear();
-    myFileTree.clear();
-    myDirtyFileSet.clear();
-    myFile2Highlighter.clear();
-
+  void collectFiles(Processor<? super VirtualFile> collector) {
     TodoTreeStructure treeStructure=getTodoTreeStructure();
     PsiFile[] psiFiles= myPsiTodoSearchHelper.findFilesWithTodoItems();
-    for(int i=0;i<psiFiles.length;i++){
-      PsiFile psiFile=psiFiles[i];
-      if(myPsiTodoSearchHelper.getTodoItemsCount(psiFile) > 0 && treeStructure.accept(psiFile)){
-        myFileTree.add(psiFile.getVirtualFile());
+    for (PsiFile psiFile : psiFiles) {
+      if (myPsiTodoSearchHelper.getTodoItemsCount(psiFile) > 0 && treeStructure.accept(psiFile)) {
+        collector.process(psiFile.getVirtualFile());
       }
     }
-
-    treeStructure.validateCache();
   }
 }

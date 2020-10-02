@@ -8,18 +8,15 @@ import org.jetbrains.annotations.NotNull;
 
 
 public class RedundantComparatorComparingInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new RedundantComparatorComparingInspection()
     };
   }
 
-  public void test() { doAllTests(); }
-
   @Override
   protected String getBasePath() {
-    return "/codeInsight/daemonCodeAnalyzer/quickFix/redundantComparing";
+    return "/codeInsight/daemonCodeAnalyzer/quickFix/comparatorCanBeSimplified";
   }
 }

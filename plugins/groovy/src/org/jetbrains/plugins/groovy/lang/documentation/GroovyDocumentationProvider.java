@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.documentation;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.editorActions.CodeDocumentationUtil;
 import com.intellij.codeInsight.javadoc.JavaDocInfoGenerator;
 import com.intellij.codeInsight.javadoc.JavaDocUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.CodeDocumentationAwareCommenter;
 import com.intellij.lang.LanguageCommenters;
 import com.intellij.lang.documentation.CodeDocumentationProvider;
@@ -390,7 +377,7 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
   }
 
   @Override
-  public String fetchExternalDocumentation(final Project project, PsiElement element, final List<String> docUrls) {
+  public String fetchExternalDocumentation(final Project project, PsiElement element, final List<String> docUrls, boolean onHover) {
     return JavaDocumentationProvider.fetchExternalJavadoc(element, project, docUrls);
   }
 
@@ -426,7 +413,7 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
       }
       return CodeInsightBundle.message("javadoc.candidates", text, sb);
     }
-    return CodeInsightBundle.message("javadoc.candidates.not.found", text);
+    return JavaBundle.message("javadoc.candidates.not.found", text);
   }
 
   private static void createElementLink(@NonNls final StringBuilder sb, final PsiElement element, final String str) {
@@ -446,6 +433,9 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
     }
     if (object instanceof NamedArgumentDescriptor) {
       return ((NamedArgumentDescriptor)object).getNavigationElement();
+    }
+    if (object instanceof GrPropertyForCompletion) {
+      return ((GrPropertyForCompletion)object).getOriginalAccessor();
     }
     return null;
   }
@@ -487,7 +477,6 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
     final GrDocCommentOwner owner = GrDocCommentUtil.findDocOwner((GrDocComment)contextComment);
     if (owner == null) return null;
 
-    Project project = contextComment.getProject();
     final CodeDocumentationAwareCommenter commenter =
       (CodeDocumentationAwareCommenter)LanguageCommenters.INSTANCE.forLanguage(owner.getLanguage());
 
@@ -495,7 +484,7 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
     StringBuilder builder = new StringBuilder();
     if (owner instanceof GrMethod) {
       final GrMethod method = (GrMethod)owner;
-      JavaDocumentationProvider.generateParametersTakingDocFromSuperMethods(project, builder, commenter, method);
+      JavaDocumentationProvider.generateParametersTakingDocFromSuperMethods(builder, commenter, method);
 
       final PsiType returnType = method.getInferredReturnType();
       if ((returnType != null || method.getModifierList().hasModifierProperty(GrModifier.DEF)) && !PsiType.VOID.equals(returnType)) {
@@ -513,7 +502,7 @@ public class GroovyDocumentationProvider implements CodeDocumentationProvider, E
     else if (owner instanceof GrTypeDefinition) {
       final PsiTypeParameterList typeParameterList = ((PsiClass)owner).getTypeParameterList();
       if (typeParameterList != null) {
-        JavaDocumentationProvider.createTypeParamsListComment(builder, project, commenter, typeParameterList);
+        JavaDocumentationProvider.createTypeParamsListComment(builder, commenter, typeParameterList);
       }
     }
     return builder.length() > 0 ? builder.toString() : null;

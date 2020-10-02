@@ -1,12 +1,12 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethodObject.reflect;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.refactoring.extractMethodObject.PsiReflectionAccessUtil;
 import com.intellij.util.SmartList;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -19,6 +19,8 @@ import java.util.List;
  * @author Vitaliy.Bibaev
  */
 public class ReflectionAccessMethodBuilder {
+  private static final Logger LOG = Logger.getInstance(ReflectionAccessMethodBuilder.class);
+
   private boolean myIsStatic = false;
   private String myReturnType = "void";
   private final String myName;
@@ -32,7 +34,7 @@ public class ReflectionAccessMethodBuilder {
   public PsiMethod build(@NotNull PsiElementFactory elementFactory,
                          @Nullable PsiElement context) {
     checkRequirements();
-    String parameters = StreamEx.of(myParameters).map(p -> p.type + " " + p.name).joining(", ", "(", ")");
+    String parameters = StreamEx.of(myParameters).map(p -> p.accessibleType + " " + p.name).joining(", ", "(", ")");
     String returnExpression =
       ("void".equals(myReturnType) ? "member." : "return (" + myReturnType + ")member.") + myMemberAccessor.getAccessExpression();
     String methodBody = "  java.lang.Class<?> klass = " + myMemberAccessor.getClassLookupExpression() + ";\n" +
@@ -74,6 +76,9 @@ public class ReflectionAccessMethodBuilder {
   }
 
   private void checkRequirements() {
+    if (myMemberAccessor == null) {
+      LOG.error("Accessed member not specified");
+    }
   }
 
   public ReflectionAccessMethodBuilder accessedMethod(@NotNull String jvmClassName, @NotNull String methodName) {
@@ -115,12 +120,36 @@ public class ReflectionAccessMethodBuilder {
     PsiParameter[] parameters = parameterList.getParameters();
     for (int i = 0; i < parameters.length; i++) {
       PsiParameter parameter = parameters[i];
+      PsiType parameterType = parameter.getType();
+      PsiType erasedType = TypeConversionUtil.erasure(parameterType);
+      String typeName = typeName(parameterType, erasedType);
+      String jvmType = erasedType != null ? extractJvmType(erasedType) : typeName;
+
       String name = parameter.getName();
-      PsiType type = TypeConversionUtil.erasure(parameter.getType());
-      myParameters.add(new ParameterInfo(type.getCanonicalText(), name == null ? "arg" + i : name, extractJvmType(type)));
+
+      PsiType accessedType = erasedType != null
+                             ? PsiReflectionAccessUtil.nearestAccessibleType(erasedType)
+                             : PsiReflectionAccessUtil.nearestAccessibleType(parameterType);
+      myParameters.add(new ParameterInfo(accessedType.getCanonicalText(), name, jvmType));
     }
 
     return this;
+  }
+
+  @NotNull
+  private static String typeName(@NotNull PsiType type, @Nullable PsiType erasedType) {
+    if (erasedType == null) {
+      String typeName = type.getCanonicalText();
+      int typeParameterIndex = typeName.indexOf('<');
+      if (typeParameterIndex != -1) {
+        typeName = typeName.substring(0, typeParameterIndex);
+      }
+
+      LOG.warn("Type erasure failed, the following type used instead: " + typeName);
+      return typeName;
+    }
+
+    return erasedType.getCanonicalText();
   }
 
   @NotNull
@@ -136,16 +165,12 @@ public class ReflectionAccessMethodBuilder {
   }
 
   private static class ParameterInfo {
-    public final String type;
+    public final String accessibleType;
     public final String name;
     public final String jvmTypeName;
 
-    public ParameterInfo(@NotNull String type, @NotNull String name) {
-      this(type, name, type);
-    }
-
-    public ParameterInfo(@NotNull String type, @NotNull String name, @NotNull String jvmTypeName) {
-      this.type = type;
+    ParameterInfo(@NotNull String accessibleType, @NotNull String name, @NotNull String jvmTypeName) {
+      this.accessibleType = accessibleType;
       this.name = name;
       this.jvmTypeName = jvmTypeName;
     }
@@ -171,7 +196,7 @@ public class ReflectionAccessMethodBuilder {
     private final String myClassName;
     private final FieldAccessType myAccessType;
 
-    public MyFieldAccessor(@NotNull String className,
+    MyFieldAccessor(@NotNull String className,
                            @NotNull String fieldName,
                            @NotNull FieldAccessType accessType) {
       myFieldName = fieldName;
@@ -210,7 +235,7 @@ public class ReflectionAccessMethodBuilder {
     private final String myClassName;
     private final String myMethodName;
 
-    public MyMethodAccessor(@NotNull String className, @NotNull String methodName) {
+    MyMethodAccessor(@NotNull String className, @NotNull String methodName) {
       myClassName = className;
       myMethodName = methodName;
     }
@@ -249,7 +274,7 @@ public class ReflectionAccessMethodBuilder {
   private class MyConstructorAccessor implements MyMemberAccessor {
     private final String myClassName;
 
-    public MyConstructorAccessor(@NotNull String className) {
+    MyConstructorAccessor(@NotNull String className) {
       myClassName = className;
     }
 

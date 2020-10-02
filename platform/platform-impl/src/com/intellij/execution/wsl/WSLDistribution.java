@@ -1,115 +1,83 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.wsl;
 
 import com.intellij.credentialStore.CredentialAttributes;
 import com.intellij.credentialStore.CredentialPromptDialog;
+import com.intellij.execution.CommandLineUtil;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.ParametersList;
 import com.intellij.execution.process.*;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.application.Experiments;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.impl.local.LocalFileSystemBase;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Consumer;
-import gnu.trove.THashMap;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static com.intellij.execution.wsl.WSLUtil.LOG;
 
 /**
  * Represents a single linux distribution in WSL, installed after <a href="https://blogs.msdn.microsoft.com/commandline/2017/10/11/whats-new-in-wsl-in-windows-10-fall-creators-update/">Fall Creators Update</a>
  *
  * @see WSLUtil
+ * @see WSLDistributionWithRoot
  */
 public class WSLDistribution {
-  private static final String WSL_MNT_ROOT = "/mnt";
-  private static final Pattern WIN_IN_WSL_PATH_PATTERN = Pattern.compile(WSL_MNT_ROOT + "/(\\S)(.*)?");
+  public static final String DEFAULT_WSL_MNT_ROOT = "/mnt/";
   private static final int RESOLVE_SYMLINK_TIMEOUT = 10000;
   private static final String RUN_PARAMETER = "run";
-  private static final Logger LOG = Logger.getInstance(WSLDistribution.class);
+  public static final String UNC_PREFIX = "\\\\wsl$\\";
 
   private static final Key<ProcessListener> SUDO_LISTENER_KEY = Key.create("WSL sudo listener");
 
-  @NotNull
-  private final String myId;
-  @NotNull
-  private final String myMsId;
-  @NotNull
-  private final String myExeName;
-  @NotNull
-  private final String myPresentableName;
-  @Nullable
-  private final Path myRootPath;
+  @NotNull private final WslDistributionDescriptor myDescriptor;
+  @NotNull private final Path myExecutablePath;
 
-  /**
-   * @return root for WSL executable or null if unavailable
-   */
-  @Nullable
-  protected Path getExecutableRootPath() {
-    String localAppDataPath = System.getenv().get("LOCALAPPDATA");
-    return StringUtil.isEmpty(localAppDataPath) ? null : Paths.get(localAppDataPath, "Microsoft\\WindowsApps");
+  protected WSLDistribution(@NotNull WSLDistribution dist) {
+    this(dist.myDescriptor, dist.myExecutablePath);
   }
 
-  @SuppressWarnings("CopyConstructorMissesField")
-  public WSLDistribution(@NotNull WSLDistribution dist) {
-    this(dist.myId, dist.myMsId, dist.myExeName, dist.myPresentableName);
-  }
-
-  WSLDistribution(@NotNull String id, @NotNull String msId, @NotNull String exeName, @NotNull String presentableName) {
-    myId = id;
-    myMsId = msId;
-    myExeName = exeName;
-    myPresentableName = presentableName;
-    myRootPath = getExecutableRootPath();
-  }
-
-  public boolean isAvailable() {
-    return getExecutablePath() != null;
-  }
-
-  @NotNull
-  private String getExeName() {
-    return myExeName;
+  WSLDistribution(@NotNull WslDistributionDescriptor descriptor, @NotNull Path executablePath) {
+    myDescriptor = descriptor;
+    myExecutablePath = executablePath;
   }
 
   /**
-   * @return executable file or null if file is missing
+   * @return executable file
    */
-  @Nullable
+  @NotNull
   public Path getExecutablePath() {
-    if (!SystemInfo.isWin10OrNewer) {
-      return null;
-    }
-
-    if (myRootPath == null || !(Files.exists(myRootPath) && Files.isDirectory(myRootPath))) {
-      return null;
-    }
-    Path fullPath = myRootPath.resolve(getExeName());
-
-    return Files.exists(fullPath, LinkOption.NOFOLLOW_LINKS) ? fullPath : null;
+    return myExecutablePath;
   }
 
-  @Nullable
-  public String readReleaseInfo() {
+  /**
+   * @return identification data of WSL distribution.
+   */
+  public @Nullable @NlsSafe String readReleaseInfo() {
     try {
       final String key = "PRETTY_NAME";
       final String releaseInfo = "/etc/os-release"; // available for all distributions
-      final ProcessOutput output = executeOnWsl(1000, "cat", releaseInfo);
+      final ProcessOutput output = executeOnWsl(10000, "cat", releaseInfo);
+      if (LOG.isDebugEnabled()) LOG.debug("Reading release info: " + getId());
+      if (!output.checkSuccess(LOG)) return null;
       for (String line : output.getStdoutLines(true)) {
         if (line.startsWith(key) && line.length() >= (key.length() + 1)) {
           final String prettyName = line.substring(key.length() + 1);
@@ -128,7 +96,7 @@ public class WSLDistribution {
    * {@code ruby -v} => {@code bash -c "ruby -v"}
    */
   @NotNull
-  public GeneralCommandLine createWslCommandLine(@NotNull String... args) {
+  public GeneralCommandLine createWslCommandLine(String @NotNull ... args) {
     return patchCommandLine(new GeneralCommandLine(args), null, null, false);
   }
 
@@ -140,8 +108,8 @@ public class WSLDistribution {
    * @param args                   linux args, eg {@code gem env}
    */
   public ProcessOutput executeOnWsl(int timeout,
-                                    @Nullable Consumer<ProcessHandler> processHandlerConsumer,
-                                    @NotNull String... args) throws ExecutionException {
+                                    @Nullable Consumer<? super ProcessHandler> processHandlerConsumer,
+                                    String @NotNull ... args) throws ExecutionException {
     GeneralCommandLine commandLine = createWslCommandLine(args);
     CapturingProcessHandler processHandler = new CapturingProcessHandler(commandLine);
     if (processHandlerConsumer != null) {
@@ -150,11 +118,11 @@ public class WSLDistribution {
     return WSLUtil.addInputCloseListener(processHandler).runProcess(timeout);
   }
 
-  public ProcessOutput executeOnWsl(int timeout, @NotNull String... args) throws ExecutionException {
+  public ProcessOutput executeOnWsl(int timeout, @NonNls String @NotNull ... args) throws ExecutionException {
     return executeOnWsl(timeout, null, args);
   }
 
-  public ProcessOutput executeOnWsl(@Nullable Consumer<ProcessHandler> processHandlerConsumer, @NotNull String... args)
+  public ProcessOutput executeOnWsl(@Nullable Consumer<? super ProcessHandler> processHandlerConsumer, @NonNls String @NotNull ... args)
     throws ExecutionException {
     return executeOnWsl(-1, processHandlerConsumer, args);
   }
@@ -173,7 +141,7 @@ public class WSLDistribution {
   public ProcessOutput copyFromWsl(@NotNull String wslPath,
                                    @NotNull String windowsPath,
                                    @Nullable List<String> additionalOptions,
-                                   @Nullable Consumer<ProcessHandler> handlerConsumer
+                                   @Nullable Consumer<? super ProcessHandler> handlerConsumer
   )
     throws ExecutionException {
     //noinspection ResultOfMethodCallIgnored
@@ -190,7 +158,7 @@ public class WSLDistribution {
       throw new ExecutionException("Unable to copy files to " + windowsPath);
     }
     command.add(targetWslPath + "/");
-    return executeOnWsl(handlerConsumer, ArrayUtil.toStringArray(command));
+    return executeOnWsl(handlerConsumer, ArrayUtilRt.toStringArray(command));
   }
 
 
@@ -215,23 +183,31 @@ public class WSLDistribution {
                                                            @Nullable String remoteWorkingDir,
                                                            boolean askForSudo
   ) {
-    Path executablePath = getExecutablePath();
-    assert executablePath != null;
-
-    Map<String, String> additionalEnvs = new THashMap<>(commandLine.getEnvironment());
+    Map<String, String> additionalEnvs = new HashMap<>(commandLine.getEnvironment());
     commandLine.getEnvironment().clear();
 
-    LOG.info("[" + myId + "] " +
-             "Patching: " +
-             commandLine.getCommandLineString() +
-             "; working dir: " +
-             remoteWorkingDir +
-             "; envs: " +
-             additionalEnvs.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue()).collect(Collectors.joining(", ")) +
-             (askForSudo ? "; with sudo" : ": without sudo")
+    LOG.debug("[" + getId() + "] " +
+              "Patching: " +
+              commandLine.getCommandLineString() +
+              "; working dir: " +
+              remoteWorkingDir +
+              "; envs: " +
+              additionalEnvs.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue()).collect(Collectors.joining(", ")) +
+              (askForSudo ? "; with sudo" : ": without sudo")
     );
 
-    StringBuilder commandLineString = new StringBuilder(commandLine.getCommandLineString());
+    StringBuilder commandLineString = new StringBuilder();
+    ParametersList parametersList = commandLine.getParametersList();
+    List<String> realParamsList = parametersList.getList();
+
+    // avoiding double wrapping into bash -c; may cause problems with escaping
+    if (realParamsList.size() == 2 && "bash".equals(commandLine.getExePath()) && "-c".equals(realParamsList.get(0))) {
+      commandLineString.append(realParamsList.get(1));
+    }
+    else {
+      List<String> bashParameters = ContainerUtil.prepend(realParamsList, commandLine.getExePath());
+      commandLineString.append(StringUtil.join(bashParameters, CommandLineUtil::posixQuote, " "));
+    }
 
     if (askForSudo) { // fixme shouldn't we sudo for every chunk? also, preserve-env, login?
       prependCommandLineString(commandLineString, "sudo", "-S", "-p", "''");
@@ -247,16 +223,13 @@ public class WSLDistribution {
           String password = CredentialPromptDialog.askPassword(
             project,
             "Enter Root Password",
-            "Sudo password for " + myPresentableName + " root:",
-            new CredentialAttributes("WSL", "root", WSLDistribution.class)
+            "Sudo password for " + getPresentableName() + " root:",
+            new CredentialAttributes("WSL", "root", WSLDistribution.class),
+            true
           );
           if (password != null) {
-            PrintWriter pw = new PrintWriter(input);
-            try {
+            try (PrintWriter pw = new PrintWriter(input)) {
               pw.println(password);
-            }
-            finally {
-              pw.close();
             }
           }
           else {
@@ -279,18 +252,16 @@ public class WSLDistribution {
     });
 
 
-    commandLine.setExePath(executablePath.toString());
-    ParametersList parametersList = commandLine.getParametersList();
+    commandLine.setExePath(getExecutablePath().toString());
     parametersList.clearAll();
     parametersList.add(getRunCommandLineParameter());
     parametersList.add(commandLineString.toString());
 
-    LOG.info("[" + myId + "] " + "Patched as: " + commandLine.getCommandLineString());
+    LOG.debug("[" + getId() + "] " + "Patched as: " + commandLine.getCommandLineString());
     return commandLine;
   }
 
-  @NotNull
-  protected String getRunCommandLineParameter() {
+  protected @NotNull @NlsSafe String getRunCommandLineParameter() {
     return RUN_PARAMETER;
   }
 
@@ -301,8 +272,7 @@ public class WSLDistribution {
    * @param timeoutInMilliseconds timeout for execution
    * @return actual file name
    */
-  @NotNull
-  public String resolveSymlink(@NotNull String path, int timeoutInMilliseconds) {
+  public @NotNull @NlsSafe String resolveSymlink(@NotNull String path, int timeoutInMilliseconds) {
 
     try {
       final ProcessOutput output = executeOnWsl(timeoutInMilliseconds, "readlink", "-f", path);
@@ -319,8 +289,7 @@ public class WSLDistribution {
     return path;
   }
 
-  @NotNull
-  public String resolveSymlink(@NotNull String path) {
+  public @NotNull @NlsSafe String resolveSymlink(@NotNull String path) {
     return resolveSymlink(path, RESOLVE_SYMLINK_TIMEOUT);
   }
 
@@ -332,7 +301,7 @@ public class WSLDistribution {
    * @return passed processHandler, patched with sudo listener if any
    */
   @NotNull
-  public ProcessHandler patchProcessHandler(@NotNull GeneralCommandLine commandLine, @NotNull ProcessHandler processHandler) {
+  public <T extends ProcessHandler>T patchProcessHandler(@NotNull GeneralCommandLine commandLine, @NotNull T processHandler) {
     ProcessListener listener = SUDO_LISTENER_KEY.get(commandLine);
     if (listener != null) {
       processHandler.addProcessListener(listener);
@@ -346,13 +315,9 @@ public class WSLDistribution {
    */
   @NotNull
   public Map<String, String> getEnvironment() {
-    if (!isAvailable()) {
-      return Collections.emptyMap();
-    }
-
     try {
       ProcessOutput processOutput = executeOnWsl(5000, "env");
-      Map<String, String> result = new THashMap<>();
+      Map<String, String> result = new HashMap<>();
       for (String string : processOutput.getStdoutLines()) {
         int assignIndex = string.indexOf('=');
         if (assignIndex == -1) {
@@ -374,58 +339,103 @@ public class WSLDistribution {
   /**
    * @return Windows-dependent path for a file, pointed by {@code wslPath} in WSL or null if path is unmappable
    */
-  @Nullable
-  public String getWindowsPath(@NotNull String wslPath) {
-    Matcher matcher = WIN_IN_WSL_PATH_PATTERN.matcher(wslPath);
-    if (!matcher.matches()) {
-      return null;
-    }
 
-    String path = matcher.group(2);
-    return FileUtil.toSystemDependentName(matcher.group(1) + ":" + (StringUtil.isEmpty(path) ? "/" : path));
+  public @Nullable @NlsSafe String getWindowsPath(@NotNull String wslPath) {
+    return WSLUtil.getWindowsPath(wslPath, getMntRoot());
   }
 
   /**
    * @return Linux path for a file pointed by {@code windowsPath} or null if unavailable, like \\MACHINE\path
    */
-  @Nullable
-  public String getWslPath(@NotNull String windowsPath) {
-    if (StringUtil.isChar(windowsPath, 1, ':')) { // normal windows path => /mnt/disk_letter/path
-      return WSL_MNT_ROOT +
-             "/" +
-             Character.toLowerCase(windowsPath.charAt(0)) +
-             FileUtil.toSystemIndependentName(windowsPath.substring(2));
+  public @Nullable @NlsSafe String getWslPath(@NotNull String windowsPath) {
+    if (FileUtil.isWindowsAbsolutePath(windowsPath)) { // absolute windows path => /mnt/disk_letter/path
+      return getMntRoot() + convertWindowsPath(windowsPath);
     }
     return null;
   }
 
-  @NotNull
-  public String getId() {
-    return myId;
+  /**
+   * @see WslDistributionDescriptor#getMntRoot()
+   */
+  public final @NotNull @NlsSafe String getMntRoot(){
+    return myDescriptor.getMntRoot();
   }
 
-  @NotNull
-  public String getMsId() {
-    return myMsId;
+  /**
+   * @param windowsAbsolutePath properly formatted windows local absolute path: {@code drive:\path}
+   * @return windows path converted to the linux path according to wsl rules: {@code c:\some\path} => {@code c/some/path}
+   */
+  static @NotNull @NlsSafe String convertWindowsPath(@NotNull String windowsAbsolutePath) {
+    return Character.toLowerCase(windowsAbsolutePath.charAt(0)) + FileUtil.toSystemIndependentName(windowsAbsolutePath.substring(2));
   }
 
-  @NotNull
-  public String getPresentableName() {
-    return myPresentableName;
+  public @NotNull @NlsSafe String getId() {
+    return myDescriptor.getId();
+  }
+
+  public @NotNull @NlsSafe String getMsId() {
+    return myDescriptor.getMsId();
+  }
+
+  public @NotNull @NlsSafe String getPresentableName() {
+    return myDescriptor.getPresentableName();
   }
 
   @Override
   public String toString() {
     return "WSLDistribution{" +
-           "myId='" + myId + '\'' +
+           "myDescriptor=" + myDescriptor +
            '}';
   }
 
-  private static void prependCommandLineString(@NotNull StringBuilder commandLineString, @NotNull String... commands) {
+  private static void prependCommandLineString(@NotNull StringBuilder commandLineString, String @NotNull ... commands) {
     commandLineString.insert(0, createAdditionalCommand(commands) + " ");
   }
 
-  private static String createAdditionalCommand(@NotNull String... commands) {
+  private static String createAdditionalCommand(String @NotNull ... commands) {
     return new GeneralCommandLine(commands).getCommandLineString();
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+
+    WSLDistribution that = (WSLDistribution)o;
+
+    if (!myDescriptor.equals(that.myDescriptor)) return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    return myDescriptor.hashCode();
+  }
+
+  /**
+   * @return UNC root for the distribution, e.g. {@code \\wsl$\Ubuntu}
+   */
+  @ApiStatus.Experimental
+  @NotNull
+  public File getUNCRoot() {
+    return new File(UNC_PREFIX + myDescriptor.getMsId());
+  }
+
+  /**
+   * @return UNC root for the distribution, e.g. {@code \\wsl$\Ubuntu}
+   * @see VfsUtil#findFileByIoFile(File, boolean)
+   * @implNote there is a hack in {@link LocalFileSystemBase#getAttributes(VirtualFile)} which causes all network
+   * virtual files to exists all the time. So we need to check explicitly that root exists. After implementing proper non-blocking check
+   * for the network resource availability, this method may be simplified to findFileByIoFile
+   */
+  @ApiStatus.Experimental
+  @Nullable
+  public VirtualFile getUNCRootVirtualFile(boolean refreshIfNeed) {
+    if (!Experiments.getInstance().isFeatureEnabled("wsl.p9.support")) {
+      return null;
+    }
+    File uncRoot = getUNCRoot();
+    return uncRoot.exists() ? VfsUtil.findFileByIoFile(uncRoot, refreshIfNeed) : null;
   }
 }

@@ -13,7 +13,6 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/25/2014
  */
 @State(
   name = "gradleExecuteTaskHistory",
@@ -63,9 +62,8 @@ public class ExecuteGradleTaskHistoryService implements PersistentStateComponent
     return myWorkDirectory;
   }
 
-  @Nullable
   @Override
-  public String[] getState() {
+  public String @Nullable [] getState() {
     String[] res = new String[myHistory.size() + 1];
     res[0] = myWorkDirectory;
 
@@ -78,7 +76,7 @@ public class ExecuteGradleTaskHistoryService implements PersistentStateComponent
   }
 
   @Override
-  public void loadState(@NotNull String[] state) {
+  public void loadState(String @NotNull [] state) {
     if (state.length == 0) {
       myWorkDirectory = "";
       myHistory.clear();

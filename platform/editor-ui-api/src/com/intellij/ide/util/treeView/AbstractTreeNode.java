@@ -1,10 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
@@ -13,31 +12,34 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.tree.LeafState;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
 import java.util.Collection;
 import java.util.Map;
 
-public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<AbstractTreeNode<T>> implements NavigationItem, Queryable.Contributor {
+public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<AbstractTreeNode<T>>
+  implements NavigationItem, Queryable.Contributor, LeafState.Supplier {
+
+  private static final TextAttributesKey FILESTATUS_ERRORS = TextAttributesKey.createTextAttributesKey("FILESTATUS_ERRORS");
   private static final Logger LOG = Logger.getInstance(AbstractTreeNode.class);
-  private AbstractTreeNode myParent;
+  private AbstractTreeNode<?> myParent;
   private Object myValue;
   private boolean myNullValueSet;
   private final boolean myNodeWrapper;
-  private NodeDescriptor myParentDescriptor;
+  static final Object TREE_WRAPPER_VALUE = new Object();
 
-  protected AbstractTreeNode(Project project, T value) {
+  protected AbstractTreeNode(Project project, @NotNull T value) {
     super(project, null);
-    // assume that null value used for AbstractTreeNodeWrapper only
     myNodeWrapper = setInternalValue(value);
   }
 
   @NotNull
-  public abstract Collection<? extends AbstractTreeNode> getChildren();
-
+  public abstract Collection<? extends AbstractTreeNode<?>> getChildren();
 
   protected boolean hasProblemFileBeneath() {
     return false;
@@ -49,9 +51,9 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
 
   @Override
   public PresentableNodeDescriptor getChildToHighlightAt(int index) {
-    final Collection<? extends AbstractTreeNode> kids = getChildren();
+    final Collection<? extends AbstractTreeNode<?>> kids = getChildren();
     int i = 0;
-    for (final AbstractTreeNode kid : kids) {
+    for (final AbstractTreeNode<?> kid : kids) {
       if (i == index) return kid;
       i++;
     }
@@ -62,13 +64,13 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   @Override
   protected void postprocess(@NotNull PresentationData presentation) {
     if (hasProblemFileBeneath() ) {
-      presentation.setAttributesKey(CodeInsightColors.ERRORS_ATTRIBUTES);
+      presentation.setAttributesKey(FILESTATUS_ERRORS);
     }
 
     setForcedForeground(presentation);
   }
 
-  protected void setForcedForeground(@NotNull PresentationData presentation) {
+  private void setForcedForeground(@NotNull PresentationData presentation) {
     final FileStatus status = getFileStatus();
     Color fgColor = getFileStatusColor(status);
     fgColor = fgColor == null ? status.getColor() : fgColor;
@@ -85,6 +87,14 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   @Override
   protected boolean shouldUpdateData() {
     return !myProject.isDisposed() && getEqualityObject() != null;
+  }
+
+  @NotNull
+  @Override
+  public LeafState getLeafState() {
+    if (isAlwaysShowPlus()) return LeafState.NEVER;
+    if (isAlwaysLeaf()) return LeafState.ALWAYS;
+    return LeafState.DEFAULT;
   }
 
   public boolean isAlwaysShowPlus() {
@@ -105,13 +115,15 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
     return getEqualityObject() != null ? this : null;
   }
 
+  @Override
   public boolean equals(Object object) {
     if (object == this) return true;
     if (object == null || !object.getClass().equals(getClass())) return false;
     // we should not change this behaviour if value is set to null
-    return object instanceof AbstractTreeNode && Comparing.equal(myValue, ((AbstractTreeNode)object).myValue);
+    return Comparing.equal(myValue, ((AbstractTreeNode<?>)object).myValue);
   }
 
+  @Override
   public int hashCode() {
     // we should not change hash code if value is set to null
     Object value = myValue;
@@ -124,12 +136,11 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
 
   public final void setParent(AbstractTreeNode parent) {
     myParent = parent;
-    myParentDescriptor = parent;
   }
 
   @Override
   public final NodeDescriptor getParentDescriptor() {
-    return myParentDescriptor;
+    return myParent;
   }
 
   public final T getValue() {
@@ -140,10 +151,15 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   public final void setValue(T value) {
     boolean debug = !myNodeWrapper && LOG.isDebugEnabled();
     int hash = !debug ? 0 : hashCode();
-    myNullValueSet = setInternalValue(value);
+    myNullValueSet = value == null || setInternalValue(value);
+    recordValueSetTrace(myNullValueSet);
     if (debug && hash != hashCode()) {
       LOG.warn("hash code changed: " + myValue);
     }
+  }
+
+  protected void recordValueSetTrace(boolean nullValue) {
+
   }
 
   /**
@@ -152,8 +168,8 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
    * @param value a new value to set
    * @return {@code true} if the specified value is {@code null} and the anchor is not changed
    */
-  private boolean setInternalValue(T value) {
-    if (value == null) return true;
+  private boolean setInternalValue(@NotNull T value) {
+    if (value == TREE_WRAPPER_VALUE) return true;
     myValue = TreeAnchorizer.getService().createAnchor(value);
     return false;
   }
@@ -163,6 +179,7 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   }
 
   @Nullable
+  @TestOnly
   public String toTestString(@Nullable Queryable.PrintInfo printInfo) {
     if (getValue() instanceof Queryable) {
       String text = Queryable.Util.print((Queryable)getValue(), printInfo, this);
@@ -177,11 +194,13 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   }
 
   /**
-   * @deprecated use toTestString
-   * @return
+   * @deprecated use {@link #toTestString(Queryable.PrintInfo)} instead
    */
+  @Deprecated
   @Nullable
-  @NonNls public String getTestPresentation() {
+  @NonNls
+  @TestOnly
+  public String getTestPresentation() {
     if (myName != null) {
       return myName;
     }
@@ -192,7 +211,7 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   }
 
   public Color getFileStatusColor(final FileStatus status) {
-    if (FileStatus.NOT_CHANGED.equals(status)) {
+    if (FileStatus.NOT_CHANGED.equals(status) && myProject != null && !myProject.isDefault()) {
       final VirtualFile vf = getVirtualFile();
       if (vf != null && vf.isDirectory()) {
         return FileStatusManager.getInstance(myProject).getRecursiveStatus(vf).getColor();
@@ -230,7 +249,7 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
 
   @Nullable
   protected final Object getParentValue() {
-    AbstractTreeNode parent = getParent();
+    AbstractTreeNode<?> parent = getParent();
     return parent == null ? null : parent.getValue();
   }
 
@@ -242,25 +261,8 @@ public abstract class AbstractTreeNode<T> extends PresentableNodeDescriptor<Abst
   /**
    * @deprecated use {@link #getPresentation()} instead
    */
+  @Deprecated
   protected String getToolTip() {
     return getPresentation().getTooltip();
   }
-
-  /**
-   * @deprecated use {@link #getPresentation()} instead
-   */
-  @Nullable
-  public TextAttributesKey getAttributesKey() {
-    return getPresentation().getTextAttributesKey();
-  }
-
-  /**
-   * @deprecated use {@link #getPresentation()} instead
-   */
-  @Nullable
-  public String getLocationString() {
-    return getPresentation().getLocationString();
-  }
-
-
 }

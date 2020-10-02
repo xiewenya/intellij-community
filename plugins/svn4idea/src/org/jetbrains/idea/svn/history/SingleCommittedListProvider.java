@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.history;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -11,7 +11,6 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.svn.RootUrlInfo;
 import org.jetbrains.idea.svn.SvnRevisionNumber;
@@ -24,7 +23,7 @@ import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.auth.SvnAuthenticationNotifier;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 
-import static com.intellij.openapi.vfs.VfsUtilCore.virtualToIoFile;
+import static com.intellij.vcsUtil.VcsUtil.getFilePath;
 
 public class SingleCommittedListProvider {
 
@@ -63,18 +62,18 @@ public class SingleCommittedListProvider {
   private boolean setup() {
     boolean result = false;
 
-    RootUrlInfo rootUrlInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(virtualToIoFile(file));
+    RootUrlInfo rootUrlInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(getFilePath(file));
     if (rootUrlInfo != null) {
       changeList = new SvnChangeList[1];
       revisionBefore = ((SvnRevisionNumber)number).getRevision();
       repositoryUrl = rootUrlInfo.getRepositoryUrl();
       svnRootUrl = rootUrlInfo.getUrl();
-      svnRootLocation = new SvnRepositoryLocation(rootUrlInfo.getUrl().toString());
+      svnRootLocation = new SvnRepositoryLocation(rootUrlInfo.getUrl());
       repositoryRelativeUrl = SvnUtil.ensureStartSlash(SvnUtil.join(
         SvnUtil.getRelativeUrl(repositoryUrl, svnRootUrl),
         SvnUtil.getRelativePath(rootUrlInfo.getPath(), file.getPath())));
 
-      filePath = VcsUtil.getFilePath(file);
+      filePath = getFilePath(file);
 
       result = true;
     }

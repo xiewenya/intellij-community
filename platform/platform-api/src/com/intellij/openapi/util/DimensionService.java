@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.openapi.components.*;
@@ -8,11 +8,15 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.WindowManager;
+import com.intellij.ui.ComponentUtil;
+import com.intellij.ui.JreHiDpiUtil;
 import com.intellij.ui.ScreenUtil;
-import com.intellij.util.containers.ObjectIntHashMap;
-import com.intellij.util.containers.hash.LinkedHashMap;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMaps;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -20,20 +24,19 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.geom.Point2D;
 import java.util.Map;
 
 /**
  * This class represents map between strings and rectangles. It's intended to store
  * sizes of window, dialogs, etc.
  */
-@State(name = "DimensionService", storages = @Storage(value = "dimensions.xml", roamingType = RoamingType.DISABLED))
-public class DimensionService extends SimpleModificationTracker implements PersistentStateComponent<Element> {
+@State(name = "DimensionService", storages = @Storage(value = "window.state.xml", roamingType = RoamingType.DISABLED))
+public final class DimensionService extends SimpleModificationTracker implements PersistentStateComponent<Element> {
   private static final Logger LOG = Logger.getInstance(DimensionService.class);
 
-  private final Map<String, Point> myKey2Location = new LinkedHashMap<>();
-  private final Map<String, Dimension> myKey2Size = new LinkedHashMap<>();
-  private final ObjectIntHashMap<String> myKey2ExtendedState = new ObjectIntHashMap<>();
+  private final Map<String, Point> myKeyToLocation = CollectionFactory.createSmallMemoryFootprintLinkedMap();
+  private final Map<String, Dimension> myKeToSize = CollectionFactory.createSmallMemoryFootprintLinkedMap();
+  private final Object2IntMap<String> myKeyToExtendedState = new Object2IntOpenHashMap<>();
   @NonNls private static final String EXTENDED_STATE = "extendedState";
   @NonNls private static final String KEY = "key";
   @NonNls private static final String STATE = "state";
@@ -63,8 +66,11 @@ public class DimensionService extends SimpleModificationTracker implements Persi
 
   @Nullable
   public synchronized Point getLocation(@NotNull String key, Project project) {
+    Point point = project == null ? null : WindowStateService.getInstance(project).getLocation(key);
+    if (point != null) return point;
+
     Pair<String, Float> pair = keyPair(key, project);
-    Point point = myKey2Location.get(pair.first);
+    point = myKeyToLocation.get(pair.first);
     if (point != null) {
       point = (Point)point.clone();
       float scale = pair.second;
@@ -89,15 +95,16 @@ public class DimensionService extends SimpleModificationTracker implements Persi
   }
 
   public synchronized void setLocation(@NotNull String key, Point point, Project project) {
+    getWindowStateService(project).putLocation(key, point);
     Pair<String, Float> pair = keyPair(key, project);
     if (point != null) {
       point = (Point)point.clone();
       float scale = pair.second;
       point.setLocation(point.x * scale, point.y * scale);
-      myKey2Location.put(pair.first, point);
+      myKeyToLocation.put(pair.first, point);
     }
     else {
-      myKey2Location.remove(key);
+      myKeyToLocation.remove(key);
     }
     incModificationCount();
   }
@@ -115,8 +122,11 @@ public class DimensionService extends SimpleModificationTracker implements Persi
 
   @Nullable
   public synchronized Dimension getSize(@NotNull @NonNls String key, Project project) {
+    Dimension size = project == null ? null : WindowStateService.getInstance(project).getSize(key);
+    if (size != null) return size;
+
     Pair<String, Float> pair = keyPair(key, project);
-    Dimension size = myKey2Size.get(pair.first);
+    size = myKeToSize.get(pair.first);
     if (size != null) {
       size = (Dimension)size.clone();
       float scale = pair.second;
@@ -138,15 +148,16 @@ public class DimensionService extends SimpleModificationTracker implements Persi
   }
 
   public synchronized void setSize(@NotNull @NonNls String key, Dimension size, Project project) {
+    getWindowStateService(project).putSize(key, size);
     Pair<String, Float> pair = keyPair(key, project);
     if (size != null) {
       size = (Dimension)size.clone();
       float scale = pair.second;
       size.setSize(size.width * scale, size.height * scale);
-      myKey2Size.put(pair.first, size);
+      myKeToSize.put(pair.first, size);
     }
     else {
-      myKey2Size.remove(pair.first);
+      myKeToSize.remove(pair.first);
     }
     incModificationCount();
   }
@@ -155,56 +166,57 @@ public class DimensionService extends SimpleModificationTracker implements Persi
   public Element getState() {
     Element element = new Element("state");
     // Save locations
-    for (String key : myKey2Location.keySet()) {
-      Point point = myKey2Location.get(key);
+    for (Map.Entry<String, Point> entry : myKeyToLocation.entrySet()) {
+      Point point = entry.getValue();
       LOG.assertTrue(point != null);
       Element e = new Element(ELEMENT_LOCATION);
-      e.setAttribute(KEY, key);
+      e.setAttribute(KEY, entry.getKey());
       e.setAttribute(ATTRIBUTE_X, String.valueOf(point.x));
       e.setAttribute(ATTRIBUTE_Y, String.valueOf(point.y));
       element.addContent(e);
     }
 
     // Save sizes
-    for (String key : myKey2Size.keySet()) {
-      Dimension size = myKey2Size.get(key);
+    for (Map.Entry<String, Dimension> entry : myKeToSize.entrySet()) {
+      Dimension size = entry.getValue();
       LOG.assertTrue(size != null);
       Element e = new Element(ELEMENT_SIZE);
-      e.setAttribute(KEY, key);
+      e.setAttribute(KEY, entry.getKey());
       e.setAttribute(ATTRIBUTE_WIDTH, String.valueOf(size.width));
       e.setAttribute(ATTRIBUTE_HEIGHT, String.valueOf(size.height));
       element.addContent(e);
     }
 
-    // Save extended states
-    for (Object stateKey : myKey2ExtendedState.keys()) {
-      String key = (String)stateKey;
+    // save extended states
+    for (Object2IntMap.Entry<String> entry : Object2IntMaps.fastIterable(myKeyToExtendedState)) {
       Element e = new Element(EXTENDED_STATE);
-      e.setAttribute(KEY, key);
-      e.setAttribute(STATE, String.valueOf(myKey2ExtendedState.get(key)));
+      e.setAttribute(KEY, entry.getKey());
+      e.setAttribute(STATE, Integer.toString(entry.getIntValue()));
       element.addContent(e);
     }
     return element;
   }
 
   @Override
-  public void loadState(@NotNull final Element element) {
-    myKey2Location.clear();
-    myKey2Size.clear();
-    myKey2ExtendedState.clear();
+  public void loadState(@NotNull Element element) {
+    myKeyToLocation.clear();
+    myKeToSize.clear();
+    myKeyToExtendedState.clear();
 
     for (Element e : element.getChildren()) {
       if (ELEMENT_LOCATION.equals(e.getName())) {
         try {
-          myKey2Location.put(e.getAttributeValue(KEY), new Point(Integer.parseInt(e.getAttributeValue(ATTRIBUTE_X)),
-                                                                 Integer.parseInt(e.getAttributeValue(ATTRIBUTE_Y))));
+          //noinspection ConstantConditions
+          myKeyToLocation.put(e.getAttributeValue(KEY), new Point(Integer.parseInt(e.getAttributeValue(ATTRIBUTE_X)),
+                                                                  Integer.parseInt(e.getAttributeValue(ATTRIBUTE_Y))));
         }
         catch (NumberFormatException ignored) {
         }
       }
       else if (ELEMENT_SIZE.equals(e.getName())) {
         try {
-          myKey2Size.put(e.getAttributeValue(KEY), new Dimension(Integer.parseInt(e.getAttributeValue(ATTRIBUTE_WIDTH)),
+          //noinspection ConstantConditions
+          myKeToSize.put(e.getAttributeValue(KEY), new Dimension(Integer.parseInt(e.getAttributeValue(ATTRIBUTE_WIDTH)),
                                                                  Integer.parseInt(e.getAttributeValue(ATTRIBUTE_HEIGHT))));
         }
         catch (NumberFormatException ignored) {
@@ -212,7 +224,8 @@ public class DimensionService extends SimpleModificationTracker implements Persi
       }
       else if (EXTENDED_STATE.equals(e.getName())) {
         try {
-          myKey2ExtendedState.put(e.getAttributeValue(KEY), Integer.parseInt(e.getAttributeValue(STATE)));
+          //noinspection ConstantConditions
+          myKeyToExtendedState.put(e.getAttributeValue(KEY), Integer.parseInt(e.getAttributeValue(STATE)));
         }
         catch (NumberFormatException ignored) {
         }
@@ -220,27 +233,9 @@ public class DimensionService extends SimpleModificationTracker implements Persi
     }
   }
 
-  /**
-   * @deprecated Use {@link com.intellij.ide.util.PropertiesComponent}
-   */
-  @Deprecated
-  public void setExtendedState(String key, int extendedState) {
-    if (myKey2ExtendedState.put(key, extendedState) != extendedState || extendedState == 0) {
-      incModificationCount();
-    }
-  }
-
-  /**
-   * @deprecated Use {@link com.intellij.ide.util.PropertiesComponent}
-   */
-  @Deprecated
-  public int getExtendedState(String key) {
-    return myKey2ExtendedState.get(key);
-  }
-
   @Nullable
   private static Project guessProject() {
-    final Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
+    Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
     return openProjects.length == 1 ? openProjects[0] : null;
   }
 
@@ -258,7 +253,7 @@ public class DimensionService extends SimpleModificationTracker implements Persi
     JFrame frame = null;
     final Component owner = IdeFocusManager.findInstance().getFocusOwner();
     if (owner != null) {
-      frame = UIUtil.getParentOfType(JFrame.class, owner);
+      frame = ComponentUtil.getParentOfType((Class<? extends JFrame>)JFrame.class, owner);
     }
     if (frame == null) {
       frame = WindowManager.getInstance().findVisibleFrame();
@@ -269,11 +264,12 @@ public class DimensionService extends SimpleModificationTracker implements Persi
     Rectangle screen = new Rectangle(0, 0, 0, 0);
     GraphicsDevice gd = null;
     if (frame != null) {
-      final Point topLeft = frame.getLocation();
-      Point2D center = new Point2D.Float(topLeft.x + frame.getWidth() / 2, topLeft.y + frame.getHeight() / 2);
+      Point topLeft = frame.getLocation();
+      float centerX = topLeft.x + frame.getWidth() / 2f;
+      float centerY = topLeft.y + frame.getHeight() / 2f;
       for (GraphicsDevice device : env.getScreenDevices()) {
         Rectangle bounds = device.getDefaultConfiguration().getBounds();
-        if (bounds.contains(center)) {
+        if (bounds.contains(centerX, centerY)) {
           screen = bounds;
           gd = device;
           break;
@@ -285,8 +281,8 @@ public class DimensionService extends SimpleModificationTracker implements Persi
       screen = gd.getDefaultConfiguration().getBounds();
     }
     float scale = 1f;
-    if (UIUtil.isJreHiDPIEnabled()) {
-      scale = JBUI.sysScale(gd.getDefaultConfiguration());
+    if (JreHiDpiUtil.isJreHiDPIEnabled()) {
+      scale = JBUIScale.sysScale(gd.getDefaultConfiguration());
       // normalize screen bounds
       screen.setBounds((int)Math.floor(screen.x * scale), (int)Math.floor(screen.y * scale),
                        (int)Math.ceil(screen.width * scale), (int)Math.ceil(screen.height * scale));
@@ -297,5 +293,10 @@ public class DimensionService extends SimpleModificationTracker implements Persi
       realKey += "@" + dpi + "dpi";
     }
     return new Pair<>(realKey, scale);
+  }
+
+  @NotNull
+  private static WindowStateService getWindowStateService(@Nullable Project project) {
+    return project == null ? WindowStateService.getInstance() : WindowStateService.getInstance(project);
   }
 }

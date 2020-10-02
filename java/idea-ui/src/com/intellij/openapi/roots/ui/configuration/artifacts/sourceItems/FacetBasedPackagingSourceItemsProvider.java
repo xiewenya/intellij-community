@@ -24,15 +24,11 @@ import com.intellij.packaging.elements.PackagingElementOutputKind;
 import com.intellij.packaging.elements.PackagingElementType;
 import com.intellij.packaging.impl.artifacts.ArtifactUtil;
 import com.intellij.packaging.ui.*;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public abstract class FacetBasedPackagingSourceItemsProvider<F extends Facet, E extends PackagingElement<?>> extends PackagingSourceItemsProvider {
   private final FacetTypeId<F> myFacetTypeId;
   private final PackagingElementType<E> myElementType;
@@ -76,10 +72,10 @@ public abstract class FacetBasedPackagingSourceItemsProvider<F extends Facet, E 
   protected abstract PackagingElement<?> createElement(ArtifactEditorContext context, F facet);
 
   protected static class FacetBasedSourceItem<F extends Facet> extends PackagingSourceItem {
-    private final FacetBasedPackagingSourceItemsProvider<F, ?> myProvider;
+    private final FacetBasedPackagingSourceItemsProvider<? super F, ?> myProvider;
     private final F myFacet;
 
-    public FacetBasedSourceItem(FacetBasedPackagingSourceItemsProvider<F, ?> provider, F facet) {
+    public FacetBasedSourceItem(FacetBasedPackagingSourceItemsProvider<? super F, ?> provider, F facet) {
       myProvider = provider;
       myFacet = facet;
     }
@@ -95,6 +91,7 @@ public abstract class FacetBasedPackagingSourceItemsProvider<F extends Facet, E 
       return myFacet.hashCode() + 31*myProvider.hashCode();
     }
 
+    @NotNull
     @Override
     public SourceItemPresentation createPresentation(@NotNull ArtifactEditorContext context) {
       return new DelegatedSourceItemPresentation(myProvider.createPresentation(myFacet));

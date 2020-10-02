@@ -45,7 +45,25 @@ public class PySpellCheckerTest extends PyTestCase {
 
   // PY-20824
   public void testFStringPrefix() {
-    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  public void testFStringExpression() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  public void testRawFString() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-34873
+  public void testFStringsWithApostrophe() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-20987
+  public void testEscapesInRawAndNormalGluedStringElements() {
+    doTest();
   }
 
   // PY-20987
@@ -53,8 +71,17 @@ public class PySpellCheckerTest extends PyTestCase {
     doTest();
   }
 
-  // PY-20987
-  public void testGluedStringNodesAfterFirstRawWithBackslashes() {
+  public void testTyposInInjectedPythonStringsReportedOnce() {
+    doTest();
+  }
+
+  // PY-36912
+  public void testTyposInDoctestsReportedOnce() {
+    doTest();
+  }
+
+  // PY-7711
+  public void testTyposInRegexIgnored() {
     doTest();
   }
 

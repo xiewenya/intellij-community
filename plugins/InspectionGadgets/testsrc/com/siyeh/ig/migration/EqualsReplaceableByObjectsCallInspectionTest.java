@@ -20,13 +20,13 @@ import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class EqualsReplaceableByObjectsCallInspectionTest extends LightInspectionTestCase {
+public class EqualsReplaceableByObjectsCallInspectionTest extends LightJavaInspectionTestCase {
   private EqualsReplaceableByObjectsCallInspection myInspection = new EqualsReplaceableByObjectsCallInspection();
 
   @Override
@@ -43,15 +43,23 @@ public class EqualsReplaceableByObjectsCallInspectionTest extends LightInspectio
   }
 
   public void testEqualsReplaceableByObjectsCall() {
-    doTest();
+    testEqualsReplaceable(false);
   }
 
   public void testEqualsReplaceableByObjectsCallCheckNull() {
+    testEqualsReplaceable(true);
+  }
+
+  protected void testEqualsReplaceable(boolean checkNotNull) {
+    boolean oldNotNull = myInspection.checkNotNull;
     try {
-      myInspection.checkNotNull = true;
-      doTest();
-    } finally {
-      myInspection.checkNotNull = false;
+      myInspection.checkNotNull = checkNotNull;
+
+      myFixture.configureByFile(getTestName(false) + ".java");
+      myFixture.testHighlighting(true, true, false);
+    }
+    finally {
+      myInspection.checkNotNull = oldNotNull;
     }
   }
 

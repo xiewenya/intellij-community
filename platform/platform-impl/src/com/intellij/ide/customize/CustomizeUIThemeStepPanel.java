@@ -1,9 +1,8 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.customize;
 
 import com.intellij.CommonBundle;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.WelcomeWizardUtil;
 import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.ide.ui.LafManager;
@@ -13,10 +12,14 @@ import com.intellij.ide.ui.laf.darcula.DarculaLaf;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.OptionsBundle;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.ui.AppUIUtil;
 import com.intellij.util.IconUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -27,13 +30,13 @@ import java.util.Set;
 
 public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
   public static class ThemeInfo {
-    public final String name;
-    public final String previewFileName;
-    public final String laf;
+    public final @NonNls String name;
+    public final @NonNls String previewFileName;
+    public final @NonNls String laf;
 
     private Icon icon;
 
-    public ThemeInfo(String name, String previewFileName, String laf) {
+    public ThemeInfo(@NonNls String name, @NonNls String previewFileName, @NonNls String laf) {
       this.name = name;
       this.previewFileName = SystemInfo.isMac && "IntelliJ".equals(previewFileName) ? "Aqua" : previewFileName;
       this.laf = laf;
@@ -60,11 +63,8 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
     }
   }
 
-  protected static final ThemeInfo AQUA = new ThemeInfo("Aqua", "Aqua", "com.apple.laf.AquaLookAndFeel");
   protected static final ThemeInfo DARCULA = new ThemeInfo("Darcula", "Darcula", DarculaLaf.class.getName());
-  protected static final ThemeInfo INTELLIJ = new ThemeInfo(
-    LafManagerImpl.useIntelliJInsteadOfAqua() ? "Light" : "IntelliJ", "IntelliJ", IntelliJLaf.class.getName());
-  protected static final ThemeInfo GTK = new ThemeInfo("GTK+", "GTK", "com.sun.java.swing.plaf.gtk.GTKLookAndFeel");
+  protected static final ThemeInfo INTELLIJ = new ThemeInfo("Light", "IntelliJ", IntelliJLaf.class.getName());
 
   private final boolean myColumnMode;
   private final JLabel myPreviewLabel;
@@ -72,7 +72,6 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
 
   public CustomizeUIThemeStepPanel() {
     setLayout(createSmallBorderLayout());
-    IconLoader.activate();
 
     initThemes(myThemes);
 
@@ -82,9 +81,12 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
     final ThemeInfo myDefaultTheme = getDefaultTheme();
 
     for (final ThemeInfo theme : myThemes) {
-      final JRadioButton radioButton = new JRadioButton(theme.name, myDefaultTheme == theme);
+      @NlsSafe String themName = theme.name;
+      final JRadioButton radioButton = new JRadioButton(themName, myDefaultTheme == theme);
       radioButton.setOpaque(false);
       final JPanel panel = createBigButtonPanel(createSmallBorderLayout(), radioButton, () -> {
+        CustomizeIDEWizardInteractions.INSTANCE.record(CustomizeIDEWizardInteractionType.UIThemeChanged);
+
         applyLaf(theme, this);
         theme.apply();
       });
@@ -93,7 +95,7 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
       Icon icon = theme.getIcon();
       int maxThumbnailSize = 400 / myThemes.size();
       final JLabel label = new JLabel(
-        myColumnMode ? IconUtil.scale(IconUtil.cropIcon(icon, maxThumbnailSize * 2, maxThumbnailSize * 2), .5) : icon);
+        myColumnMode ? IconUtil.scale(IconUtil.cropIcon(icon, maxThumbnailSize * 2, maxThumbnailSize * 2), this, .5f) : icon);
       label.setVerticalAlignment(SwingConstants.TOP);
       label.setHorizontalAlignment(SwingConstants.RIGHT);
       panel.add(label, BorderLayout.CENTER);
@@ -118,7 +120,7 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
     SwingUtilities.invokeLater(() -> applyLaf(myDefaultTheme, this));
   }
 
-  protected void initThemes(Collection<ThemeInfo> result) {
+  protected void initThemes(Collection<? super ThemeInfo> result) {
     if (SystemInfo.isMac) {
       result.add(DARCULA);
       result.add(getDefaultLafOnMac());
@@ -130,21 +132,18 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
     else {
       result.add(DARCULA);
       result.add(INTELLIJ);
-      result.add(GTK);
     }
   }
 
   @NotNull
   protected static ThemeInfo getDefaultLafOnMac() {
-    return LafManagerImpl.useIntelliJInsteadOfAqua() ? INTELLIJ : AQUA;
+    return INTELLIJ;
   }
 
   @NotNull
   private ThemeInfo getDefaultTheme() {
     if (ApplicationManager.getApplication() != null) {
-      if (UIUtil.isUnderAquaLookAndFeel()) return AQUA;
-      if (UIUtil.isUnderDarcula()) return DARCULA;
-      if (UIUtil.isUnderGTKLookAndFeel()) return GTK;
+      if (StartupUiUtil.isUnderDarcula()) return DARCULA;
       return INTELLIJ;
     }
     CloudConfigProvider provider = CloudConfigProvider.getProvider();
@@ -169,28 +168,26 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
 
   @Override
   public String getTitle() {
-    return "UI Themes";
+    return IdeBundle.message("step.title.ui.themes");
   }
 
   @Override
   public String getHTMLHeader() {
-    return "<html><body><h2>Set UI theme</h2>&nbsp;</body></html>";
+    return IdeBundle.message("label.set.ui.theme");
   }
 
   @Override
   public String getHTMLFooter() {
-    return "UI theme can be changed later in " +
-           CommonBundle.settingsTitle()
-           + " | " + OptionsBundle.message("configurable.group.appearance.settings.display.name")
-           + " | " + "Appearance";
+    return IdeBundle.message("label.you.can.change.the.ui.theme.later.in.0.1", CommonBundle.settingsTitle(),
+                             OptionsBundle.message("configurable.group.appearance.settings.display.name"), CommonBundle.settingsTitle());
   }
 
   private void applyLaf(ThemeInfo theme, Component component) {
     UIManager.LookAndFeelInfo info = new UIManager.LookAndFeelInfo(theme.name, theme.laf);
     try {
-      boolean wasUnderDarcula = UIUtil.isUnderDarcula();
+      boolean wasUnderDarcula = StartupUiUtil.isUnderDarcula();
       UIManager.setLookAndFeel(info.getClassName());
-      LafManagerImpl.updateForDarcula(UIUtil.isUnderDarcula());
+      AppUIUtil.updateForDarcula(StartupUiUtil.isUnderDarcula());
       String className = info.getClassName();
       WelcomeWizardUtil.setWizardLAF(className);
       Window window = SwingUtilities.getWindowAncestor(component);
@@ -205,7 +202,8 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
         lafManager.setCurrentLookAndFeel(info);
         if (lafManager instanceof LafManagerImpl) {
           ((LafManagerImpl)lafManager).updateWizardLAF(wasUnderDarcula);//Actually updateUI would be called inside EditorColorsManager
-        } else {
+        }
+        else {
           lafManager.updateUI();
         }
       }

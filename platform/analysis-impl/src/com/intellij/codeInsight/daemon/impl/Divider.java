@@ -1,8 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.lang.Language;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
@@ -17,18 +16,20 @@ import com.intellij.util.Processor;
 import com.intellij.util.containers.Stack;
 import gnu.trove.TIntStack;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
-public class Divider {
+public final class Divider {
   private static final int STARTING_TREE_HEIGHT = 10;
 
-  public static class DividedElements {
+  public static final class DividedElements {
     private final long modificationStamp;
-    @NotNull private final TextRange restrictRange;
-    @NotNull private final TextRange priorityRange;
+    private final @NotNull TextRange restrictRange;
+    private final @NotNull TextRange priorityRange;
     public final List<PsiElement> inside = new ArrayList<>();
     final List<ProperTextRange> insideRanges = new ArrayList<>();
     public final List<PsiElement> outside = new ArrayList<>();
@@ -48,12 +49,12 @@ public class Divider {
   public static void divideInsideAndOutsideAllRoots(@NotNull PsiFile file,
                                                      @NotNull TextRange restrictRange,
                                                      @NotNull TextRange priorityRange,
-                                                     @NotNull Condition<PsiFile> rootFilter,
-                                                     @NotNull Processor<DividedElements> processor) {
-    final FileViewProvider viewProvider = file.getViewProvider();
+                                                     @Nullable Predicate<? super PsiFile> rootFilter,
+                                                     @NotNull Processor<? super DividedElements> processor) {
+    FileViewProvider viewProvider = file.getViewProvider();
     for (Language language : viewProvider.getLanguages()) {
-      final PsiFile root = viewProvider.getPsi(language);
-      if (!rootFilter.value(root)) {
+      PsiFile root = viewProvider.getPsi(language);
+      if (rootFilter == null || !rootFilter.test(root)) {
         continue;
       }
       divideInsideAndOutsideInOneRoot(root, restrictRange, priorityRange, processor);
@@ -63,7 +64,7 @@ public class Divider {
   static void divideInsideAndOutsideInOneRoot(@NotNull PsiFile root,
                                               @NotNull TextRange restrictRange,
                                               @NotNull TextRange priorityRange,
-                                              @NotNull Processor<DividedElements> processor) {
+                                              @NotNull Processor<? super DividedElements> processor) {
     long modificationStamp = root.getModificationStamp();
     DividedElements cached = SoftReference.dereference(root.getUserData(DIVIDED_ELEMENTS_KEY));
     DividedElements elements;
@@ -86,21 +87,21 @@ public class Divider {
                                                       @NotNull TextRange restrictRange,
                                                       @NotNull TextRange priorityRange,
                                                       @NotNull List<PsiElement> inside,
-                                                      @NotNull List<ProperTextRange> insideRanges,
+                                                      @NotNull List<? super ProperTextRange> insideRanges,
                                                       @NotNull List<PsiElement> outside,
-                                                      @NotNull List<ProperTextRange> outsideRanges,
-                                                      @NotNull List<PsiElement> outParents,
-                                                      @NotNull List<ProperTextRange> outParentRanges,
+                                                      @NotNull List<? super ProperTextRange> outsideRanges,
+                                                      @NotNull List<? super PsiElement> outParents,
+                                                      @NotNull List<? super ProperTextRange> outParentRanges,
                                                       boolean includeParents) {
     int startOffset = restrictRange.getStartOffset();
     int endOffset = restrictRange.getEndOffset();
 
-    final Condition<PsiElement>[] filters = Extensions.getExtensions(CollectHighlightsUtil.EP_NAME);
+    Condition<PsiElement>[] filters = CollectHighlightsUtil.EP_NAME.getExtensions();
 
-    final TIntStack starts = new TIntStack(STARTING_TREE_HEIGHT);
+    TIntStack starts = new TIntStack(STARTING_TREE_HEIGHT);
     starts.push(startOffset);
-    final Stack<PsiElement> elements = new Stack<>(STARTING_TREE_HEIGHT);
-    final Stack<PsiElement> children = new Stack<>(STARTING_TREE_HEIGHT);
+    Stack<PsiElement> elements = new Stack<>(STARTING_TREE_HEIGHT);
+    Stack<PsiElement> children = new Stack<>(STARTING_TREE_HEIGHT);
     PsiElement element = root;
 
     PsiElement child = HAVE_TO_GET_CHILDREN;

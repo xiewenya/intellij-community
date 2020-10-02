@@ -16,12 +16,13 @@
 package com.intellij.refactoring.memberPushDown;
 
 import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.psi.util.MethodSignatureUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.*;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringConflictsUtil;
@@ -30,9 +31,7 @@ import com.intellij.refactoring.util.classMembers.ClassMemberReferencesVisitor;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.util.containers.MultiMap;
 
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.*;
 
 public class PushDownConflicts {
   private final PsiClass myClass;
@@ -67,6 +66,14 @@ public class PushDownConflicts {
     return myConflicts;
   }
 
+  public Set<PsiMember> getMovedMembers() {
+    return myMovedMembers;
+  }
+
+  public Set<PsiMethod> getAbstractMembers() {
+    return myAbstractMembers;
+  }
+
   public void checkSourceClassConflicts() {
     final PsiElement[] children = myClass.getChildren();
     for (PsiElement child : children) {
@@ -77,7 +84,7 @@ public class PushDownConflicts {
 
     final PsiAnnotation annotation = AnnotationUtil.findAnnotation(myClass, CommonClassNames.JAVA_LANG_FUNCTIONAL_INTERFACE);
     if (annotation != null && myMovedMembers.contains(LambdaUtil.getFunctionalInterfaceMethod(myClass))) {
-      myConflicts.putValue(annotation, RefactoringBundle.message("functional.interface.broken"));
+      myConflicts.putValue(annotation, JavaRefactoringBundle.message("functional.interface.broken"));
     }
     boolean isAbstract = myClass.hasModifierProperty(PsiModifier.ABSTRACT);
     for (PsiMember member : myMovedMembers) {
@@ -93,7 +100,7 @@ public class PushDownConflicts {
                 if (resolvedClass != null && myClass.isInheritor(resolvedClass, true)) {
                   final PsiMethod methodBySignature = myClass.findMethodBySignature(resolvedMethod, false);
                   if (methodBySignature != null && !myMovedMembers.contains(methodBySignature)) {
-                    myConflicts.putValue(expression, "Super method call will resolve to another method");
+                    myConflicts.putValue(expression, JavaBundle.message("push.down.super.method.call.changed.conflict"));
                   }
                 }
               }
@@ -105,14 +112,22 @@ public class PushDownConflicts {
         Set<PsiClass> unrelatedDefaults = new LinkedHashSet<>();
         for (PsiMethod superMethod : ((PsiMethod)member).findSuperMethods()) {
           if (!isAbstract && superMethod.hasModifierProperty(PsiModifier.ABSTRACT)) {
-            myConflicts.putValue(member, "Non abstract " + RefactoringUIUtil.getDescription(myClass, false) + " will miss implementation of " + RefactoringUIUtil.getDescription(superMethod, false));
+            myConflicts.putValue(member, JavaBundle
+              .message("push.down.missed.implementation.conflict", RefactoringUIUtil.getDescription(myClass, false),
+                       RefactoringUIUtil.getDescription(superMethod, false)));
             break;
           }
           if (superMethod.hasModifierProperty(PsiModifier.DEFAULT)) {
             unrelatedDefaults.add(superMethod.getContainingClass());
             if (unrelatedDefaults.size() > 1) {
-              myConflicts.putValue(member, CommonRefactoringUtil.capitalize(RefactoringUIUtil.getDescription(myClass, false) + " will inherit unrelated defaults from " +
-                                                                            StringUtil.join(unrelatedDefaults, aClass -> RefactoringUIUtil.getDescription(aClass, false)," and ")));
+              List<PsiClass> supers = new ArrayList<>(unrelatedDefaults);
+              supers.sort(Comparator.comparing(PsiClass::getName));
+              PsiClass lastClass = supers.remove(supers.size() - 1);
+              myConflicts.putValue(member, StringUtil
+                .capitalize(JavaRefactoringBundle
+                              .message("push.down.unrelated.defaults.conflict", RefactoringUIUtil.getDescription(myClass, false),
+                                       StringUtil.join(supers, aClass -> RefactoringUIUtil.getDescription(aClass, false), ", "),
+                                       RefactoringUIUtil.getDescription(lastClass, false))));
               break;
             }
           }
@@ -123,7 +138,7 @@ public class PushDownConflicts {
 
   public void checkTargetClassConflicts(final PsiElement targetElement, final PsiElement context) {
     if (targetElement instanceof PsiFunctionalExpression) {
-      myConflicts.putValue(targetElement, RefactoringBundle.message("functional.interface.broken"));
+      myConflicts.putValue(targetElement, JavaRefactoringBundle.message("functional.interface.broken"));
       return;
     }
 
@@ -142,6 +157,7 @@ public class PushDownConflicts {
           if (myConflicts.containsKey(element)) continue;
           final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)element;
           final PsiExpression qualifier = referenceExpression.getQualifierExpression();
+          if (qualifier instanceof PsiSuperExpression && isSuperCallToBeInlined(member, targetClass, myClass, element)) continue;
           if (qualifier != null) {
             final PsiType qualifierType = qualifier.getType();
             PsiClass aClass = null;
@@ -166,7 +182,7 @@ public class PushDownConflicts {
       }
     }
     RefactoringConflictsUtil.analyzeAccessibilityConflicts(myMovedMembers, targetClass, myConflicts, null, context, myAbstractMembers);
-    
+
   }
 
   public void checkMemberPlacementInTargetClassConflict(final PsiClass targetClass, final PsiMember movedMember) {
@@ -174,8 +190,8 @@ public class PushDownConflicts {
       String name = movedMember.getName();
       final PsiField field = targetClass.findFieldByName(name, false);
       if (field != null) {
-        String message = RefactoringBundle.message("0.already.contains.field.1", RefactoringUIUtil.getDescription(targetClass, false), CommonRefactoringUtil.htmlEmphasize(name));
-        myConflicts.putValue(field, CommonRefactoringUtil.capitalize(message));
+        String message = JavaRefactoringBundle.message("0.already.contains.field.1", RefactoringUIUtil.getDescription(targetClass, false), CommonRefactoringUtil.htmlEmphasize(name));
+        myConflicts.putValue(field, StringUtil.capitalize(message));
       }
     }
     else if (movedMember instanceof PsiMethod) {
@@ -184,10 +200,10 @@ public class PushDownConflicts {
       if (!modifierList.hasModifierProperty(PsiModifier.ABSTRACT)) {
         PsiMethod method = (PsiMethod)movedMember;
         final PsiMethod overrider = MethodSignatureUtil.findMethodBySuperMethod(targetClass, method, false);
-        if (overrider != null) {
+        if (overrider != null && ReferencesSearch.search(method, new LocalSearchScope(overrider)).findAll().size() != 1) {
           String message = RefactoringBundle.message("0.is.already.overridden.in.1",
                                                      RefactoringUIUtil.getDescription(method, true), RefactoringUIUtil.getDescription(targetClass, false));
-          myConflicts.putValue(overrider, CommonRefactoringUtil.capitalize(message));
+          myConflicts.putValue(overrider, StringUtil.capitalize(message));
         }
       }
     }
@@ -199,7 +215,7 @@ public class PushDownConflicts {
         if (innerClass.equals(movedMember)) continue;
 
         if (name.equals(innerClass.getName())) {
-          String message = RefactoringBundle.message("0.already.contains.inner.class.named.1", RefactoringUIUtil.getDescription(targetClass, false),
+          String message = JavaRefactoringBundle.message("0.already.contains.inner.class.named.1", RefactoringUIUtil.getDescription(targetClass, false),
                                                 CommonRefactoringUtil.htmlEmphasize(name));
           myConflicts.putValue(innerClass, message);
         }
@@ -209,23 +225,40 @@ public class PushDownConflicts {
     if (movedMember.hasModifierProperty(PsiModifier.STATIC) &&
         PsiUtil.getEnclosingStaticElement(targetClass, null) == null &&
         !(targetClass.getParent() instanceof PsiFile)) {
-      myConflicts.putValue(movedMember, "Static " + RefactoringUIUtil.getDescription(movedMember, false) + " can't be pushed to non-static " + RefactoringUIUtil.getDescription(targetClass, false));
+      myConflicts.putValue(movedMember, JavaBundle
+        .message("push.down.static.nonstatic.conflict", RefactoringUIUtil.getDescription(movedMember, false),
+                 RefactoringUIUtil.getDescription(targetClass, false)));
     }
+  }
+
+  public static boolean isSuperCallToBeInlined(PsiMember member,
+                                               PsiClass targetClass,
+                                               PsiClass sourceClass,
+                                               PsiElement referenceOnSuper) {
+    if (member instanceof PsiMethod) {
+      PsiSubstitutor substitutor = TypeConversionUtil.getSuperClassSubstitutor(sourceClass, targetClass, PsiSubstitutor.EMPTY);
+      PsiMethod methodInTarget = MethodSignatureUtil.findMethodBySuperSignature(targetClass,
+                                                                                ((PsiMethod)member).getSignature(substitutor),
+                                                                                true);
+      return methodInTarget != null && PsiTreeUtil.isAncestor(methodInTarget, referenceOnSuper, false);
+    }
+    return false;
   }
 
   private class UsedMovedMembersConflictsCollector extends ClassMemberReferencesVisitor {
     private final PsiElement mySource;
 
-    public UsedMovedMembersConflictsCollector(PsiElement source) {
+    UsedMovedMembersConflictsCollector(PsiElement source) {
       super(myClass);
       mySource = source;
     }
 
+    @Override
     protected void visitClassMemberReferenceElement(PsiMember classMember, PsiJavaCodeReferenceElement classMemberReference) {
       if(myMovedMembers.contains(classMember) && !myAbstractMembers.contains(classMember)) {
         String message = RefactoringBundle.message("0.uses.1.which.is.pushed.down", RefactoringUIUtil.getDescription(mySource, false),
                                               RefactoringUIUtil.getDescription(classMember, false));
-        message = CommonRefactoringUtil.capitalize(message);
+        message = StringUtil.capitalize(message);
         myConflicts.putValue(mySource, message);
       }
     }

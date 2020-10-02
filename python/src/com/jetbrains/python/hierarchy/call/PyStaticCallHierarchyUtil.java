@@ -1,28 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.hierarchy.call;
 
-import com.google.common.collect.Lists;
-import com.intellij.find.findUsages.FindUsagesHandler;
+import com.intellij.find.findUsages.FindUsagesHandlerBase;
 import com.intellij.find.findUsages.FindUsagesOptions;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.CommonProcessors;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.findUsages.PyClassFindUsagesHandler;
 import com.jetbrains.python.findUsages.PyFunctionFindUsagesHandler;
 import com.jetbrains.python.psi.*;
@@ -33,6 +19,7 @@ import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -41,19 +28,19 @@ import java.util.List;
  */
 public class PyStaticCallHierarchyUtil {
   public static Collection<PsiElement> getCallees(@NotNull PyElement element) {
-    final List<PsiElement> callees = Lists.newArrayList();
+    final List<PsiElement> callees = new ArrayList<>();
 
     final PyRecursiveElementVisitor visitor = new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyParameterList(PyParameterList node) {
+      public void visitPyParameterList(@NotNull PyParameterList node) {
       }
 
       @Override
-      public void visitPyLambdaExpression(PyLambdaExpression node) {
+      public void visitPyLambdaExpression(@NotNull PyLambdaExpression node) {
       }
 
       @Override
-      public void visitPyFunction(PyFunction innerFunction) {
+      public void visitPyFunction(@NotNull PyFunction innerFunction) {
         for (PyParameter parameter : innerFunction.getParameterList().getParameters()) {
           PsiElement defaultValue = parameter.getDefaultValue();
           if (defaultValue != null) {
@@ -63,11 +50,11 @@ public class PyStaticCallHierarchyUtil {
       }
 
       @Override
-      public void visitPyCallExpression(PyCallExpression node) {
+      public void visitPyCallExpression(@NotNull PyCallExpression node) {
         super.visitPyCallExpression(node);
 
         StreamEx
-          .of(node.multiResolveCalleeFunction(PyResolveContext.defaultContext()))
+          .of(node.multiResolveCalleeFunction(PyResolveContext.implicitContext()))
           .select(PyFunction.class)
           .forEach(callees::add);
       }
@@ -78,8 +65,9 @@ public class PyStaticCallHierarchyUtil {
     return callees;
   }
 
+  @NotNull
   public static Collection<PsiElement> getCallers(@NotNull PyElement pyElement) {
-    final List<PsiElement> callers = Lists.newArrayList();
+    final List<PsiElement> callers = new ArrayList<>();
     final Collection<UsageInfo> usages = findUsages(pyElement);
 
     for (UsageInfo usage : usages) {
@@ -94,13 +82,17 @@ public class PyStaticCallHierarchyUtil {
       }
 
       if (element instanceof PyCallExpression) {
-        PsiElement caller = PsiTreeUtil.getParentOfType(element, PyParameterList.class, PyFunction.class);
+        final PyExpression receiver = ((PyCallExpression)element).getReceiver(null);
+        if (receiver instanceof PyCallExpression && ((PyCallExpression)receiver).isCalleeText(PyNames.SUPER)) {
+          continue;
+        }
+        final PsiElement caller = PsiTreeUtil.getParentOfType(element, PyParameterList.class, PyFunction.class);
         if (caller instanceof PyFunction) {
           callers.add(caller);
         }
         else if (caller instanceof PyParameterList) {
-          PsiElement innerFunction = PsiTreeUtil.getParentOfType(caller, PyFunction.class);
-          PsiElement outerFunction = PsiTreeUtil.getParentOfType(innerFunction, PyFunction.class);
+          final PsiElement innerFunction = PsiTreeUtil.getParentOfType(caller, PyFunction.class);
+          final PsiElement outerFunction = PsiTreeUtil.getParentOfType(innerFunction, PyFunction.class);
           if (innerFunction != null && outerFunction != null) {
             callers.add(outerFunction);
           }
@@ -112,9 +104,9 @@ public class PyStaticCallHierarchyUtil {
   }
 
   private static Collection<UsageInfo> findUsages(@NotNull final PsiElement element) {
-    final FindUsagesHandler handler = createFindUsageHandler(element);
+    final FindUsagesHandlerBase handler = createFindUsageHandler(element);
     if (handler == null) {
-      return Lists.newArrayList();
+      return new ArrayList<>();
     }
     final CommonProcessors.CollectProcessor<UsageInfo> processor = new CommonProcessors.CollectProcessor<>();
     final PsiElement[] psiElements = ArrayUtil.mergeArrays(handler.getPrimaryElements(), handler.getSecondaryElements());
@@ -126,17 +118,17 @@ public class PyStaticCallHierarchyUtil {
   }
 
   /**
-   * @see {@link com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory#createFindUsagesHandler(com.intellij.psi.PsiElement, boolean) createFindUsagesHandler}
+   * @see com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory#createFindUsagesHandler(PsiElement, boolean)
    */
   @Nullable
-  private static FindUsagesHandler createFindUsageHandler(@NotNull final PsiElement element) {
+  private static FindUsagesHandlerBase createFindUsageHandler(@NotNull final PsiElement element) {
     if (element instanceof PyFunction) {
       final TypeEvalContext context = TypeEvalContext.userInitiated(element.getProject(), null);
       final Collection<PsiElement> superMethods = PySuperMethodsSearch.search((PyFunction)element, true, context).findAll();
       if (superMethods.size() > 0) {
         final PsiElement next = superMethods.iterator().next();
         if (next instanceof PyFunction && !isInObject((PyFunction)next)) {
-          List<PsiElement> allMethods = Lists.newArrayList();
+          List<PsiElement> allMethods = new ArrayList<>();
           allMethods.add(element);
           allMethods.addAll(superMethods);
 
@@ -152,7 +144,7 @@ public class PyStaticCallHierarchyUtil {
   }
 
   /**
-   * @see {@link com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory#isInObject(com.jetbrains.python.psi.PyFunction) isInObject}
+   * @see com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory#isInObject(PyFunction)
    */
   private static boolean isInObject(PyFunction fun) {
     final PyClass containingClass = fun.getContainingClass();

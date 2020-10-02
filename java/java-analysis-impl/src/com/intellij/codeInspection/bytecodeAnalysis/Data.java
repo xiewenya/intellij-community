@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
 import one.util.streamex.StreamEx;
@@ -28,13 +14,13 @@ import java.util.stream.Stream;
 final class Component {
   static final Component[] EMPTY_ARRAY = new Component[0];
   @NotNull Value value;
-  @NotNull final EKey[] ids;
+  final EKey @NotNull [] ids;
 
   Component(@NotNull Value value, @NotNull Set<EKey> ids) {
     this(value, ids.toArray(new EKey[0]));
   }
 
-  Component(@NotNull Value value, @NotNull EKey[] ids) {
+  Component(@NotNull Value value, EKey @NotNull [] ids) {
     this.value = value;
     this.ids = ids;
   }
@@ -107,10 +93,10 @@ final class Equation {
 }
 
 class Equations {
-  @NotNull final List<DirectionResultPair> results;
+  @NotNull final List<? extends DirectionResultPair> results;
   final boolean stable;
 
-  Equations(@NotNull List<DirectionResultPair> results, boolean stable) {
+  Equations(@NotNull List<? extends DirectionResultPair> results, boolean stable) {
     this.results = results;
     this.stable = stable;
   }
@@ -130,7 +116,7 @@ class Equations {
   }
 
   @NotNull
-  Equations update(Direction direction, Effects newResult) {
+  Equations update(@SuppressWarnings("SameParameterValue") Direction direction, Effects newResult) {
     List<DirectionResultPair> newPairs = StreamEx.of(this.results)
       .map(drp -> drp.updateForDirection(direction, newResult))
       .nonNull()
@@ -192,40 +178,15 @@ interface Result {
     return Stream.empty();
   }
 }
-final class Final implements Result {
-  @NotNull final Value value;
-
-  Final(@NotNull Value value) {
-    this.value = value;
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
-
-    return value == ((Final)o).value;
-  }
-
-  @Override
-  public int hashCode() {
-    return value.ordinal();
-  }
-
-  @Override
-  public String toString() {
-    return "Final[" + value + ']';
-  }
-}
 
 final class Pending implements Result {
-  @NotNull final Component[] delta; // sum
+  final Component @NotNull [] delta; // sum
 
   Pending(Collection<Component> delta) {
     this(delta.toArray(Component.EMPTY_ARRAY));
   }
 
-  Pending(@NotNull Component[] delta) {
+  Pending(Component @NotNull [] delta) {
     this.delta = delta;
   }
 
@@ -262,8 +223,8 @@ final class Pending implements Result {
 }
 
 final class Effects implements Result {
-  static final Set<EffectQuantum> TOP_EFFECTS = Collections.singleton(EffectQuantum.TopEffectQuantum);
-  static final Effects VOLATILE_EFFECTS = new Effects(DataValue.UnknownDataValue2, Collections.singleton(EffectQuantum.TopEffectQuantum));
+  static final Set<EffectQuantum> TOP_EFFECTS = Set.of(EffectQuantum.TopEffectQuantum);
+  static final Effects VOLATILE_EFFECTS = new Effects(DataValue.UnknownDataValue2, TOP_EFFECTS);
 
   @NotNull final DataValue returnValue;
   @NotNull final Set<EffectQuantum> effects;
@@ -274,11 +235,21 @@ final class Effects implements Result {
   }
 
   Effects combine(Effects other) {
-    if(this.equals(other)) return this;
-    Set<EffectQuantum> newEffects = new HashSet<>(this.effects);
-    newEffects.addAll(other.effects);
-    if(newEffects.contains(EffectQuantum.TopEffectQuantum)) {
-      newEffects = TOP_EFFECTS;
+    if (this.equals(other)) return this;
+    Set<EffectQuantum> newEffects;
+    if (this.effects.containsAll(other.effects)) {
+      newEffects = this.effects;
+    }
+    else if (other.effects.containsAll(this.effects)) {
+      newEffects = other.effects;
+    }
+    else {
+      newEffects = new HashSet<>(this.effects);
+      newEffects.addAll(other.effects);
+      if (newEffects.contains(EffectQuantum.TopEffectQuantum)) {
+        newEffects = TOP_EFFECTS;
+      }
+      newEffects = Set.copyOf(newEffects);
     }
     DataValue newReturnValue = this.returnValue.equals(other.returnValue) ? this.returnValue : DataValue.UnknownDataValue1;
     return new Effects(newReturnValue, newEffects);

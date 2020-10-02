@@ -1,17 +1,17 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl.view;
 
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
+import java.util.function.Consumer;
 
 /**
  * Fragment of text using a common font
  */
 abstract class TextFragment implements LineFragment {
-  @NotNull
-  final float[] myCharPositions; // i-th value is the x coordinate of right edge of i-th character (counted in visual order)
-  
+  final float @NotNull [] myCharPositions; // i-th value is the x coordinate of right edge of i-th character (counted in visual order)
+
   TextFragment(int charCount) {
     assert charCount > 0;
     myCharPositions = new float[charCount]; // populated by subclasses' constructors
@@ -40,7 +40,7 @@ abstract class TextFragment implements LineFragment {
   public float offsetToX(float startX, int startOffset, int offset) {
     return startX + getX(offset) - getX(startOffset);
   }
-  
+
   float getX(int offset) {
     return offset <= 0 ? 0 : myCharPositions[Math.min(myCharPositions.length, offset) - 1];
   }
@@ -55,7 +55,7 @@ abstract class TextFragment implements LineFragment {
     return column;
   }
 
-  private class TextFragmentWindow implements LineFragment {
+  private final class TextFragmentWindow implements LineFragment {
     private final int myStartOffset;
     private final int myEndOffset;
     private final int myStartColumn; // logical
@@ -142,8 +142,8 @@ abstract class TextFragment implements LineFragment {
     }
 
     @Override
-    public void draw(Graphics2D g, float x, float y, int startOffset, int endOffset) {
-      TextFragment.this.draw(g, x, y, visualOffsetToParent(startOffset), visualOffsetToParent(endOffset));
+    public Consumer<Graphics2D> draw(float x, float y, int startOffset, int endOffset) {
+      return TextFragment.this.draw(x, y, visualOffsetToParent(startOffset), visualOffsetToParent(endOffset));
     }
 
     @NotNull

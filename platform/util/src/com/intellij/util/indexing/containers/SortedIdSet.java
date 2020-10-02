@@ -15,8 +15,8 @@
  */
 package com.intellij.util.indexing.containers;
 
-import com.intellij.util.indexing.ValueContainer;
 import gnu.trove.TIntProcedure;
+import org.jetbrains.annotations.NotNull;
 
 public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
   private int[] mySet;
@@ -37,15 +37,17 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     return mySize == 0;
   }
 
+  @Override
   public int size() {
     return mySize;
   }
 
+  @Override
   public boolean add(int value) {
     assert value > 0;
     int pos;
 
-    if (mySetLength == 0 || (mySetLength > 0 && Math.abs(mySet[mySetLength -1]) < value)) {
+    if (mySetLength == 0 || mySetLength > 0 && Math.abs(mySet[mySetLength - 1]) < value) {
       pos = -mySetLength-1; // most of the time during bulk indexing we add near the end
     }
     else {
@@ -74,6 +76,7 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     return true;
   }
 
+  @Override
   public boolean remove(int value) {
     assert value > 0;
     int pos = binarySearch(mySet, 0, mySetLength, value);
@@ -86,19 +89,8 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
   }
 
   @Override
-  public IntIdsIterator intIterator() {
+  public @NotNull IntIdsIterator intIterator() {
     return new Iterator();
-  }
-
-  @Override
-  public ValueContainer.IntPredicate intPredicate() {
-    return new ValueContainer.IntPredicate() {
-
-      @Override
-      public boolean contains(int id) {
-        return SortedIdSet.this.contains(id);
-      }
-    };
   }
 
   private class Iterator implements IntIdsIterator {
@@ -136,12 +128,12 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     }
   }
 
-  private static int binarySearch(int[] set, int off, int length, int key) {
-    int low = off;
-    int high = length - 1;
+  private static int binarySearch(final int[] set, int startOffset, int endOffset, int key) {
+    int low = startOffset;
+    int high = endOffset - 1;
 
     while (low <= high) {
-      int mid = (low + high) >>> 1;
+      int mid = low + high >>> 1;
       int midVal = Math.abs(set[mid]);
 
       if (midVal < key)
@@ -161,6 +153,7 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     }
   }
 
+  @Override
   public boolean contains(int value) {
     if(value <= 0) return false;
     int pos = binarySearch(mySet, 0, mySetLength, value);
@@ -179,6 +172,7 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     }
   }
 
+  @Override
   public void compact() {
     if(2 * mySize < mySetLength && mySetLength > 5) {
       int positivePosition = -1;
@@ -201,7 +195,8 @@ public class SortedIdSet implements Cloneable, RandomAccessIntContainer {
     }
   }
 
-  public RandomAccessIntContainer ensureContainerCapacity(int count) {
+  @Override
+  public @NotNull RandomAccessIntContainer ensureContainerCapacity(int count) {
     int newSize = mySetLength + count;
     if (newSize < mySet.length) return this;
     if (newSize > ChangeBufferingList.MAX_FILES) {

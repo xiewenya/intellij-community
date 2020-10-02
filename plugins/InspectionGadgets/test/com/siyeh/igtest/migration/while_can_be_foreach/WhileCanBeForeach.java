@@ -8,7 +8,7 @@ public class WhileCanBeForeach {
         int total = 0;
         final List ints = new ArrayList();
         Iterator iterator = ints.iterator();
-        <warning descr="'while' loop replaceable with 'foreach'">while</warning> ( iterator.hasNext()) {
+        <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> ( iterator.hasNext()) {
             total += (Integer) iterator.next();
         }
         return total;
@@ -18,7 +18,7 @@ public class WhileCanBeForeach {
         int total = 0;
         final List ints = new ArrayList();
         Iterator iterator = ints.iterator();
-        <warning descr="'while' loop replaceable with 'foreach'">while</warning> ( iterator.hasNext()) {
+        <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> ( iterator.hasNext()) {
             total += (Integer) iterator.next();
         }
         iterator = ints.iterator(); // write use here
@@ -38,7 +38,7 @@ public class WhileCanBeForeach {
 
     void no(Collection pbps, Map tracksToPBP) {
         final Iterator pbpsIt = pbps.iterator();
-        <warning descr="'while' loop replaceable with 'foreach'">while</warning> (pbpsIt.hasNext()) {
+        <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> (pbpsIt.hasNext()) {
             final String pbp = (String) pbpsIt.next();
             final Iterator trackIt = it();
             while (trackIt.hasNext()) {
@@ -70,7 +70,7 @@ public class WhileCanBeForeach {
     int total = 0;
     final List ints = new ArrayList();
     ListIterator iterator = ints.listIterator();
-    <warning descr="'while' loop replaceable with 'foreach'">while</warning> ( iterator.hasNext()) {
+    <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> ( iterator.hasNext()) {
       final Object next = iterator.next();
       total += (Integer) next;
     }
@@ -96,6 +96,77 @@ public class WhileCanBeForeach {
     //Intention here:
     while (it.hasNext()) { // don't warn because listIterator starts at index 10
       System.out.println(it.next());
+    }
+  }
+
+  void b(List<String> list) {
+    final var iterator = list.iterator();
+    while (iterator.hasNext()) {
+      System.out.println(iterator.next());
+      final var iterator1 = iterator;
+      System.out.println(iterator1);
+    }
+  }
+
+  void c(List<String> strings) {
+      Iterator<String> iterator = strings.listIterator();
+      while (iterator.hasNext()) {
+        System.out.println(iterator.next());
+        iterator.remove();
+      }
+  }
+
+  void insideTryBlockPositive1() {
+    try {
+      Iterator<String> iterator = Arrays.asList("1", "2").iterator();
+      <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> (iterator.hasNext()) {
+        System.out.println(iterator.next());
+      }
+    } catch (Exception e) {}
+  }
+
+  void insideTryBlockPositive2() {
+    Iterator<String> iterator = Arrays.asList("1", "2").iterator();
+    <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> (iterator.hasNext()) {
+      try {
+        System.out.println("Some string");
+      } catch (Exception e) {
+      }
+      System.out.println(iterator.next());
+    }
+  }
+
+  void insideTryBlockNegative() {
+    Iterator<String> iterator = Arrays.asList("1", "2").iterator();
+    while (iterator.hasNext()) {
+      try {
+        System.out.println(iterator.next());
+      } catch (Exception e) {
+      }
+    }
+  }
+
+  void insideInnerWhilePositive() {
+    Iterator<Integer> iterator = Arrays.asList(1, 2, 3, 4, 5, 6).iterator();
+    <warning descr="'while' loop replaceable with enhanced 'for'">while</warning> (iterator.hasNext()) {
+      int i = 0;
+      while (i != 3) {
+        i++;
+        System.out.println("Number " + i);
+      }
+      Integer next = iterator.next();
+      System.out.println(next);
+    }
+  }
+
+  void insideInnerWhileNegative() {
+    Iterator<Integer> iterator = Arrays.asList(1, 2, 3, 4, 5, 6).iterator();
+    while (iterator.hasNext()) {
+      int i = 0;
+      while (i != 3) {
+        Integer next = iterator.next();
+        System.out.println(next);
+      }
     }
   }
 }

@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger.breakpoints;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
@@ -44,8 +32,6 @@ import java.util.List;
  *
  * Use this class only for breakpoints like exception breakpoints in Java. If a breakpoint will be put on some line in a file use
  * {@link XLineBreakpointType} instead 
- *
- * @author nik
  */
 public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreakpointProperties> {
   public static final ExtensionPointName<XBreakpointType> EXTENSION_POINT_NAME = ExtensionPointName.create("com.intellij.xdebugger.breakpointType");
@@ -100,6 +86,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   }
 
   @NotNull
+  @Nls
   public String getTitle() {
     return myTitle;
   }
@@ -115,6 +102,11 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   }
 
   @NotNull
+  public Icon getSuspendNoneIcon() {
+    return AllIcons.Debugger.Db_no_suspend_breakpoint;
+  }
+
+  @NotNull
   public Icon getMutedEnabledIcon() {
     return AllIcons.Debugger.Db_muted_breakpoint;
   }
@@ -125,21 +117,22 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   }
 
   /**
+   * @return the icon shown for a breakpoint which is scheduled but not yet set (validated, resolved) in the debugger engine
+   */
+  @Nullable
+  public Icon getPendingIcon() {
+    return null;
+  }
+
+  /**
    * @return the icon which is shown for a dependent breakpoint until its master breakpoint is reached
    */
   @NotNull
   public Icon getInactiveDependentIcon() {
-    return getDisabledDependentIcon();
-  }
-
-  /**
-   * @deprecated override {@link #getInactiveDependentIcon()} instead
-   */
-  @NotNull
-  public Icon getDisabledDependentIcon() {
     return AllIcons.Debugger.Db_dep_line_breakpoint;
   }
 
+  @Nls
   public abstract String getDisplayText(B breakpoint);
 
   @Nullable 
@@ -155,6 +148,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @deprecated override {@link #createCustomPropertiesPanel(Project)} instead
    */
+  @Deprecated
   @Nullable
   public XBreakpointCustomPropertiesPanel<B> createCustomPropertiesPanel() {
     return null;
@@ -173,6 +167,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @deprecated override {@link #getEditorsProvider(B, Project)} instead
    */
+  @Deprecated
   @Nullable
   public XDebuggerEditorsProvider getEditorsProvider() {
     return null;
@@ -241,6 +236,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
     return null;
   }
 
+  @Nls
   public String getShortText(B breakpoint) {
     return getDisplayText(breakpoint);
   }
@@ -248,5 +244,14 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   public interface XBreakpointCreator<P extends XBreakpointProperties> {
     @NotNull
     XBreakpoint<P> createBreakpoint(@Nullable P properties);
+  }
+
+  public List<? extends AnAction> getAdditionalPopupMenuActions(@NotNull B breakpoint, @Nullable XDebugSession currentSession) {
+    return Collections.emptyList();
+  }
+
+  @Override
+  public String toString() {
+    return myId;
   }
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.completion;
 
 import com.intellij.codeInsight.CodeInsightSettings;
@@ -9,20 +10,21 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiMember;
 import com.intellij.psi.PsiPackage;
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.util.TestUtils;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * @deprecated use {@link com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase}
+ * @deprecated use {@link LightJavaCodeInsightFixtureTestCase}
  * author ven
  */
 public abstract class CompletionTestBase extends JavaCodeInsightFixtureTestCase {
-
   protected void doTest() {
     doTest("");
   }
@@ -34,12 +36,10 @@ public abstract class CompletionTestBase extends JavaCodeInsightFixtureTestCase 
     myFixture.addFileToProject(fileName, stringList.get(0));
     myFixture.configureByFile(fileName);
 
-    boolean old = CodeInsightSettings.getInstance().AUTOCOMPLETE_COMMON_PREFIX;
-    CodeInsightSettings.getInstance().AUTOCOMPLETE_COMMON_PREFIX = false;
     CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = false;
 
 
-    String result = "";
+    StringBuilder result = new StringBuilder();
     try {
       myFixture.completeBasic();
 
@@ -52,21 +52,20 @@ public abstract class CompletionTestBase extends JavaCodeInsightFixtureTestCase 
             return !(o instanceof PsiMember) && !(o instanceof GrVariable) && !(o instanceof GroovyResolveResult) && !(o instanceof PsiPackage);
           });
         }
-        Collections.sort(items, (o1, o2) -> o1.getLookupString().compareTo(o2.getLookupString()));
-        result = "";
+        Collections.sort(items, Comparator.comparing(LookupElement::getLookupString));
+        result = new StringBuilder();
         for (LookupElement item : items) {
-          result = result + "\n" + item.getLookupString();
+          result.append("\n").append(item.getLookupString());
         }
-        result = result.trim();
-        LookupManager.getInstance(myFixture.getProject()).hideActiveLookup();
+        result = new StringBuilder(result.toString().trim());
+        LookupManager.hideActiveLookup(myFixture.getProject());
       }
 
     }
     finally {
       CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = true;
-      CodeInsightSettings.getInstance().AUTOCOMPLETE_COMMON_PREFIX = old;
     }
-    assertEquals(StringUtil.trimEnd(stringList.get(1), "\n"), result);
+    assertEquals(StringUtil.trimEnd(stringList.get(1), "\n"), result.toString());
   }
 
   protected String getExtension() {

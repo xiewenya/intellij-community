@@ -17,6 +17,7 @@ package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -32,7 +33,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Dmitry Batkovich
  */
 public class CreateSwitchIntention extends BaseElementAtCaretIntentionAction implements LowPriorityAction {
-  public static final String TEXT = "Create switch statement";
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
@@ -41,8 +41,11 @@ public class CreateSwitchIntention extends BaseElementAtCaretIntentionAction imp
     PsiSwitchStatement switchStatement = (PsiSwitchStatement)new CommentTracker().replaceAndRestoreComments(expressionStatement, "switch (" + valueToSwitch + ") {}");
     CodeStyleManager.getInstance(project).reformat(switchStatement);
 
-    PsiJavaToken lBrace = switchStatement.getBody().getLBrace();
-    editor.getCaretModel().moveToOffset(lBrace.getTextOffset() + lBrace.getTextLength());
+    PsiCodeBlock body = switchStatement.getBody();
+    PsiJavaToken lBrace = body == null ? null : body.getLBrace();
+    if (lBrace != null) {
+      editor.getCaretModel().moveToOffset(lBrace.getTextRange().getEndOffset());
+    }
   }
 
   @Override
@@ -50,6 +53,7 @@ public class CreateSwitchIntention extends BaseElementAtCaretIntentionAction imp
     PsiExpressionStatement expressionStatement = PsiTreeUtil.getParentOfType(element, PsiExpressionStatement.class, false);
     return expressionStatement != null &&
            expressionStatement.getParent() instanceof PsiCodeBlock &&
+           !(expressionStatement.getExpression() instanceof PsiAssignmentExpression) &&
            PsiTreeUtil.findChildOfType(expressionStatement.getExpression(), PsiErrorElement.class) == null &&
            isValidTypeForSwitch(expressionStatement.getExpression().getType(), expressionStatement);
   }
@@ -73,7 +77,7 @@ public class CreateSwitchIntention extends BaseElementAtCaretIntentionAction imp
   @NotNull
   @Override
   public String getFamilyName() {
-    return TEXT;
+    return JavaBundle.message("intention.create.switch.statement");
   }
 
   @NotNull

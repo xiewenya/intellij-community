@@ -24,32 +24,33 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.function.Supplier;
 
 public abstract class BooleanPropertyToggleAction extends ToggleAction implements DumbAware {
   public BooleanPropertyToggleAction() {
   }
 
-  public BooleanPropertyToggleAction(@Nullable String text) {
-    super(text);
+  public BooleanPropertyToggleAction(@NotNull Supplier<String> dynamicText) {
+    super(dynamicText);
   }
 
-  public BooleanPropertyToggleAction(@Nullable String text,
-                                     @Nullable String description,
+  public BooleanPropertyToggleAction(@NotNull Supplier<String> dynamicText,
+                                     @NotNull Supplier<String> dynamicDescription,
                                      @Nullable Icon icon) {
-    super(text, description, icon);
+    super(dynamicText, dynamicDescription, icon);
   }
 
   protected abstract VcsLogUiProperties.VcsLogUiProperty<Boolean> getProperty();
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     VcsLogUiProperties properties = e.getData(VcsLogInternalDataKeys.LOG_UI_PROPERTIES);
     if (properties == null || !properties.exists(getProperty())) return false;
     return properties.get(getProperty());
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     VcsLogUiProperties properties = e.getData(VcsLogInternalDataKeys.LOG_UI_PROPERTIES);
     if (properties != null && properties.exists(getProperty())) {
       properties.set(getProperty(), state);

@@ -15,6 +15,7 @@
  */
 package com.intellij.execution.filters;
 
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.EditSourceUtil;
 import com.intellij.ide.util.PsiElementListCellRenderer;
@@ -35,7 +36,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class YourkitFilter implements Filter{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.execution.filters.YourkitFilter");
+  private static final Logger LOG = Logger.getInstance(YourkitFilter.class);
 
   private final Project myProject;
 
@@ -46,7 +47,8 @@ public class YourkitFilter implements Filter{
     myProject = project;
   }
 
-  public Result applyFilter(final String line, final int entireLength) {
+  @Override
+  public Result applyFilter(@NotNull final String line, final int entireLength) {
     if (!line.endsWith(".java\n")) {
       return null;
     }
@@ -83,10 +85,11 @@ public class YourkitFilter implements Filter{
   private static class MyHyperlinkInfo implements HyperlinkInfo {
     private final PsiFile[] myPsiFiles;
 
-    public MyHyperlinkInfo(final PsiFile[] psiFiles) {
+    MyHyperlinkInfo(final PsiFile[] psiFiles) {
       myPsiFiles = psiFiles;
     }
 
+    @Override
     public void navigate(final Project project) {
       DefaultPsiElementListCellRenderer renderer = new DefaultPsiElementListCellRenderer();
       final Editor editor = CommonDataKeys.EDITOR.getData(DataManager.getInstance().getDataContext());
@@ -94,7 +97,7 @@ public class YourkitFilter implements Filter{
         final IPopupChooserBuilder<PsiFile> builder = JBPopupFactory.getInstance()
           .createPopupChooserBuilder(ContainerUtil.newArrayList(myPsiFiles))
           .setRenderer(renderer)
-          .setTitle("Choose file")
+          .setTitle(ExecutionBundle.message("choose.file"))
           .setItemsChosenCallback((selectedElements) -> {
             for (PsiFile element : selectedElements) {
               Navigatable descriptor = EditSourceUtil.getDescriptor(element);
@@ -111,10 +114,12 @@ public class YourkitFilter implements Filter{
 
 
   private static class DefaultPsiElementListCellRenderer extends PsiElementListCellRenderer<PsiElement> {
+    @Override
     public String getElementText(final PsiElement element) {
       return element.getContainingFile().getName();
     }
 
+    @Override
     @Nullable
     protected String getContainerText(final PsiElement element, final String name) {
       final PsiDirectory parent = ((PsiFile)element).getParent();

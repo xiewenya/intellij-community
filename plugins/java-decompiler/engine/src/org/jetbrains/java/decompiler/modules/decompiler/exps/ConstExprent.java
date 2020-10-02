@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler.exps;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
@@ -30,7 +28,7 @@ public class ConstExprent extends Exprent {
     CHAR_ESCAPES.put(0xC, "\\f");   /* \u000c: form feed FF */
     CHAR_ESCAPES.put(0xD, "\\r");   /* \u000d: carriage return CR */
     //CHAR_ESCAPES.put(0x22, "\\\""); /* \u0022: double quote " */
-    CHAR_ESCAPES.put(0x27, "\\\'"); /* \u0027: single quote ' */
+    CHAR_ESCAPES.put(0x27, "\\'"); /* \u0027: single quote ' */
     CHAR_ESCAPES.put(0x5C, "\\\\"); /* \u005c: backslash \ */
   }
 
@@ -97,6 +95,7 @@ public class ConstExprent extends Exprent {
     return Exprent.MULTIPLE_USES | Exprent.SIDE_EFFECTS_FREE;
   }
 
+  @Override
   public List<Exprent> getAllExprents() {
     return new ArrayList<>();
   }

@@ -29,9 +29,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 	## XML features that can't be serialized as HTML
 	nonHTMLizable = empty
 
-## features that are not part of the W3C HTML spec
-	nonW3C = empty
-
 # #####################################################################
 ##  Wildcards                                                         #
 # #####################################################################
@@ -204,7 +201,25 @@ common.attrs.present =
 		}
 
 common.attrs.other =
-	empty
+	(	common.attrs.autofocus?
+	&	common.attrs.inputmode?
+	&	common.attrs.nonce?
+	)
+
+	common.attrs.autofocus = 
+		attribute autofocus {
+			w:string "autofocus" | w:string ""
+		}
+
+	common.attrs.inputmode =
+		attribute inputmode {
+			string
+		}
+
+	common.attrs.nonce =
+		attribute nonce {
+			string
+		}
 
 # #####################################################################
 ##  Common Datatypes                                                  #
@@ -406,6 +421,10 @@ common.attrs.other =
 	common.data.content-security-policy =
 		w:content-security-policy
 
+## Feature Policy
+	common.data.feature-policy =
+		string
+
 ## List of sandbox keywords
 	common.data.sandbox-allow-list =
 		w:string "" | w:sandbox-allow-list
@@ -424,7 +443,7 @@ common.attrs.other =
 
 ## ECMAScript FunctionBody
   common.data.functionbody =
-    w:functionbody
+    string
 
 ## autocomplete
 
@@ -542,7 +561,6 @@ common.attrs.aria.implicit.table |= ( notAllowed )
 common.attrs.aria.implicit.textbox = ( notAllowed )
 common.attrs.aria.implicit.toolbar = ( notAllowed )
 common.attrs.aria.prop.readonly = ( notAllowed )
-common.attrs.aria.landmark.application = ( notAllowed )
 common.attrs.aria.landmark.banner = ( notAllowed )
 common.attrs.aria.landmark.complementary = ( notAllowed )
 common.attrs.aria.landmark.contentinfo = ( notAllowed )

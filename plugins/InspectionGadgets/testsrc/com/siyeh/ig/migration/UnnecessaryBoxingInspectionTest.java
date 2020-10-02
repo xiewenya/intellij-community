@@ -4,10 +4,10 @@
 package com.siyeh.ig.migration;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class UnnecessaryBoxingInspectionTest extends LightInspectionTestCase {
+public class UnnecessaryBoxingInspectionTest extends LightJavaInspectionTestCase {
 
   public void testUnnecessaryBoxing() {
     doTest();

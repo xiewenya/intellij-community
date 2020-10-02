@@ -29,7 +29,7 @@ import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.psi.search.TodoAttributes;
 import com.intellij.psi.search.TodoAttributesUtil;
 import com.intellij.psi.search.TodoPattern;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
@@ -54,7 +54,7 @@ class PatternDialog extends DialogWrapper {
   private final int myPatternIndex;
   private final List<TodoPattern> myExistingPatterns;
 
-  public PatternDialog(Component parent, TodoPattern pattern, int patternIndex, List<TodoPattern> existingPatterns) {
+  PatternDialog(Component parent, TodoPattern pattern, int patternIndex, List<TodoPattern> existingPatterns) {
     super(parent, true);
     myPatternIndex = patternIndex;
     myExistingPatterns = existingPatterns;
@@ -66,13 +66,10 @@ class PatternDialog extends DialogWrapper {
     myIconComboBox = new ComboBox<>(new Icon[]{AllIcons.General.TodoDefault, AllIcons.General.TodoQuestion,
       AllIcons.General.TodoImportant});
     myIconComboBox.setSelectedItem(attrs.getIcon());
-    myIconComboBox.setRenderer(new ListCellRendererWrapper<Icon>() {
-      @Override
-      public void customize(JList list, Icon value, int index, boolean selected, boolean hasFocus) {
-        setIcon(value);
-        setText(" ");
-      }
-    });
+    myIconComboBox.setRenderer(SimpleListCellRenderer.create((label, value, index) -> {
+      label.setIcon(value);
+      label.setText(" ");
+    }));
     myCaseSensitiveCheckBox = new JBCheckBox(IdeBundle.message("checkbox.case.sensitive"), pattern.isCaseSensitive());
     myPatternStringField = new JBTextField(pattern.getPatternString());
 
@@ -83,7 +80,7 @@ class PatternDialog extends DialogWrapper {
     myColorAndFontDescriptionPanel = new ColorAndFontDescriptionPanel();
 
     TextAttributes attributes = myPattern.getAttributes().getCustomizedTextAttributes();
-    myColorAndFontDescription = new TextAttributesDescription("null", null, attributes, null,
+    myColorAndFontDescription = new TextAttributesDescription("null", null, attributes, null, //NON-NLS
                                                               EditorColorsManager.getInstance().getGlobalScheme(), null, null) {
       @Override
       public boolean isErrorStripeEnabled() {

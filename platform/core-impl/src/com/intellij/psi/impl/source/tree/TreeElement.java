@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl.source.tree;
 
@@ -49,7 +35,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     myType = type;
   }
 
-  static PsiFileImpl getCachedFile(TreeElement each) {
+  private static PsiFileImpl getCachedFile(@NotNull TreeElement each) {
     FileElement node = (FileElement)SharedImplUtil.findFileElement(each);
     return node == null ? null : (PsiFileImpl)node.getCachedPsi();
   }
@@ -77,33 +63,29 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
       return PsiManagerEx.getInstanceEx(project);
     }
     TreeElement element;
-    for (element = this; element.getTreeParent() != null; element = element.getTreeParent()) {
+    CompositeElement parent;
+    for (element = this; (parent = element.getTreeParent()) != null; element = parent) {
     }
-
     if (element instanceof FileElement) { //TODO!!
       return element.getManager();
     }
-    else {
-      if (getTreeParent() != null) {
-        return getTreeParent().getManager();
-      }
-      return null;
+    parent = getTreeParent();
+    if (parent != null) {
+      return parent.getManager();
     }
+    return null;
   }
 
   @Override
   public abstract LeafElement findLeafElementAt(int offset);
 
-  @NotNull
-  public abstract char[] textToCharArray();
+  public abstract char @NotNull [] textToCharArray();
 
   @Override
   public abstract TreeElement getFirstChildNode();
 
   @Override
   public abstract TreeElement getLastChildNode();
-
-  public abstract int getNotCachedLength();
 
   public abstract int getCachedLength();
 
@@ -125,6 +107,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     return result;
   }
 
+  @Override
   public final int getStartOffsetInParent() {
     if (myParent == null) return -1;
     int offsetInParent = myStartOffsetInParent;
@@ -174,6 +157,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     return getTextLength() == element.getTextLength() && textMatches(element.getText());
   }
 
+  @Override
   @NonNls
   public String toString() {
     return "Element" + "(" + getElementType() + ")";
@@ -229,7 +213,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   public void clearCaches() {
   }
 
-  @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
+  @Override
   public final boolean equals(Object obj) {
     return obj == this;
   }

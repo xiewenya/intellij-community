@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.notification;
 
 import com.intellij.icons.AllIcons;
@@ -26,9 +26,10 @@ import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 
+import static com.intellij.util.ui.EmptyIcon.ICON_16;
+
 /**
  * @author Vladislav.Soroka
- * @since 3/24/2014
  */
 public class NotificationMessageElement extends NavigatableMessageElement {
   public static final String MSG_STYLE = "messageStyle";
@@ -45,6 +46,7 @@ public class NotificationMessageElement extends NavigatableMessageElement {
                                     String rendererTextPrefix) {
     super(kind, parent, message, navigatable, exportText, rendererTextPrefix);
     myLeftTreeCellRenderer = new CustomizeColoredTreeCellRenderer() {
+      @Override
       public void customizeCellRenderer(SimpleColoredComponent renderer,
                                         JTree tree,
                                         Object value,
@@ -60,7 +62,7 @@ public class NotificationMessageElement extends NavigatableMessageElement {
 
       @NotNull
       private Icon getIcon(@NotNull ErrorTreeElementKind kind) {
-        Icon icon = AllIcons.General.Mdot_empty;
+        Icon icon = ICON_16;
         switch (kind) {
           case INFO:
             icon = AllIcons.General.Information;
@@ -75,7 +77,7 @@ public class NotificationMessageElement extends NavigatableMessageElement {
             icon = AllIcons.General.Tip;
             break;
           case GENERIC:
-            icon = AllIcons.General.Mdot_empty;
+            icon = ICON_16;
             break;
         }
         return icon;
@@ -119,16 +121,10 @@ public class NotificationMessageElement extends NavigatableMessageElement {
       StyleConstants.setForeground(style, JBColor.GRAY);
     }
     else {
-      if (selected) {
-        StyleConstants.setForeground(style, hasFocus ? UIUtil.getTreeSelectionForeground() : UIUtil.getTreeTextForeground());
-      }
-      else {
-        StyleConstants.setForeground(style, UIUtil.getTreeTextForeground());
-      }
+      StyleConstants.setForeground(style, UIUtil.getTreeForeground(selected, hasFocus));
     }
 
-    if (UIUtil.isUnderGTKLookAndFeel() ||
-        tree != null && WideSelectionTreeUI.isWideSelection(tree)) {
+    if (tree != null && WideSelectionTreeUI.isWideSelection(tree)) {
       editorPane.setOpaque(false);
     }
     else {
@@ -138,7 +134,7 @@ public class NotificationMessageElement extends NavigatableMessageElement {
     htmlDocument.setCharacterAttributes(0, htmlDocument.getLength(), style, false);
   }
 
-  private class MyCustomizeColoredTreeCellRendererReplacement extends CustomizeColoredTreeCellRendererReplacement {
+  private final class MyCustomizeColoredTreeCellRendererReplacement extends CustomizeColoredTreeCellRendererReplacement {
     @NotNull
     private final JEditorPane myEditorPane;
 

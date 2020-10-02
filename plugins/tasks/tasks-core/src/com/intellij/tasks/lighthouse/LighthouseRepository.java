@@ -51,13 +51,12 @@ import java.util.regex.Pattern;
  */
 @Tag("Lighthouse")
 public class LighthouseRepository extends BaseRepositoryImpl {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.tasks.lighthouse.LighthouseRepository");
+  private static final Logger LOG = Logger.getInstance(LighthouseRepository.class);
   private static final Pattern DATE_PATTERN = Pattern.compile("(\\d\\d\\d\\d\\-\\d\\d\\-\\d\\d).*(\\d\\d:\\d\\d:\\d\\d).*");
   private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
   private Pattern myPattern;
   private String myProjectId;
-  private String myAPIKey;
 
   /** for serialization */
   @SuppressWarnings({"UnusedDeclaration"})
@@ -77,7 +76,6 @@ public class LighthouseRepository extends BaseRepositoryImpl {
   private LighthouseRepository(LighthouseRepository other) {
     super(other);
     setProjectId(other.myProjectId);
-    setAPIKey(myAPIKey = other.myAPIKey);
   }
 
   @Override
@@ -89,7 +87,7 @@ public class LighthouseRepository extends BaseRepositoryImpl {
   public boolean isConfigured() {
     return super.isConfigured() &&
            StringUtil.isNotEmpty(getProjectId()) &&
-           StringUtil.isNotEmpty(getAPIKey());
+           StringUtil.isNotEmpty(getPassword());
   }
 
   @Override
@@ -128,10 +126,12 @@ public class LighthouseRepository extends BaseRepositoryImpl {
     if (id == null) {
       return null;
     }
+    //noinspection HardCodedStringLiteral
     final String summary = element.getChildText("title");
     if (summary == null) {
       return null;
     }
+    //noinspection HardCodedStringLiteral
     final String description = element.getChildText("original-body");
     final boolean isClosed = "true".equals(element.getChildText("closed"));
     final Ref<Date> updated = new Ref<>();
@@ -166,13 +166,13 @@ public class LighthouseRepository extends BaseRepositoryImpl {
         return summary;
       }
 
+      @Override
       public String getDescription() {
         return description;
       }
 
-      @NotNull
       @Override
-      public Comment[] getComments() {
+      public Comment @NotNull [] getComments() {
         return Comment.EMPTY_ARRAY;
       }
 
@@ -210,7 +210,7 @@ public class LighthouseRepository extends BaseRepositoryImpl {
 
       @Override
       public String getPresentableName() {
-        return getId() + ": " + getSummary();
+        return getId() + ": " + getSummary(); //NON-NLS
       }
     };
   }
@@ -224,6 +224,7 @@ public class LighthouseRepository extends BaseRepositoryImpl {
     return null;
   }
 
+  @Override
   @Nullable
   public String extractId(@NotNull String taskName) {
     Matcher matcher = myPattern.matcher(taskName);
@@ -264,7 +265,7 @@ public class LighthouseRepository extends BaseRepositoryImpl {
 
   @Override
   protected void configureHttpMethod(HttpMethod method) {
-    method.addRequestHeader("X-LighthouseToken", myAPIKey);
+    method.addRequestHeader("X-LighthouseToken", getPassword());
   }
 
   @Nullable
@@ -289,12 +290,26 @@ public class LighthouseRepository extends BaseRepositoryImpl {
     myPattern = Pattern.compile("(" + projectId + "\\-\\d+):\\s+");
   }
 
+  /**
+   * Don't use this getter, it's left only to preserve compatibility with existing settings.
+   * Actual API token is saved in Password Safe and accessible via {@link #getPassword()}.
+   *
+   * @deprecated Use {@link #getPassword()}
+   */
+  @Deprecated
   public String getAPIKey() {
-    return myAPIKey;
+    return null;
   }
 
+  /**
+   * Don't use this getter, it's left only to preserve compatibility with existing settings.
+   * Actual API token is saved in Password Safe and accessible via {@link #getPassword()}.
+   *
+   * @deprecated Use {@link #setPassword(String)}
+   */
+  @Deprecated
   public void setAPIKey(String APIKey) {
-    myAPIKey = APIKey;
+    setPassword(APIKey);
   }
 
   @Override
@@ -303,7 +318,6 @@ public class LighthouseRepository extends BaseRepositoryImpl {
     if (!(o instanceof LighthouseRepository)) return false;
 
     LighthouseRepository that = (LighthouseRepository)o;
-    if (getAPIKey() != null ? !getAPIKey().equals(that.getAPIKey()) : that.getAPIKey() != null) return false;
     if (getProjectId() != null ? !getProjectId().equals(that.getProjectId()) : that.getProjectId() != null) return false;
     return true;
   }

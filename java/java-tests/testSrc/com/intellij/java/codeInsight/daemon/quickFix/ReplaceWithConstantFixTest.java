@@ -22,15 +22,10 @@ import com.intellij.codeInspection.duplicateStringLiteral.DuplicateStringLiteral
 import org.jetbrains.annotations.NotNull;
 
 public class ReplaceWithConstantFixTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new DuplicateStringLiteralInspection()};
   }
-
-  public void test() {
-     doAllTests();
-   }
 
   @Override
   protected String getBasePath() {

@@ -1,40 +1,42 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.actions;
 
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.task.ProjectTaskManager;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class CompileAction extends CompileActionBase {
+
+  private final boolean isForFiles;
+  private final String bundleKey;
+
+  public CompileAction() {
+    this(false, IdeActions.ACTION_COMPILE);
+  }
+
+  protected CompileAction(boolean forFiles, String key) {
+    isForFiles = forFiles;
+    bundleKey = key;
+  }
+
+  @Override
   protected void doAction(DataContext dataContext, Project project) {
     final Module module = dataContext.getData(LangDataKeys.MODULE_CONTEXT);
     if (module != null) {
@@ -49,14 +51,15 @@ public class CompileAction extends CompileActionBase {
 
   }
 
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     super.update(e);
     Presentation presentation = e.getPresentation();
     if (!presentation.isEnabled()) {
       return;
     }
 
-    presentation.setText(ActionsBundle.actionText(RECOMPILE_FILES_ID_MOD));
+    presentation.setText(ActionsBundle.actionText(bundleKey));
     presentation.setVisible(true);
 
     Project project = e.getProject();
@@ -78,7 +81,7 @@ public class CompileAction extends CompileActionBase {
 
     String elementDescription = null;
     if (module != null) {
-      elementDescription = CompilerBundle.message("action.compile.description.module", module.getName());
+      elementDescription = JavaCompilerBundle.message("action.compile.description.module", module.getName());
     }
     else {
       PsiPackage aPackage = null;
@@ -98,7 +101,6 @@ public class CompileAction extends CompileActionBase {
       if (aPackage != null) {
         String name = aPackage.getQualifiedName();
         if (name.length() == 0) {
-          //noinspection HardCodedStringLiteral
           name = "<default>";
         }
         elementDescription = "'" + name + "'";
@@ -114,15 +116,14 @@ public class CompileAction extends CompileActionBase {
         else {
           if (!ActionPlaces.isMainMenuOrActionSearch(e.getPlace())) {
             // the action should be invisible in popups for non-java files
-            presentation.setEnabled(false);
-            presentation.setVisible(false);
+            presentation.setEnabledAndVisible(false);
             return;
           }
         }
       }
       else {
         forFiles = true;
-        elementDescription = CompilerBundle.message("action.compile.description.selected.files");
+        elementDescription = JavaCompilerBundle.message("action.compile.description.selected.files");
       }
     }
 
@@ -131,15 +132,13 @@ public class CompileAction extends CompileActionBase {
       return;
     }
 
-    presentation.setText(createPresentationText(elementDescription, forFiles), true);
-    presentation.setEnabled(true);
+    presentation.setText(createPresentationText(elementDescription), true);
+    presentation.setEnabledAndVisible(forFiles == isForFiles);
   }
 
-  private final static String RECOMPILE_FILES_ID_MOD = IdeActions.ACTION_COMPILE + "File";
-
-  private static String createPresentationText(String elementDescription, boolean forFiles) {
+  private @NlsSafe String createPresentationText(String elementDescription) {
     StringBuilder buffer = new StringBuilder(40);
-    buffer.append(ActionsBundle.actionText(forFiles? RECOMPILE_FILES_ID_MOD : IdeActions.ACTION_COMPILE)).append(" ");
+    buffer.append(ActionsBundle.actionText(bundleKey)).append(" ");
     int length = elementDescription.length();
     if (length > 23) {
       if (StringUtil.startsWithChar(elementDescription, '\'')) {
@@ -154,7 +153,7 @@ public class CompileAction extends CompileActionBase {
     return buffer.toString();
   }
 
-  private static VirtualFile[] getCompilableFiles(Project project, VirtualFile[] files) {
+  protected static VirtualFile[] getCompilableFiles(Project project, VirtualFile[] files) {
     if (files == null || files.length == 0) {
       return VirtualFile.EMPTY_ARRAY;
     }

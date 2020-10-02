@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.designer.propertyTable;
 
 import com.intellij.designer.model.ErrorInfo;
@@ -20,6 +6,7 @@ import com.intellij.designer.model.PropertiesContainer;
 import com.intellij.designer.model.Property;
 import com.intellij.designer.model.PropertyContext;
 import com.intellij.designer.propertyTable.renderers.LabelPropertyRenderer;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
@@ -35,6 +22,7 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.ui.*;
+import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.ui.UIUtil;
@@ -53,15 +41,14 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.text.MessageFormat;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Alexander Lobas
  */
 public abstract class PropertyTable extends JBTable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.designer.propertyTable.PropertyTable");
+  private static final Logger LOG = Logger.getInstance(PropertyTable.class);
   private static final Comparator<String> GROUP_COMPARATOR = (o1, o2) -> StringUtil.compare(o1, o2, true);
   private static final Comparator<Property> PROPERTY_COMPARATOR = (o1, o2) -> StringUtil.compare(o1.getName(), o2.getName(), true);
 
@@ -95,13 +82,15 @@ public abstract class PropertyTable extends JBTable {
 
     setShowVerticalLines(false);
     setIntercellSpacing(new Dimension(0, 1));
-    setGridColor(UIUtil.getSlightlyDarkerColor(getBackground()));
+    setGridColor(ColorUtil.darker(getBackground(), 1));
 
     setColumnSelectionAllowed(false);
     setCellSelectionEnabled(false);
     setRowSelectionAllowed(true);
 
     addMouseListener(new MouseTableListener());
+
+    putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false);
 
     mySpeedSearch = new TableSpeedSearch(this, (object, cell) -> {
       if (cell.column != 0) return null;
@@ -156,6 +145,7 @@ public abstract class PropertyTable extends JBTable {
     return myShowExpertProperties;
   }
 
+  @Override
   public void setUI(TableUI ui) {
     super.setUI(ui);
 
@@ -172,8 +162,8 @@ public abstract class PropertyTable extends JBTable {
     InputMap focusedInputMap = getInputMap(JComponent.WHEN_FOCUSED);
     InputMap ancestorInputMap = getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 
-    actionMap.put("selectPreviousRow", new MySelectNextPreviousRowAction(false));
-    actionMap.put("selectNextRow", new MySelectNextPreviousRowAction(true));
+    actionMap.put(TableActions.Up.ID, new MySelectNextPreviousRowAction(false));
+    actionMap.put(TableActions.Down.ID, new MySelectNextPreviousRowAction(true));
 
     actionMap.put("startEditing", new MyStartEditingAction());
     focusedInputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "startEditing");
@@ -213,6 +203,7 @@ public abstract class PropertyTable extends JBTable {
     ancestorInputMap.remove(KeyStroke.getKeyStroke(KeyEvent.VK_KP_LEFT, 0));
   }
 
+  @Override
   public TableCellRenderer getCellRenderer(int row, int column) {
     return myCellRenderer;
   }
@@ -326,7 +317,7 @@ public abstract class PropertyTable extends JBTable {
   private void sortPropertiesAndCreateGroups(List<Property> rootProperties) {
     if (!mySorted && !myShowGroups) return;
 
-    Collections.sort(rootProperties, (o1, o2) -> {
+    rootProperties.sort((o1, o2) -> {
       if (o1.getParent() != null || o2.getParent() != null) {
         if (o1.getParent() == o2) return -1;
         if (o2.getParent() == o1) return 1;
@@ -416,7 +407,7 @@ public abstract class PropertyTable extends JBTable {
 
     if (size > 0) {
       List<Property> rootProperties = new ArrayList<>();
-      for (Property each : (Iterable<? extends Property>)getProperties(myContainers.get(0))) {
+      for (Property each : getProperties(myContainers.get(0))) {
         addIfNeeded(getCurrentComponent(), each, rootProperties);
       }
       sortPropertiesAndCreateGroups(rootProperties);
@@ -473,7 +464,7 @@ public abstract class PropertyTable extends JBTable {
     }
   }
 
-  private void fillProperties(PropertiesContainer<?> component, List<Property> properties) {
+  private void fillProperties(PropertiesContainer<?> component, List<? super Property> properties) {
     for (Property each : getProperties(component)) {
       if (addIfNeeded(component, each, properties)) {
         addExpandedChildren(component, each, properties);
@@ -481,7 +472,7 @@ public abstract class PropertyTable extends JBTable {
     }
   }
 
-  private void addExpandedChildren(PropertiesContainer<?> component, Property property, List<Property> properties) {
+  private void addExpandedChildren(PropertiesContainer<?> component, Property property, List<? super Property> properties) {
     if (isExpanded(property)) {
       for (Property child : getChildren(property)) {
         if (addIfNeeded(component, child, properties)) {
@@ -491,7 +482,7 @@ public abstract class PropertyTable extends JBTable {
     }
   }
 
-  private boolean addIfNeeded(PropertiesContainer<?> component, Property property, List<Property> properties) {
+  private boolean addIfNeeded(PropertiesContainer<?> component, Property property, List<? super Property> properties) {
     if (property.isExpert() && !myShowExpertProperties) {
       try {
         if (property.isDefaultRecursively(component)) {
@@ -506,7 +497,7 @@ public abstract class PropertyTable extends JBTable {
   }
 
   @Nullable
-  public static Property findProperty(List<Property> properties, String name) {
+  public static Property findProperty(List<? extends Property> properties, String name) {
     for (Property property : properties) {
       if (name.equals(property.getName())) {
         return property;
@@ -515,13 +506,13 @@ public abstract class PropertyTable extends JBTable {
     return null;
   }
 
-  public static int findProperty(List<Property> properties, Property property) {
+  public static int findProperty(List<? extends Property> properties, Property property) {
     String name = property.getName();
     int size = properties.size();
 
     for (int i = 0; i < size; i++) {
       Property nextProperty = properties.get(i);
-      if (Comparing.equal(nextProperty.getGroup(), property.getGroup()) && name.equals(nextProperty.getName())) {
+      if (Objects.equals(nextProperty.getGroup(), property.getGroup()) && name.equals(nextProperty.getName())) {
         return i;
       }
     }
@@ -529,7 +520,7 @@ public abstract class PropertyTable extends JBTable {
     return -1;
   }
 
-  private static int findFullPathProperty(List<Property> properties, Property property) {
+  private static int findFullPathProperty(List<? extends Property> properties, Property property) {
     Property parent = property.getParent();
     if (parent == null) {
       return findProperty(properties, property);
@@ -555,7 +546,7 @@ public abstract class PropertyTable extends JBTable {
     return builder.toString();
   }
 
-  public static void moveProperty(List<Property> source, String name, List<Property> destination, int index) {
+  public static void moveProperty(List<? extends Property> source, String name, List<? super Property> destination, int index) {
     Property property = extractProperty(source, name);
     if (property != null) {
       if (index == -1) {
@@ -568,7 +559,7 @@ public abstract class PropertyTable extends JBTable {
   }
 
   @Nullable
-  public static Property extractProperty(List<Property> properties, String name) {
+  public static Property extractProperty(List<? extends Property> properties, String name) {
     int size = properties.size();
     for (int i = 0; i < size; i++) {
       if (name.equals(properties.get(i).getName())) {
@@ -727,6 +718,7 @@ public abstract class PropertyTable extends JBTable {
   * JTree does not properly repaint edited cell if the editor is opaque or
   * has opaque child components.
   */
+  @Override
   public boolean editCellAt(int row, int column, EventObject e) {
     boolean result = super.editCellAt(row, column, e);
     repaint(getCellRect(row, column, true));
@@ -767,6 +759,7 @@ public abstract class PropertyTable extends JBTable {
     }
   }
 
+  @Override
   public void editingStopped(@Nullable ChangeEvent event) {
     if (myStoppingEditing) {
       return;
@@ -847,11 +840,11 @@ public abstract class PropertyTable extends JBTable {
     String message = cause == null ? e.getMessage() : cause.getMessage();
 
     if (message == null || message.length() == 0) {
-      message = "No message";
+      message = IdeBundle.message("dialog.message.no.message");
     }
 
-    Messages.showMessageDialog(MessageFormat.format("Error setting value: {0}", message),
-                               "Invalid Input",
+    Messages.showMessageDialog(IdeBundle.message("dialog.message.error.setting.value", message),
+                               IdeBundle.message("dialog.title.invalid.input"),
                                Messages.getErrorIcon());
   }
 
@@ -867,13 +860,14 @@ public abstract class PropertyTable extends JBTable {
    *
    * @see javax.swing.plaf.basic.BasicTableUI
    */
-  private class MySelectNextPreviousRowAction extends AbstractAction {
+  private final class MySelectNextPreviousRowAction extends AbstractAction {
     private final boolean selectNext;
 
     private MySelectNextPreviousRowAction(boolean selectNext) {
       this.selectNext = selectNext;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int rowCount = getRowCount();
       LOG.assertTrue(rowCount > 0);
@@ -911,6 +905,7 @@ public abstract class PropertyTable extends JBTable {
    * @see javax.swing.plaf.basic.BasicTableUI
    */
   private class MyStartEditingAction extends AbstractAction {
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selectedRow = getSelectedRow();
       if (selectedRow == -1 || isEditing()) {
@@ -922,6 +917,7 @@ public abstract class PropertyTable extends JBTable {
   }
 
   private class MyEnterAction extends AbstractAction {
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selectedRow = getSelectedRow();
       if (isEditing() || selectedRow == -1) {
@@ -947,11 +943,12 @@ public abstract class PropertyTable extends JBTable {
     private final boolean myExpand;
     private final boolean mySelect;
 
-    public MyExpandCurrentAction(boolean expand, boolean select) {
+    MyExpandCurrentAction(boolean expand, boolean select) {
       myExpand = expand;
       mySelect = select;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       int selectedRow = getSelectedRow();
       if (isEditing() || selectedRow == -1) {
@@ -1038,6 +1035,7 @@ public abstract class PropertyTable extends JBTable {
       return myColumnNames[column];
     }
 
+    @Override
     public boolean isCellEditable(int row, int column) {
       return column == 1 && myProperties.get(row).isEditable(getCurrentComponent());
     }
@@ -1081,7 +1079,7 @@ public abstract class PropertyTable extends JBTable {
 
   private class PropertyCellEditorListener implements PropertyEditorListener {
     @Override
-    public void valueCommitted(PropertyEditor source, boolean continueEditing, boolean closeEditorOnError) {
+    public void valueCommitted(@NotNull PropertyEditor source, boolean continueEditing, boolean closeEditorOnError) {
       if (isEditing()) {
         Object value;
         TableCellEditor tableCellEditor = cellEditor;
@@ -1108,14 +1106,14 @@ public abstract class PropertyTable extends JBTable {
     }
 
     @Override
-    public void editingCanceled(PropertyEditor source) {
+    public void editingCanceled(@NotNull PropertyEditor source) {
       if (isEditing()) {
         cellEditor.cancelCellEditing();
       }
     }
 
     @Override
-    public void preferredSizeChanged(PropertyEditor source) {
+    public void preferredSizeChanged(@NotNull PropertyEditor source) {
     }
   }
 
@@ -1134,9 +1132,6 @@ public abstract class PropertyTable extends JBTable {
         if (component instanceof JComboBox) {
           ComboBox.registerTableCellEditor((JComboBox)component, this);
         }
-        else if (component instanceof JCheckBox) {
-          if (UIUtil.isUnderAquaLookAndFeel()) UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, component);
-        }
 
         return component;
       }
@@ -1144,7 +1139,7 @@ public abstract class PropertyTable extends JBTable {
         LOG.debug(e);
         SimpleColoredComponent errComponent = new SimpleColoredComponent();
         errComponent
-          .append(MessageFormat.format("Error getting value: {0}", e.getMessage()), SimpleTextAttributes.ERROR_ATTRIBUTES);
+          .append(IdeBundle.message("dialog.text.error.getting.value", e.getMessage()), SimpleTextAttributes.ERROR_ATTRIBUTES);
         return errComponent;
       }
       finally {
@@ -1166,7 +1161,7 @@ public abstract class PropertyTable extends JBTable {
   public static void updateRenderer(JComponent component, boolean selected) {
     if (selected) {
       component.setForeground(UIUtil.getTableSelectionForeground());
-      component.setBackground(UIUtil.getTableSelectionBackground());
+      component.setBackground(UIUtil.getTableSelectionBackground(true));
     }
     else {
       component.setForeground(UIUtil.getTableForeground());
@@ -1177,7 +1172,7 @@ public abstract class PropertyTable extends JBTable {
   @NotNull
   protected abstract TextAttributesKey getErrorAttributes(@NotNull HighlightSeverity severity);
 
-  private class PropertyCellRenderer implements TableCellRenderer {
+  private final class PropertyCellRenderer implements TableCellRenderer {
     private final ColoredTableCellRenderer myCellRenderer;
     private final ColoredTableCellRenderer myGroupRenderer;
 
@@ -1189,7 +1184,7 @@ public abstract class PropertyTable extends JBTable {
 
 
         @Override
-        protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
+        protected void customizeCellRenderer(@NotNull JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
           super.customizeCellRenderer(table, value, selected, hasFocus, row, column);
           mySelected = selected;
           myDrawTopLine = row > 0;
@@ -1305,22 +1300,19 @@ public abstract class PropertyTable extends JBTable {
           component.setBackground(selected ? UIUtil.getTreeSelectionBackground(tableHasFocus) : background);
           component.setFont(table.getFont());
 
-          if (component instanceof JCheckBox) {
-            if (UIUtil.isUnderAquaLookAndFeel()) UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, component);
-          }
-
           return component;
         }
         catch (Exception e) {
           LOG.debug(e);
-          renderer.append(MessageFormat.format("Error getting value: {0}", e.getMessage()), SimpleTextAttributes.ERROR_ATTRIBUTES);
+          renderer.append(IdeBundle.message("dialog.text.error.getting.value", e.getMessage()), SimpleTextAttributes.ERROR_ATTRIBUTES);
           return renderer;
         }
       }
     }
 
     private class MyCellRenderer extends ColoredTableCellRenderer {
-      protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
+      @Override
+      protected void customizeCellRenderer(@NotNull JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
         setPaintFocusBorder(false);
         setFocusBorderAroundIcon(true);
       }
@@ -1328,7 +1320,7 @@ public abstract class PropertyTable extends JBTable {
   }
 
   private static class GroupProperty extends Property {
-    public GroupProperty(@Nullable String name) {
+    GroupProperty(@Nullable String name) {
       super(null, StringUtil.notNullize(name));
     }
 

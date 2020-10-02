@@ -26,23 +26,25 @@ import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.ex.SingleConfigurableEditor;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.remoteServer.CloudBundle;
 import com.intellij.remoteServer.ServerType;
 import com.intellij.remoteServer.configuration.RemoteServer;
 import com.intellij.remoteServer.configuration.RemoteServersManager;
 import com.intellij.remoteServer.impl.configuration.SingleRemoteServerConfigurable;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.HashMap;
 import com.intellij.util.text.UniqueNameGenerator;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -57,11 +59,11 @@ public class CloudAccountSelectionEditor {
   private ComboBox myAccountComboBox;
   private JPanel myMainPanel;
 
-  private final List<ServerType<?>> myCloudTypes;
+  private final List<? extends ServerType<?>> myCloudTypes;
 
   private Runnable myServerSelectionListener;
 
-  public CloudAccountSelectionEditor(List<ServerType<?>> cloudTypes) {
+  public CloudAccountSelectionEditor(List<? extends ServerType<?>> cloudTypes) {
     myCloudTypes = cloudTypes;
 
     for (ServerType<?> cloudType : cloudTypes) {
@@ -104,12 +106,12 @@ public class CloudAccountSelectionEditor {
       group.add(new AnAction(cloudType.getPresentableName(), cloudType.getPresentableName(), cloudType.getIcon()) {
 
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           createAccount(cloudType);
         }
       });
     }
-    JBPopupFactory.getInstance().createActionGroupPopup("New Account", group, DataManager.getInstance().getDataContext(myMainPanel),
+    JBPopupFactory.getInstance().createActionGroupPopup(CloudBundle.message("popup.title.new.account"), group, DataManager.getInstance().getDataContext(myMainPanel),
                                                         JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
       .showUnderneathOf(myNewButton);
   }
@@ -117,7 +119,7 @@ public class CloudAccountSelectionEditor {
   private void createAccount(ServerType<?> cloudType) {
     RemoteServer<?> newAccount = RemoteServersManager.getInstance().createServer(cloudType, generateServerName(cloudType));
 
-    final Ref<Consumer<String>> errorConsumerRef = new Ref<>();
+    final Ref<Consumer<@Nls String>> errorConsumerRef = new Ref<>();
 
     SingleRemoteServerConfigurable configurable = new SingleRemoteServerConfigurable(newAccount, null, true) {
 
@@ -167,7 +169,7 @@ public class CloudAccountSelectionEditor {
 
   public void validate() throws ConfigurationException {
     if (getSelectedAccount() == null) {
-      throw new ConfigurationException("Account required");
+      throw new ConfigurationException(CloudBundle.message("dialog.message.account.required"));
     }
   }
 
@@ -216,7 +218,7 @@ public class CloudAccountSelectionEditor {
 
     private final RemoteServer<?> myAccount;
 
-    public AccountItem(RemoteServer<?> account) {
+    AccountItem(RemoteServer<?> account) {
       myAccount = account;
     }
 

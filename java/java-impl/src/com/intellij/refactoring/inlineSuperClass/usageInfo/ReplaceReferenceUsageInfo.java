@@ -16,28 +16,32 @@
 
 package com.intellij.refactoring.inlineSuperClass.usageInfo;
 
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.refactoring.util.FixableUsageInfo;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nls;
 
 public class ReplaceReferenceUsageInfo extends FixableUsageInfo {
   private final PsiClass myTargetClass;
-  private final String myConflict;
+  private final @Nls String myConflict;
 
   public ReplaceReferenceUsageInfo(PsiElement referenceExpression, PsiClass[] targetClasses) {
     super(referenceExpression);
     myTargetClass = targetClasses[0];
-    myConflict = targetClasses.length > 1 ? referenceExpression.getText() + "can be replaced with any of " + StringUtil.join(targetClasses,
-                                                                                                                             psiClass -> psiClass.getQualifiedName(), ", ") : null;
+    myConflict = targetClasses.length > 1 ? JavaRefactoringBundle.message("inline.super.expr.can.be.replaced",
+                                                                          referenceExpression.getText(),
+                                                                          StringUtil.join(targetClasses,
+                                                                                          psiClass -> psiClass.getQualifiedName(), ", "))
+                                          : null;
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
     final PsiElement referenceExpression = getElement();
     if (referenceExpression != null) {
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(getProject()).getElementFactory();
+      final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(getProject());
       referenceExpression.replace(referenceExpression instanceof PsiReferenceExpression ? elementFactory.createReferenceExpression(myTargetClass) : elementFactory.createClassReferenceElement(myTargetClass));
     }
   }

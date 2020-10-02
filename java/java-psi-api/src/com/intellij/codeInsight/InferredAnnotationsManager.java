@@ -48,23 +48,12 @@ public abstract class InferredAnnotationsManager {
   public abstract PsiAnnotation findInferredAnnotation(@NotNull PsiModifierListOwner listOwner, @NotNull String annotationFQN);
 
   /**
-   * There is a number of well-known methods where automatic inference fails (for example, {@link java.util.Objects#requireNonNull(Object)}. 
-   * For such methods, contracts are hardcoded, and for their parameters inferred @NotNull are suppressed.<p/>
-   * 
-   * {@link Contract} and {@link NotNull} annotations on methods are not necessarily applicable to the overridden implementations, so they're ignored, too.<p/> 
-   * 
-   * @return whether inference is to be suppressed the given annotation on the given method or parameter  
-   */
-  public abstract boolean ignoreInference(@NotNull PsiModifierListOwner owner, @Nullable String annotationFQN);
-
-  /**
    * When annotation name is known, prefer {@link #findInferredAnnotation(PsiModifierListOwner, String)} as
    * potentially faster.
    * 
    * @return all inferred annotations for the given element
    */
-  @NotNull
-  public abstract PsiAnnotation[] findInferredAnnotations(@NotNull PsiModifierListOwner listOwner);
+  public abstract PsiAnnotation @NotNull [] findInferredAnnotations(@NotNull PsiModifierListOwner listOwner);
 
   /**
    * @return whether the given annotation was inferred by this service.

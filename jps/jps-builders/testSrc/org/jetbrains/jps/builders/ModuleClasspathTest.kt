@@ -27,9 +27,6 @@ import org.jetbrains.jps.incremental.ModuleBuildTarget
 import org.junit.Assert
 import java.io.File
 
-/**
- * @author nik
- */
 class ModuleClasspathTest : JpsBuildTestCase() {
   override fun setUp() {
     super.setUp()
@@ -40,7 +37,7 @@ class ModuleClasspathTest : JpsBuildTestCase() {
 
   private fun getProjectPath() = FileUtil.toSystemIndependentName(testDataRootPath) + "/moduleClasspath/moduleClasspath.ipr"
 
-  override fun getTestDataRootPath() =
+  override fun getTestDataRootPath(): String =
     FileUtil.toCanonicalPath(PathManagerEx.findFileUnderCommunityHome("jps/jps-builders/testData/output")!!.absolutePath, '/')!!
 
   fun testSimpleClasspath() {

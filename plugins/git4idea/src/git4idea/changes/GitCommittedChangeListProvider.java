@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.changes;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -9,9 +9,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
-import com.intellij.openapi.vcs.changes.committed.DecoratorManager;
-import com.intellij.openapi.vcs.changes.committed.VcsCommittedListsZipper;
-import com.intellij.openapi.vcs.changes.committed.VcsCommittedViewAuxiliary;
 import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.versionBrowser.ChangeBrowserSettings;
@@ -27,7 +24,7 @@ import com.intellij.vcsUtil.VcsUtil;
 import git4idea.*;
 import git4idea.history.GitFileHistory;
 import git4idea.history.GitHistoryUtils;
-import git4idea.history.GitLogUtil;
+import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
@@ -49,15 +46,18 @@ public class GitCommittedChangeListProvider implements CommittedChangesProvider<
     myProject = project;
   }
 
+  @NotNull
+  @Override
   public ChangesBrowserSettingsEditor<ChangeBrowserSettings> createFilterUI(boolean showDateFilter) {
     return new GitVersionFilterComponent(showDateFilter);
   }
 
-  public RepositoryLocation getLocationFor(@NotNull FilePath root) {
-    VirtualFile gitRoot = GitUtil.getGitRootOrNull(root);
-    if (gitRoot == null) {
-      return null;
-    }
+  @Nullable
+  @Override
+  public RepositoryLocation getLocationFor(@NotNull FilePath rootPath) {
+    VirtualFile gitRoot = rootPath.getVirtualFile();
+    if (gitRoot == null) return null;
+
     GitRepository repository = GitUtil.getRepositoryManager(myProject).getRepositoryForRoot(gitRoot);
     if (repository == null) {
       LOG.info("No GitRepository for " + gitRoot);
@@ -75,33 +75,32 @@ public class GitCommittedChangeListProvider implements CommittedChangesProvider<
     return new GitRepositoryLocation(trackedBranch.getRemote().getFirstUrl(), rootFile);
   }
 
-  @Nullable
-  public VcsCommittedListsZipper getZipper() {
-    return null;
-  }
-
-  public void loadCommittedChanges(ChangeBrowserSettings settings, RepositoryLocation location, int maxCount,
-                                   final AsynchConsumer<CommittedChangeList> consumer) throws VcsException {
+  @Override
+  public void loadCommittedChanges(@NotNull ChangeBrowserSettings settings,
+                                   @NotNull RepositoryLocation location,
+                                   int maxCount,
+                                   @NotNull AsynchConsumer<? super CommittedChangeList> consumer) throws VcsException {
     try {
-      getCommittedChangesImpl(settings, location, maxCount, gitCommittedChangeList -> consumer.consume(gitCommittedChangeList));
+      getCommittedChangesImpl(settings, location, maxCount, consumer);
     }
     finally {
       consumer.finished();
     }
   }
 
-  public List<CommittedChangeList> getCommittedChanges(ChangeBrowserSettings settings, RepositoryLocation location, final int maxCount)
+  @NotNull
+  @Override
+  public List<CommittedChangeList> getCommittedChanges(@NotNull ChangeBrowserSettings settings,
+                                                       @NotNull RepositoryLocation location,
+                                                       int maxCount)
     throws VcsException {
-
-    final List<CommittedChangeList> result = new ArrayList<>();
-
+    List<CommittedChangeList> result = new ArrayList<>();
     getCommittedChangesImpl(settings, location, maxCount, committedChangeList -> result.add(committedChangeList));
-
     return result;
   }
 
-  private void getCommittedChangesImpl(ChangeBrowserSettings settings, RepositoryLocation location, final int maxCount,
-                                       final Consumer<GitCommittedChangeList> consumer)
+  private void getCommittedChangesImpl(@NotNull ChangeBrowserSettings settings, @NotNull RepositoryLocation location, final int maxCount,
+                                       final Consumer<? super GitCommittedChangeList> consumer)
     throws VcsException {
     GitRepositoryLocation l = (GitRepositoryLocation)location;
     final Long beforeRev = settings.getChangeBeforeFilter();
@@ -111,7 +110,7 @@ public class GitCommittedChangeListProvider implements CommittedChangesProvider<
     final String author = settings.getUserFilter();
     VirtualFile root = LocalFileSystem.getInstance().findFileByIoFile(l.getRoot());
     if (root == null) {
-      throw new VcsException("The repository does not exists anymore: " + l.getRoot());
+      throw new VcsException(GitBundle.message("error.git.repository.not.found", l.getRoot()));
     }
 
     GitUtil.getLocalCommittedChanges(myProject, root, h -> {
@@ -139,43 +138,39 @@ public class GitCommittedChangeListProvider implements CommittedChangesProvider<
     }, consumer, false);
   }
 
-  public ChangeListColumn[] getColumns() {
+  @Override
+  public ChangeListColumn @NotNull [] getColumns() {
     return new ChangeListColumn[]{ChangeListColumn.NUMBER, ChangeListColumn.DATE, ChangeListColumn.DESCRIPTION, ChangeListColumn.NAME};
   }
 
-  public VcsCommittedViewAuxiliary createActions(DecoratorManager manager, RepositoryLocation location) {
-    return null;
-  }
-
+  @Override
   public int getUnlimitedCountValue() {
     return -1;
   }
 
+  @Nullable
   @Override
   public Pair<CommittedChangeList, FilePath> getOneList(@NotNull VirtualFile file, @NotNull VcsRevisionNumber number)
     throws VcsException {
     FilePath filePath = VcsUtil.getFilePath(file);
+    if (!(number instanceof GitRevisionNumber)) {
+      LOG.error("Unsupported revision number: " + number);
+      return null;
+    }
 
     GitRepository repository =
-      GitRepositoryManager.getInstance(myProject).getRepositoryForFile(GitHistoryUtils.getLastCommitName(myProject, filePath));
+      GitRepositoryManager.getInstance(myProject).getRepositoryForFile(VcsUtil.getLastCommitPath(myProject, filePath));
     if (repository == null) {
       return null;
     }
     VirtualFile root = repository.getRoot();
 
-    String[] hashParameters = GitHistoryUtils.formHashParameters(repository.getVcs(), Collections.singleton(number.asString()));
-    List<GitCommit> gitCommits = GitLogUtil.collectFullDetails(myProject, root, hashParameters);
-    if (gitCommits.size() != 1) {
-      return null;
-    }
-    VcsFullCommitDetails gitCommit = gitCommits.get(0);
-    CommittedChangeList commit = new GitCommittedChangeList(gitCommit.getFullMessage() + " (" + gitCommit.getId().toShortString() + ")",
-                                                            gitCommit.getFullMessage(), VcsUserUtil.toExactString(gitCommit.getAuthor()),
-                                                            (GitRevisionNumber)number,
-                                                            new Date(gitCommit.getAuthorTime()), gitCommit.getChanges(),
-                                                            GitVcs.getInstance(myProject), true);
+    VcsFullCommitDetails gitCommit = getCommitDetails(myProject, root, number);
+    if (gitCommit == null) return null;
 
+    GitCommittedChangeList commit = createCommittedChangeList(myProject, gitCommit, (GitRevisionNumber)number);
     Collection<Change> changes = commit.getChanges();
+
     if (changes.size() == 1) {
       Change change = changes.iterator().next();
       return Pair.create(commit, ChangesUtil.getFilePath(change));
@@ -193,9 +188,38 @@ public class GitCommittedChangeListProvider implements CommittedChangesProvider<
     return Pair.create(commit, ((GitFileRevision)history.get(history.size() - 1)).getPath());
   }
 
-  @Override
-  public RepositoryLocation getForNonLocal(VirtualFile file) {
-    return null;
+  @Nullable
+  private static VcsFullCommitDetails getCommitDetails(@NotNull Project project,
+                                                       @NotNull VirtualFile root,
+                                                       @NotNull VcsRevisionNumber number) throws VcsException {
+    GitVcs gitVcs = GitVcs.getInstance(project);
+
+    String[] hashParameters = GitHistoryUtils.formHashParameters(gitVcs, Collections.singleton(number.asString()));
+    List<GitCommit> gitCommits = GitHistoryUtils.history(project, root, hashParameters);
+    if (gitCommits.size() != 1) return null;
+
+    return gitCommits.get(0);
+  }
+
+  @NotNull
+  private static GitCommittedChangeList createCommittedChangeList(@NotNull Project project,
+                                                                  @NotNull VcsFullCommitDetails gitCommit,
+                                                                  @NotNull GitRevisionNumber revisionNumber) {
+    return new GitCommittedChangeList(gitCommit.getFullMessage() + " (" + gitCommit.getId().toShortString() + ")",
+                                      gitCommit.getFullMessage(), VcsUserUtil.toExactString(gitCommit.getAuthor()),
+                                      revisionNumber,
+                                      new Date(gitCommit.getAuthorTime()), gitCommit.getChanges(),
+                                      GitVcs.getInstance(project), true);
+  }
+
+  @Nullable
+  public static GitCommittedChangeList getCommittedChangeList(@NotNull Project project,
+                                                              @NotNull VirtualFile root,
+                                                              @NotNull GitRevisionNumber revisionNumber) throws VcsException {
+    VcsFullCommitDetails details = getCommitDetails(project, root, revisionNumber);
+    if (details == null) return null;
+
+    return createCommittedChangeList(project, details, revisionNumber);
   }
 
   @Override

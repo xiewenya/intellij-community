@@ -25,6 +25,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.SmartList;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.model.Define;
 import org.intellij.plugins.relaxNG.model.Grammar;
 import org.intellij.plugins.relaxNG.model.resolve.GrammarFactory;
@@ -40,7 +41,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer implements DumbAware {
 
   private final Define myDefine;
 
-  public OverriddenDefineRenderer(@NotNull Define define) {
+  OverriddenDefineRenderer(@NotNull Define define) {
     myDefine = define;
   }
 
@@ -55,7 +56,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer implements DumbAware {
   public AnAction getClickAction() {
     return new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         final PsiElement element = myDefine.getPsiElement();
         if (element == null || !element.isValid()) return;
 
@@ -73,7 +74,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer implements DumbAware {
         }
 
         if (result.size() > 0) {
-          OverridingDefineRenderer.doClickAction(e, result, "Go to overriding define(s)");
+          OverridingDefineRenderer.doClickAction(e, result, RelaxngBundle.message("relaxng.gutter.go-to-overriding-defines"));
         }
       }
     };
@@ -87,7 +88,7 @@ class OverriddenDefineRenderer extends GutterIconRenderer implements DumbAware {
   @Override
   @Nullable
   public String getTooltipText() {
-    return "Is overridden";
+    return RelaxngBundle.message("relaxng.gutter.is-overridden");
   }
 
   @Override

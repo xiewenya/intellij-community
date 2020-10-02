@@ -1,29 +1,27 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.xdebugger.frame.XFullValueEvaluator;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author traff
- */
 public class PyFullValueEvaluator extends XFullValueEvaluator {
-  private final PyFrameAccessor myDebugProcess;
-  private final String myExpression;
+  @NotNull protected final PyFrameAccessor myDebugProcess;
+  @NotNull protected final String myExpression;
 
   /**
    * @param linkText     text of the link what will be appended to a variables tree node text
    * @param debugProcess
    * @param expression
    */
-  protected PyFullValueEvaluator(String linkText, PyFrameAccessor debugProcess, String expression) {
+  protected PyFullValueEvaluator(String linkText, @NotNull PyFrameAccessor debugProcess, @NotNull String expression) {
     super(linkText);
     myDebugProcess = debugProcess;
     myExpression = expression;
   }
 
 
-  protected PyFullValueEvaluator(PyFrameAccessor debugProcess, String expression) {
+  protected PyFullValueEvaluator(@NotNull PyFrameAccessor debugProcess, @NotNull String expression) {
     myDebugProcess = debugProcess;
     myExpression = expression;
   }
@@ -32,7 +30,7 @@ public class PyFullValueEvaluator extends XFullValueEvaluator {
   @Override
   public void startEvaluation(@NotNull XFullValueEvaluationCallback callback) {
     String expression = myExpression.trim();
-    if ("".equals(expression)) {
+    if (expression.isEmpty()) {
       callback.evaluated("");
       return;
     }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.convertToJava;
 
 import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
@@ -25,8 +11,6 @@ import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
@@ -51,8 +35,8 @@ import java.util.*;
 /**
  * @author Maxim.Medvedev
  */
-public class StubGenerator implements ClassItemGenerator {
-  public static final String[] STUB_MODIFIERS = {
+public final class StubGenerator implements ClassItemGenerator {
+  private static final String[] STUB_MODIFIERS = {
     PsiModifier.PUBLIC,
     PsiModifier.PROTECTED,
     PsiModifier.PRIVATE,
@@ -73,7 +57,7 @@ public class StubGenerator implements ClassItemGenerator {
   };
 
   private final ClassNameProvider classNameProvider;
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.refactoring.convertToJava.StubGenerator");
+  private static final Logger LOG = Logger.getInstance(StubGenerator.class);
 
   public StubGenerator(ClassNameProvider classNameProvider) {
     this.classNameProvider = classNameProvider;
@@ -124,11 +108,11 @@ public class StubGenerator implements ClassItemGenerator {
       //writeModifiers(text, constructor.getModifierList(), JAVA_MODIFIERS);
     }
 
-    /************* name **********/
+    // ************* name **********/
     //append constructor name
     text.append(constructor.getName());
 
-    /************* parameters **********/
+    // ************* parameters **********/
     GenerationUtil.writeParameterList(text, constructor.getParameterList().getParameters(), classNameProvider, null);
 
     final Set<String> throwsTypes = collectThrowsTypes(constructor, new THashSet<>());
@@ -136,7 +120,7 @@ public class StubGenerator implements ClassItemGenerator {
       text.append("throws ").append(StringUtil.join(throwsTypes, ", ")).append(' ');
     }
 
-    /************* body **********/
+    // ************* body **********/
 
     text.append("{\n");
     if (constructor instanceof GrReflectedMethod) {
@@ -190,7 +174,7 @@ public class StubGenerator implements ClassItemGenerator {
     LOG.assertTrue(constructor.isConstructor());
 
     final GroovyResolveResult resolveResult = constructor instanceof GrMethod ? resolveChainingConstructor((GrMethod)constructor) : null;
-    
+
     if (resolveResult == null) {
       return Collections.emptySet();
     }
@@ -204,7 +188,7 @@ public class StubGenerator implements ClassItemGenerator {
       return Collections.emptySet();
     }
 
-    final Set<String> result = ContainerUtil.newTroveSet(ArrayUtil.EMPTY_STRING_ARRAY);
+    final Set<String> result = new HashSet<>();
     for (PsiClassType type : chainedConstructor.getThrowsList().getReferencedTypes()) {
       StringBuilder builder = new StringBuilder();
       TypeWriter.writeType(builder, substitutor.substitute(type), constructor, classNameProvider);
@@ -265,7 +249,7 @@ public class StubGenerator implements ClassItemGenerator {
     writeThrowsList(text, method);
 
     if (!isAbstract && !method.hasModifierProperty(PsiModifier.NATIVE)) {
-      /************* body **********/
+      // ************* body **********/
       text.append("{\nreturn ");
       text.append(GroovyToJavaGenerator.getDefaultValueText(retType.getCanonicalText()));
       text.append(";\n}");
@@ -376,7 +360,7 @@ public class StubGenerator implements ClassItemGenerator {
     final LightMethodBuilder builder = new LightMethodBuilder(method.getManager(), method.getName());
     substitutor = substitutor.putAll(TypeConversionUtil.getSuperClassSubstitutor(baseClass, typeDefinition, PsiSubstitutor.EMPTY));
     for (PsiParameter parameter : method.getParameterList().getParameters()) {
-      builder.addParameter(StringUtil.notNullize(parameter.getName()), substitutor.substitute(parameter.getType()));
+      builder.addParameter(parameter.getName(), substitutor.substitute(parameter.getType()));
     }
     builder.setMethodReturnType(substitutor.substitute(method.getReturnType()));
     for (String modifier : STUB_MODIFIERS) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduce;
 
 import com.intellij.codeInsight.navigation.NavigationUtil;
@@ -21,10 +7,7 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Pass;
-import com.intellij.openapi.util.Segment;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.*;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -36,14 +19,10 @@ import com.intellij.refactoring.introduce.inplace.AbstractInplaceIntroducer;
 import com.intellij.refactoring.introduce.inplace.OccurrencesChooser;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.usageView.UsageInfo;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Base class for Introduce variable/field/etc refactorings. It provides skeleton for choosing the target and consequent invoking of the
@@ -75,9 +54,7 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
       invokeOnSelection(selectionModel.getSelectionStart(), selectionModel.getSelectionEnd(), project, editor, file);
     }
     else {
-      int offset = editor.getCaretModel().getOffset();
-
-      Pair<List<Target>, Integer> targetInfo = collectTargets(offset, file, editor, project);
+      Pair<List<Target>, Integer> targetInfo = collectTargets(file, editor, project);
       List<Target> list = targetInfo.getFirst();
       if (list.isEmpty()) {
         cannotPerformRefactoring(project, editor);
@@ -91,13 +68,13 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
           public void pass(final Target target) {
             invokeOnTarget(target, file, editor, project);
           }
-        }, "Expressions", targetInfo.getSecond());
+        }, RefactoringBundle.message("introduce.target.chooser.expressions.title"), targetInfo.getSecond());
       }
     }
   }
 
   @Override
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     //not supported
   }
 
@@ -208,11 +185,11 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
   @NotNull
   private Map<OccurrencesChooser.ReplaceChoice, List<Object>> getOccurrenceOptions(@NotNull Target target,
                                                                                    @NotNull List<UsageInfo> usages) {
-    HashMap<OccurrencesChooser.ReplaceChoice, List<Object>> map = ContainerUtil.newLinkedHashMap();
+    HashMap<OccurrencesChooser.ReplaceChoice, List<Object>> map = new LinkedHashMap<>();
 
     map.put(OccurrencesChooser.ReplaceChoice.NO, Collections.singletonList(target));
     if (usages.size() > 1) {
-      map.put(OccurrencesChooser.ReplaceChoice.ALL, ContainerUtil.newArrayList(usages));
+      map.put(OccurrencesChooser.ReplaceChoice.ALL, new ArrayList<>(usages));
     }
     return map;
   }
@@ -226,7 +203,7 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
    * @return null if everything is ok, or a short message describing why it's impossible to perform the refactoring. It will be shown in a balloon popup.
    */
   @Nullable
-  protected abstract String checkUsages(@NotNull List<UsageInfo> usages);
+  protected abstract @NlsContexts.DialogMessage String checkUsages(@NotNull List<UsageInfo> usages);
 
   /**
    * @return find all possible scopes for the target to introduce
@@ -238,13 +215,10 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
                                                      @NotNull Project project);
 
   /**
-   *
-   * @param offset position of the caret in the editor.
    * @return candidates for refactoring (e.g. all expressions which are under caret)
    */
   @NotNull
-  protected abstract Pair<List<Target>, Integer> collectTargets(int offset,
-                                                                @NotNull PsiFile file,
+  protected abstract Pair<List<Target>, Integer> collectTargets(@NotNull PsiFile file,
                                                                 @NotNull Editor editor,
                                                                 @NotNull Project project);
 
@@ -267,13 +241,13 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
    * @return null if everything is ok, or a short message describing why the refactoring cannot be performed
    */
   @Nullable
-  protected abstract String checkSelectedTarget(@NotNull Target target,
-                                                @NotNull PsiFile file,
-                                                @NotNull Editor editor,
-                                                @NotNull Project project);
+  protected abstract @NlsContexts.DialogMessage String checkSelectedTarget(@NotNull Target target,
+                                                                           @NotNull PsiFile file,
+                                                                           @NotNull Editor editor,
+                                                                           @NotNull Project project);
 
   @NotNull
-  protected abstract String getRefactoringName();
+  protected abstract @NlsContexts.DialogTitle String getRefactoringName();
 
   @Nullable
   protected abstract String getHelpID();
@@ -283,7 +257,7 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
    * It will have this title.
    */
   @NotNull
-  protected abstract String getChooseScopeTitle();
+  protected abstract @NlsContexts.PopupTitle String getChooseScopeTitle();
 
   /**
    * If {@link IntroduceHandler#collectTargetScopes}() returns several possible scopes, the Choose Scope Popup will be shown.
@@ -305,12 +279,12 @@ public abstract class IntroduceHandler<Target extends IntroduceTarget, Scope ext
                                                                    @NotNull Project project);
 
   @NotNull
-  protected String getEmptyScopeErrorMessage() {
-    return getRefactoringName() + " is not available in the current scope";
+  protected @NlsContexts.DialogMessage String getEmptyScopeErrorMessage() {
+    return RefactoringBundle.message("dialog.message.refactoring.not.available.in.current.scope", getRefactoringName());
   }
 
 
-  protected void showErrorHint(@NotNull String errorMessage, @NotNull Editor editor, @NotNull Project project) {
+  protected void showErrorHint(@NotNull @NlsContexts.DialogMessage String errorMessage, @NotNull Editor editor, @NotNull Project project) {
     CommonRefactoringUtil.showErrorHint(project, editor, errorMessage, getRefactoringName(), getHelpID());
   }
 

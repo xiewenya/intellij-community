@@ -34,11 +34,11 @@ import com.intellij.refactoring.MoveDestination;
 import com.intellij.refactoring.changeSignature.ParameterInfoImpl;
 import com.intellij.refactoring.introduceParameterObject.IntroduceParameterObjectClassDescriptor;
 import com.intellij.util.IncorrectOperationException;
-import java.util.HashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -49,7 +49,7 @@ public class JavaIntroduceParameterObjectClassDescriptor extends IntroduceParame
   private final Map<ParameterInfoImpl, ParameterBean> myExistingClassProperties = new HashMap<>();
   private final MoveDestination myMoveDestination;
 
-  public JavaIntroduceParameterObjectClassDescriptor(String className,
+  public JavaIntroduceParameterObjectClassDescriptor(@NotNull String className,
                                                      String packageName,
                                                      MoveDestination moveDestination,
                                                      boolean useExistingClass,
@@ -166,7 +166,8 @@ public class JavaIntroduceParameterObjectClassDescriptor extends IntroduceParame
     if (paramsToMerge.length == 1) {
       final ParameterInfoImpl parameterInfo = paramsToMerge[0];
       final PsiType paramType = parameterInfo.getTypeWrapper().getType(aClass);
-      if (TypeConversionUtil.isPrimitiveWrapper(aClass.getQualifiedName())) {
+      String fqn = aClass.getQualifiedName();
+      if (fqn != null && TypeConversionUtil.isPrimitiveWrapper(fqn)) {
         ParameterBean bean = new ParameterBean();
         bean.setField(aClass.findFieldByName("value", false));
         bean.setGetter(paramType.getCanonicalText() + "Value");
@@ -253,6 +254,7 @@ public class JavaIntroduceParameterObjectClassDescriptor extends IntroduceParame
     final ParameterObjectBuilder beanClassBuilder = new ParameterObjectBuilder();
     beanClassBuilder.setVisibility(isCreateInnerClass() ? PsiModifier.PRIVATE : PsiModifier.PUBLIC);
     beanClassBuilder.setProject(method.getProject());
+    beanClassBuilder.setFile(method.getContainingFile());
     beanClassBuilder.setTypeArguments(getTypeParameters());
     beanClassBuilder.setClassName(getClassName());
     beanClassBuilder.setPackageName(getPackageName());
@@ -325,6 +327,7 @@ public class JavaIntroduceParameterObjectClassDescriptor extends IntroduceParame
       this.param = param;
     }
 
+    @Override
     public void visitAssignmentExpression(PsiAssignmentExpression assignment) {
       super.visitAssignmentExpression(assignment);
       final PsiExpression lhs = assignment.getLExpression();
@@ -368,7 +371,7 @@ public class JavaIntroduceParameterObjectClassDescriptor extends IntroduceParame
       return myGetter;
     }
 
-    public void setGetter(String getter) {
+    public void setGetter(@NonNls String getter) {
       myGetter = getter;
     }
 

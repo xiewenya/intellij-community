@@ -18,11 +18,12 @@ package org.jetbrains.uast.java
 import com.intellij.psi.PsiArrayAccessExpression
 import org.jetbrains.uast.UArrayAccessExpression
 import org.jetbrains.uast.UElement
+import org.jetbrains.uast.UExpression
 
 class JavaUArrayAccessExpression(
-  override val psi: PsiArrayAccessExpression,
+  override val sourcePsi: PsiArrayAccessExpression,
   givenParent: UElement?
 ) : JavaAbstractUExpression(givenParent), UArrayAccessExpression {
-  override val receiver by lz { JavaConverter.convertOrEmpty(psi.arrayExpression, this) }
-  override val indices by lz { singletonListOrEmpty(JavaConverter.convertOrNull(psi.indexExpression, this)) }
+  override val receiver: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.arrayExpression, this) }
+  override val indices: List<UExpression> by lz { singletonListOrEmpty(JavaConverter.convertOrNull(sourcePsi.indexExpression, this)) }
 }

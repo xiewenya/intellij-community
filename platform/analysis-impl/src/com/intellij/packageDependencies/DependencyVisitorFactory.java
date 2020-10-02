@@ -67,12 +67,12 @@ public abstract class DependencyVisitorFactory {
   private static class DefaultVisitor extends PsiRecursiveElementVisitor {
     private final DependenciesBuilder.DependencyProcessor myProcessor;
 
-    public DefaultVisitor(@NotNull DependenciesBuilder.DependencyProcessor processor) {
+    DefaultVisitor(@NotNull DependenciesBuilder.DependencyProcessor processor) {
       myProcessor = processor;
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       super.visitElement(element);
 
       for (PsiReference ref : element.getReferences()) {

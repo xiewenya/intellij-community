@@ -1,49 +1,56 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("TrimUtil")
 @file:Suppress("NAME_SHADOWING")
 
 package com.intellij.diff.comparison
 
-import com.intellij.diff.util.IntPair
 import com.intellij.diff.util.MergeRange
 import com.intellij.diff.util.Range
 import com.intellij.openapi.util.text.StringUtil.isWhiteSpace
 import java.util.*
 
 fun isPunctuation(c: Char): Boolean {
-  if (c == '_') return false
-  val b = c.toInt()
+  return isPunctuation(c.toInt())
+}
+
+fun isPunctuation(b: Int): Boolean {
+  if (b == 95) return false // exclude '_'
   return b >= 33 && b <= 47 || // !"#$%&'()*+,-./
          b >= 58 && b <= 64 || // :;<=>?@
          b >= 91 && b <= 96 || // [\]^_`
          b >= 123 && b <= 126  // {|}~
 }
 
-fun isAlpha(c: Char): Boolean {
-  return !isWhiteSpace(c) && !isPunctuation(c)
+fun isAlpha(c: Int): Boolean {
+  if (isWhiteSpaceCodePoint(c)) return false
+  return !isPunctuation(c)
 }
 
+fun isWhiteSpaceCodePoint(c: Int): Boolean {
+  return c < 128 && isWhiteSpace(c.toChar())
+}
 
-fun trim(text: CharSequence, start: Int, end: Int): IntPair {
+fun isContinuousScript(c: Int): Boolean {
+  if (c < 128) return false
+  if (Character.isDigit(c)) return false
+
+  if (!Character.isBmpCodePoint(c)) return true
+  if (Character.isIdeographic(c)) return true
+  if (!Character.isAlphabetic(c)) return true
+
+  val script = Character.UnicodeScript.of(c)
+  return script == Character.UnicodeScript.HIRAGANA ||
+         script == Character.UnicodeScript.KATAKANA ||
+         script == Character.UnicodeScript.THAI ||
+         script == Character.UnicodeScript.JAVANESE
+}
+
+fun trim(text: CharSequence, start: Int, end: Int): com.intellij.util.IntPair {
   return trim(start, end,
               { index -> isWhiteSpace(text[index]) })
 }
 
-fun trim(start: Int, end: Int, ignored: BitSet): IntPair {
+fun trim(start: Int, end: Int, ignored: BitSet): com.intellij.util.IntPair {
   return trim(start, end,
               { index -> ignored[index] })
 }
@@ -170,10 +177,10 @@ fun expandWhitespacesBackward(text1: CharSequence, text2: CharSequence, text3: C
 }
 
 
-fun <T> trimExpandRange(start1: Int, start2: Int, end1: Int, end2: Int,
-                        equals: (Int, Int) -> Boolean,
-                        ignored1: (Int) -> Boolean,
-                        ignored2: (Int) -> Boolean): Range {
+fun trimExpandRange(start1: Int, start2: Int, end1: Int, end2: Int,
+                    equals: (Int, Int) -> Boolean,
+                    ignored1: (Int) -> Boolean,
+                    ignored2: (Int) -> Boolean): Range {
   return trimExpand(start1, start2, end1, end2,
                     { index1, index2 -> equals(index1, index2) },
                     { index -> ignored1(index) },
@@ -291,14 +298,14 @@ private inline fun trim(start1: Int, start2: Int, start3: Int, end1: Int, end2: 
 }
 
 private inline fun trim(start: Int, end: Int,
-                        ignored: (Int) -> Boolean): IntPair {
+                        ignored: (Int) -> Boolean): com.intellij.util.IntPair {
   var start = start
   var end = end
 
   start = trimStart(start, end, ignored)
   end = trimEnd(start, end, ignored)
 
-  return IntPair(start, end)
+  return com.intellij.util.IntPair(start, end)
 }
 
 private inline fun trimStart(start: Int, end: Int,
@@ -512,12 +519,12 @@ private inline fun trimExpand(start1: Int, start2: Int, end1: Int, end2: Int,
   var end2 = end2
 
   val starts = trimExpandForward(start1, start2, end1, end2, equals, ignored1, ignored2)
-  start1 = starts.val1
-  start2 = starts.val2
+  start1 = starts.first
+  start2 = starts.second
 
   val ends = trimExpandBackward(start1, start2, end1, end2, equals, ignored1, ignored2)
-  end1 = ends.val1
-  end2 = ends.val2
+  end1 = ends.first
+  end2 = ends.second
 
   return Range(start1, end1, start2, end2)
 }
@@ -525,7 +532,7 @@ private inline fun trimExpand(start1: Int, start2: Int, end1: Int, end2: Int,
 private inline fun trimExpandForward(start1: Int, start2: Int, end1: Int, end2: Int,
                                      equals: (Int, Int) -> Boolean,
                                      ignored1: (Int) -> Boolean,
-                                     ignored2: (Int) -> Boolean): IntPair {
+                                     ignored2: (Int) -> Boolean): com.intellij.util.IntPair {
   var start1 = start1
   var start2 = start2
 
@@ -551,13 +558,13 @@ private inline fun trimExpandForward(start1: Int, start2: Int, end1: Int, end2: 
   start1 = trimStart(start1, end1, ignored1)
   start2 = trimStart(start2, end2, ignored2)
 
-  return IntPair(start1, start2)
+  return com.intellij.util.IntPair(start1, start2)
 }
 
 private inline fun trimExpandBackward(start1: Int, start2: Int, end1: Int, end2: Int,
                                       equals: (Int, Int) -> Boolean,
                                       ignored1: (Int) -> Boolean,
-                                      ignored2: (Int) -> Boolean): IntPair {
+                                      ignored2: (Int) -> Boolean): com.intellij.util.IntPair {
   var end1 = end1
   var end2 = end2
 
@@ -583,5 +590,5 @@ private inline fun trimExpandBackward(start1: Int, start2: Int, end1: Int, end2:
   end1 = trimEnd(start1, end1, ignored1)
   end2 = trimEnd(start2, end2, ignored2)
 
-  return IntPair(end1, end2)
+  return com.intellij.util.IntPair(end1, end2)
 }

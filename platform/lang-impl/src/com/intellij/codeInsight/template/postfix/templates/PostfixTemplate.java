@@ -1,11 +1,16 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.postfix.templates;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.template.postfix.settings.PostfixTemplateMetaData;
 import com.intellij.codeInsight.template.postfix.settings.PostfixTemplatesSettings;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,23 +28,26 @@ import java.util.Objects;
  * Equal postfix templates produces by the very same provider will overwrite each other.
  */
 public abstract class PostfixTemplate {
-  @NotNull private final String myId;
-  @NotNull private final String myPresentableName;
-  @NotNull private final String myKey;
-  @NotNull private final String myDescription;
-  @NotNull private final String myExample;
-  @Nullable private final PostfixTemplateProvider myProvider;
+  private final @NotNull @NonNls String myId;
+  private final @NotNull @NlsSafe String myPresentableName;
+  private final @NotNull @NlsSafe String myKey;
+  private final @NotNull NotNullLazyValue<@NlsContexts.DetailedDescription String> myLazyDescription =
+    NotNullLazyValue.createValue(() -> calcDescription());
+
+  private final @NotNull @NlsSafe String myExample;
+  private final @Nullable PostfixTemplateProvider myProvider;
 
   /**
    * @deprecated use {@link #PostfixTemplate(String, String, String, PostfixTemplateProvider)}
    */
-  protected PostfixTemplate(@NotNull String name, @NotNull String example) {
+  @Deprecated
+  protected PostfixTemplate(@NotNull @NlsSafe String name, @NotNull @NlsSafe String example) {
     this(null, name, "." + name, example, null);
   }
 
-  protected PostfixTemplate(@Nullable String id,
-                            @NotNull String name,
-                            @NotNull String example,
+  protected PostfixTemplate(@Nullable @NonNls String id,
+                            @NotNull @NlsSafe String name,
+                            @NotNull @NlsSafe String example,
                             @Nullable PostfixTemplateProvider provider) {
     this(id, name, "." + name, example, provider);
   }
@@ -47,6 +55,7 @@ public abstract class PostfixTemplate {
   /**
    * @deprecated use {@link #PostfixTemplate(String, String, String, String, PostfixTemplateProvider)}
    */
+  @Deprecated
   protected PostfixTemplate(@NotNull String name, @NotNull String key, @NotNull String example) {
     this(null, name, key, example, null);
   }
@@ -57,26 +66,31 @@ public abstract class PostfixTemplate {
                             @NotNull String example,
                             @Nullable PostfixTemplateProvider provider) {
     myId = id != null ? id : getClass().getName() + "#" + key;
-    String tempDescription;
     myPresentableName = name;
     myKey = key;
     myExample = example;
-
-    try {
-      tempDescription = PostfixTemplateMetaData.createMetaData(this).getDescription().getText();
-    }
-    catch (IOException e) {
-      tempDescription = "Under construction";
-    }
-    myDescription = tempDescription;
     myProvider = provider;
   }
+
+  @NotNull
+  protected @NlsContexts.DetailedDescription String calcDescription() {
+    String defaultDescription = CodeInsightBundle.message("postfix.template.description.under.construction");
+    try {
+      return PostfixTemplateMetaData.createMetaData(this).getDescription().getText();
+    }
+    catch (IOException e) {
+      //ignore
+    }
+
+    return defaultDescription;
+  }
+
 
   /**
    * Template's identifier. Used for saving the settings related to this templates.
    */
   @NotNull
-  public String getId() {
+  public @NonNls String getId() {
     return myId;
   }
 
@@ -86,22 +100,22 @@ public abstract class PostfixTemplate {
    * @return
    */
   @NotNull
-  public final String getKey() {
+  public final @NlsSafe String getKey() {
     return myKey;
   }
 
   @NotNull
-  public String getPresentableName() {
+  public @NlsSafe String getPresentableName() {
     return myPresentableName;
   }
 
   @NotNull
-  public String getDescription() {
-    return myDescription;
+  public @NlsContexts.DetailedDescription String getDescription() {
+    return myLazyDescription.getValue();
   }
 
   @NotNull
-  public String getExample() {
+  public @NlsSafe String getExample() {
     return myExample;
   }
 
@@ -146,13 +160,13 @@ public abstract class PostfixTemplate {
     return Objects.equals(myId, template.myId) &&
            Objects.equals(myPresentableName, template.myPresentableName) &&
            Objects.equals(myKey, template.myKey) &&
-           Objects.equals(myDescription, template.myDescription) &&
+           Objects.equals(getDescription(), template.getDescription()) &&
            Objects.equals(myExample, template.myExample) &&
            Objects.equals(myProvider, template.myProvider);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(myId, myPresentableName, myKey, myDescription, myExample, myProvider);
+    return Objects.hash(myId, myPresentableName, myKey, getDescription(), myExample, myProvider);
   }
 }

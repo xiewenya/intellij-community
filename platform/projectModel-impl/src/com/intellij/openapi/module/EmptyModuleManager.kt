@@ -1,54 +1,42 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.module
 
 import com.intellij.openapi.module.impl.createGrouper
 import com.intellij.openapi.project.Project
-import com.intellij.util.messages.MessageBus
 import org.jetbrains.annotations.NotNull
+import java.nio.file.Path
 
-class EmptyModuleManager(private val project: Project, messageBus: MessageBus) : ModuleManager() {
-  override fun hasModuleGroups() = false
+class EmptyModuleManager(private val project: Project) : ModuleManager() {
+  override fun hasModuleGroups(): Boolean = false
 
-  override fun newModule(filePath: String, moduleTypeId: String) = throw UnsupportedOperationException()
+  override fun newModule(filePath: String, moduleTypeId: String): Nothing = throw UnsupportedOperationException()
 
   override fun loadModule(filePath: String) = throw UnsupportedOperationException()
+
+  override fun loadModule(file: Path) = throw UnsupportedOperationException()
 
   override fun disposeModule(module: Module) {
   }
 
-  override fun getModules() = emptyArray<Module>()
+  override fun getModules(): Array<Module> = emptyArray<Module>()
 
-  override fun findModuleByName(name: String) = null
+  override fun findModuleByName(name: String): Nothing? = null
 
-  override fun getSortedModules() = emptyArray<Module>()
+  override fun getSortedModules(): Array<Module> = emptyArray<Module>()
 
-  override fun moduleDependencyComparator() = throw UnsupportedOperationException()
+  override fun moduleDependencyComparator(): Nothing = throw UnsupportedOperationException()
 
-  override fun getModuleDependentModules(module: Module) = emptyList<Module>()
+  override fun getModuleDependentModules(module: Module): List<Module> = emptyList<Module>()
 
-  override fun isModuleDependent(@NotNull module: Module, @NotNull onModule: Module) = false
+  override fun isModuleDependent(@NotNull module: Module, @NotNull onModule: Module): Boolean = false
 
-  override fun moduleGraph() = moduleGraph(true)
+  override fun moduleGraph(): Nothing = moduleGraph(true)
 
-  override fun moduleGraph(includeTests: Boolean) = throw UnsupportedOperationException()
+  override fun moduleGraph(includeTests: Boolean): Nothing = throw UnsupportedOperationException()
 
-  override fun getModifiableModel() = throw UnsupportedOperationException()
+  override fun getModifiableModel(): Nothing = throw UnsupportedOperationException()
 
-  override fun getModuleGroupPath(module: Module) = emptyArray<String>()
+  override fun getModuleGroupPath(module: Module): Array<String> = emptyArray<String>()
 
   override fun setUnloadedModules(unloadedModuleNames: MutableList<String>) {
   }
@@ -57,12 +45,12 @@ class EmptyModuleManager(private val project: Project, messageBus: MessageBus) :
     return createGrouper(project, model)
   }
 
-  override fun getAllModuleDescriptions() = emptyList<ModuleDescription>()
+  override fun getAllModuleDescriptions(): List<ModuleDescription> = emptyList<ModuleDescription>()
 
-  override fun getUnloadedModuleDescriptions() = emptyList<UnloadedModuleDescription>()
+  override fun getUnloadedModuleDescriptions(): List<UnloadedModuleDescription> = emptyList<UnloadedModuleDescription>()
 
-  override fun getUnloadedModuleDescription(moduleName: String) = null
+  override fun getUnloadedModuleDescription(moduleName: String): Nothing? = null
 
-  override fun removeUnloadedModules(unloadedModules: MutableCollection<UnloadedModuleDescription>) {
+  override fun removeUnloadedModules(unloadedModules: MutableCollection<out UnloadedModuleDescription>) {
   }
 }

@@ -18,37 +18,24 @@ package com.intellij.java.codeInsight.daemon.quickFix;
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.OptionalIsPresentInspection;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
 
 
 public class OptionalIsPresentInspectionTest extends LightQuickFixParameterizedTestCase {
-  private static final DefaultLightProjectDescriptor PROJECT_DESCRIPTOR = new DefaultLightProjectDescriptor() {
-    @Override
-    public Sdk getSdk() {
-      return PsiTestUtil.addJdkAnnotations(IdeaTestUtil.getMockJdk18());
-    }
-  };
-
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return PROJECT_DESCRIPTOR;
+    return LightJavaCodeInsightFixtureTestCase.JAVA_8_ANNOTATED;
   }
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new OptionalIsPresentInspection()
     };
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

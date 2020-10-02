@@ -1,10 +1,11 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.unusedSymbol;
 
-import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
+import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.deadCode.UnusedDeclarationInspectionBase;
+import com.intellij.codeInspection.ex.UnfairLocalInspectionTool;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.PsiModifier;
@@ -14,9 +15,8 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class UnusedSymbolLocalInspectionBase extends AbstractBaseJavaLocalInspectionTool {
+public class UnusedSymbolLocalInspectionBase extends AbstractBaseJavaLocalInspectionTool implements UnfairLocalInspectionTool {
   @NonNls public static final String SHORT_NAME = HighlightInfoType.UNUSED_SYMBOL_SHORT_NAME;
-  @NonNls public static final String DISPLAY_NAME = HighlightInfoType.UNUSED_SYMBOL_DISPLAY_NAME;
   @NonNls public static final String UNUSED_PARAMETERS_SHORT_NAME = "UnusedParameters";
   @NonNls public static final String UNUSED_ID = "unused";
 
@@ -101,13 +101,7 @@ public class UnusedSymbolLocalInspectionBase extends AbstractBaseJavaLocalInspec
   @Override
   @NotNull
   public String getGroupDisplayName() {
-    return GroupNames.DECLARATION_REDUNDANCY;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return DISPLAY_NAME;
+    return InspectionsBundle.message("group.names.declaration.redundancy");
   }
 
   @Override

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.table.JBTable;
@@ -33,7 +20,7 @@ import java.util.Collection;
 import java.util.List;
 
 public abstract class OrderPanel<T> extends JPanel {
-  private String CHECKBOX_COLUMN_NAME;
+  private @NlsContexts.ColumnName String CHECKBOX_COLUMN_NAME;
 
   private final Class<T> myEntryClass;
   private final JTable myEntryTable;
@@ -60,6 +47,7 @@ public abstract class OrderPanel<T> extends JPanel {
     myEntryTable.getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     myEntryTable.registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent e) {
           if (getCheckboxColumn() == -1) return;
 
@@ -91,7 +79,7 @@ public abstract class OrderPanel<T> extends JPanel {
     myEntryEditable = entryEditable;
   }
 
-  public void setCheckboxColumnName(final String name) {
+  public void setCheckboxColumnName(@NlsContexts.ColumnName final String name) {
     TableColumn checkboxColumn = myEntryTable.getColumnModel().getColumn(getCheckboxColumn());
     if (StringUtil.isEmpty(name)) {
       CHECKBOX_COLUMN_NAME = "";
@@ -109,9 +97,7 @@ public abstract class OrderPanel<T> extends JPanel {
   }
 
   public void moveSelectedItemsUp() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true));
     try {
       myInsideMove++;
       TableUtil.moveSelectedItemsUp(myEntryTable);
@@ -125,9 +111,7 @@ public abstract class OrderPanel<T> extends JPanel {
   }
 
   public void moveSelectedItemsDown() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true));
     try {
       myInsideMove++;
       TableUtil.moveSelectedItemsDown(myEntryTable);
@@ -186,7 +170,7 @@ public abstract class OrderPanel<T> extends JPanel {
     }
   }
 
-  public void addAll(Collection<T> orderEntries) {
+  public void addAll(Collection<? extends T> orderEntries) {
     for (T orderEntry : orderEntries) {
       add(orderEntry);
     }
@@ -208,7 +192,7 @@ public abstract class OrderPanel<T> extends JPanel {
   private class MyTableModel extends DefaultTableModel {
     private final boolean myShowCheckboxes;
 
-    public MyTableModel(boolean showCheckboxes) {
+    MyTableModel(boolean showCheckboxes) {
       myShowCheckboxes = showCheckboxes;
     }
 
@@ -220,6 +204,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return getColumnCount() - 2;
     }
 
+    @Override
     public String getColumnName(int column) {
       if (column == getEntryColumn()) {
         return "";
@@ -230,6 +215,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return null;
     }
 
+    @Override
     public Class getColumnClass(int column) {
       if (column == getEntryColumn()) {
         return myEntryClass;
@@ -240,10 +226,12 @@ public abstract class OrderPanel<T> extends JPanel {
       return super.getColumnClass(column);
     }
 
+    @Override
     public int getColumnCount() {
       return myShowCheckboxes ? 2 : 1;
     }
 
+    @Override
     public boolean isCellEditable(int row, int column) {
       if (column == getCheckboxColumn()) {
         return isCheckable(OrderPanel.this.getValueAt(row));
@@ -251,6 +239,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return myEntryEditable;
     }
 
+    @Override
     public void setValueAt(Object aValue, int row, int column) {
       super.setValueAt(aValue, row, column);
       if (!isInsideMove() && column == getCheckboxColumn()) {
@@ -270,7 +259,7 @@ public abstract class OrderPanel<T> extends JPanel {
 
   public abstract void setChecked(T entry, boolean checked);
 
-  public String getCheckboxColumnName() {
+  public @NlsContexts.ColumnName String getCheckboxColumnName() {
     if (CHECKBOX_COLUMN_NAME == null) {
       CHECKBOX_COLUMN_NAME = UIBundle.message("order.entries.panel.export.column.name");
     }

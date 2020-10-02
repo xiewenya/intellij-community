@@ -17,24 +17,36 @@ package com.intellij.openapi.vcs.vfs;
 
 import com.intellij.codeInsight.daemon.OutsidersPsiFileSupport;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.VcsBundle;
+import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public abstract class AbstractVcsVirtualFile extends VirtualFile {
-
+  @NlsSafe
   protected final String myName;
+  @NlsSafe
   protected final String myPath;
+  @NlsSafe
   protected String myRevision;
   private final VirtualFile myParent;
   protected int myModificationStamp = 0;
+  @NotNull
   private final VirtualFileSystem myFileSystem;
-  protected boolean myProcessingBeforeContentsChange;
 
-  protected AbstractVcsVirtualFile(String path, VirtualFileSystem fileSystem) {
+  protected AbstractVcsVirtualFile(String path, @NotNull VirtualFileSystem fileSystem) {
     myFileSystem = fileSystem;
     myPath = path;
     File file = new File(myPath);
@@ -43,6 +55,15 @@ public abstract class AbstractVcsVirtualFile extends VirtualFile {
       myParent = new VcsVirtualFolder(file.getParent(), this, myFileSystem);
     else
       myParent = null;
+
+    OutsidersPsiFileSupport.markFile(this);
+  }
+
+  protected AbstractVcsVirtualFile(@Nullable VirtualFile parent, @NotNull String name, @NotNull VirtualFileSystem fileSystem) {
+    myFileSystem = fileSystem;
+    myPath = parent != null && !StringUtil.isEmpty(parent.getPath()) ? parent.getPath() + "/" + name : name;
+    myName = name;
+    myParent = parent;
 
     OutsidersPsiFileSupport.markFile(this);
   }
@@ -67,10 +88,14 @@ public abstract class AbstractVcsVirtualFile extends VirtualFile {
 
   @Override
   public String getPresentableName() {
-    if (myRevision == null)
-      return myName;
-    else
-      return myName + " (" + myRevision + ")";
+    return getPresentableName(myName);
+  }
+
+  @NotNull
+  @Nls
+  String getPresentableName(@NotNull @Nls String baseName) {
+    if (myRevision == null) return baseName;
+    return baseName + " (" + myRevision + ")";
   }
 
   @Override
@@ -102,12 +127,11 @@ public abstract class AbstractVcsVirtualFile extends VirtualFile {
   @Override
   @NotNull
   public OutputStream getOutputStream(Object requestor, long newModificationStamp, long newTimeStamp) {
-    throw new RuntimeException(VcsFileSystem.COULD_NOT_IMPLEMENT_MESSAGE);
+    throw new RuntimeException(VcsFileSystem.getCouldNotImplementMessage());
   }
 
   @Override
-  @NotNull
-  public abstract byte[] contentsToByteArray() throws IOException;
+  public abstract byte @NotNull [] contentsToByteArray() throws IOException;
 
   @Override
   public long getModificationStamp() {
@@ -138,18 +162,10 @@ public abstract class AbstractVcsVirtualFile extends VirtualFile {
     myRevision = revision;
   }
 
-  protected void fireBeforeContentsChange() {
-    myProcessingBeforeContentsChange = true;
-    try {
-      ApplicationManager.getApplication().runWriteAction(new Runnable() {
-        @Override
-        public void run() {
-          ((VcsFileSystem)getFileSystem()).fireBeforeContentsChange(this, AbstractVcsVirtualFile.this);
-        }
-      });
-    }
-    finally {
-      myProcessingBeforeContentsChange = false;
-    }
+  protected void showLoadingContentFailedMessage(@NotNull VcsException e) {
+    ApplicationManager.getApplication().invokeLater(() -> Messages.showMessageDialog(
+      VcsBundle.message("message.text.could.not.load.virtual.file.content", getPresentableUrl(), e.getLocalizedMessage()),
+      VcsBundle.message("message.title.could.not.load.content"),
+      Messages.getInformationIcon()));
   }
 }

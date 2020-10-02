@@ -1,9 +1,7 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.meta.impl;
 
-import com.intellij.lang.documentation.AbstractDocumentationProvider;
+import com.intellij.lang.documentation.DocumentationProvider;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -24,13 +22,10 @@ import org.jetbrains.yaml.psi.YAMLMapping;
 import org.jetbrains.yaml.psi.YAMLPsiElement;
 import org.jetbrains.yaml.psi.YAMLValue;
 
-@ApiStatus.Experimental
-public abstract class YamlDocumentationProviderBase extends AbstractDocumentationProvider {
-  @Override
-  @Nullable
-  public String getQuickNavigateInfo(PsiElement element, PsiElement originalElement) {
-    return null;
-  }
+import java.util.Objects;
+
+@ApiStatus.Internal
+public abstract class YamlDocumentationProviderBase implements DocumentationProvider {
 
   @Override
   public String generateDoc(PsiElement element, @Nullable PsiElement originalElement) {
@@ -45,7 +40,8 @@ public abstract class YamlDocumentationProviderBase extends AbstractDocumentatio
   @Override
   public PsiElement getCustomDocumentationElement(@NotNull Editor editor,
                                                   @NotNull PsiFile file,
-                                                  @Nullable PsiElement contextElement) {
+                                                  @Nullable PsiElement contextElement,
+                                                  int targetOffset) {
     if (contextElement == null || !isRelevant(contextElement)) {
       return null;
     }
@@ -55,6 +51,9 @@ public abstract class YamlDocumentationProviderBase extends AbstractDocumentatio
 
   @Override
   public PsiElement getDocumentationElementForLookupItem(PsiManager psiManager, Object object, PsiElement contextElement) {
+    if(!isRelevant(contextElement))
+      return null;
+
     if (object instanceof ForcedCompletionPath) {  // deep completion
       return createFromCompletionPath((ForcedCompletionPath)object, contextElement);
     }
@@ -196,7 +195,7 @@ public abstract class YamlDocumentationProviderBase extends AbstractDocumentatio
     @NotNull private final YamlMetaType myType;
     @Nullable private final Field myField;
 
-    public DocumentationElement(@NotNull PsiManager manager,
+    DocumentationElement(@NotNull PsiManager manager,
                                 @NotNull YamlMetaType type,
                                 @Nullable Field field) {
       super(manager, YAMLLanguage.INSTANCE);
@@ -220,6 +219,22 @@ public abstract class YamlDocumentationProviderBase extends AbstractDocumentatio
     @Nullable
     public String getDocumentation() {
       return YamlDocumentationProviderBase.this.getDocumentation(myProject, myType, myField);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      DocumentationElement element = (DocumentationElement)o;
+      return Objects.equals(myProject, element.myProject) &&
+             Objects.equals(myType, element.myType) &&
+             Objects.equals(myField, element.myField);
+    }
+
+    @Override
+    public int hashCode() {
+
+      return Objects.hash(myProject, myType, myField);
     }
   }
 }

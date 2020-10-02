@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.actionSystem.ActionGroup;
@@ -40,6 +26,7 @@ public abstract class PopupHandler extends MouseAdapter {
 
   public abstract void invokePopup(Component comp, int x, int y);
 
+  @Override
   public void mouseClicked(MouseEvent e) {
     if (e.isPopupTrigger()) {
       invokePopup(e.getComponent(), e.getX(), e.getY());
@@ -47,6 +34,7 @@ public abstract class PopupHandler extends MouseAdapter {
     }
   }
 
+  @Override
   public void mousePressed(MouseEvent e) {
     if (e.isPopupTrigger()) {
       invokePopup(e.getComponent(), e.getX(), e.getY());
@@ -54,6 +42,7 @@ public abstract class PopupHandler extends MouseAdapter {
     }
   }
 
+  @Override
   public void mouseReleased(MouseEvent e) {
     if (e.isPopupTrigger()) {
       invokePopup(e.getComponent(), e.getX(), e.getY());
@@ -61,7 +50,7 @@ public abstract class PopupHandler extends MouseAdapter {
     }
   }
 
-  public static void installPopupHandler(JComponent component, @NonNls String groupId, String place) {
+  public static void installPopupHandler(JComponent component, @NonNls String groupId, @NonNls String place) {
     ActionManager actionManager = ActionManager.getInstance();
     ActionGroup group = (ActionGroup)actionManager.getAction(groupId);
     installPopupHandler(component, group, place, actionManager);
@@ -70,7 +59,14 @@ public abstract class PopupHandler extends MouseAdapter {
   @NotNull
   public static MouseListener installPopupHandler(JComponent component,
                                                   @NotNull ActionGroup group,
-                                                  String place,
+                                                  @NonNls String place) {
+    return installPopupHandler(component, group, place, ActionManager.getInstance());
+  }
+
+  @NotNull
+  public static MouseListener installPopupHandler(JComponent component,
+                                                  @NotNull ActionGroup group,
+                                                  @NonNls String place,
                                                   ActionManager actionManager) {
     return installPopupHandler(component, group, place, actionManager, null);
   }
@@ -78,11 +74,12 @@ public abstract class PopupHandler extends MouseAdapter {
   @NotNull
   public static MouseListener installPopupHandler(@NotNull JComponent component,
                                                   @NotNull ActionGroup group,
-                                                  String place,
+                                                  @NonNls String place,
                                                   @NotNull ActionManager actionManager,
                                                   @Nullable PopupMenuListener menuListener) {
     if (ApplicationManager.getApplication() == null) return new MouseAdapter(){};
     PopupHandler popupHandler = new PopupHandler() {
+      @Override
       public void invokePopup(Component comp, int x, int y) {
         ActionPopupMenu popupMenu = actionManager.createActionPopupMenu(place, group);
         popupMenu.setTargetComponent(component);
@@ -98,7 +95,7 @@ public abstract class PopupHandler extends MouseAdapter {
   @NotNull
   public static MouseListener installFollowingSelectionTreePopup(@NotNull JTree tree,
                                                                  @NotNull ActionGroup group,
-                                                                 String place,
+                                                                 @NonNls String place,
                                                                  @NotNull ActionManager actionManager) {
     return installConditionalPopup(tree, group, place, actionManager, (comp, x, y) ->
       tree.getPathForLocation(x, y) != null &&
@@ -108,20 +105,32 @@ public abstract class PopupHandler extends MouseAdapter {
   @NotNull
   public static MouseListener installRowSelectionTablePopup(@NotNull JTable table,
                                                             @NotNull ActionGroup group,
-                                                            String place,
+                                                            @NonNls String place,
                                                             @NotNull ActionManager actionManager) {
     return installConditionalPopup(table, group, place, actionManager, (comp, x, y) ->
       Arrays.binarySearch(table.getSelectedRows(), table.rowAtPoint(new Point(x, y))) > -1);
   }
 
   @NotNull
+  public static MouseListener installSelectionListPopup(@NotNull JList<?> list,
+                                                        @NotNull ActionGroup group,
+                                                        @NonNls String place,
+                                                        @NotNull ActionManager actionManager) {
+    return installConditionalPopup(list, group, place, actionManager, (comp, x, y) -> ListUtil.isPointOnSelection(list, x, y));
+  }
+
+  @NotNull
   private static MouseListener installConditionalPopup(@NotNull JComponent component,
-                                                      @NotNull ActionGroup group,
-                                                      String place,
-                                                      @NotNull ActionManager actionManager,
-                                                      @NotNull ShowPopupPredicate condition) {
-    if (ApplicationManager.getApplication() == null) return new MouseAdapter(){};
+                                                       @NotNull ActionGroup group,
+                                                       @NonNls String place,
+                                                       @NotNull ActionManager actionManager,
+                                                       @NotNull ShowPopupPredicate condition) {
+    if (ApplicationManager.getApplication() == null) {
+      return new MouseAdapter() {
+      };
+    }
     PopupHandler handler = new PopupHandler() {
+      @Override
       public void invokePopup(Component comp, int x, int y) {
         if (condition.shouldShowPopup(comp, x, y)) {
           ActionPopupMenu popupMenu = actionManager.createActionPopupMenu(place, group);

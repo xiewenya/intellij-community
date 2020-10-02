@@ -19,24 +19,28 @@ public class EquivalenceDescriptorBuilder implements EquivalenceDescriptor {
   public EquivalenceDescriptorBuilder() {
   }
 
+  @Override
   public List<SingleChildDescriptor> getSingleChildDescriptors() {
     return mySingleChildDescriptors;
   }
 
+  @Override
   public List<MultiChildDescriptor> getMultiChildDescriptors() {
     return myMultiChildDescriptors;
   }
 
+  @Override
   public List<Object> getConstants() {
     return myConstants;
   }
 
+  @Override
   @NotNull
   public List<PsiElement[]> getCodeBlocks() {
     return myCodeBlocks;
   }
 
-  public EquivalenceDescriptorBuilder codeBlock(@Nullable PsiElement[] block) {
+  public EquivalenceDescriptorBuilder codeBlock(PsiElement @Nullable [] block) {
     myCodeBlocks.add(block);
     return this;
   }
@@ -45,7 +49,7 @@ public class EquivalenceDescriptorBuilder implements EquivalenceDescriptor {
     return add(SingleChildDescriptor.MyType.DEFAULT, element);
   }
 
-  public EquivalenceDescriptorBuilder elements(@Nullable PsiElement[] elements) {
+  public EquivalenceDescriptorBuilder elements(PsiElement @Nullable [] elements) {
     return add(MultiChildDescriptor.MyType.DEFAULT, elements);
   }
 
@@ -64,12 +68,12 @@ public class EquivalenceDescriptorBuilder implements EquivalenceDescriptor {
   }
 
   @NotNull
-  public EquivalenceDescriptorBuilder optionally(@Nullable PsiElement[] elements) {
+  public EquivalenceDescriptorBuilder optionally(PsiElement @Nullable [] elements) {
     return add(MultiChildDescriptor.MyType.OPTIONALLY, elements);
   }
 
   @NotNull
-  public EquivalenceDescriptorBuilder optionallyInPattern(@Nullable PsiElement[] elements) {
+  public EquivalenceDescriptorBuilder optionallyInPattern(PsiElement @Nullable [] elements) {
     return add(MultiChildDescriptor.MyType.OPTIONALLY_IN_PATTERN, elements);
   }
 

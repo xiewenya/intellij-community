@@ -1,10 +1,11 @@
+syntax = "proto2";
+
 package org.jetbrains.javac;
 
 option java_package = "org.jetbrains.jps.javac";
 option optimize_for = LITE_RUNTIME;
 
 message Message {
-
   message UUID {
     required sint64 most_sig_bits = 1;
     required sint64 least_sig_bits = 2;
@@ -42,6 +43,8 @@ message Message {
     repeated string sourcepath = 6;
     repeated OutputGroup output = 7;
     repeated string module_path = 8;
+    repeated string upgrade_module_path = 9;
+    map<string,string> module_names = 10;
   }
 
   message Response {
@@ -87,8 +90,10 @@ message Message {
      optional string output_root = 3;
      optional string relative_path = 4;
      optional string class_name = 5;
-     optional string source_uri = 6;
+     repeated string source_uri = 6;
      optional bytes content = 7;
+     optional string location = 8;
+     required bool is_generated = 9;
     }
 
     message ClassData {
@@ -111,5 +116,3 @@ message Message {
   optional Response response = 4;
   optional Failure failure = 5;
 }
-
-

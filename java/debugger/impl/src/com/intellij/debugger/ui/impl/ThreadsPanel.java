@@ -23,6 +23,7 @@ import com.intellij.util.Alarm;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -125,6 +126,10 @@ public class ThreadsPanel extends DebuggerTreePanel{
     super.dispose();
   }
 
+  public JComponent getDefaultFocusedComponent() {
+    return getThreadsTree();
+  }
+
   private static void updateNodeLabels(DebuggerTreeNodeImpl from) {
     Enumeration children = from.children();
     try {
@@ -150,7 +155,7 @@ public class ThreadsPanel extends DebuggerTreePanel{
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) {
       return HELP_ID;
     }

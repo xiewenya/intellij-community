@@ -16,6 +16,7 @@
 
 package com.intellij.ide;
 
+import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
@@ -24,9 +25,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Common interface for IDE views where files can be selected (project view, packages view,
  * favorites or commander).
- *
- * @since 5.1
- * @see com.intellij.openapi.actionSystem.PlatformDataKeys#IDE_VIEW
+ * @see LangDataKeys#IDE_VIEW
  */
 public interface IdeView {
   /**
@@ -43,8 +42,7 @@ public interface IdeView {
    *
    * @return the list of directories, or an empty array if nothing is selected.
    */
-  @NotNull
-  PsiDirectory[] getDirectories();
+  PsiDirectory @NotNull [] getDirectories();
 
   /**
    * Returns the directory for the element currently selected in the view. If multiple directories

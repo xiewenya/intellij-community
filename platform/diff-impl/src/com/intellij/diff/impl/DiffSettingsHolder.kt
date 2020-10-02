@@ -1,6 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.impl
 
+import com.intellij.diff.tools.fragmented.UnifiedDiffTool
+import com.intellij.diff.tools.simple.SimpleDiffTool
 import com.intellij.diff.util.DiffPlaces
 import com.intellij.diff.util.DiffUtil
 import com.intellij.openapi.components.PersistentStateComponent
@@ -10,6 +12,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.util.Key
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.intellij.util.xmlb.annotations.XMap
+import org.jetbrains.annotations.NonNls
 import java.util.*
 
 @State(name = "DiffSettings", storages = [(Storage(value = DiffUtil.DIFF_CONFIG))])
@@ -44,24 +47,36 @@ class DiffSettingsHolder : PersistentStateComponent<DiffSettingsHolder.State> {
 
       @JvmStatic fun getSettings(): DiffSettings = getSettings(null)
       @JvmStatic fun getSettings(place: String?): DiffSettings = service<DiffSettingsHolder>().getSettings(place)
+      internal fun getDefaultSettings(place: String): DiffSettings =
+        DiffSettings(SharedSettings(), service<DiffSettingsHolder>().defaultPlaceSettings(place))
     }
   }
 
-  fun getSettings(place: String?): DiffSettings {
+  fun getSettings(@NonNls place: String?): DiffSettings {
     val placeKey = place ?: DiffPlaces.DEFAULT
-    val placeSettings = myState.PLACES_MAP.getOrPut(placeKey, { defaultPlaceSettings(placeKey) })
+    val placeSettings = myState.PLACES_MAP.getOrPut(placeKey) { defaultPlaceSettings(placeKey) }
     return DiffSettings(myState.SHARED_SETTINGS, placeSettings)
   }
 
   private fun copyStateWithoutDefaults(): State {
     val result = State()
     result.SHARED_SETTINGS = myState.SHARED_SETTINGS
-    result.PLACES_MAP = DiffUtil.trimDefaultValues(myState.PLACES_MAP, { defaultPlaceSettings(it) })
+    result.PLACES_MAP = DiffUtil.trimDefaultValues(myState.PLACES_MAP) { defaultPlaceSettings(it) }
     return result
   }
 
   private fun defaultPlaceSettings(place: String): PlaceSettings {
-    return PlaceSettings()
+    val settings = PlaceSettings()
+    if (place == DiffPlaces.VCS_LOG_VIEW) {
+      settings.DIFF_TOOLS_ORDER = listOf(SimpleDiffTool::class.java.canonicalName, UnifiedDiffTool::class.java.canonicalName)
+    }
+    if (place == DiffPlaces.VCS_FILE_HISTORY_VIEW) {
+      settings.DIFF_TOOLS_ORDER = listOf(UnifiedDiffTool::class.java.canonicalName)
+    }
+    if (place == DiffPlaces.CHANGES_VIEW) {
+      settings.DIFF_TOOLS_ORDER = listOf(UnifiedDiffTool::class.java.canonicalName)
+    }
+    return settings
   }
 
 
@@ -69,7 +84,7 @@ class DiffSettingsHolder : PersistentStateComponent<DiffSettingsHolder.State> {
     @OptionTag
     @XMap
     @JvmField var PLACES_MAP: TreeMap<String, PlaceSettings> = TreeMap()
-    @JvmField var SHARED_SETTINGS = SharedSettings()
+    @JvmField var SHARED_SETTINGS: SharedSettings = SharedSettings()
   }
 
   private var myState: State = State()

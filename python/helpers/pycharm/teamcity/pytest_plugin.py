@@ -12,6 +12,7 @@ tests under TeamCity build.
 """
 
 import os
+import pprint
 import sys
 import re
 import traceback
@@ -25,7 +26,14 @@ from teamcity import diff_tools
 diff_tools.patch_unittest_diff()
 
 
-def fetch_diff_error_from_message(err_message):
+def unformat_pytest_explanation(s):
+    """
+    Undo _pytest.assertion.util.format_explanation
+    """
+    return s.replace("\\n", "\n")
+
+
+def fetch_diff_error_from_message(err_message, swap_diff):
     line_with_diff = None
     diff_error_message = None
     lines = err_message.split("\n")
@@ -41,9 +49,29 @@ def fetch_diff_error_from_message(err_message):
         parts = [x.strip() for x in line_with_diff.split("==")]
         parts = [s[1:-1] if s.startswith("'") or s.startswith('"') else s for s in parts]
         # Pytest cuts too long lines, no need to check is_too_big
-        return diff_tools.EqualsAssertionError(parts[0], parts[1], diff_error_message)
+        expected, actual = parts[1], parts[0]
+
+        if swap_diff:
+            expected, actual = actual, expected
+
+        expected = unformat_pytest_explanation(expected)
+        actual = unformat_pytest_explanation(actual)
+
+        return diff_tools.EqualsAssertionError(expected, actual, diff_error_message)
     else:
         return None
+
+
+def _is_bool_supported():
+    """
+    Type "bool" is not supported before 2.9
+    """
+    try:
+        from pytest import __version__
+        from distutils import version
+        return version.LooseVersion(str(__version__)) >= version.LooseVersion("2.9")
+    except ImportError:
+        return False
 
 
 def pytest_addoption(parser):
@@ -53,6 +81,13 @@ def pytest_addoption(parser):
                      dest="teamcity", default=0, help="force output of JetBrains TeamCity service messages")
     group._addoption('--no-teamcity', action="count",
                      dest="no_teamcity", default=0, help="disable output of JetBrains TeamCity service messages")
+
+    kwargs = {"help": "skip output of passed tests for JetBrains TeamCity service messages"}
+    if _is_bool_supported():
+        kwargs.update({"type": "bool"})
+
+    parser.addini("skippassedoutput", **kwargs)
+    parser.addini("swapdiff", **kwargs)
 
 
 def pytest_configure(config):
@@ -66,8 +101,15 @@ def pytest_configure(config):
     if enabled:
         output_capture_enabled = getattr(config.option, 'capture', 'fd') != 'no'
         coverage_controller = _get_coverage_controller(config)
+        skip_passed_output = bool(config.getini('skippassedoutput'))
 
-        config._teamcityReporting = EchoTeamCityMessages(output_capture_enabled, coverage_controller)
+        config.option.verbose = 2  # don't truncate assert explanations
+        config._teamcityReporting = EchoTeamCityMessages(
+            output_capture_enabled,
+            coverage_controller,
+            skip_passed_output,
+            bool(config.getini('swapdiff'))
+        )
         config.pluginmanager.register(config._teamcityReporting)
 
 
@@ -87,15 +129,17 @@ def _get_coverage_controller(config):
 
 
 class EchoTeamCityMessages(object):
-    def __init__(self, output_capture_enabled, coverage_controller):
+    def __init__(self, output_capture_enabled, coverage_controller, skip_passed_output, swap_diff):
         self.coverage_controller = coverage_controller
         self.output_capture_enabled = output_capture_enabled
+        self.skip_passed_output = skip_passed_output
 
         self.teamcity = TeamcityServiceMessages()
         self.test_start_reported_mark = set()
 
         self.max_reported_output_size = 1 * 1024 * 1024
         self.reported_output_chunk_size = 50000
+        self.swap_diff = swap_diff
 
     def get_id_from_location(self, location):
         if type(location) is not tuple or len(location) != 3 or not hasattr(location[2], "startswith"):
@@ -164,19 +208,25 @@ class EchoTeamCityMessages(object):
             return "%s:%s (%s)" % (str(location[0]), str(location[1]), str(location[2]))
         return str(location)
 
-    def pytest_collection_modifyitems(self, session, config, items):
-        self.teamcity.testCount(len(items))
+    def pytest_collection_finish(self, session):
+        self.teamcity.testCount(len(session.items))
 
     def pytest_runtest_logstart(self, nodeid, location):
-        self.ensure_test_start_reported(self.format_test_id(nodeid, location))
+        # test name fetched from location passed as metainfo to PyCharm
+        # it will be used to run specific test
+        # See IDEA-176950, PY-31836
+        test_name = location[2]
+        if test_name:
+            test_name = str(test_name).split(".")[-1]
+        self.ensure_test_start_reported(self.format_test_id(nodeid, location), test_name)
 
-    def ensure_test_start_reported(self, test_id):
+    def ensure_test_start_reported(self, test_id, metainfo=None):
         if test_id not in self.test_start_reported_mark:
             if self.output_capture_enabled:
                 capture_standard_output = "false"
             else:
                 capture_standard_output = "true"
-            self.teamcity.testStarted(test_id, flowId=test_id, captureStandardOutput=capture_standard_output)
+            self.teamcity.testStarted(test_id, flowId=test_id, captureStandardOutput=capture_standard_output, metainfo=metainfo)
             self.test_start_reported_mark.add(test_id)
 
     def report_has_output(self, report):
@@ -188,8 +238,9 @@ class EchoTeamCityMessages(object):
     def report_test_output(self, report, test_id):
         for (secname, data) in report.sections:
             # https://github.com/JetBrains/teamcity-messages/issues/112
-            # CollectReport doesn't have 'when' property
-            if hasattr(report, "when") and report.when not in secname:
+            # CollectReport didn't have 'when' property, but now it has.
+            # But we still need output on 'collect' state
+            if hasattr(report, "when") and report.when not in secname and report.when != 'collect':
                 continue
             if not data:
                 continue
@@ -231,7 +282,7 @@ class EchoTeamCityMessages(object):
             if err_message.startswith("assert"):
                 err_message = "AssertionError: " + err_message
             if err_message.startswith("AssertionError:"):
-                diff_error = fetch_diff_error_from_message(err_message)
+                diff_error = fetch_diff_error_from_message(err_message, self.swap_diff)
         except Exception:
             pass
 
@@ -265,6 +316,10 @@ class EchoTeamCityMessages(object):
         self.teamcity.testIgnored(test_id, reason, flowId=test_id)
         self.report_test_finished(test_id, duration)
 
+    def pytest_assertrepr_compare(self, config, op, left, right):
+        if op in ('==', '!='):
+            return ['{0} {1} {2}'.format(pprint.pformat(left), op, pprint.pformat(right))]
+
     def pytest_runtest_logreport(self, report):
         """
         :type report: _pytest.runner.TestReport
@@ -277,10 +332,11 @@ class EchoTeamCityMessages(object):
             # Do not report passed setup/teardown if no output
             if report.when == 'call':
                 self.ensure_test_start_reported(test_id)
-                self.report_test_output(report, test_id)
+                if not self.skip_passed_output:
+                    self.report_test_output(report, test_id)
                 self.report_test_finished(test_id, duration)
             else:
-                if self.report_has_output(report):
+                if self.report_has_output(report) and not self.skip_passed_output:
                     block_name = "test " + report.when
                     self.teamcity.blockOpened(block_name, flowId=test_id)
                     self.report_test_output(report, test_id)
@@ -319,14 +375,42 @@ class EchoTeamCityMessages(object):
 
     def _report_coverage(self):
         from coverage.misc import NotPython
-        from coverage.report import Reporter
         from coverage.results import Numbers
 
-        class _CoverageReporter(Reporter):
+        class _Reporter(object):
+            def __init__(self, coverage, config):
+                try:
+                    from coverage.report import Reporter
+                except ImportError:
+                    # Support for coverage >= 5.0.1.
+                    from coverage.report import get_analysis_to_report
+
+                    class Reporter(object):
+
+                        def __init__(self, coverage, config):
+                            self.coverage = coverage
+                            self.config = config
+                            self._file_reporters = []
+
+                        def find_file_reporters(self, morfs):
+                            return [fr for fr, _ in get_analysis_to_report(self.coverage, morfs)]
+
+                self._reporter = Reporter(coverage, config)
+
+            def find_file_reporters(self, morfs):
+                self.file_reporters = self._reporter.find_file_reporters(morfs)
+
+            def __getattr__(self, name):
+                return getattr(self._reporter, name)
+
+        class _CoverageReporter(_Reporter):
             def __init__(self, coverage, config, messages):
                 super(_CoverageReporter, self).__init__(coverage, config)
 
-                self.branches = coverage.data.has_arcs()
+                if hasattr(coverage, 'data'):
+                    self.branches = coverage.data.has_arcs()
+                else:
+                    self.branches = coverage.get_data().has_arcs()
                 self.messages = messages
 
             def report(self, morfs, outfile=None):

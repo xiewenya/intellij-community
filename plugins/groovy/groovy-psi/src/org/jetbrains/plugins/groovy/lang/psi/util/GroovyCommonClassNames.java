@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.util;
 
 import java.util.Set;
@@ -43,6 +29,8 @@ public interface GroovyCommonClassNames {
   String JAVA_UTIL_REGEX_MATCHER = "java.util.regex.Matcher";
   String GROOVY_TRANSFORM_FIELD = "groovy.transform.Field";
   String GROOVY_TRANSFORM_TUPLE_CONSTRUCTOR = "groovy.transform.TupleConstructor";
+  String GROOVY_TRANSFORM_MAP_CONSTRUCTOR = "groovy.transform.MapConstructor";
+  String GROOVY_TRANSFORM_PROPERTY_OPTIONS = "groovy.transform.PropertyOptions";
   String GROOVY_TRANSFORM_IMMUTABLE = "groovy.transform.Immutable";
   String GROOVY_TRANSFORM_CANONICAL = "groovy.transform.Canonical";
   String GROOVY_LANG_REFERENCE = "groovy.lang.Reference";
@@ -56,7 +44,6 @@ public interface GroovyCommonClassNames {
   String GROOVY_TRANSFORM_TYPE_CHECKED = "groovy.transform.TypeChecked";
   String GROOVY_TRANSFORM_TYPE_CHECKING_MODE = "groovy.transform.TypeCheckingMode";
   String GROOVY_TRANSFORM_INHERIT_CONSTRUCTORS = "groovy.transform.InheritConstructors";
-  String GROOVY_TRANSFORM_AUTOIMPLEMENT = "groovy.transform.AutoImplement";
   String GROOVY_LANG_IMMUTABLE = "groovy.lang.Immutable";
   String GROOVY_LANG_META_CLASS = "groovy.lang.MetaClass";
   String GROOVY_LANG_GROOVY_CALLABLE = "groovy.lang.GroovyCallable";
@@ -65,7 +52,12 @@ public interface GroovyCommonClassNames {
   String GROOVY_LANG_DELEGATES_TO = "groovy.lang.DelegatesTo";
   String GROOVY_LANG_DELEGATES_TO_TARGET = "groovy.lang.DelegatesTo.Target";
   String GROOVY_TRANSFORM_COMPILE_DYNAMIC = "groovy.transform.CompileDynamic";
+  String GROOVY_TRANSFORM_VISIBILITY_OPTIONS = "groovy.transform.VisibilityOptions";
   String GROOVY_TRANSFORM_STC_CLOSURE_PARAMS = "groovy.transform.stc.ClosureParams";
+  String GROOVY_TRANSFORM_STC_SIMPLE_TYPE = "groovy.transform.stc.SimpleType";
+  String GROOVY_TRANSFORM_STC_FROM_STRING = "groovy.transform.stc.FromString";
+  String GROOVY_TRANSFORM_STC_FROM_ABSTRACT_TYPE_METHODS = "groovy.transform.stc.FromAbstractTypeMethods";
+  String GROOVY_TRANSFORM_STC_MAP_ENTRY_OR_KEY_VALUE = "groovy.transform.stc.MapEntryOrKeyValue";
   String GROOVY_TRANSFORM_BASE_SCRIPT = "groovy.transform.BaseScript";
   String GROOVY_TRAIT = "groovy.transform.Trait";
   String GROOVY_TRAIT_IMPLEMENTED = "org.codehaus.groovy.transform.trait.Traits.Implemented";

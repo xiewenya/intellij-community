@@ -1,25 +1,31 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.gdpr;
 
 import com.intellij.ide.BrowserUtil;
+import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.options.ConfigurableUi;
 import com.intellij.openapi.options.ShowSettingsUtil;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.ColorUtil;
 import com.intellij.ui.HyperlinkAdapter;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.SwingHelper;
 import com.intellij.util.ui.UI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
-import javax.swing.text.DefaultCaret;
 import javax.swing.text.html.HTMLDocument;
 import javax.swing.text.html.StyleSheet;
 import java.awt.*;
@@ -45,7 +51,7 @@ public class ConsentSettingsUi extends JPanel implements ConfigurableUi<List<Con
   public void reset(@NotNull List<Consent> consents) {
     consentMapping.clear();
     if (consents.isEmpty()) {
-      JLabel label = new JLabel("There are no data-sharing options available", SwingConstants.CENTER);
+      JLabel label = new JLabel(IdeBundle.message("gdpr.label.there.are.no.data.sharing.options.available"), SwingConstants.CENTER);
       label.setVerticalAlignment(SwingConstants.CENTER);
       label.setOpaque(true);
       label.setBackground(JBColor.background());
@@ -65,16 +71,11 @@ public class ConsentSettingsUi extends JPanel implements ConfigurableUi<List<Con
         it.hasNext() ? JBUI.insets(0, 0, 10, 0) : JBUI.emptyInsets(), 0, 0)
       );
     }
+    if (!ConsentOptions.getInstance().isEAP()) {
+      addHintLabel(body, IdeBundle.message("gdpr.hint.text.apply.to.all.installed.products", ApplicationInfoImpl.getShadowInstance().getShortCompanyName()));
+    }
     if (!myPreferencesMode) {
-      JLabel hintLabel = new JBLabel("You can always change this behavior in " + ShowSettingsUtil.getSettingsMenuName() + " | Appearance & Behavior | System Settings | Analytics.");
-      hintLabel.setEnabled(false);
-      hintLabel.setVerticalAlignment(SwingConstants.TOP);
-      hintLabel.setFont(JBUI.Fonts.smallFont());
-      //noinspection UseDPIAwareInsets
-      body.add(hintLabel, new GridBagConstraints(
-        0, GridBagConstraints.RELATIVE, 1, 1, 1.0,  1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.BOTH,
-        new Insets(JBUI.scale(16), 0, JBUI.scale(10), 0), 0, 0)
-      );
+      addHintLabel(body, IdeBundle.message("gdpr.hint.text.you.can.always.change.this.behavior", ShowSettingsUtil.getSettingsMenuName()));
     }
     if (!myPreferencesMode) {
       body.setBorder(JBUI.Borders.empty(10));
@@ -85,52 +86,79 @@ public class ConsentSettingsUi extends JPanel implements ConfigurableUi<List<Con
     add(scrollPane);
   }
 
+  private static void addHintLabel(JPanel body, @NlsContexts.HintText String text) {
+    JLabel hintLabel = new JBLabel(text);
+    hintLabel.setForeground(UIUtil.getContextHelpForeground());
+    hintLabel.setVerticalAlignment(SwingConstants.TOP);
+    hintLabel.setFont(JBUI.Fonts.smallFont());
+    //noinspection UseDPIAwareInsets
+    body.add(hintLabel, new GridBagConstraints(
+      0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.BOTH,
+      new Insets(JBUIScale.scale(16), 0, JBUIScale.scale(10), 0), 0, 0)
+    );
+  }
+
+  private static @NlsSafe String getParagraphTag() {
+    return "<p style=\"margin-bottom:" + JBUIScale.scale(10) + "px;\">";
+  }
+
   @NotNull
   private JComponent createConsentElement(Consent consent, boolean addCheckBox) {
     //TODO: refactor DocumentationComponent to use external link marker here, there and everywhere
-    final JEditorPane viewer = SwingHelper.createHtmlViewer(true, null, JBColor.WHITE, JBColor.BLACK);
-    viewer.setOpaque(false);
-    viewer.setFocusable(false);
-    viewer.setCaret(new DefaultCaret(){
-      @Override
-      protected void adjustVisibility(Rectangle nloc) {
-        //do nothing to avoid autoscroll
-      }
-    });
-    viewer.addHyperlinkListener(new HyperlinkAdapter() {
-      @Override
-      protected void hyperlinkActivated(HyperlinkEvent e) {
-        final URL url = e.getURL();
-        if (url != null) {
-          BrowserUtil.browse(url);
-        }
-      }
-    });
-    viewer.setText("<html><body><div width=\"600\">" + StringUtil.replace(consent.getText(), "\n", "<br>") + "</div></body></html>");
-    StyleSheet styleSheet = ((HTMLDocument)viewer.getDocument()).getStyleSheet();
-    //styleSheet.addRule("body {font-family: \"Segoe UI\", Tahoma, sans-serif;}");
-    styleSheet.addRule("body {margin-top:0;padding-top:0;}");
-    //styleSheet.addRule("body {font-size:" + JBUI.scaleFontSize(13) + "pt;}");
-    styleSheet.addRule("h2, em {margin-top:" + JBUI.scaleFontSize(20) + "pt;}");
-    styleSheet.addRule("h1, h2, h3, p, h4, em {margin-bottom:0;padding-bottom:0;}");
-    styleSheet.addRule("p, h1 {margin-top:0;padding-top:"+JBUI.scaleFontSize(6)+"pt;}");
-    styleSheet.addRule("li {margin-bottom:" + JBUI.scaleFontSize(6) + "pt;}");
-    styleSheet.addRule("h2 {margin-top:0;padding-top:"+JBUI.scaleFontSize(13)+"pt;}");
-    viewer.setCaretPosition(0);
-
     final JPanel pane;
     if (addCheckBox) {
-      final JCheckBox cb = new JBCheckBox(consent.getName(), consent.isAccepted());
-      pane = UI.PanelFactory.panel(cb).withComment(StringUtil.replace(consent.getText(), "\n", "<br>")).createPanel();
+      String checkBoxText = StringUtil.capitalize(StringUtil.toLowerCase(consent.getName()));
+      if (ConsentOptions.getInstance().isEAP()) {
+        final Consent usageStatsConsent = ConsentOptions.getInstance().getUsageStatsConsent();
+        if (usageStatsConsent != null && consent.getId().equals(usageStatsConsent.getId())) {
+          checkBoxText = IdeBundle.message("gdpr.checkbox.when.using.eap.versions", checkBoxText);
+        }
+      }
+      final JCheckBox cb = new JBCheckBox(checkBoxText, consent.isAccepted());
+      //noinspection HardCodedStringLiteral
+      pane = UI.PanelFactory.panel(cb).withComment(getParagraphTag()
+                                                   +StringUtil.replace(consent.getText(), "\n", "</p>"+getParagraphTag())+"</p>").createPanel();
       cb.setOpaque(false);
       consentMapping.add(Pair.create(cb, consent));
     } else {
       pane = new JPanel(new BorderLayout());
+      final JEditorPane viewer = SwingHelper.createHtmlViewer(true, null, JBColor.WHITE, JBColor.BLACK);
+      viewer.setOpaque(false);
+      viewer.setFocusable(false);
+      UIUtil.doNotScrollToCaret(viewer);
+      viewer.addHyperlinkListener(new HyperlinkAdapter() {
+        @Override
+        protected void hyperlinkActivated(HyperlinkEvent e) {
+          final URL url = e.getURL();
+          if (url != null) {
+            BrowserUtil.browse(url);
+          }
+        }
+      });
+      viewer.setText("<html><body>" + replaceParagraphs(consent.getText()) + "</body></html>");
+      StyleSheet styleSheet = ((HTMLDocument)viewer.getDocument()).getStyleSheet();
+      //styleSheet.addRule("body {font-family: \"Segoe UI\", Tahoma, sans-serif;}");
+      styleSheet.addRule("body {margin-top:0;padding-top:0;}");
+      //styleSheet.addRule("body {font-size:" + JBUI.scaleFontSize(13) + "pt;}");
+      styleSheet.addRule("h2, em {margin-top:" + JBUIScale.scaleFontSize((float)20) + "pt;}");
+      styleSheet.addRule("h1, h2, h3, p, h4, em {margin-bottom:0;padding-bottom:0;}");
+      styleSheet.addRule("p, h1 {margin-top:0;padding-top:" + JBUIScale.scaleFontSize((float)6) + "pt;}");
+      styleSheet.addRule("li {margin-bottom:" + JBUIScale.scaleFontSize((float)6) + "pt;}");
+      styleSheet.addRule("h2 {margin-top:0;padding-top:" + JBUIScale.scaleFontSize((float)13) + "pt;}");
+      styleSheet.addRule("a, a:link {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkColor()) + ";}");
+      styleSheet.addRule("a:hover {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkHoverColor()) + ";}");
+      styleSheet.addRule("a:active {color:#" + ColorUtil.toHex(JBUI.CurrentTheme.Link.linkPressedColor()) + ";}");
+      viewer.setCaretPosition(0);
       pane.add(viewer, BorderLayout.CENTER);
       consentMapping.add(Pair.create(null, consent));
     }
     pane.setOpaque(false);
     return pane;
+  }
+
+  @Contract(pure = true)
+  private static String replaceParagraphs(String text) {
+    return getParagraphTag() + StringUtil.replace(text, "\n", "</p>" + getParagraphTag()) + "</p>";
   }
 
   @NotNull
@@ -162,9 +190,6 @@ public class ConsentSettingsUi extends JPanel implements ConfigurableUi<List<Con
   public void apply(@NotNull List<Consent> consents) {
     consents.clear();
     consents.addAll(getState());
-    if (myPreferencesMode) {
-      ConsentOptions.getInstance().setConsents(consents);
-    }
   }
 
   @NotNull

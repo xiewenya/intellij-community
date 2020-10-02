@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -22,17 +20,18 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.util.*;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.regex.Matcher;
 
-public class JavaSuppressionUtil {
+public final class JavaSuppressionUtil {
   private static final String GENERATED_ANNOTATION_NAME = "javax.annotation.Generated";
+  private static final String JDK9_GENERATED_ANNOTATION_NAME = "javax.annotation.processing.Generated";
 
   public static final String SUPPRESS_INSPECTIONS_ANNOTATION_NAME = "java.lang.SuppressWarnings";
 
@@ -77,7 +76,7 @@ public class JavaSuppressionUtil {
     }
     return CachedValuesManager.getCachedValue(annotation, () ->
       CachedValueProvider.Result.create(getInspectionIdsSuppressedInAnnotation(annotation),
-                                        PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT));
+                                        PsiModificationTracker.MODIFICATION_COUNT));
   }
 
   @NotNull
@@ -86,28 +85,15 @@ public class JavaSuppressionUtil {
     if (attributes.length == 0) {
       return Collections.emptyList();
     }
-    final PsiAnnotationMemberValue attributeValue = attributes[0].getValue();
-    Collection<String> result = new ArrayList<>();
-    if (attributeValue instanceof PsiArrayInitializerMemberValue) {
-      final PsiAnnotationMemberValue[] initializers = ((PsiArrayInitializerMemberValue)attributeValue).getInitializers();
-      for (PsiAnnotationMemberValue annotationMemberValue : initializers) {
-        final String id = getInspectionIdSuppressedInAnnotationAttribute(annotationMemberValue);
-        if (id != null) {
-          result.add(id);
-        }
-      }
-    }
-    else {
-      final String id = getInspectionIdSuppressedInAnnotationAttribute(attributeValue);
-      if (id != null) {
-        result.add(id);
-      }
-    }
-    return result;
+    return ContainerUtil.mapNotNull(AnnotationUtil.arrayAttributeValues(attributes[0].getValue()),
+                                    JavaSuppressionUtil::getInspectionIdSuppressedInAnnotationAttribute);
   }
 
-  public static PsiElement getElementMemberSuppressedIn(@NotNull PsiJavaDocumentedElement owner, @NotNull String inspectionToolID) {
-    PsiElement element = getDocCommentToolSuppressedIn(owner, inspectionToolID);
+  public static <T extends PsiElement> PsiElement getElementMemberSuppressedIn(@NotNull T owner, @NotNull String inspectionToolID) {
+    PsiElement element = null;
+    if (owner instanceof PsiJavaDocumentedElement) {
+      element = getDocCommentToolSuppressedIn((PsiJavaDocumentedElement)owner, inspectionToolID);
+    }
     if (element != null) return element;
     if (owner instanceof PsiModifierListOwner) {
       element = getAnnotationMemberSuppressedIn((PsiModifierListOwner)owner, inspectionToolID);
@@ -132,7 +118,7 @@ public class JavaSuppressionUtil {
       if (directory != null) {
         final PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(directory);
         if (aPackage != null) {
-          return AnnotationUtil.findAnnotation(aPackage, GENERATED_ANNOTATION_NAME);
+          return AnnotationUtil.findAnnotation(aPackage, GENERATED_ANNOTATION_NAME, JDK9_GENERATED_ANNOTATION_NAME);
         }
       }
     }
@@ -148,7 +134,7 @@ public class JavaSuppressionUtil {
         return modifierList != null ? AnnotationUtil.findAnnotation(owner, SUPPRESS_INSPECTIONS_ANNOTATION_NAME) : null;
       }
     }
-    return AnnotationUtil.findAnnotation(owner, GENERATED_ANNOTATION_NAME);
+    return AnnotationUtil.findAnnotation(owner, GENERATED_ANNOTATION_NAME, JDK9_GENERATED_ANNOTATION_NAME);
   }
 
   static PsiElement getDocCommentToolSuppressedIn(@NotNull PsiJavaDocumentedElement owner, @NotNull String inspectionToolID) {
@@ -193,11 +179,11 @@ public class JavaSuppressionUtil {
       if (docComment != null) {
         PsiDocTag inspectionTag = docComment.findTagByName(SuppressionUtilCore.SUPPRESS_INSPECTIONS_TAG_NAME);
         if (inspectionTag != null) {
-          String valueText = "";
+          StringBuilder valueText = new StringBuilder();
           for (PsiElement dataElement : inspectionTag.getDataElements()) {
-            valueText += dataElement.getText();
+            valueText.append(dataElement.getText());
           }
-          return valueText;
+          return valueText.toString();
         }
       }
     }
@@ -208,7 +194,7 @@ public class JavaSuppressionUtil {
     return null;
   }
 
-  static PsiElement getElementToolSuppressedIn(@NotNull final PsiElement place, @NotNull final String toolId) {
+  public static PsiElement getElementToolSuppressedIn(@NotNull final PsiElement place, @NotNull final String toolId) {
     if (place instanceof PsiFile) return null;
     return ReadAction.compute(() -> {
       final PsiElement statement = SuppressionUtil.getStatementToolSuppressedIn(place, toolId, PsiStatement.class);
@@ -231,8 +217,7 @@ public class JavaSuppressionUtil {
       PsiJavaDocumentedElement container = up == null || up instanceof PsiJavaDocumentedElement
                                            ? (PsiJavaDocumentedElement)up
                                            : PsiTreeUtil.getNonStrictParentOfType(up, PsiJavaDocumentedElement.class);
-      while (true) {
-        if (!(container instanceof PsiTypeParameter)) break;
+      while (container instanceof PsiTypeParameter) {
         container = PsiTreeUtil.getParentOfType(container, PsiJavaDocumentedElement.class);
       }
 
@@ -272,7 +257,7 @@ public class JavaSuppressionUtil {
                                                    PsiAnnotation annotation,
                                                    @NotNull String id) throws IncorrectOperationException {
     if (annotation == null) {
-      return JavaPsiFacade.getInstance(project).getElementFactory()
+      return JavaPsiFacade.getElementFactory(project)
         .createAnnotationFromText("@" + SUPPRESS_INSPECTIONS_ANNOTATION_NAME + "(\"" + id + "\")", container);
     }
     final String currentSuppressedId = "\"" + id + "\"";
@@ -281,7 +266,7 @@ public class JavaSuppressionUtil {
       if (attributes.length == 1) {
         final String suppressedWarnings = attributes[0].getText();
         if (suppressedWarnings.contains(currentSuppressedId)) return null;
-        return JavaPsiFacade.getInstance(project).getElementFactory().createAnnotationFromText(
+        return JavaPsiFacade.getElementFactory(project).createAnnotationFromText(
             "@" + SUPPRESS_INSPECTIONS_ANNOTATION_NAME + "({" + suppressedWarnings + ", " + currentSuppressedId + "})", container);
 
       }
@@ -291,7 +276,7 @@ public class JavaSuppressionUtil {
       if (curlyBraceIndex > 0) {
         final String oldSuppressWarning = annotation.getText().substring(0, curlyBraceIndex);
         if (oldSuppressWarning.contains(currentSuppressedId)) return null;
-        return JavaPsiFacade.getInstance(project).getElementFactory().createAnnotationFromText(
+        return JavaPsiFacade.getElementFactory(project).createAnnotationFromText(
           oldSuppressWarning + ", " + currentSuppressedId + "})", container);
       }
       else {

@@ -15,18 +15,17 @@
  */
 package com.intellij.find.impl;
 
-import com.intellij.find.FindBundle;
-import com.intellij.find.FindManager;
-import com.intellij.find.FindModel;
-import com.intellij.find.FindSettings;
+import com.intellij.find.*;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -49,32 +48,36 @@ public class FindUIHelper implements Disposable {
   }
 
   private FindUI getOrCreateUI() {
-    boolean newInstanceRequired = myUI instanceof FindPopupPanel && !Registry.is("ide.find.as.popup") ||
-                                  myUI instanceof FindDialog && Registry.is("ide.find.as.popup") ||
-                                  myUI == null;
-    if (newInstanceRequired) {
-      if (Registry.is("ide.find.as.popup")) {
-        myUI = new FindPopupPanel(this);
-      }
-      else {
-        FindDialog findDialog = new FindDialog(this);
-        registerAction("ReplaceInPath", true, findDialog);
-        registerAction("FindInPath", false, findDialog);
-        myUI = findDialog;
-      }
+    if (myUI == null) {
+      JComponent component;
+      FindPopupPanel panel = new FindPopupPanel(this);
+      component = panel;
+      myUI = panel;
+
+      registerAction("ReplaceInPath", true, component, myUI);
+      registerAction("FindInPath", false, component, myUI);
       Disposer.register(myUI.getDisposable(), this);
+    } else {
+      IdeEventQueue.getInstance().flushDelayedKeyEvents();
     }
     return myUI;
   }
 
-  private void registerAction(String actionName, boolean replace, FindDialog findDialog) {
+  private void registerAction(String actionName, boolean replace, JComponent component, FindUI ui) {
     AnAction action = ActionManager.getInstance().getAction(actionName);
-    JRootPane findDialogRootComponent = ((JDialog)findDialog.getWindow()).getRootPane();
     new AnAction() {
       @Override
+      public boolean isDumbAware() {
+        return action.isDumbAware();
+      }
+
+      @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
+        ui.saveSettings();
+        myModel.copyFrom(FindManager.getInstance(myProject).getFindInProjectModel());
+        FindUtil.initStringToFindWithSelection(myModel, e.getData(CommonDataKeys.EDITOR));
         myModel.setReplaceState(replace);
-        findDialog.initByModel();
+        ui.initByModel();
       }
       //@NotNull
       //private DataContextWrapper prepareDataContextForFind(@NotNull AnActionEvent e) {
@@ -94,7 +97,7 @@ public class FindUIHelper implements Disposable {
       //  };
       //}
 
-    }.registerCustomShortcutSet(action.getShortcutSet(), findDialogRootComponent);
+    }.registerCustomShortcutSet(action.getShortcutSet(), component);
   }
 
 
@@ -173,27 +176,7 @@ public class FindUIHelper implements Disposable {
     findSettings.setFileMask(myModel.getFileFilter());
   }
 
-  boolean isUseSeparateView() {
-    return FindSettings.getInstance().isShowResultsInSeparateView();
-  }
-
-  boolean isSkipResultsWithOneUsage() {
-    return FindSettings.getInstance().isSkipResultsWithOneUsage();
-  }
-
-  void setUseSeparateView(boolean separateView) {
-    if (!myModel.isOpenInNewTabEnabled()) throw new IllegalStateException("'Open in new Tab' is not enabled");
-    myModel.setOpenInNewTab(separateView);
-    FindSettings.getInstance().setShowResultsInSeparateView(separateView);
-  }
-
-  void setSkipResultsWithOneUsage(boolean skip) {
-    if (!isReplaceState()) {
-      FindSettings.getInstance().setSkipResultsWithOneUsage(skip);
-    }
-  }
-
-  String getTitle() {
+  @Nls String getTitle() {
     if (myModel.isReplaceState()){
       return myModel.isMultipleFiles()
              ? FindBundle.message("find.replace.in.project.dialog.title")

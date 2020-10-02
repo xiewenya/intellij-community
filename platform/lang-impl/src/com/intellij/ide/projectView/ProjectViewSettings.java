@@ -1,17 +1,21 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView;
 
 import com.intellij.ide.projectView.impl.AbstractProjectViewPane;
+import com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public interface ProjectViewSettings extends ViewSettings {
-  boolean isShowExcludedFiles();
+  default boolean isShowExcludedFiles() {
+    return true;
+  }
+
+  default boolean isShowVisibilityIcons() {
+    return false;
+  }
 
   /**
    * If {@code true} then {@link com.intellij.ide.projectView.impl.NestingTreeStructureProvider} will modify the tree presentation
@@ -19,23 +23,32 @@ public interface ProjectViewSettings extends ViewSettings {
    * shown as nested, for example generated {@code foo.js} and {@code foo.js.map} file nodes will be shown as children of the
    * original {@code foo.ts} node in the Project View.
    */
-  default boolean isUseFileNestingRules() {return true;}
+  default boolean isUseFileNestingRules() {
+    return true;
+  }
 
-  class Immutable extends ViewSettings.Immutable implements ProjectViewSettings {
+  final class Immutable extends ViewSettings.Immutable implements ProjectViewSettings {
     public static final ProjectViewSettings DEFAULT = new ProjectViewSettings.Immutable(null);
 
     private final boolean myShowExcludedFiles;
+    private final boolean myShowVisibilityIcons;
     private final boolean myUseFileNestingRules;
 
     public Immutable(ProjectViewSettings settings) {
       super(settings);
-      myShowExcludedFiles = settings != null && settings.isShowExcludedFiles();
+      myShowExcludedFiles = settings == null || settings.isShowExcludedFiles();
+      myShowVisibilityIcons = settings != null && settings.isShowVisibilityIcons();
       myUseFileNestingRules = settings == null || settings.isUseFileNestingRules();
     }
 
     @Override
     public boolean isShowExcludedFiles() {
       return myShowExcludedFiles;
+    }
+
+    @Override
+    public boolean isShowVisibilityIcons() {
+      return myShowVisibilityIcons;
     }
 
     @Override
@@ -49,6 +62,7 @@ public interface ProjectViewSettings extends ViewSettings {
       if (!super.equals(object)) return false;
       ProjectViewSettings settings = (ProjectViewSettings)object;
       return settings.isShowExcludedFiles() == isShowExcludedFiles() &&
+             settings.isShowVisibilityIcons() == isShowVisibilityIcons() &&
              settings.isUseFileNestingRules() == isUseFileNestingRules();
     }
 
@@ -56,6 +70,7 @@ public interface ProjectViewSettings extends ViewSettings {
     public int hashCode() {
       int result = super.hashCode();
       result = 31 * result + Boolean.hashCode(isShowExcludedFiles());
+      result = 31 * result + Boolean.hashCode(isShowVisibilityIcons());
       result = 31 * result + Boolean.hashCode(isUseFileNestingRules());
       return result;
     }
@@ -76,8 +91,14 @@ public interface ProjectViewSettings extends ViewSettings {
 
     @Override
     public boolean isShowExcludedFiles() {
-      ProjectViewSettings settings = getProjectViewSettings();
-      return settings != null && settings.isUseFileNestingRules();
+      ProjectView view = getProjectView();
+      return view != null && view.isShowExcludedFiles(getPaneID(view));
+    }
+
+    @Override
+    public boolean isShowVisibilityIcons() {
+      ProjectView view = getProjectView();
+      return view != null && view.isShowVisibilityIcons(getPaneID(view));
     }
 
     @Override
@@ -96,11 +117,6 @@ public interface ProjectViewSettings extends ViewSettings {
     public boolean isShowMembers() {
       ProjectView view = getProjectView();
       return view != null && view.isShowMembers(getPaneID(view));
-    }
-
-    @Override
-    public boolean isStructureView() {
-      return false;
     }
 
     @Override
@@ -123,6 +139,8 @@ public interface ProjectViewSettings extends ViewSettings {
 
     @Override
     public boolean isFlattenPackages() {
+      ProjectViewDirectoryHelper helper = getProjectViewDirectoryHelper();
+      if (helper == null || !helper.supportsFlattenPackages()) return false;
       ProjectView view = getProjectView();
       return view != null && view.isFlattenPackages(getPaneID(view));
     }
@@ -135,14 +153,27 @@ public interface ProjectViewSettings extends ViewSettings {
 
     @Override
     public boolean isHideEmptyMiddlePackages() {
+      ProjectViewDirectoryHelper helper = getProjectViewDirectoryHelper();
+      if (helper == null || !helper.supportsHideEmptyMiddlePackages()) return false;
       ProjectView view = getProjectView();
       return view != null && view.isHideEmptyMiddlePackages(getPaneID(view));
+    }
+
+    @Override
+    public boolean isCompactDirectories() {
+      ProjectView view = getProjectView();
+      return view != null && view.isCompactDirectories(getPaneID(view));
     }
 
     @Override
     public boolean isShowLibraryContents() {
       ProjectView view = getProjectView();
       return view != null && view.isShowLibraryContents(getPaneID(view));
+    }
+
+    @Nullable
+    private ProjectViewDirectoryHelper getProjectViewDirectoryHelper() {
+      return project.isDisposed() ? null : ProjectViewDirectoryHelper.getInstance(project);
     }
 
     @Nullable

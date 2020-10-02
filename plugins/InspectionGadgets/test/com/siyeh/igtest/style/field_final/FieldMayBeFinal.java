@@ -1,8 +1,8 @@
 package com.siyeh.igtest.style.field_final;
 
-import java.awt.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 public class FieldMayBeFinal {
 
@@ -105,7 +105,7 @@ public class FieldMayBeFinal {
         private static String hostName;
         static {
             try {
-                hostName = java.net.InetAddress.getLocalHost().getHostName();
+                hostName = Test3.class.getName();
             } catch (Exception ignored) {
                 hostName = "localhost";
             }
@@ -116,7 +116,7 @@ public class FieldMayBeFinal {
         private static String <warning descr="Field 'hostName' may be 'final'">hostName</warning>;
         static {
             try {
-                hostName = java.net.InetAddress.getLocalHost().getHostName();
+                hostName = Test4.class.getName();
             } catch (Exception ignored) {
                 throw new RuntimeException();
             }
@@ -137,11 +137,11 @@ public class FieldMayBeFinal {
         private final int j = i++;
     }
 
-    static class AssigmentInForeach {
+    static class AssignmentInForeach {
         private boolean b, c;
         private int j;
 
-        AssigmentInForeach(int[][] is) {
+        AssignmentInForeach(int[][] is) {
             b = false;
             for (int i : is[j]) {
                 b = c = i == 10;
@@ -850,7 +850,7 @@ class T49 {
   }
 }
 class T50 {
-  private boolean <warning descr="Field 'b' may be 'final'">b</warning>; // may be final
+  private boolean b; // may not be final
   T50(int i) {
     if (false && (b = true)) {
 
@@ -902,7 +902,7 @@ class T55 {
   }
 }
 class T56 {
-  private boolean <warning descr="Field 'b' may be 'final'">b</warning>; // may be final
+  private boolean b; // may not be final
   {
     if (false && (b = false)) ;
     if (true && (b = false)) ;
@@ -1083,4 +1083,70 @@ class T75 {
 
     private Inner() {innerField = 0;}
   }
+}
+// IDEA-193896
+class T76 {
+  private T76 a;
+  T76(T76 other) {
+    a = other;
+    other.a = null;
+  }
+}
+class RefThroughThis {
+  private int k;
+
+  public RefThroughThis() {
+    RefThroughThis.this.k = 0;
+  }
+  
+  void m() {
+    System.out.println(k);
+  }
+}
+class Anonymous {
+  void test() {
+    Object obj = new Object() {
+      int <warning descr="Field 'x' may be 'final'">x</warning> = 5;
+      int z = 7;
+
+      void test() {z++;}
+    };
+    class X {
+      int z = 10;
+      int <warning descr="Field 't' may be 'final'">t</warning> = 10;
+    }
+    X x = new X();
+    x.z++;
+  }
+}
+class Implicit {
+  private static final AtomicReferenceFieldUpdater<Implicit, String> triggeringPolicyUpdater =
+    AtomicReferenceFieldUpdater.newUpdater(Implicit.class, String.class, "triggeringPolicy");
+
+  private volatile String triggeringPolicy;
+
+  public Implicit(String defaultPolicy) {
+    this.triggeringPolicy = defaultPolicy;
+  }
+
+  public void update(String newValue) {
+    triggeringPolicyUpdater.set(this, newValue);
+  }
+}
+class TryCatchFinal {
+  private String value;
+
+  public TryCatchFinal() {
+    try {
+      value = create();
+    } catch (ClassNotFoundException | IllegalAccessException e) {
+      value = "";
+    }
+  }
+
+  public String getValue() {
+    return value;
+  }
+
+  public static native <T> T create() throws ClassNotFoundException, IllegalAccessException;
 }

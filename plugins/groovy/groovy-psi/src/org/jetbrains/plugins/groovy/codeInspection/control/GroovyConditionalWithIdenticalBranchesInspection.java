@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -28,20 +29,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCondit
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 
 public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspection {
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression with identical branches";
-  }
 
   @Override
   public String buildErrorString(Object... args) {
-    return "Conditional expression with identical branches #loc";
+    return GroovyBundle.message("inspection.message.conditional.expression.with.identical.branches");
   }
 
   @Override
@@ -53,7 +44,7 @@ public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspec
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Collapse conditional expression";
+      return GroovyBundle.message("intention.family.name.collapse.conditional.expressions");
     }
 
     @Override

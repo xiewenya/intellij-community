@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.lookup.LookupElement;
@@ -27,19 +13,20 @@ import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.patterns.PsiJavaPatterns.psiMethod;
 
 /**
  * @author peter
  */
-class ChainedCallCompletion {
-  private static final PsiMethodPattern OBJECT_METHOD_PATTERN = psiMethod().withName(
+final class ChainedCallCompletion {
+  static final PsiMethodPattern OBJECT_METHOD_PATTERN = psiMethod().withName(
     StandardPatterns.string().oneOf("hashCode", "equals", "finalize", "wait", "notify", "notifyAll", "getClass", "clone", "toString")).
     definedInClass(CommonClassNames.JAVA_LANG_OBJECT);
 
   static void addChains(final PsiElement place, LookupElement qualifierItem,
-                        final Consumer<LookupElement> result,
+                        final Consumer<? super LookupElement> result,
                         PsiType qualifierType,
                         final PsiType expectedType, JavaSmartCompletionParameters parameters) throws
                                                                                                            IncorrectOperationException {
@@ -62,11 +49,11 @@ class ChainedCallCompletion {
     }
 
     final ElementFilter filter = ReferenceExpressionCompletionContributor.getReferenceFilter(place, true);
-    for (final LookupElement item : ReferenceExpressionCompletionContributor.completeFinalReference(place, mockRef, filter, parameters)) {
+    for (LookupElement item : ReferenceExpressionCompletionContributor.completeFinalReference(place, mockRef, filter, expectedType, parameters.getParameters())) {
       if (shouldChain(place, qualifierType, expectedType, item)) {
         result.consume(new JavaChainLookupElement(qualifierItem, item) {
           @Override
-          public void handleInsert(InsertionContext context) {
+          public void handleInsert(@NotNull InsertionContext context) {
             FeatureUsageTracker.getInstance().triggerFeatureUsed(JavaCompletionFeatures.SECOND_SMART_COMPLETION_CHAIN);
             super.handleInsert(context);
           }

@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.fileTemplates;
 
 import com.intellij.openapi.application.PathManager;
@@ -20,6 +20,7 @@ import org.apache.velocity.runtime.resource.Resource;
 import org.apache.velocity.runtime.resource.ResourceManager;
 import org.apache.velocity.runtime.resource.ResourceManagerImpl;
 import org.apache.velocity.runtime.resource.loader.ResourceLoader;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
@@ -29,9 +30,8 @@ import java.io.*;
  *
  * @author peter
  */
-class VelocityWrapper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.fileTemplates.VelocityWrapper");
-  private static final ThreadLocal<FileTemplateManager> ourTemplateManager = new ThreadLocal<>();
+final class VelocityWrapper {
+  private static final Logger LOG = Logger.getInstance(VelocityWrapper.class);
 
   static {
     try{
@@ -63,8 +63,7 @@ class VelocityWrapper {
 
         @Override
         public InputStream getResourceStream(String resourceName) throws ResourceNotFoundException {
-          FileTemplateManager templateManager = ourTemplateManager.get();
-          if (templateManager == null) templateManager = FileTemplateManager.getDefaultInstance();
+          FileTemplateManager templateManager = VelocityTemplateContext.getFromContext();
           final FileTemplate include = templateManager.getPattern(resourceName);
           if (include == null) {
             throw new ResourceNotFoundException("Template not found: " + resourceName);
@@ -96,19 +95,14 @@ class VelocityWrapper {
     }
   }
 
-  static SimpleNode parse(Reader reader, String templateName) throws ParseException {
+  @NotNull
+  static SimpleNode parse(@NotNull Reader reader, @NotNull String templateName) throws ParseException {
     return RuntimeSingleton.parse(reader, templateName);
   }
 
-  static boolean evaluate(@Nullable Project project, Context context, Writer writer, String templateContent)
+  static boolean evaluate(@Nullable Project project, Context context, @NotNull Writer writer, String templateContent)
     throws ParseErrorException, MethodInvocationException, ResourceNotFoundException {
-    try {
-      ourTemplateManager.set(project == null ? FileTemplateManager.getDefaultInstance() : FileTemplateManager.getInstance(project));
-      return Velocity.evaluate(context, writer, "", templateContent);
-    }
-    finally {
-      ourTemplateManager.set(null);
-    }
+    return VelocityTemplateContext.withContext(project, () -> Velocity.evaluate(context, writer, "", templateContent));
   }
 
 }

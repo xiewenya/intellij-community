@@ -24,7 +24,7 @@ import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.tools.binary.BinaryDiffTool;
 import com.intellij.ide.diff.DiffElement;
 import com.intellij.ide.diff.DirDiffSettings;
-import com.intellij.internal.statistic.UsageTrigger;
+import com.intellij.openapi.diff.DiffBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,7 +37,6 @@ public class DirDiffTool implements FrameDiffTool, SuppressiveDiffTool {
   @NotNull
   @Override
   public DiffViewer createComponent(@NotNull DiffContext context, @NotNull DiffRequest request) {
-    UsageTrigger.trigger("diff.DirDiffViewer");
     return createViewer(context, (ContentDiffRequest)request);
   }
 
@@ -49,7 +48,7 @@ public class DirDiffTool implements FrameDiffTool, SuppressiveDiffTool {
   @NotNull
   @Override
   public String getName() {
-    return "Directory viewer";
+    return DiffBundle.message("directory.viewer");
   }
 
   @NotNull

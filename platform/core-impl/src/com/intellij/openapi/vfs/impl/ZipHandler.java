@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl;
 
 import com.intellij.openapi.util.io.FileAttributes;
@@ -37,6 +23,7 @@ public class ZipHandler extends ZipHandlerBase {
   }
 
   private static final FileAccessorCache<ZipHandler, ZipFile> ourZipFileFileAccessorCache = new FileAccessorCache<ZipHandler, ZipFile>(20, 10) {
+    @NotNull
     @Override
     protected ZipFile createAccessor(ZipHandler handler) throws IOException {
       final String canonicalPathToZip = handler.getCanonicalPathToZip();
@@ -46,7 +33,7 @@ public class ZipHandler extends ZipHandlerBase {
     }
 
     @Override
-    protected void disposeAccessor(final ZipFile fileAccessor) throws IOException {
+    protected void disposeAccessor(@NotNull final ZipFile fileAccessor) throws IOException {
       // todo: ZipFile isn't disposable for Java6, replace the code below with 'disposeCloseable(fileAccessor);'
       fileAccessor.close();
     }
@@ -57,14 +44,14 @@ public class ZipHandler extends ZipHandlerBase {
     }
   };
 
-  protected static synchronized void setFileAttributes(ZipHandler zipHandler, String pathToZip) {
+  protected static synchronized void setFileAttributes(@NotNull ZipHandler zipHandler, @NotNull String pathToZip) {
     FileAttributes attributes = FileSystemUtil.getAttributes(pathToZip);
 
     zipHandler.myFileStamp = attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP;
     zipHandler.myFileLength = attributes != null ? attributes.length : DEFAULT_LENGTH;
   }
 
-  protected static synchronized boolean isSameFileAttributes(ZipHandler zipHandler, FileAttributes attributes) {
+  private static synchronized boolean isSameFileAttributes(@NotNull ZipHandler zipHandler, @NotNull FileAttributes attributes) {
     return attributes.lastModified == zipHandler.myFileStamp && attributes.length == zipHandler.myFileLength;
   }
 
@@ -124,6 +111,7 @@ public class ZipHandler extends ZipHandlerBase {
     return myFileStamp;
   }
 
+  @Override
   @NotNull
   protected ResourceHandle<ZipFile> acquireZipHandle() throws IOException {
     return getCachedZipFileHandle(true);

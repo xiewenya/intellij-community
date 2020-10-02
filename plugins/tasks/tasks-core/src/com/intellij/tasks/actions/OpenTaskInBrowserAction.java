@@ -20,15 +20,18 @@ import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskManager;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Dmitry Avdeev
  */
 public class OpenTaskInBrowserAction extends BaseTaskAction {
-  
-  public void actionPerformed(AnActionEvent e) {
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     String url = getIssueUrl(e);
     if (url != null) {
       BrowserUtil.browse(url);
@@ -36,7 +39,7 @@ public class OpenTaskInBrowserAction extends BaseTaskAction {
   }
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     super.update(event);
     if (event.getPresentation().isEnabled()) {
       Presentation presentation = event.getPresentation();
@@ -46,7 +49,8 @@ public class OpenTaskInBrowserAction extends BaseTaskAction {
       if (project == null || !TaskManager.getManager(project).getActiveTask().isIssue()) {
         presentation.setText(getTemplatePresentation().getText());
       } else {
-        presentation.setText("Open '" + TaskManager.getManager(project).getActiveTask().getPresentableName() + "' In _Browser");
+        presentation.setText(
+          TaskBundle.message("action.open.in.browser.text", TaskManager.getManager(project).getActiveTask().getPresentableName()));
       }
     }
   }

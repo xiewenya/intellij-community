@@ -37,7 +37,7 @@ public class PythonTracebackFilter implements Filter {
 
   public PythonTracebackFilter(final Project project) {
     myProject = project;
-    myWorkingDirectory = null;
+    myWorkingDirectory = project.getBasePath();
   }
 
   public PythonTracebackFilter(final Project project, @Nullable final String workingDirectory) {
@@ -75,5 +75,9 @@ public class PythonTracebackFilter implements Filter {
       vFile = LocalFileSystem.getInstance().findFileByIoFile(new File(myWorkingDirectory, fileName));
     }
     return vFile;
+  }
+
+  protected Project getProject() {
+    return myProject;
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.intention.impl;
 
@@ -28,10 +14,13 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.EditorNotificationPanel;
 import com.intellij.ui.LightColors;
@@ -43,19 +32,16 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.List;
 
-/**
- * @author max
- */
 public class FileLevelIntentionComponent extends EditorNotificationPanel {
   private final Project myProject;
 
-  public FileLevelIntentionComponent(final String description,
+  public FileLevelIntentionComponent(@NlsContexts.Label String description,
                                      @NotNull HighlightSeverity severity,
                                      @Nullable GutterMark gutterMark,
                                      @Nullable final List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> intentions,
                                      @NotNull final Project project,
                                      @NotNull final PsiFile psiFile,
-                                     @NotNull final Editor editor, @Nullable String tooltip) {
+                                     @NotNull final Editor editor, @NlsContexts.Tooltip @Nullable String tooltip) {
     super(getColor(project, severity));
     myProject = project;
 
@@ -84,11 +70,14 @@ public class FileLevelIntentionComponent extends EditorNotificationPanel {
     }
 
     if (intentions != null && !intentions.isEmpty()) {
-      myGearLabel.setIcon(AllIcons.General.Gear);
+      myGearLabel.setIcon(AllIcons.General.GearPlain);
 
+      SmartPsiElementPointer<PsiFile> filePointer = SmartPointerManager.createPointer(psiFile);
       new ClickListener() {
         @Override
         public boolean onClick(@NotNull MouseEvent e, int clickCount) {
+          PsiFile psiFile = filePointer.getElement();
+          if (psiFile == null) return true;
           CachedIntentions cachedIntentions = new CachedIntentions(project, psiFile, editor);
           IntentionListStep step = new IntentionListStep(null, editor, psiFile, project, cachedIntentions);
           HighlightInfo.IntentionActionDescriptor descriptor = intentions.get(0).getFirst();

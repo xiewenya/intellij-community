@@ -38,7 +38,7 @@ public class MemberLookupHelper {
   @Nullable private final PsiClass myContainingClass;
   private boolean myShouldImport;
 
-  public MemberLookupHelper(List<PsiMethod> overloads, PsiClass containingClass, boolean shouldImport) {
+  public MemberLookupHelper(List<? extends PsiMethod> overloads, PsiClass containingClass, boolean shouldImport) {
     this(overloads.get(0), containingClass, shouldImport, true);
   }
 
@@ -85,7 +85,7 @@ public class MemberLookupHelper {
                           : myMember instanceof PsiMethod
                             ? getMethodParameterString((PsiMethod)myMember, substitutor)
                             : "";
-    presentation.clearTail();
+
     presentation.appendTailText(params, false);
     if (myShouldImport && StringUtil.isNotEmpty(className)) {
       presentation.appendTailText(" in " + className + location, true);

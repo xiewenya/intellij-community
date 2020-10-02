@@ -16,31 +16,33 @@
 package com.intellij.util.io
 
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.util.TimeoutUtil
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.ui.UIUtil
 import junit.framework.TestCase
-import java.io.File
+import java.util.ArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong
 
 class CompressedAppendableFileTest : TestCase() {
   @Throws
   fun testCreateParentDirWhenSave() {
-    val randomTemporaryPath = File(FileUtil.generateRandomTemporaryPath(), "Test.compressed")
+    val randomTemporaryPath = FileUtil.generateRandomTemporaryPath().toPath().resolve("Test.compressed")
     try {
       val appendableFile = CompressedAppendableFile(randomTemporaryPath)
       val byteArray: ByteArray = ByteArray(1)
       appendableFile.append(byteArray, 1)
       appendableFile.force()
-      FileUtil.delete(randomTemporaryPath.parentFile)
+      FileUtil.delete(randomTemporaryPath.parent)
       appendableFile.append(byteArray, 1)
       appendableFile.dispose()
     } finally {
-      FileUtil.delete(randomTemporaryPath.parentFile)
+      FileUtil.delete(randomTemporaryPath.parent)
     }
   }
 
   fun testSizeUpdateBug() {
-    val randomTemporaryPath = File(FileUtil.generateRandomTemporaryPath(), "Test.compressed")
+    val randomTemporaryPath = FileUtil.generateRandomTemporaryPath().toPath().resolve("Test.compressed")
     try {
       var appendableFile = CompressedAppendableFile(randomTemporaryPath)
       val singleByteArray: ByteArray = ByteArray(1)
@@ -57,12 +59,12 @@ class CompressedAppendableFileTest : TestCase() {
       assertEquals(CompressedAppendableFile.PAGE_LENGTH, appendableFile.length().toInt())
       appendableFile.dispose()
     } finally {
-      FileUtil.delete(randomTemporaryPath.parentFile)
+      FileUtil.delete(randomTemporaryPath.parent)
     }
   }
 
-  fun testConcurrency() {
-    val randomTemporaryPath = File(FileUtil.generateRandomTemporaryPath(), "Test.compressed")
+  fun testConcurrencyStress() {
+    val randomTemporaryPath = FileUtil.generateRandomTemporaryPath().toPath().resolve("Test.compressed")
     try {
       val appendableFile = CompressedAppendableFile(randomTemporaryPath)
       val max = 1000 * CompressedAppendableFile.PAGE_LENGTH
@@ -89,27 +91,37 @@ class CompressedAppendableFileTest : TestCase() {
           proceedLatch.countDown()
         }
       }
-      for(i in 1..numberOfThreads) Thread(writer).start()
+
+      val futures: MutableList<Future<*>> = ArrayList()
+      for(i in 1..numberOfThreads) {
+        futures.add(AppExecutorUtil.getAppExecutorService().submit(writer))
+      }
 
       val flusher = {
         startLatch.await()
         while (proceedLatch.count != 0L) {
-          appendableFile.dropCaches()
-          TimeoutUtil.sleep(1)
+          UIUtil.pump()
         }
       }
-      Thread(flusher).start()
+      val thread = AppExecutorUtil.getAppExecutorService().submit(flusher)
 
-      startLatch.countDown()
-      proceedLatch.await()
+      try {
+        startLatch.countDown()
+        proceedLatch.await()
 
-      assertEquals(bytesWritten.get(), appendableFile.length())
-      appendableFile.dispose()
-      val appendableFile2 = CompressedAppendableFile(randomTemporaryPath)
-      assertEquals(bytesWritten.get(), appendableFile2.length())
-      appendableFile2.dispose()
-    } finally {
-      FileUtil.delete(randomTemporaryPath.parentFile)
+        assertEquals(bytesWritten.get(), appendableFile.length())
+        appendableFile.dispose()
+        val appendableFile2 = CompressedAppendableFile(randomTemporaryPath)
+        assertEquals(bytesWritten.get(), appendableFile2.length())
+        appendableFile2.dispose()
+      }
+      finally {
+        thread.get()
+        futures.forEach { it.get() }
+      }
+    }
+    finally {
+      FileUtil.delete(randomTemporaryPath.parent)
     }
   }
 }

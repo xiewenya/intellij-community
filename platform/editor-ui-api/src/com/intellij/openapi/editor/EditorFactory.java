@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
 import com.intellij.openapi.Disposable;
@@ -24,6 +10,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.stream.Stream;
 
 /**
  * Provides services for creating document and editor instances.
@@ -37,7 +25,7 @@ public abstract class EditorFactory {
    * @return the editor factory instance.
    */
   public static EditorFactory getInstance() {
-    return ApplicationManager.getApplication().getComponent(EditorFactory.class);
+    return ApplicationManager.getApplication().getService(EditorFactory.class);
   }
 
   /**
@@ -50,7 +38,7 @@ public abstract class EditorFactory {
    * Creates a document from the specified text specified as an array of characters.
    */
   @NotNull
-  public abstract Document createDocument(@NotNull char[] text);
+  public abstract Document createDocument(char @NotNull [] text);
 
   /**
    * Creates an editor for the specified document. Must be invoked in EDT.
@@ -135,32 +123,46 @@ public abstract class EditorFactory {
   public abstract void releaseEditor(@NotNull Editor editor);
 
   /**
-   * Returns the list of editors for the specified document associated with the specified project.
+   * Returns the stream of editors for the specified document associated with the specified project.
    *
    * @param document the document for which editors are requested.
    * @param project  the project with which editors should be associated, or null if any editors
    *                 for this document should be returned.
    */
-  @NotNull
-  public abstract Editor[] getEditors(@NotNull Document document, @Nullable Project project);
+  public abstract @NotNull Stream<Editor> editors(@NotNull Document document, @Nullable Project project);
 
   /**
-   * Returns the list of all editors for the specified document.
+   * Returns the stream of all editors for the specified document.
    */
-  @NotNull
-  public abstract Editor[] getEditors(@NotNull Document document);
+  public final @NotNull Stream<Editor> editors(@NotNull Document document) {
+    return editors(document, null);
+  }
+
+  /**
+   * Consider using {@link #editors(Document, Project)}.
+   */
+  public final Editor @NotNull [] getEditors(@NotNull Document document, @Nullable Project project) {
+    return editors(document, project).toArray(Editor[]::new);
+  }
+
+  /**
+   * Consider using {@link #editors(Document)}.
+   */
+  public final Editor @NotNull [] getEditors(@NotNull Document document) {
+    return getEditors(document, null);
+  }
 
   /**
    * Returns the list of all currently open editors.
    */
-  @NotNull
-  public abstract Editor[] getAllEditors();
+  public abstract Editor @NotNull [] getAllEditors();
 
   /**
    * Registers a listener for receiving notifications when editor instances are created
    * and released.
    * @deprecated use the {@link #addEditorFactoryListener(EditorFactoryListener, Disposable)} instead
    */
+  @Deprecated
   public abstract void addEditorFactoryListener(@NotNull EditorFactoryListener listener);
 
   /**
@@ -174,6 +176,7 @@ public abstract class EditorFactory {
    * and released.
    * @deprecated you should have used the {@link #addEditorFactoryListener(EditorFactoryListener, Disposable)} instead
    */
+  @Deprecated
   public abstract void removeEditorFactoryListener(@NotNull EditorFactoryListener listener);
 
   /**

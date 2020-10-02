@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.sm;
 
 import com.intellij.execution.ExecutionException;
@@ -14,16 +14,16 @@ import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView;
 import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerUIActionsHandler;
 import com.intellij.execution.testframework.sm.runner.ui.SMTestRunnerResultsForm;
 import com.intellij.execution.testframework.ui.BaseTestsOutputConsoleView;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.testIntegration.TestLocationProvider;
 import com.intellij.util.io.URLUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * @author Roman Chernyatchik
  */
-public class SMTestRunnerConnectionUtil {
+public final class SMTestRunnerConnectionUtil {
   private static final String TEST_RUNNER_DEBUG_MODE_PROPERTY = "idea.smrunner.debug";
 
   private SMTestRunnerConnectionUtil() { }
@@ -52,7 +52,7 @@ public class SMTestRunnerConnectionUtil {
    *   // ...
    *
    *   @Override
-   *   public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner runner) throws ExecutionException {
+   *   public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner<?> runner) throws ExecutionException {
    *     ProcessHandler processHandler = startProcess();
    *     RunConfiguration runConfiguration = getConfiguration();
    *     ExecutionEnvironment environment = getEnvironment();
@@ -72,8 +72,6 @@ public class SMTestRunnerConnectionUtil {
    * @param processHandler    Process handler
    * @param consoleProperties Console properties for test console actions
    * @return Console view
-   * @throws ExecutionException If IDEA cannot execute process this exception will
-   *                            be caught and shown in error message box
    */
   @NotNull
   public static BaseTestsOutputConsoleView createAndAttachConsole(@NotNull String testFrameworkName,
@@ -91,6 +89,11 @@ public class SMTestRunnerConnectionUtil {
     SMTRunnerConsoleView consoleView = new SMTRunnerConsoleView(consoleProperties, splitterPropertyName);
     initConsoleView(consoleView, testFrameworkName);
     return consoleView;
+  }
+
+  @NotNull
+  public static SMTRunnerConsoleView createConsole(@NotNull SMTRunnerConsoleProperties consoleProperties) {
+    return (SMTRunnerConsoleView)createConsole(consoleProperties.getTestFrameworkName(), consoleProperties);
   }
 
   @NotNull
@@ -196,16 +199,18 @@ public class SMTestRunnerConnectionUtil {
       outputConsumer.setProcessor(eventsProcessor);
     });
 
-    outputConsumer.startTesting();
-
+    outputConsumer.setupProcessor();
     processHandler.addProcessListener(new ProcessAdapter() {
       @Override
+      public void startNotified(@NotNull ProcessEvent event) {
+        outputConsumer.startTesting();
+      }
+
+      @Override
       public void processTerminated(@NotNull final ProcessEvent event) {
-        ApplicationManager.getApplication().executeOnPooledThread(() -> {
-          outputConsumer.flushBufferOnProcessTermination(event.getExitCode());
-          outputConsumer.finishTesting();
-          Disposer.dispose(outputConsumer);
-        });
+        outputConsumer.flushBufferOnProcessTermination(event.getExitCode());
+        outputConsumer.finishTesting();
+        Disposer.dispose(outputConsumer);
       }
 
       @Override
@@ -218,7 +223,7 @@ public class SMTestRunnerConnectionUtil {
   private static class CombinedTestLocator implements SMTestLocator, DumbAware {
     private final SMTestLocator myLocator;
 
-    public CombinedTestLocator(SMTestLocator locator) {
+    CombinedTestLocator(SMTestLocator locator) {
       myLocator = locator;
     }
 
@@ -245,19 +250,25 @@ public class SMTestRunnerConnectionUtil {
         return Collections.emptyList();
       }
     }
+
+    @NotNull
+    @Override
+    public List<Location> getLocation(@NotNull String stacktraceLine, @NotNull Project project, @NotNull GlobalSearchScope scope) {
+      return myLocator.getLocation(stacktraceLine, project, scope);
+    }
+
+    @NotNull
+    @Override
+    public ModificationTracker getLocationCacheModificationTracker(@NotNull Project project) {
+      return myLocator.getLocationCacheModificationTracker(project);
+    }
   }
 
-  /** @deprecated use {@link #createConsole(String, TestConsoleProperties)} (to be removed in IDEA 17) */
-  @SuppressWarnings({"unused", "deprecation"})
-  public static BaseTestsOutputConsoleView createConsoleWithCustomLocator(@NotNull String testFrameworkName,
-                                                                          @NotNull TestConsoleProperties consoleProperties,
-                                                                          ExecutionEnvironment environment,
-                                                                          @Nullable TestLocationProvider locator) {
-    return createConsoleWithCustomLocator(testFrameworkName, consoleProperties, environment, locator, false, null);
-  }
-
-  /** @deprecated use {@link #createConsole(String, TestConsoleProperties)} (to be removed in IDEA 17) */
-  @SuppressWarnings({"unused", "deprecation"})
+  //<editor-fold desc="Deprecated stuff.">
+  /** @deprecated use {@link #createConsole(String, TestConsoleProperties)} */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @SuppressWarnings("unused")
   public static SMTRunnerConsoleView createConsoleWithCustomLocator(@NotNull String testFrameworkName,
                                                                     @NotNull TestConsoleProperties consoleProperties,
                                                                     ExecutionEnvironment environment,
@@ -266,17 +277,6 @@ public class SMTestRunnerConnectionUtil {
                                                                     @Nullable TestProxyFilterProvider filterProvider) {
     String splitterPropertyName = getSplitterPropertyName(testFrameworkName);
     SMTRunnerConsoleView consoleView = new SMTRunnerConsoleView(consoleProperties, splitterPropertyName);
-    initConsoleView(consoleView, testFrameworkName, locator, idBasedTreeConstruction, filterProvider);
-    return consoleView;
-  }
-
-  /** @deprecated use {@link #initConsoleView(SMTRunnerConsoleView, String)} (to be removed in IDEA 17) */
-  @SuppressWarnings({"unused", "deprecation"})
-  public static void initConsoleView(@NotNull final SMTRunnerConsoleView consoleView,
-                                     @NotNull final String testFrameworkName,
-                                     @Nullable final TestLocationProvider locator,
-                                     final boolean idBasedTreeConstruction,
-                                     @Nullable final TestProxyFilterProvider filterProvider) {
     consoleView.addAttachToProcessListener(new AttachToProcessListener() {
       @Override
       public void onAttachToProcess(@NotNull ProcessHandler processHandler) {
@@ -301,16 +301,20 @@ public class SMTestRunnerConnectionUtil {
     });
     consoleView.setHelpId("reference.runToolWindow.testResultsTab");
     consoleView.initUI();
+    return consoleView;
   }
 
-  @SuppressWarnings("deprecation")
-  private static class CompositeTestLocationProvider implements SMTestLocator {
+  /**
+   * @deprecated should be removed with createConsoleWithCustomLocator()
+   */
+  @SuppressWarnings("rawtypes")
+  @ApiStatus.ScheduledForRemoval()
+  @Deprecated
+  private static final class CompositeTestLocationProvider implements SMTestLocator {
     private final TestLocationProvider myPrimaryLocator;
-    private final TestLocationProvider[] myLocators;
 
     private CompositeTestLocationProvider(@Nullable TestLocationProvider primaryLocator) {
       myPrimaryLocator = primaryLocator;
-      myLocators = Extensions.getExtensions(TestLocationProvider.EP_NAME);
     }
 
     @NotNull
@@ -318,7 +322,7 @@ public class SMTestRunnerConnectionUtil {
     public List<Location> getLocation(@NotNull String protocol, @NotNull String path, @NotNull Project project, @NotNull GlobalSearchScope scope) {
       boolean isDumbMode = DumbService.isDumb(project);
 
-      if (myPrimaryLocator != null && (!isDumbMode || myPrimaryLocator instanceof DumbAware)) {
+      if (myPrimaryLocator != null && (!isDumbMode || DumbService.isDumbAware(myPrimaryLocator))) {
         List<Location> locations = myPrimaryLocator.getLocation(protocol, path, project);
         if (!locations.isEmpty()) {
           return locations;
@@ -332,8 +336,8 @@ public class SMTestRunnerConnectionUtil {
         }
       }
 
-      for (TestLocationProvider provider : myLocators) {
-        if (!isDumbMode || provider instanceof DumbAware) {
+      for (TestLocationProvider provider : TestLocationProvider.EP_NAME.getExtensionList()) {
+        if (!isDumbMode || DumbService.isDumbAware(provider)) {
           List<Location> locations = provider.getLocation(protocol, path, project);
           if (!locations.isEmpty()) {
             return locations;
@@ -344,4 +348,5 @@ public class SMTestRunnerConnectionUtil {
       return Collections.emptyList();
     }
   }
+  //</editor-fold>
 }

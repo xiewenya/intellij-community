@@ -17,9 +17,10 @@ package org.jetbrains.jps.builders;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.JpsModel;
 
 /**
- * @author nik
+ * @see BuildTargetType#createLoader(JpsModel)
  */
 public abstract class BuildTargetLoader<T extends BuildTarget<?>> {
   /**

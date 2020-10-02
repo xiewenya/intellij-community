@@ -7,6 +7,7 @@ import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.JavadocOrderRootType;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiKeyword;
 
@@ -28,6 +29,7 @@ public final class JavadocConfigurable implements Configurable {
     return sdk != null && sdk.getRootProvider().getFiles(JavadocOrderRootType.getInstance()).length > 0;
   }
 
+  @Override
   public JComponent createComponent() {
     myPanel = new JavadocGenerationPanel();
     myPanel.myLinkToJdkDocs.setEnabled(sdkHasJavadocUrls(myProject));
@@ -78,6 +80,7 @@ public final class JavadocConfigurable implements Configurable {
     myPanel.myLinkToJdkDocs.setSelected(configuration.OPTION_LINK_TO_JDK_DOCS);
   }
 
+  @Override
   public boolean isModified() {
     boolean isModified;
 
@@ -102,10 +105,12 @@ public final class JavadocConfigurable implements Configurable {
     return isModified;
   }
 
+  @Override
   public final void apply() {
     applyTo(myConfiguration);
   }
 
+  @Override
   public void reset() {
     loadFrom(myConfiguration);
   }
@@ -120,6 +125,7 @@ public final class JavadocConfigurable implements Configurable {
     return string1.equals(string2);
   }
 
+  @Override
   public void disposeUIResources() {
     myPanel = null;
   }
@@ -135,13 +141,14 @@ public final class JavadocConfigurable implements Configurable {
     return directory.replace(File.separatorChar, '/');
   }
 
-  private static String toUserSystemFormat(String directory) {
+  private static @NlsSafe String toUserSystemFormat(String directory) {
     if (directory == null) {
       return "";
     }
     return directory.replace('/', File.separatorChar);
   }
 
+  @Override
   public String getDisplayName() {
     return null;
   }

@@ -20,6 +20,7 @@ import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.diff.util.LineCol;
 import com.intellij.openapi.command.undo.UndoManager;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.RangeMarker;
@@ -63,6 +64,7 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
 
     TIntFunction originalLineConvertor = original.getUserData(DiffUserDataKeysEx.LINE_NUMBER_CONVERTOR);
     putUserData(DiffUserDataKeysEx.LINE_NUMBER_CONVERTOR, value -> {
+      if (!myRangeMarker.isValid()) return -1;
       int line = value + document1.getLineNumber(myRangeMarker.getStartOffset());
       return originalLineConvertor != null ? originalLineConvertor.execute(line) : line;
     });
@@ -126,7 +128,7 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
   private static class MyDocumentsSynchronizer extends DocumentsSynchronizer {
     @NotNull private final RangeMarker myRangeMarker;
 
-    public MyDocumentsSynchronizer(@Nullable Project project,
+    MyDocumentsSynchronizer(@Nullable Project project,
                                    @NotNull RangeMarker range,
                                    @NotNull Document document1,
                                    @NotNull Document document2) {
@@ -138,7 +140,7 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
     protected void onDocumentChanged1(@NotNull DocumentEvent event) {
       if (!myRangeMarker.isValid()) {
         myDocument2.setReadOnly(false);
-        replaceString(myDocument2, 0, myDocument2.getTextLength(), "Invalid selection range");
+        replaceString(myDocument2, 0, myDocument2.getTextLength(), DiffBundle.message("synchronize.document.and.its.fragment.range.error"));
         myDocument2.setReadOnly(true);
         return;
       }
@@ -167,7 +169,7 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
       }
       else {
         myDocument2.setReadOnly(false);
-        replaceString(myDocument2, 0, myDocument2.getTextLength(), "Invalid selection range");
+        replaceString(myDocument2, 0, myDocument2.getTextLength(), DiffBundle.message("synchronize.document.and.its.fragment.range.error"));
         myDocument2.setReadOnly(true);
       }
       super.startListen();

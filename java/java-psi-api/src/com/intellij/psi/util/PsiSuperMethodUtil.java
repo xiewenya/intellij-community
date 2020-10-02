@@ -1,83 +1,26 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
-import gnu.trove.THashMap;
-import org.jetbrains.annotations.NonNls;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 
-public class PsiSuperMethodUtil {
+public final class PsiSuperMethodUtil {
   private PsiSuperMethodUtil() {}
-
-  public static PsiMethod findConstructorInSuper(PsiMethod constructor) {
-    return findConstructorInSuper(constructor, new HashSet<>());
-  }
-
-  public static PsiMethod findConstructorInSuper(PsiMethod constructor, Set<PsiMethod> visited) {
-    if (visited.contains(constructor)) return null;
-    visited.add(constructor);
-    final PsiCodeBlock body = constructor.getBody();
-    if (body != null) {
-      PsiStatement[] statements = body.getStatements();
-      if (statements.length > 0) {
-        PsiElement firstChild = statements[0].getFirstChild();
-        if (firstChild instanceof PsiMethodCallExpression) {
-          PsiReferenceExpression methodExpr = ((PsiMethodCallExpression)firstChild).getMethodExpression();
-          @NonNls final String text = methodExpr.getText();
-          if (text.equals("super")) {
-            PsiElement superConstructor = methodExpr.resolve();
-            if (superConstructor instanceof PsiMethod) {
-              return (PsiMethod)superConstructor;
-            }
-          } else if (text.equals("this")) {
-            final PsiElement resolved = methodExpr.resolve();
-            if (resolved instanceof PsiMethod) {
-              return findConstructorInSuper((PsiMethod)resolved, visited);
-            }
-            return null;
-          }
-        }
-      }
-    }
-
-    PsiClass containingClass = constructor.getContainingClass();
-    if (containingClass != null) {
-      PsiClass superClass = containingClass.getSuperClass();
-      if (superClass != null) {
-        MethodSignature defConstructor = MethodSignatureUtil.createMethodSignature(superClass.getName(), PsiType.EMPTY_ARRAY,
-                                                                                   PsiTypeParameter.EMPTY_ARRAY, PsiSubstitutor.EMPTY, true);
-        return MethodSignatureUtil.findMethodBySignature(superClass, defConstructor, false);
-      }
-    }
-    return null;
-  }
 
   public static boolean isSuperMethod(@NotNull PsiMethod method, @NotNull PsiMethod superMethod) {
     HierarchicalMethodSignature signature = method.getHierarchicalMethodSignature();
-    List<HierarchicalMethodSignature> superSignatures = signature.getSuperSignatures();
-    for (int i = 0, superSignaturesSize = superSignatures.size(); i < superSignaturesSize; i++) {
-      HierarchicalMethodSignature supsig = superSignatures.get(i);
-      PsiMethod supsigme = supsig.getMethod();
+    for (HierarchicalMethodSignature superSignature : signature.getSuperSignatures()) {
+      PsiMethod supsigme = superSignature.getMethod();
       if (superMethod.equals(supsigme) || isSuperMethod(supsigme, superMethod)) return true;
     }
 
@@ -99,18 +42,18 @@ public class PsiSuperMethodUtil {
       PsiType type = superSubstitutor.substitute(typeParameter);
       final PsiType t = derivedSubstitutor.substitute(type);
       if (map == null) {
-        map = new THashMap<>();
+        map = new HashMap<>();
       }
       map.put(typeParameter, t);
     }
 
-    return map == null ? PsiSubstitutor.EMPTY : JavaPsiFacade.getInstance(superClass.getProject()).getElementFactory().createSubstitutor(map);
+    return map == null ? PsiSubstitutor.EMPTY : JavaPsiFacade.getElementFactory(superClass.getProject()).createSubstitutor(map);
   }
 
   @NotNull
   public static Map<MethodSignature, Set<PsiMethod>> collectOverrideEquivalents(@NotNull PsiClass aClass) {
     final Map<MethodSignature, Set<PsiMethod>> overrideEquivalent =
-      new THashMap<>(MethodSignatureUtil.METHOD_PARAMETERS_ERASURE_EQUALITY);
+      new Object2ObjectOpenCustomHashMap<>(MethodSignatureUtil.METHOD_PARAMETERS_ERASURE_EQUALITY);
     final GlobalSearchScope resolveScope = aClass.getResolveScope();
     PsiClass[] supers = aClass.getSupers();
     for (int i = 0; i < supers.length; i++) {
@@ -125,7 +68,9 @@ public class PsiSuperMethodUtil {
       for (HierarchicalMethodSignature hms : superClass.getVisibleSignatures()) {
         PsiMethod method = hms.getMethod();
         if (MethodSignatureUtil.findMethodBySignature(aClass, method.getSignature(superClassSubstitutor), false) != null) continue;
-        final PsiClass containingClass = correctClassByScope(method.getContainingClass(), resolveScope);
+        PsiClass methodClass = method.getContainingClass();
+        if (methodClass == null) continue;
+        final PsiClass containingClass = correctClassByScope(methodClass, resolveScope);
         if (containingClass == null) continue;
         method = containingClass.findMethodBySignature(method, false);
         if (method == null) continue;
@@ -134,11 +79,7 @@ public class PsiSuperMethodUtil {
         final PsiSubstitutor finalSubstitutor =
           obtainFinalSubstitutor(containingClass, containingClassSubstitutor, hms.getSubstitutor(), false);
         final MethodSignatureBackedByPsiMethod signature = MethodSignatureBackedByPsiMethod.create(method, finalSubstitutor, false);
-        Set<PsiMethod> methods = overrideEquivalent.get(signature);
-        if (methods == null) {
-          methods = new LinkedHashSet<>();
-          overrideEquivalent.put(signature, methods);
-        }
+        Set<PsiMethod> methods = overrideEquivalent.computeIfAbsent(signature, __ -> new LinkedHashSet<>());
         methods.add(method);
       }
     }
@@ -146,8 +87,7 @@ public class PsiSuperMethodUtil {
   }
 
   @Nullable
-  public static PsiClass correctClassByScope(PsiClass psiClass, final GlobalSearchScope resolveScope) {
-    if (psiClass == null) return null;
+  public static PsiClass correctClassByScope(@NotNull PsiClass psiClass, @NotNull GlobalSearchScope resolveScope) {
     String qualifiedName = psiClass.getQualifiedName();
     if (qualifiedName == null) {
       return psiClass;
@@ -171,15 +111,4 @@ public class PsiSuperMethodUtil {
     return JavaPsiFacade.getInstance(psiClass.getProject()).findClass(qualifiedName, resolveScope);
   }
 
-  @NotNull
-  public static Optional<PsiMethod> correctMethodByScope(PsiMethod method, final GlobalSearchScope resolveScope) {
-    if (method == null) return Optional.empty();
-    final PsiClass aClass = method.getContainingClass();
-    if (aClass == null) return Optional.empty();
-    final PsiClass correctedClass = correctClassByScope(aClass, resolveScope);
-    if (correctedClass == null) return Optional.empty();
-    else if (correctedClass == aClass) return Optional.of(method);
-    final PsiMethod correctedClassMethodBySignature = correctedClass.findMethodBySignature(method, false);
-    return correctedClassMethodBySignature == null ? Optional.empty() : Optional.of(correctedClassMethodBySignature);
-  }
 }

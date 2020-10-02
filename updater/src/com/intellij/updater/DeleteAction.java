@@ -1,23 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.util.stream.Stream;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
@@ -60,26 +50,35 @@ public class DeleteAction extends PatchAction {
   }
 
   @Override
+  protected void doBackup(File toFile, File backupFile) throws IOException {
+    Utils.copy(toFile, backupFile, false);
+  }
+
+  @Override
   protected void doApply(ZipFile patchFile, File backupDir, File toFile) throws IOException {
     Runner.logger().info("Delete action. File: " + toFile.getAbsolutePath());
-    //NOTE: a folder can be deleted only in case if it does not contain any user's files/folders.
-    String[] children;
-    if (!toFile.isDirectory() || (children = toFile.list()) != null && children.length == 0) {
+
+    // a directory can be deleted only when it does not contain any user's content
+    boolean canDelete = true;
+    if (Files.isDirectory(toFile.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+      try (Stream<Path> children = Files.list(toFile.toPath())) {
+        canDelete = !children.findAny().isPresent();
+      }
+    }
+
+    if (canDelete) {
       Runner.logger().info("Delete: " + toFile.getAbsolutePath());
       Utils.delete(toFile);
+    }
+    else {
+      Runner.logger().info("Preserved: " + toFile.getAbsolutePath());
     }
   }
 
   @Override
-  protected void doBackup(File toFile, File backupFile) throws IOException {
-    Utils.copy(toFile, backupFile);
-  }
-
-  @Override
   protected void doRevert(File toFile, File backupFile) throws IOException {
-    if (!toFile.exists() || toFile.isDirectory() || isModified(toFile)) {
-      Utils.delete(toFile); // make sure there is no directory remained on this path (may remain from previous 'create' actions
-      Utils.copy(backupFile, toFile);
+    if (!Files.exists(toFile.toPath()) || Files.isDirectory(toFile.toPath(), LinkOption.NOFOLLOW_LINKS) || isModified(toFile)) {
+      Utils.copy(backupFile, toFile, true);
     }
   }
 }

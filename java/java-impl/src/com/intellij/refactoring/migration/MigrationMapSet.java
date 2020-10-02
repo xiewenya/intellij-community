@@ -1,29 +1,16 @@
 
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.migration;
 
 import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.text.UniqueNameGenerator;
 import org.jdom.Document;
@@ -38,10 +25,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class MigrationMapSet {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.migration.MigrationMapSet");
+  private static final Logger LOG = Logger.getInstance(MigrationMapSet.class);
 
   private ArrayList<MigrationMap> myMaps;
   @NonNls private static final String MIGRATION_MAP = "migrationMap";
@@ -105,14 +97,14 @@ public class MigrationMapSet {
   }
 
   private static boolean isPredefined(String name) {
-    for (PredefinedMigrationProvider provider : Extensions.getExtensions(PredefinedMigrationProvider.EP_NAME)) {
+    for (PredefinedMigrationProvider provider : PredefinedMigrationProvider.EP_NAME.getExtensionList()) {
       URL migrationMap = provider.getMigrationMap();
-      String fileName = FileUtil.getNameWithoutExtension(new File(migrationMap.getFile()));
+      String fileName = FileUtilRt.getNameWithoutExtension(new File(migrationMap.getFile()).getName());
       if (fileName.equals(name)) return true;
     }
 
     for (String defaultTemplate : DEFAULT_MAPS) {
-      String fileName = FileUtil.getNameWithoutExtension(StringUtil.getShortName(defaultTemplate, '/'));
+      String fileName = FileUtilRt.getNameWithoutExtension(StringUtil.getShortName(defaultTemplate, '/'));
 
       if (fileName.equals(name)) return true;
     }
@@ -130,15 +122,17 @@ public class MigrationMapSet {
     return ret;
   }
 
+  @Nullable
   private static File getMapDirectory() {
-    File dir = new File(PathManager.getConfigPath() + File.separator + "migration");
-
-    if (!dir.exists() && !dir.mkdir()) {
-      LOG.error("cannot create directory: " + dir.getAbsolutePath());
+    Path dir = PathManager.getConfigDir().resolve("migration");
+    try {
+      Files.createDirectories(dir);
+    }
+    catch (IOException e) {
+      LOG.error("cannot create directory: " + dir, e);
       return null;
     }
-
-    return dir;
+    return dir.toFile();
   }
 
   private void copyPredefinedMaps(File dir) {
@@ -152,10 +146,10 @@ public class MigrationMapSet {
       }
     }
 
-    for (PredefinedMigrationProvider provider : Extensions.getExtensions(PredefinedMigrationProvider.EP_NAME)) {
+    for (PredefinedMigrationProvider provider : PredefinedMigrationProvider.EP_NAME.getExtensionList()) {
       URL migrationMap = provider.getMigrationMap();
       String fileName = new File(migrationMap.getFile()).getName();
-      if (myDeletedMaps.contains(FileUtil.getNameWithoutExtension(fileName))) continue;
+      if (myDeletedMaps.contains(FileUtilRt.getNameWithoutExtension(fileName))) continue;
       copyMap(dir, migrationMap, fileName);
     }
 
@@ -163,7 +157,7 @@ public class MigrationMapSet {
       URL url = MigrationMapSet.class.getResource(defaultTemplate);
       LOG.assertTrue(url != null);
       String fileName = defaultTemplate.substring(defaultTemplate.lastIndexOf("/") + 1);
-      if (myDeletedMaps.contains(FileUtil.getNameWithoutExtension(fileName))) continue;
+      if (myDeletedMaps.contains(FileUtilRt.getNameWithoutExtension(fileName))) continue;
       copyMap(dir, url, fileName);
     }
   }
@@ -172,17 +166,8 @@ public class MigrationMapSet {
     File targetFile = new File(dir, fileName);
     if (targetFile.isFile()) return;
 
-    try {
-      FileOutputStream outputStream = new FileOutputStream(targetFile);
-      InputStream inputStream = url.openStream();
-
-      try {
-        FileUtil.copy(inputStream, outputStream);
-      }
-      finally {
-        outputStream.close();
-        inputStream.close();
-      }
+    try (FileOutputStream outputStream = new FileOutputStream(targetFile); InputStream inputStream = url.openStream()) {
+      FileUtil.copy(inputStream, outputStream);
     }
     catch (Exception e) {
       LOG.error(e);
@@ -209,16 +194,16 @@ public class MigrationMapSet {
     copyPredefinedMaps(dir);
 
     File[] files = getMapFiles(dir);
-    for(int i = 0; i < files.length; i++){
-      try{
-        MigrationMap map = readMap(files[i]);
-        if (map != null){
-          map.setFileName(FileUtil.getNameWithoutExtension(files[i]));
+    for (File file : files) {
+      try {
+        MigrationMap map = readMap(file);
+        if (map != null) {
+          map.setFileName(FileUtilRt.getNameWithoutExtension(file.getName()));
           myMaps.add(map);
         }
       }
-      catch(InvalidDataException | JDOMException e){
-        LOG.error("Invalid data in file: " + files[i].getAbsolutePath());
+      catch (InvalidDataException | JDOMException e) {
+        LOG.error("Invalid data in file: " + file.getAbsolutePath());
       }
       catch (IOException e) {
         LOG.error(e);
@@ -238,41 +223,40 @@ public class MigrationMapSet {
 
     MigrationMap map = new MigrationMap();
 
-    for(Iterator i = root.getChildren().iterator(); i.hasNext(); ){
-      Element node = (Element)i.next();
-      if (NAME.equals(node.getName())){
-        String name = node.getAttributeValue(VALUE);
+    for (Element node : root.getChildren()) {
+      if (NAME.equals(node.getName())) {
+        @NlsSafe String name = node.getAttributeValue(VALUE);
         map.setName(name);
       }
-      if (DESCRIPTION.equals(node.getName())){
-        String description = node.getAttributeValue(VALUE);
+      if (DESCRIPTION.equals(node.getName())) {
+        @NlsSafe String description = node.getAttributeValue(VALUE);
         map.setDescription(description);
       }
 
-      if (ENTRY.equals(node.getName())){
+      if (ENTRY.equals(node.getName())) {
         MigrationMapEntry entry = new MigrationMapEntry();
         String oldName = node.getAttributeValue(OLD_NAME);
-        if (oldName == null){
+        if (oldName == null) {
           throw new InvalidDataException();
         }
         entry.setOldName(oldName);
         String newName = node.getAttributeValue(NEW_NAME);
-        if (newName == null){
+        if (newName == null) {
           throw new InvalidDataException();
         }
         entry.setNewName(newName);
         String typeStr = node.getAttributeValue(TYPE);
-        if (typeStr == null){
+        if (typeStr == null) {
           throw new InvalidDataException();
         }
         entry.setType(MigrationMapEntry.CLASS);
-        if (typeStr.equals(PACKAGE_TYPE)){
+        if (typeStr.equals(PACKAGE_TYPE)) {
           entry.setType(MigrationMapEntry.PACKAGE);
           @NonNls String isRecursiveStr = node.getAttributeValue(RECURSIVE);
-          if (isRecursiveStr != null && isRecursiveStr.equals("true")){
+          if (isRecursiveStr != null && isRecursiveStr.equals("true")) {
             entry.setRecursive(true);
           }
-          else{
+          else {
             entry.setRecursive(false);
           }
         }

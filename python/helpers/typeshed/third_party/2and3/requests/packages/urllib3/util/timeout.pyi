@@ -1,4 +1,5 @@
 from typing import Any
+
 from .. import exceptions
 
 TimeoutStateError = exceptions.TimeoutStateError
@@ -6,8 +7,8 @@ TimeoutStateError = exceptions.TimeoutStateError
 def current_time(): ...
 
 class Timeout:
-    DEFAULT_TIMEOUT = ...  # type: Any
-    total = ...  # type: Any
+    DEFAULT_TIMEOUT: Any
+    total: Any
     def __init__(self, total=..., connect=..., read=...) -> None: ...
     @classmethod
     def from_float(cls, timeout): ...

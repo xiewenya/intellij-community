@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.lang.annotation.ProblemGroup;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -23,6 +10,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.objectTree.ThrowableInterner;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -30,7 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implements ProblemDescriptor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.ex.ProblemDescriptorImpl");
+  private static final Logger LOG = Logger.getInstance(ProblemDescriptorBase.class);
 
   @NotNull private final SmartPsiElementPointer myStartSmartPointer;
   @Nullable private final SmartPsiElementPointer myEndSmartPointer;
@@ -47,8 +35,8 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
 
   public ProblemDescriptorBase(@NotNull PsiElement startElement,
                                @NotNull PsiElement endElement,
-                               @NotNull String descriptionTemplate,
-                               LocalQuickFix[] fixes,
+                               @NotNull @InspectionMessage String descriptionTemplate,
+                               LocalQuickFix @Nullable [] fixes,
                                @NotNull ProblemHighlightType highlightType,
                                boolean isAfterEndOfLine,
                                @Nullable TextRange rangeInElement,
@@ -93,10 +81,17 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
     final SmartPointerManager manager = SmartPointerManager.getInstance(project);
     myStartSmartPointer = manager.createSmartPsiElementPointer(startElement, startContainingFile);
     myEndSmartPointer = startElement == endElement ? null : manager.createSmartPsiElementPointer(endElement, endContainingFile);
+    if (myEndSmartPointer != null) {
+      LOG.assertTrue(endContainingFile == startContainingFile, "start/end elements should be from the same file");
+    }
 
     myAfterEndOfLine = isAfterEndOfLine;
     myTextRangeInElement = rangeInElement;
     myCreationTrace = onTheFly ? null : ThrowableInterner.intern(new Throwable());
+  }
+
+  public boolean isOnTheFly() {
+    return myCreationTrace == null;
   }
 
   @Nullable
@@ -148,6 +143,11 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
     return myEndSmartPointer == null ? getStartElement() : myEndSmartPointer.getElement();
   }
 
+  @NotNull
+  public Project getProject() {
+    return myStartSmartPointer.getProject();
+  }
+
   @Override
   public int getLineNumber() {
     if (myLineNumber == -1) {
@@ -168,6 +168,16 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
       myLineNumber =  document.getLineNumber(startOffset);
     }
     return myLineNumber;
+  }
+
+  public int getLineStartOffset() {
+    PsiElement psiElement = getPsiElement();
+    if (psiElement == null || !psiElement.isValid()) return -1;
+    InjectedLanguageManager manager = InjectedLanguageManager.getInstance(psiElement.getProject());
+    PsiFile containingFile = manager.getTopLevelFile(psiElement);
+    Document document = PsiDocumentManager.getInstance(psiElement.getProject()).getDocument(containingFile);
+    if (document == null) return -1;
+    return document.getLineStartOffset(getLineNumber());
   }
 
   @NotNull
@@ -234,6 +244,11 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
     return myNavigatable;
   }
 
+  @Nullable
+  public VirtualFile getContainingFile() {
+    return myStartSmartPointer.getVirtualFile();
+  }
+
   public void setNavigatable(final Navigatable navigatable) {
     myNavigatable = navigatable;
   }
@@ -258,5 +273,10 @@ public class ProblemDescriptorBase extends CommonProblemDescriptorImpl implement
   public String toString() {
     PsiElement element = getPsiElement();
     return ProblemDescriptorUtil.renderDescriptionMessage(this, element);
+  }
+
+  @Override
+  public LocalQuickFix @Nullable [] getFixes() {
+    return (LocalQuickFix[])super.getFixes();
   }
 }

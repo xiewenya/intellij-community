@@ -2,9 +2,9 @@
 package com.intellij.codeInsight.hint;
 
 import com.intellij.codeInsight.highlighting.TooltipLinkHandler;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -15,7 +15,7 @@ import org.jetbrains.annotations.NotNull;
  * On a click opens specified file in an editor and positions caret to the given offset.
  */
 public class NavigationLinkHandler extends TooltipLinkHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.hint.NavigationLinkHandler");
+  private static final Logger LOG = Logger.getInstance(NavigationLinkHandler.class);
 
   @Override
   public boolean handleLink(@NotNull String refSuffix, @NotNull Editor editor) {
@@ -47,7 +47,7 @@ public class NavigationLinkHandler extends TooltipLinkHandler {
       return true;
     }
 
-    new OpenFileDescriptor(project, vFile, offset).navigate(true);
+    PsiNavigationSupport.getInstance().createNavigatable(project, vFile, offset).navigate(true);
     return true;
   }
 }

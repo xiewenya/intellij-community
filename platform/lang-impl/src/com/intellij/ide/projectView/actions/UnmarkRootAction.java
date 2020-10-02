@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.actions;
 
 import com.intellij.lang.LangBundle;
@@ -22,6 +8,7 @@ import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ExcludeFolder;
 import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.roots.ui.configuration.ModuleSourceRootEditHandler;
+import com.intellij.openapi.util.NlsActions.ActionText;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -41,7 +28,7 @@ public class UnmarkRootAction extends MarkRootActionBase {
     if (!Registry.is("ide.hide.excluded.files") && !selection.mySelectedExcludeRoots.isEmpty()
         && selection.mySelectedDirectories.isEmpty() && selection.mySelectedRoots.isEmpty()) {
       e.getPresentation().setEnabledAndVisible(true);
-      e.getPresentation().setText(LangBundle.message("mark.as.unmark.excluded"));
+      e.getPresentation().setText(LangBundle.messagePointer("mark.as.unmark.excluded"));
       return;
     }
 
@@ -52,13 +39,13 @@ public class UnmarkRootAction extends MarkRootActionBase {
   }
 
   @Nullable
-  protected String getActionText(@NotNull AnActionEvent e, @Nullable Module module, @NotNull RootsSelection selection) {
+  protected @ActionText String getActionText(@NotNull AnActionEvent e, @Nullable Module module, @NotNull RootsSelection selection) {
     Set<ModuleSourceRootEditHandler<?>> selectedRootHandlers = getHandlersForSelectedRoots(selection);
 
     if (!selectedRootHandlers.isEmpty()) {
       if (selectedRootHandlers.size() == 1) {
         ModuleSourceRootEditHandler<?> handler = selectedRootHandlers.iterator().next();
-        return LangBundle.message("mark.as.unmark", 
+        return LangBundle.message("mark.as.unmark",
                                   StringUtil.pluralize(handler.getFullRootTypeName(), selection.mySelectedRoots.size()));
       }
       else {
@@ -82,6 +69,7 @@ public class UnmarkRootAction extends MarkRootActionBase {
     return selection.mySelectedDirectories.isEmpty() && !getHandlersForSelectedRoots(selection).isEmpty();
   }
 
+  @Override
   protected void modifyRoots(@NotNull VirtualFile file, @NotNull ContentEntry entry) {
     for (ExcludeFolder excludeFolder : entry.getExcludeFolders()) {
       if (file.equals(excludeFolder.getFile())) {

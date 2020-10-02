@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
@@ -21,12 +7,12 @@ import com.intellij.psi.LiteralTextEscaper;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.yaml.YAMLParserDefinition;
 
 import java.util.Arrays;
 
-public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtureTestCase {
+public class YAMLScalarLiteralEscaperTest extends BasePlatformTestCase {
   @Override
   protected String getTestDataPath() {
     return PathManagerEx.getCommunityHomePath() + "/plugins/yaml/testSrc/org/jetbrains/yaml/psi/data/";
@@ -54,6 +40,14 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
     doTest();
   }
 
+  public void testPlainScalarBigFirstLineIndent1() {
+    doTest();
+  }
+
+  public void testPlainScalarBigFirstLineIndent2() {
+    doTest();
+  }
+
   public void testLiteralStyle1() {
     doTest();
   }
@@ -63,6 +57,21 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
   }
 
   public void testLiteralStyle3() {
+    doTest();
+  }
+
+  // Test presence of comment in literal style block scalar header
+  public void testLiteralStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test strip literal block scalar chomping indicator
+  public void testLiteralStyleStrip() {
+    doTest();
+  }
+
+  // Test keep literal block scalar chomping indicator
+  public void testLiteralStyleKeep() {
     doTest();
   }
 
@@ -83,6 +92,21 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
   }
 
   public void testFoldedStyle4Tag() {
+    doTest();
+  }
+
+  // Test presence of comment in folded style block scalar header
+  public void testFoldedStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test strip folded block scalar chomping indicator
+  public void testFoldedStyleStrip() {
+    doTest();
+  }
+
+  // Test keep folded block scalar chomping indicator
+  public void testFoldedStyleKeep() {
     doTest();
   }
 

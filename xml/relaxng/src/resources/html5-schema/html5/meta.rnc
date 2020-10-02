@@ -49,7 +49,7 @@ datatypes w = "http://whattf.org/datatype-draft"
 		element body { body.inner & body.attrs }
 	body.attrs =
 		(	common.attrs
-		&	(	common.attrs.aria.landmark.application
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.presentation
 			|	common.attrs.aria.implicit.document
@@ -128,9 +128,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 				)
 			|	base.attrs.target
 			)
-		&	(	common.attrs.aria.role.presentation
-			|	common.attrs.aria.role.menuitem
-			)?
 		)
 	base.attrs.href =
 		attribute href {
@@ -156,7 +153,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 		&	link.attrs.rel
 		&	link.attrs.as?
 		&	link.attrs.integrity?
-		&	link.attrs.nonce?
 		&	shared-hyperlink.attrs.hreflang?
 		&	shared-hyperlink.attrs.media?
 		&	shared-hyperlink.attrs.type?
@@ -184,28 +180,28 @@ datatypes w = "http://whattf.org/datatype-draft"
 		link.attrs.as =
 			attribute as {
 				string ""
+			|	string "audio"
+			|	string "audioworklet"
 			|	string "document"
 			|	string "embed"
 			|	string "font"
 			|	string "image"
 			|	string "manifest"
-			|	string "media"
 			|	string "object"
+			|	string "paintworklet"
 			|	string "report"
 			|	string "script"
 			|	string "serviceworker"
 			|	string "sharedworker"
 			|	string "style"
+			|	string "track"
+			|	string "video"
 			|	string "worker"
 			|	string "xslt"
 			}
 		link.attrs.integrity =
 			attribute integrity {
 				common.data.integrity
-			}
-		link.attrs.nonce =
-			attribute nonce{
-				string
 			}
 		link.attrs.sizes =
 			attribute sizes {
@@ -245,7 +241,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 		(	common.attrs
 		&	style.attrs.type?
 		&	style.attrs.media?
-		&	style.attrs.nonce?
 		#	style.attrs.title included in common.attrs
 		&	(	common.attrs.aria.role.presentation
 			|	common.attrs.aria.role.menuitem
@@ -258,10 +253,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 		style.attrs.media =
 			attribute media {
 				common.data.mediaquery
-			}
-		style.attrs.nonce =
-			attribute nonce{
-				string
 			}
 	style.inner =
 		( common.inner.anything )
@@ -421,7 +412,7 @@ datatypes w = "http://whattf.org/datatype-draft"
 		)
 		meta.charset.attrs.charset =
 			attribute charset {
-				(common.data.charset & HTMLonly)
+				(string & HTMLonly)
 				| (xsd:string {
 					pattern = "[uU][tT][fF]-8"
 				} & XMLonly )

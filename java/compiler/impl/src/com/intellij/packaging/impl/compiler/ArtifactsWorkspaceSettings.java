@@ -14,9 +14,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 @State(name = "ArtifactsWorkspaceSettings",
   storages = {
     @Storage(StoragePathMacros.WORKSPACE_FILE)
@@ -50,10 +47,12 @@ public class ArtifactsWorkspaceSettings implements PersistentStateComponent<Arti
     Collections.sort(myState.myArtifactsToBuild);
   }
 
+  @Override
   public ArtifactsWorkspaceSettingsState getState() {
     return myState;
   }
 
+  @Override
   public void loadState(@NotNull ArtifactsWorkspaceSettingsState state) {
     myState = state;
   }

@@ -1,52 +1,41 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.console;
 
+import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.execution.impl.ConsoleViewImpl;
 import com.intellij.execution.impl.ConsoleViewUtil;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.ide.DataManager;
-import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.highlighter.HighlighterFactory;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.lang.Language;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.EmptyAction;
-import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
-import com.intellij.openapi.editor.ex.FocusChangeListener;
+import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.ex.util.LexerEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
-import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
 import com.intellij.openapi.editor.impl.EditorFactoryImpl;
-import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.editor.markup.HighlighterTargetArea;
+import com.intellij.openapi.editor.markup.MarkupModel;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
-import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
 import com.intellij.openapi.fileTypes.SyntaxHighlighter;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -61,8 +50,6 @@ import com.intellij.ui.components.JBScrollBar;
 import com.intellij.ui.components.JBScrollPane.Alignment;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.FileContentUtil;
-import com.intellij.util.ObjectUtils;
-import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.AbstractLayoutManager;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
@@ -74,7 +61,9 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Objects;
 
 /**
  * @author Gregory.Shrago
@@ -83,37 +72,14 @@ import java.util.Collections;
 public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageConsoleView, DataProvider {
   private final Helper myHelper;
 
-  private final EditorEx myConsoleEditor;
+  private final ConsoleExecutionEditor myConsoleExecutionEditor;
   private final EditorEx myHistoryViewer;
-  private final Document myEditorDocument;
-
   private final JPanel myPanel = new JPanel(new MyLayout());
   private final JScrollBar myScrollBar = new JBScrollBar(Adjustable.HORIZONTAL);
   private final DocumentListener myDocumentAdapter = new DocumentListener() {
     @Override
-    public void documentChanged(DocumentEvent event) {
+    public void documentChanged(@NotNull DocumentEvent event) {
       myPanel.revalidate();
-    }
-  };
-
-  @Nullable
-  private String myPrompt = "> ";
-  private ConsoleViewContentType myPromptAttributes = ConsoleViewContentType.USER_INPUT;
-
-  private EditorEx myCurrentEditor;
-
-  private final MessageBusConnection myBusConnection;
-  private final FocusChangeListener myFocusListener = new FocusChangeListener() {
-    @Override
-    public void focusGained(Editor editor) {
-      myCurrentEditor = (EditorEx)editor;
-      if (GeneralSettings.getInstance().isSaveOnFrameDeactivation()) {
-        TransactionGuard.submitTransaction(LanguageConsoleImpl.this, () -> FileDocumentManager.getInstance().saveAllDocuments()); // PY-12487
-      }
-    }
-
-    @Override
-    public void focusLost(Editor editor) {
     }
   };
 
@@ -129,24 +95,15 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     super(helper.project, GlobalSearchScope.allScope(helper.project), true, true);
     myHelper = helper;
     EditorFactory editorFactory = EditorFactory.getInstance();
-    myEditorDocument = helper.getDocument();
-    myConsoleEditor = (EditorEx)editorFactory.createEditor(myEditorDocument, getProject());
-    myConsoleEditor.getDocument().addDocumentListener(myDocumentAdapter);
-    myConsoleEditor.getScrollPane().getHorizontalScrollBar().setEnabled(false);
-    myConsoleEditor.addFocusListener(myFocusListener);
-    myConsoleEditor.getSettings().setVirtualSpace(false);
-    myCurrentEditor = myConsoleEditor;
+    myConsoleExecutionEditor = new ConsoleExecutionEditor(helper);
+    Disposer.register(this, myConsoleExecutionEditor);
     Document historyDocument = ((EditorFactoryImpl)editorFactory).createDocument(true);
     UndoUtil.disableUndoFor(historyDocument);
     myHistoryViewer = (EditorEx)editorFactory.createViewer(historyDocument, getProject(), EditorKind.CONSOLE);
     myHistoryViewer.getDocument().addDocumentListener(myDocumentAdapter);
-
-    myScrollBar.setModel(new MyModel(myScrollBar, myHistoryViewer, myConsoleEditor));
+    myConsoleExecutionEditor.getDocument().addDocumentListener(myDocumentAdapter);
+    myScrollBar.setModel(new MyModel(myScrollBar, myHistoryViewer, myConsoleExecutionEditor.getEditor()));
     myScrollBar.putClientProperty(Alignment.class, Alignment.BOTTOM);
-
-    myBusConnection = getProject().getMessageBus().connect();
-    // action shortcuts are not yet registered
-    ApplicationManager.getApplication().invokeLater(() -> installEditorFactoryListener(), getProject().getDisposed());
   }
 
   @NotNull
@@ -167,7 +124,7 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
   }
 
   @Override
-  public JComponent getPreferredFocusableComponent() {
+  public @NotNull JComponent getPreferredFocusableComponent() {
     return getConsoleEditor().getContentComponent();
   }
 
@@ -175,12 +132,10 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     setupComponents();
 
     myPanel.add(myHistoryViewer.getComponent());
-    myPanel.add(myConsoleEditor.getComponent());
+    myPanel.add(myConsoleExecutionEditor.getComponent());
     myPanel.add(myScrollBar);
-    myPanel.setBackground(myConsoleEditor.getBackgroundColor());
-
+    myPanel.setBackground(myConsoleExecutionEditor.getEditor().getBackgroundColor());
     DataManager.registerDataProvider(myPanel, this);
-    setPromptInner(myPrompt);
   }
 
   @Override
@@ -188,13 +143,9 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     if (isConsoleEditorEnabled() == consoleEditorEnabled) {
       return;
     }
-    if (consoleEditorEnabled) {
-      FileEditorManager.getInstance(getProject()).closeFile(getVirtualFile());
-      myCurrentEditor = myConsoleEditor;
-    }
+    myConsoleExecutionEditor.setConsoleEditorEnabled(consoleEditorEnabled);
     setHistoryScrollBarVisible(!consoleEditorEnabled);
     myScrollBar.setVisible(consoleEditorEnabled);
-    myConsoleEditor.getComponent().setVisible(consoleEditorEnabled);
   }
 
   private void setHistoryScrollBarVisible(boolean visible) {
@@ -203,16 +154,14 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
   }
 
   private void setupComponents() {
-    myHelper.setupEditor(myConsoleEditor);
+    myHelper.setupEditor(myConsoleExecutionEditor.getEditor());
     myHelper.setupEditor(myHistoryViewer);
 
     myHistoryViewer.getComponent().setMinimumSize(JBUI.emptySize());
     myHistoryViewer.getComponent().setPreferredSize(JBUI.emptySize());
     myHistoryViewer.setCaretEnabled(false);
 
-    myConsoleEditor.setContextMenuGroupId(IdeActions.GROUP_CONSOLE_EDITOR_POPUP);
-    myConsoleEditor.setHighlighter(
-      EditorHighlighterFactory.getInstance().createEditorHighlighter(getVirtualFile(), myConsoleEditor.getColorsScheme(), getProject()));
+    myConsoleExecutionEditor.initComponent();
 
     setHistoryScrollBarVisible(false);
 
@@ -220,61 +169,58 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
       @Override
       public void keyTyped(KeyEvent event) {
         if (isConsoleEditorEnabled() && UIUtil.isReallyTypedEvent(event)) {
-          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myConsoleEditor.getContentComponent(), true));
-          myConsoleEditor.processKeyTyped(event);
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(
+            () -> IdeFocusManager.getGlobalInstance().requestFocus(myConsoleExecutionEditor.getEditor().getContentComponent(), true)
+          );
+          myConsoleExecutionEditor.getEditor().processKeyTyped(event);
         }
       }
     });
 
-    EmptyAction.registerActionShortcuts(myHistoryViewer.getComponent(), myConsoleEditor.getComponent());
+    EmptyAction.registerActionShortcuts(myHistoryViewer.getComponent(), myConsoleExecutionEditor.getComponent());
   }
 
   @Override
   public final boolean isConsoleEditorEnabled() {
-    return myConsoleEditor.getComponent().isVisible();
+    return myConsoleExecutionEditor.isConsoleEditorEnabled();
   }
 
   @Override
   @Nullable
   public String getPrompt() {
-    return myPrompt;
+    return myConsoleExecutionEditor.getPrompt();
   }
 
   @Override
   @Nullable
   public ConsoleViewContentType getPromptAttributes() {
-    return myPromptAttributes;
+    return myConsoleExecutionEditor.getPromptAttributes();
+  }
+
+
+  @NotNull
+  public ConsolePromptDecorator getConsolePromptDecorator() {
+    return myConsoleExecutionEditor.getConsolePromptDecorator();
   }
 
   @Override
   public void setPromptAttributes(@NotNull ConsoleViewContentType textAttributes) {
-    myPromptAttributes = textAttributes;
+    myConsoleExecutionEditor.setPromptAttributes(textAttributes);
   }
 
   @Override
   public void setPrompt(@Nullable String prompt) {
-    // always add space to the prompt otherwise it may look ugly
-    myPrompt = prompt != null && !prompt.endsWith(" ") ? prompt + " " : prompt;
-    setPromptInner(myPrompt);
-  }
-
-  private void setPromptInner(@Nullable final String prompt) {
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
-      if (!myConsoleEditor.isDisposed()) {
-        myConsoleEditor.setPrefixTextAndAttributes(prompt, myPromptAttributes.getAttributes());
-      }
-    });
+    myConsoleExecutionEditor.setPrompt(prompt);
   }
 
   @Override
   public void setEditable(boolean editable) {
-    myConsoleEditor.setRendererMode(!editable);
-    setPromptInner(editable ? myPrompt : "");
+   myConsoleExecutionEditor.setEditable(editable);
   }
 
   @Override
   public boolean isEditable() {
-    return !myConsoleEditor.isRendererMode();
+    return myConsoleExecutionEditor.isEditable();
   }
 
   @Override
@@ -286,7 +232,7 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
   @Override
   @NotNull
   public final VirtualFile getVirtualFile() {
-    return myHelper.virtualFile;
+    return myConsoleExecutionEditor.getVirtualFile();
   }
 
   @Override
@@ -298,13 +244,13 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
   @Override
   @NotNull
   public final Document getEditorDocument() {
-    return myEditorDocument;
+    return myConsoleExecutionEditor.getDocument();
   }
 
   @Override
   @NotNull
   public final EditorEx getConsoleEditor() {
-    return myConsoleEditor;
+    return myConsoleExecutionEditor.getEditor();
   }
 
   @Override
@@ -372,9 +318,15 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     }
     SyntaxHighlighter syntax =
       highlighter instanceof LexerEditorHighlighter ? ((LexerEditorHighlighter)highlighter).getSyntaxHighlighter() : null;
-    ((LanguageConsoleImpl)console).doAddPromptToHistory();
+    LanguageConsoleImpl consoleImpl = (LanguageConsoleImpl)console;
+    consoleImpl.doAddPromptToHistory();
     if (syntax != null) {
-      ConsoleViewUtil.printWithHighlighting(console, text, syntax);
+      ConsoleViewUtil.printWithHighlighting(console, text, syntax, () -> {
+        String identPrompt = consoleImpl.myConsoleExecutionEditor.getConsolePromptDecorator().getIndentPrompt();
+        if (StringUtil.isNotEmpty(identPrompt)) {
+          consoleImpl.addPromptToHistoryImpl(identPrompt);
+        }
+      });
     }
     else {
       console.print(text, ConsoleViewContentType.USER_INPUT);
@@ -396,38 +348,41 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
   }
 
   protected void doAddPromptToHistory() {
-    if (myPrompt != null) {
-      print(myPrompt, myPromptAttributes);
+    String prompt = myConsoleExecutionEditor.getPrompt();
+    if (prompt != null) {
+      addPromptToHistoryImpl(prompt);
     }
   }
 
+    public static void duplicateHighlighters(@NotNull MarkupModel to, @NotNull MarkupModel from, int offset, @NotNull TextRange textRange, @Nullable String... disableAttributes) {
+    for (RangeHighlighter rangeHighlighter : from.getAllHighlighters()) {
+      if (!rangeHighlighter.isValid()) {
+        continue;
+      }
+      Object tooltip = rangeHighlighter.getErrorStripeTooltip();
+      HighlightInfo highlightInfo = tooltip instanceof HighlightInfo? (HighlightInfo)tooltip : null;
+      if (highlightInfo != null) {
+        if (highlightInfo.getSeverity() != HighlightSeverity.INFORMATION) {
+          continue;
+        }
+          if (highlightInfo.type.getAttributesKey() == EditorColors.IDENTIFIER_UNDER_CARET_ATTRIBUTES) {
+              continue;
+          }
 
-  //private static void duplicateHighlighters(@NotNull MarkupModel to, @NotNull MarkupModel from, int offset, @NotNull TextRange textRange) {
-  //  for (RangeHighlighter rangeHighlighter : from.getAllHighlighters()) {
-  //    if (!rangeHighlighter.isValid()) {
-  //      continue;
-  //    }
-  //    Object tooltip = rangeHighlighter.getErrorStripeTooltip();
-  //    HighlightInfo highlightInfo = tooltip instanceof HighlightInfo? (HighlightInfo)tooltip : null;
-  //    if (highlightInfo != null) {
-  //      if (highlightInfo.getSeverity() != HighlightSeverity.INFORMATION) {
-  //        continue;
-  //      }
-  //      if (highlightInfo.type.getAttributesKey() == EditorColors.IDENTIFIER_UNDER_CARET_ATTRIBUTES) {
-  //        continue;
-  //      }
-  //    }
-  //    int localOffset = textRange.getStartOffset();
-  //    int start = Math.max(rangeHighlighter.getStartOffset(), localOffset) - localOffset;
-  //    int end = Math.min(rangeHighlighter.getEndOffset(), textRange.getEndOffset()) - localOffset;
-  //    if (start > end) {
-  //      continue;
-  //    }
-  //    RangeHighlighter h = to.addRangeHighlighter(start + offset, end + offset, rangeHighlighter.getLayer(),
-  //                                                rangeHighlighter.getTextAttributes(), rangeHighlighter.getTargetArea());
-  //    ((RangeHighlighterEx)h).setAfterEndOfLine(((RangeHighlighterEx)rangeHighlighter).isAfterEndOfLine());
-  //  }
-  //}
+        if(Arrays.stream(disableAttributes).filter(Objects::nonNull).anyMatch(x -> x.equals(highlightInfo.type .getAttributesKey().getExternalName())))
+            continue;
+      }
+      int localOffset = textRange.getStartOffset();
+      int start = Math.max(rangeHighlighter.getStartOffset(), localOffset) - localOffset;
+      int end = Math.min(rangeHighlighter.getEndOffset(), textRange.getEndOffset()) - localOffset;
+      if (start > end) {
+        continue;
+      }
+      RangeHighlighter h = to.addRangeHighlighter(start + offset, end + offset, rangeHighlighter.getLayer(),
+                                                  rangeHighlighter.getTextAttributes(null), rangeHighlighter.getTargetArea());
+      ((RangeHighlighterEx)h).setAfterEndOfLine(((RangeHighlighterEx)rangeHighlighter).isAfterEndOfLine());
+    }
+  }
 
   @Override
   public void dispose() {
@@ -435,16 +390,16 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     // double dispose via RunContentDescriptor and ContentImpl
     if (myHistoryViewer.isDisposed()) return;
 
-    myConsoleEditor.getDocument().removeDocumentListener(myDocumentAdapter);
+    myConsoleExecutionEditor.getDocument().removeDocumentListener(myDocumentAdapter);
     myHistoryViewer.getDocument().removeDocumentListener(myDocumentAdapter);
 
-    myBusConnection.deliverImmediately();
-    Disposer.dispose(myBusConnection);
-
     EditorFactory editorFactory = EditorFactory.getInstance();
-    editorFactory.releaseEditor(myConsoleEditor);
     editorFactory.releaseEditor(myHistoryViewer);
 
+    closeFile();
+  }
+
+  protected void closeFile() {
     if (getProject().isOpen()) {
       FileEditorManager editorManager = FileEditorManager.getInstance(getProject());
       if (editorManager.isFileOpen(getVirtualFile())) {
@@ -455,56 +410,15 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     return super.getData(dataId);
   }
 
-  private void installEditorFactoryListener() {
-    FileEditorManagerListener fileEditorListener = new FileEditorManagerListener() {
-      @Override
-      public void fileOpened(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-        if (myConsoleEditor == null || !Comparing.equal(file, getVirtualFile())) {
-          return;
-        }
-
-        Editor selectedTextEditor = source.getSelectedTextEditor();
-        for (FileEditor fileEditor : source.getAllEditors(file)) {
-          if (!(fileEditor instanceof TextEditor)) {
-            continue;
-          }
-
-          final EditorEx editor = (EditorEx)((TextEditor)fileEditor).getEditor();
-          editor.addFocusListener(myFocusListener);
-          if (selectedTextEditor == editor) { // already focused
-            myCurrentEditor = editor;
-          }
-          EmptyAction.registerActionShortcuts(editor.getComponent(), myConsoleEditor.getComponent());
-        }
-      }
-
-      @Override
-      public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
-        if (!Comparing.equal(file, getVirtualFile())) {
-          return;
-        }
-        if (!Boolean.TRUE.equals(file.getUserData(FileEditorManagerImpl.CLOSING_TO_REOPEN))) {
-          if (myCurrentEditor != null && myCurrentEditor.isDisposed()) {
-            myCurrentEditor = null;
-          }
-        }
-      }
-    };
-    myBusConnection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, fileEditorListener);
-    FileEditorManager editorManager = FileEditorManager.getInstance(getProject());
-    if (editorManager.isFileOpen(getVirtualFile())) {
-      fileEditorListener.fileOpened(editorManager, getVirtualFile());
-    }
-  }
 
   @Override
   @NotNull
   public EditorEx getCurrentEditor() {
-    return ObjectUtils.notNull(myCurrentEditor, myConsoleEditor);
+    return myConsoleExecutionEditor.getCurrentEditor();
   }
 
   @Override
@@ -521,7 +435,7 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
 
   @Override
   public void setInputText(@NotNull final String query) {
-    DocumentUtil.writeInRunUndoTransparentAction(() -> myConsoleEditor.getDocument().setText(StringUtil.convertLineSeparators(query)));
+    myConsoleExecutionEditor.setInputText(query);
   }
 
   boolean isHistoryViewerForceAdditionalColumnsUsage() {
@@ -530,6 +444,15 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
 
   int getMinHistoryLineCount() {
     return 2;
+  }
+
+  private void addPromptToHistoryImpl(@NotNull String prompt) {
+    DocumentEx document = getHistoryViewer().getDocument();
+    RangeHighlighter highlighter =
+      this.getHistoryViewer().getMarkupModel().addRangeHighlighter(null, document.getTextLength(), document.getTextLength(), 0,
+                                                                   HighlighterTargetArea.EXACT_RANGE);
+    print(prompt, myConsoleExecutionEditor.getPromptAttributes());
+    highlighter.putUserData(ConsoleHistoryCopyHandler.PROMPT_LENGTH_MARKER, prompt.length());
   }
 
   public static class Helper {
@@ -544,7 +467,11 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
       title = virtualFile.getName();
     }
 
-    public Helper setTitle(String title) {
+    public String getTitle() {
+      return this.title;
+    }
+
+    public Helper setTitle(@NotNull String title) {
       this.title = title;
       return this;
     }
@@ -590,7 +517,7 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
     }
 
     @NotNull
-    PsiFile getFileSafe() {
+    public PsiFile getFileSafe() {
       return file == null || !file.isValid() ? file = getFile() : file;
     }
 
@@ -621,7 +548,7 @@ public class LanguageConsoleImpl extends ConsoleViewImpl implements LanguageCons
       }
 
       final EditorEx history = myHistoryViewer;
-      final EditorEx input = isConsoleEditorEnabled() ? myConsoleEditor : null;
+      final EditorEx input = isConsoleEditorEnabled() ? myConsoleExecutionEditor.getEditor() : null;
       if (input == null) {
         parent.getComponent(0).setBounds(parent.getBounds());
         return;

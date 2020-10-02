@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.slicer;
 
 import com.intellij.ide.projectView.PresentationData;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -31,16 +18,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCellRenderer {
-  final List<SliceNode> myCachedChildren;
+  public final List<SliceNode> myCachedChildren;
 
-  SliceLeafValueRootNode(@NotNull Project project,
-                         @NotNull SliceNode root,
-                         @NotNull SliceUsage sliceUsage,
-                         @NotNull List<SliceNode> children) {
+  public SliceLeafValueRootNode(@NotNull Project project,
+                                @NotNull SliceNode root,
+                                @NotNull SliceUsage sliceUsage,
+                                @NotNull List<SliceNode> children) {
     super(project, sliceUsage, root.targetEqualUsages);
     myCachedChildren = children;
   }
@@ -57,7 +41,7 @@ public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCe
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
   }
 
   @Override
@@ -65,6 +49,7 @@ public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCe
     return getNodeText();
   }
 
+  @Override
   public String getNodeText() {
     SliceUsage value = getValue();
     String text;
@@ -73,9 +58,9 @@ public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCe
       text = element == null ? "" : element.getText();
     }
     else {
-      text = "Other";
+      text = LangBundle.message("node.slice.other");
     }
-    return "Value: " + text;
+    return LangBundle.message("node.slice.value.2", text);
   }
 
   @Override
@@ -88,7 +73,7 @@ public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCe
                                     int row,
                                     boolean hasFocus) {
     SliceUsage usage = getValue();
-    renderer.append("Value: ", SimpleTextAttributes.REGULAR_ATTRIBUTES);
+    renderer.append(LangBundle.message("node.slice.value"), SimpleTextAttributes.REGULAR_ATTRIBUTES);
 
     if (usage != null) {
       PsiElement element = usage.getElement();
@@ -100,7 +85,7 @@ public class SliceLeafValueRootNode extends SliceNode implements MyColoredTreeCe
       }
     }
     else {
-      renderer.append("Other", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      renderer.append(LangBundle.message("node.slice.other"), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
     }
   }
 

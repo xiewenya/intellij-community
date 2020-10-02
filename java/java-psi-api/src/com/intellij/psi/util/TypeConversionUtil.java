@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.lang.jvm.types.JvmPrimitiveTypeKind;
@@ -6,24 +6,25 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootModificationTracker;
 import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectIntHashMap;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static com.intellij.psi.CommonClassNames.JAVA_LANG_STRING;
+import static com.intellij.psi.CommonClassNames.*;
 
-public class TypeConversionUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.util.TypeConversionUtil");
+public final class TypeConversionUtil {
+  private static final Logger LOG = Logger.getInstance(TypeConversionUtil.class);
 
   private static final boolean[][] IS_ASSIGNABLE_BIT_SET = {
     {true, true, false, true, true, true, true}, // byte
@@ -35,17 +36,22 @@ public class TypeConversionUtil {
     {false, false, false, false, false, false, true}, // double
   };
 
-  private static final TObjectIntHashMap<PsiType> TYPE_TO_RANK_MAP = new TObjectIntHashMap<>();
+  private static final Object2IntMap<PsiType> TYPE_TO_RANK_MAP = new Object2IntOpenHashMap<>();
 
+  @MagicConstant(intValues = {BYTE_RANK, SHORT_RANK, CHAR_RANK, INT_RANK, FLOAT_RANK, DOUBLE_RANK, BOOL_RANK, STRING_RANK, UNKNOWN_RANK})
+  @interface TypeRank {
+  }
   public static final int BYTE_RANK = 1;
   public static final int SHORT_RANK = 2;
   public static final int CHAR_RANK = 3;
   public static final int INT_RANK = 4;
   public static final int LONG_RANK = 5;
-  private static final int FLOAT_RANK = 6;
-  private static final int DOUBLE_RANK = 7;
+  public static final int FLOAT_RANK = 6;
+  public static final int DOUBLE_RANK = 7;
   private static final int BOOL_RANK = 10;
   private static final int STRING_RANK = 100;
+  private static final int UNKNOWN_RANK = 1000;
+  @TypeRank
   private static final int MAX_NUMERIC_RANK = DOUBLE_RANK;
   public static final PsiType NULL_TYPE = new PsiEllipsisType(PsiType.NULL) {
     @Override
@@ -60,6 +66,8 @@ public class TypeConversionUtil {
     }
   };
   private static final Key<PsiElement> ORIGINAL_CONTEXT = Key.create("ORIGINAL_CONTEXT");
+  private static final Key<PsiType> LOWER_BOUND = Key.create("LowBound");
+  private static final Key<PsiType> UPPER_BOUND = Key.create("UpperBound");
 
   static {
     TYPE_TO_RANK_MAP.put(PsiType.BYTE, BYTE_RANK);
@@ -111,6 +119,7 @@ public class TypeConversionUtil {
         // 5.5. Casting Contexts
         if ((fromTypeRank == SHORT_RANK || fromTypeRank == BYTE_RANK) && toTypeRank == CHAR_RANK) return false;
 
+        fromType = uncapture(fromType); //starting from javac 9+
         if (fromType instanceof PsiClassType) {
           if (languageLevel == null) {
             languageLevel = ((PsiClassType)fromType).getLanguageLevel();
@@ -127,7 +136,7 @@ public class TypeConversionUtil {
           }
         }
         return fromTypeRank == toTypeRank ||
-               fromTypeRank <= MAX_NUMERIC_RANK && toTypeRank <= MAX_NUMERIC_RANK && fromTypeRank < toTypeRank;
+               fromTypeRank < toTypeRank && toTypeRank <= MAX_NUMERIC_RANK;
       }
       return fromTypeRank == toTypeRank ||
              fromTypeRank <= MAX_NUMERIC_RANK && toTypeRank <= MAX_NUMERIC_RANK;
@@ -146,6 +155,9 @@ public class TypeConversionUtil {
    * see JLS 5.1.5, JLS3 5.1.6
    */
   private static boolean isNarrowingReferenceConversionAllowed(@NotNull PsiType fromType, @NotNull PsiType toType) {
+    toType = uncapture(toType);
+    fromType = uncapture(fromType);
+
     if (toType instanceof PsiPrimitiveType || fromType instanceof PsiPrimitiveType) return fromType.equals(toType);
     //Done with primitives
     if (toType instanceof PsiDiamondType || fromType instanceof PsiDiamondType) return false;
@@ -158,9 +170,6 @@ public class TypeConversionUtil {
           }
           return true;
         }
-      }
-      if (fromType instanceof PsiCapturedWildcardType) {
-        return isNarrowingReferenceConversionAllowed(((PsiCapturedWildcardType)fromType).getUpperBound(), toType);
       }
       return isAssignable(fromType, toType);
     }
@@ -187,7 +196,7 @@ public class TypeConversionUtil {
       }
       return false;
     }
-    else if (toType instanceof PsiIntersectionType) {
+    if (toType instanceof PsiIntersectionType) {
       if (fromType instanceof PsiClassType && ((PsiClassType)fromType).getLanguageLevel().isAtLeast(LanguageLevel.JDK_1_8)) {
         for (PsiType conjunct : ((PsiIntersectionType)toType).getConjuncts()) {
           if (!isNarrowingReferenceConversionAllowed(fromType, conjunct)) return false;
@@ -220,13 +229,6 @@ public class TypeConversionUtil {
       return bound == null || isNarrowingReferenceConversionAllowed(fromType, bound);
     }
 
-    if (toType instanceof PsiCapturedWildcardType) {
-      return isNarrowingReferenceConversionAllowed(fromType, ((PsiCapturedWildcardType)toType).getUpperBound());
-    }
-    if (fromType instanceof PsiCapturedWildcardType) {
-      return isNarrowingReferenceConversionAllowed(((PsiCapturedWildcardType)fromType).getUpperBound(), toType);
-    }
-
     if (isAssignable(fromType, toType)) return true;
 
     if (!(fromType instanceof PsiClassType) || !(toType instanceof PsiClassType)) return false;
@@ -236,19 +238,23 @@ public class TypeConversionUtil {
     PsiClassType.ClassResolveResult fromResult = fromClassType.resolveGenerics();
     final PsiClass fromClass = fromResult.getElement();
     if (fromClass == null) return false;
-    if (fromClass instanceof PsiTypeParameter) return isNarrowingReferenceConversionAllowed(obtainSafeSuperType((PsiTypeParameter)fromClass), toType);
+    if (fromClass instanceof PsiTypeParameter) {
+      return isNarrowingReferenceConversionAllowed(obtainSafeSuperType((PsiTypeParameter)fromClass), toType);
+    }
 
     PsiClassType.ClassResolveResult toResult = toClassType.resolveGenerics();
     final PsiClass toClass = toResult.getElement();
     if (toClass == null) return false;
-    if (toClass instanceof PsiTypeParameter) return isNarrowingReferenceConversionAllowed(fromType, obtainSafeSuperType((PsiTypeParameter)toClass));
+    if (toClass instanceof PsiTypeParameter) {
+      return isNarrowingReferenceConversionAllowed(fromType, obtainSafeSuperType((PsiTypeParameter)toClass));
+    }
     //Done with type parameters
 
     PsiManager manager = fromClass.getManager();
     final LanguageLevel languageLevel = toClassType.getLanguageLevel();
     if (!fromClass.isInterface()) {
       if (toClass.isInterface()) {
-        return (!fromClass.hasModifierProperty(PsiModifier.FINAL) || fromClass.isInheritor(toClass, true))&&
+        return (!fromClass.hasModifierProperty(PsiModifier.FINAL) || fromClass.isInheritor(toClass, true)) &&
                checkSuperTypesWithDifferentTypeArguments(toResult, fromClass, manager, fromResult.getSubstitutor(), null, languageLevel);
       }
       else {
@@ -259,7 +265,7 @@ public class TypeConversionUtil {
         if (toClass.isInheritor(fromClass, true)) {
           return checkSuperTypesWithDifferentTypeArguments(fromResult, toClass, manager, toResult.getSubstitutor(), null, languageLevel);
         }
-        else if (fromClass.isInheritor(toClass, true)) {
+        if (fromClass.isInheritor(toClass, true)) {
           return checkSuperTypesWithDifferentTypeArguments(toResult, fromClass, manager, fromResult.getSubstitutor(), null, languageLevel);
         }
 
@@ -271,7 +277,7 @@ public class TypeConversionUtil {
         return checkSuperTypesWithDifferentTypeArguments(fromResult, toClass, manager, toResult.getSubstitutor(), null, languageLevel);
       }
       else {
-        PsiSubstitutor toSubstitutor = getMaybeSuperClassSubstitutor(fromClass, toClass, toResult.getSubstitutor(), null);
+        PsiSubstitutor toSubstitutor = getMaybeSuperClassSubstitutor(fromClass, toClass, toResult.getSubstitutor());
         return toSubstitutor != null && areSameArgumentTypes(fromClass, fromResult.getSubstitutor(), toSubstitutor);
       }
     }
@@ -320,8 +326,12 @@ public class TypeConversionUtil {
     final PsiClassType.ClassResolveResult result = superType.resolveGenerics();
     final PsiClass superClass = result.getElement();
     if (superClass != null) {
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(typeParameter.getProject());
+      if (superClass instanceof PsiTypeParameter && InheritanceUtil.getCircularClass(superClass) != null) {
+        return factory.createTypeByFQClassName(JAVA_LANG_OBJECT, typeParameter.getResolveScope());
+      }
       final PsiSubstitutor substitutor = result.getSubstitutor().put(typeParameter, null);
-      return JavaPsiFacade.getInstance(typeParameter.getProject()).getElementFactory().createType(superClass, substitutor);
+      return factory.createType(superClass, substitutor);
     }
     return superType;
   }
@@ -330,7 +340,7 @@ public class TypeConversionUtil {
                                                                    @NotNull PsiClass derived,
                                                                    @NotNull PsiManager manager,
                                                                    @NotNull PsiSubstitutor derivedSubstitutor,
-                                                                   Set<PsiClass> visited,
+                                                                   Set<? super PsiClass> visited,
                                                                    @NotNull LanguageLevel languageLevel) {
     if (visited != null && visited.contains(derived)) return true;
 
@@ -341,15 +351,15 @@ public class TypeConversionUtil {
       derivedSubstitutor = getSuperClassSubstitutor(derived, derived, derivedSubstitutor);
       return areSameArgumentTypes(derived, baseResult.getSubstitutor(), derivedSubstitutor, 1);
     }
-    else {
-      PsiSubstitutor baseSubstitutor = getMaybeSuperClassSubstitutor(derived, base, baseResult.getSubstitutor(), null);
-      if (baseSubstitutor != null) {
-        derivedSubstitutor = getSuperClassSubstitutor(derived, derived, derivedSubstitutor);
-        if (!areSameArgumentTypes(derived, baseSubstitutor, derivedSubstitutor)) return false;
-      }
+    PsiSubstitutor baseSubstitutor = getMaybeSuperClassSubstitutor(derived, base, baseResult.getSubstitutor());
+    if (baseSubstitutor != null) {
+      derivedSubstitutor = getSuperClassSubstitutor(derived, derived, derivedSubstitutor);
+      if (!areSameArgumentTypes(derived, baseSubstitutor, derivedSubstitutor)) return false;
     }
 
-    if (visited == null) visited = new THashSet<>();
+    if (visited == null) {
+      visited = new HashSet<>();
+    }
     visited.add(derived);
     for (PsiClass aSuper : supers) {
       PsiSubstitutor s = getSuperClassSubstitutor(aSuper, derived, derivedSubstitutor);
@@ -370,7 +380,9 @@ public class TypeConversionUtil {
            areSameArgumentTypes(aClass, resolveResult1.getSubstitutor(), resolveResult2.getSubstitutor(), 1);
   }
 
-  private static boolean areSameArgumentTypes(@NotNull PsiClass aClass, @NotNull PsiSubstitutor substitutor1, @NotNull PsiSubstitutor substitutor2) {
+  private static boolean areSameArgumentTypes(@NotNull PsiClass aClass,
+                                              @NotNull PsiSubstitutor substitutor1,
+                                              @NotNull PsiSubstitutor substitutor2) {
     return areSameArgumentTypes(aClass, substitutor1, substitutor2, 0);
   }
 
@@ -388,52 +400,49 @@ public class TypeConversionUtil {
     return true;
   }
 
+  @Contract("null -> false")
   public static boolean isPrimitiveAndNotNull(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isPrimitiveAndNotNull(((PsiCapturedWildcardType)type).getUpperBound());
-    }
     return type instanceof PsiPrimitiveType && !isNullType(type);
   }
 
+  @Contract("null -> false")
   public static boolean isEnumType(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isEnumType(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     if (type instanceof PsiClassType) {
       final PsiClass psiClass = ((PsiClassType)type).resolve();
       if (psiClass instanceof PsiTypeParameter) {
-        return InheritanceUtil.isInheritor(psiClass, true, CommonClassNames.JAVA_LANG_ENUM);
+        return InheritanceUtil.isInheritor(psiClass, true, JAVA_LANG_ENUM);
       }
       return psiClass != null && psiClass.isEnum();
     }
     return false;
   }
 
+  @Contract(value = "null -> false", pure = true)
   public static boolean isNullType(PsiType type) {
     return PsiType.NULL.equals(type);
   }
 
+  @Contract("null -> false")
   public static boolean isFloatOrDoubleType(PsiType type) {
     return isFloatType(type) || isDoubleType(type);
   }
+
+  @Contract("null -> false")
   public static boolean isDoubleType(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isDoubleType(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     return PsiType.DOUBLE.equals(type) || PsiType.DOUBLE.equals(PsiPrimitiveType.getUnboxedType(type));
   }
 
+  @Contract("null -> false")
   public static boolean isFloatType(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isFloatType(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     return PsiType.FLOAT.equals(type) || PsiType.FLOAT.equals(PsiPrimitiveType.getUnboxedType(type));
   }
 
+  @Contract("null -> false")
   public static boolean isLongType(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isLongType(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     return PsiType.LONG.equals(type) || PsiType.LONG.equals(PsiPrimitiveType.getUnboxedType(type));
   }
 
@@ -442,13 +451,19 @@ public class TypeConversionUtil {
   }
 
   public static boolean isBooleanType(@Nullable PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isBooleanType(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     return PsiType.BOOLEAN.equals(type) || PsiType.BOOLEAN.equals(PsiPrimitiveType.getUnboxedType(type));
   }
 
-  public static boolean isNumericType(int typeRank) {
+  @Contract("null -> null")
+  private static PsiType uncapture(PsiType type) {
+    while (type instanceof PsiCapturedWildcardType) {
+      type = ((PsiCapturedWildcardType)type).getUpperBound();
+    }
+    return type;
+  }
+
+  public static boolean isNumericType(@TypeRank int typeRank) {
     return typeRank <= MAX_NUMERIC_RANK;
   }
   public static boolean isNumericType(PsiType type) {
@@ -464,19 +479,22 @@ public class TypeConversionUtil {
    *         STRING_TYPE for String,
    *         Integer.MAX_VALUE for others
    */
+  @TypeRank
   public static int getTypeRank(@NotNull PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      type = ((PsiCapturedWildcardType)type).getUpperBound();
-    }
+    type = uncapture(type);
     PsiPrimitiveType unboxedType = PsiPrimitiveType.getUnboxedType(type);
     if (unboxedType != null) {
       type = unboxedType;
     }
 
-    int rank = TYPE_TO_RANK_MAP.get(type);
-    if (rank != 0) return rank;
-    if (type.equalsToText(JAVA_LANG_STRING)) return STRING_RANK;
-    return Integer.MAX_VALUE;
+    int rank = TYPE_TO_RANK_MAP.getInt(type);
+    if (rank != 0) {
+      return rank;
+    }
+    if (type.equalsToText(JAVA_LANG_STRING)) {
+      return STRING_RANK;
+    }
+    return UNKNOWN_RANK;
   }
 
   /**
@@ -484,7 +502,7 @@ public class TypeConversionUtil {
    * @param strict    true if operator result type should be convertible to the left operand
    * @return true if lOperand operator rOperand expression is syntactically correct
    */
-  public static boolean isBinaryOperatorApplicable(IElementType tokenType,
+  public static boolean isBinaryOperatorApplicable(@NotNull IElementType tokenType,
                                                    PsiExpression lOperand,
                                                    PsiExpression rOperand,
                                                    boolean strict) {
@@ -494,13 +512,13 @@ public class TypeConversionUtil {
     return isBinaryOperatorApplicable(tokenType, ltype, rtype, strict);
   }
 
-  public static boolean isBinaryOperatorApplicable(final IElementType tokenType, final PsiType ltype, final PsiType rtype, final boolean strict) {
+  public static boolean isBinaryOperatorApplicable(@NotNull IElementType tokenType, final PsiType ltype, final PsiType rtype, final boolean strict) {
     if (ltype == null || rtype == null) return true;
     int resultTypeRank = BOOL_RANK;
     boolean isApplicable = false;
     final int ltypeRank = getTypeRank(ltype);
     final int rtypeRank = getTypeRank(rtype);
-    Label:
+
     if (tokenType == JavaTokenType.LT || tokenType == JavaTokenType.LE || tokenType == JavaTokenType.GT || tokenType == JavaTokenType.GE) {
       if (isPrimitiveAndNotNullOrWrapper(ltype) && isPrimitiveAndNotNullOrWrapper(rtype)) {
         isApplicable = ltypeRank <= MAX_NUMERIC_RANK && rtypeRank <= MAX_NUMERIC_RANK;
@@ -516,20 +534,16 @@ public class TypeConversionUtil {
         if (isPrimitiveAndNotNull(ltype)) {
           if (rtype instanceof PsiClassType) {
             final LanguageLevel languageLevel = ((PsiClassType)rtype).getLanguageLevel();
-            if (languageLevel.isAtLeast(LanguageLevel.JDK_1_5) &&
-                !languageLevel.isAtLeast(LanguageLevel.JDK_1_8) &&
-                areTypesConvertible(ltype, rtype)) {
-              return true;
-            }
+            return languageLevel.isAtLeast(LanguageLevel.JDK_1_5) &&
+                   !languageLevel.isAtLeast(LanguageLevel.JDK_1_8) &&
+                   areTypesConvertible(ltype, rtype);
           }
           return false;
         }
         if (isPrimitiveAndNotNull(rtype)) {
           if (ltype instanceof PsiClassType) {
             final LanguageLevel level = ((PsiClassType)ltype).getLanguageLevel();
-            if (level.isAtLeast(LanguageLevel.JDK_1_7) && !level.isAtLeast(LanguageLevel.JDK_1_8) && areTypesConvertible(rtype, ltype)) {
-              return true;
-            }
+            return level.isAtLeast(LanguageLevel.JDK_1_7) && !level.isAtLeast(LanguageLevel.JDK_1_8) && areTypesConvertible(rtype, ltype);
           }
           return false;
         }
@@ -540,19 +554,14 @@ public class TypeConversionUtil {
       if (ltype.equalsToText(JAVA_LANG_STRING)) {
         isApplicable = !isVoidType(rtype);
         resultTypeRank = STRING_RANK;
-        break Label;
       }
       else if (rtype.equalsToText(JAVA_LANG_STRING)) {
-        isApplicable = !isVoidType(ltype);
-        resultTypeRank = STRING_RANK;
-        break Label;
+        if (isVoidType(ltype)) {
+          return false;
+        }
+        return !strict || ltype.isAssignableFrom(rtype);
       }
-      //fallthrough
-
-
-
-
-      if (isPrimitiveAndNotNullOrWrapper(ltype) && isPrimitiveAndNotNullOrWrapper(rtype)) {
+      else if (isPrimitiveAndNotNullOrWrapper(ltype) && isPrimitiveAndNotNullOrWrapper(rtype)) {
         resultTypeRank = Math.max(ltypeRank, rtypeRank);
         isApplicable = ltypeRank <= MAX_NUMERIC_RANK && rtypeRank <= MAX_NUMERIC_RANK;
       }
@@ -582,21 +591,15 @@ public class TypeConversionUtil {
         isApplicable = isBooleanType(ltype) && isBooleanType(rtype);
       }
     }
-    if (isApplicable && strict) {
-      if (resultTypeRank > MAX_NUMERIC_RANK) {
-        isApplicable = ltypeRank == resultTypeRank || ltype.equalsToText(CommonClassNames.JAVA_LANG_OBJECT);
-      }
-      else {
-        isApplicable = ltypeRank <= MAX_NUMERIC_RANK;
-      }
+
+    if (isApplicable && strict && resultTypeRank > MAX_NUMERIC_RANK) {
+      isApplicable = ltypeRank == resultTypeRank || ltype.equalsToText(JAVA_LANG_OBJECT);
     }
     return isApplicable;
   }
 
   public static boolean isPrimitiveAndNotNullOrWrapper(PsiType type) {
-    if (type instanceof PsiCapturedWildcardType) {
-      return isPrimitiveAndNotNullOrWrapper(((PsiCapturedWildcardType)type).getUpperBound());
-    }
+    type = uncapture(type);
     if (type instanceof PsiClassType) {
       return PsiPrimitiveType.getUnboxedType(type) != null;
     }
@@ -650,7 +653,7 @@ public class TypeConversionUtil {
       if (indexExpression == null) return false;
       final PsiType indexType = indexExpression.getType();
       if (indexType == null) return false;
-      if (getTypeRank(indexType) <= INT_RANK) return true;
+      return getTypeRank(indexType) <= INT_RANK;
     }
     return false;
   }
@@ -718,7 +721,11 @@ public class TypeConversionUtil {
                                       @NotNull PsiType right,
                                       boolean allowUncheckedConversion,
                                       boolean capture) {
-    if (left == right || left.equals(right)) return true;
+    if (left == right) return true;
+    if (left instanceof PsiClassType && left.equalsToText(JAVA_LANG_OBJECT)) {
+      if (right instanceof PsiMethodReferenceType || right instanceof PsiLambdaExpressionType) return false;
+    }
+    if (left.equals(right)) return true;
 
     if (isNullType(right)) {
       return !(left instanceof PsiPrimitiveType) || isNullType(left);
@@ -730,7 +737,8 @@ public class TypeConversionUtil {
         final PsiType rType = methodReferenceExpression.getFunctionalInterfaceType();
         final PsiType lType = ((PsiLambdaExpressionType)left).getExpression().getFunctionalInterfaceType();
         return Comparing.equal(rType, lType);
-      } else if (left instanceof PsiMethodReferenceType) {
+      }
+      if (left instanceof PsiMethodReferenceType) {
         final PsiType rType = methodReferenceExpression.getFunctionalInterfaceType();
         final PsiType lType = ((PsiMethodReferenceType)left).getExpression().getFunctionalInterfaceType();
         return Comparing.equal(rType, lType);
@@ -787,7 +795,7 @@ public class TypeConversionUtil {
           return "java.io.Serializable".equals(qualifiedName) || "java.lang.Cloneable".equals(qualifiedName);
         }
         else {
-          return left.equalsToText(CommonClassNames.JAVA_LANG_OBJECT);
+          return left.equalsToText(JAVA_LANG_OBJECT);
         }
       }
       PsiType lCompType = ((PsiArrayType)left).getComponentType();
@@ -808,14 +816,23 @@ public class TypeConversionUtil {
       return isAssignable(left, ((PsiDisjunctionType)right).getLeastUpperBound(), allowUncheckedConversion, capture);
     }
 
-    if (left instanceof PsiArrayType) return false;
+    if (left instanceof PsiArrayType) {
+      if (right instanceof PsiClassType) {
+        PsiClass aClass = ((PsiClassType)right).resolve();
+        if (aClass instanceof PsiTypeParameter) {
+          PsiType upperBound = getInferredUpperBoundForSynthetic((PsiTypeParameter)aClass);
+          return upperBound != null && isAssignable(left, upperBound, allowUncheckedConversion, capture);
+        }
+      }
+      return false;
+    }
     if (right instanceof PsiPrimitiveType) {
       if (isVoidType(right)) return false;
       if (!(left instanceof PsiPrimitiveType)) {
         return left instanceof PsiClassType && isBoxable((PsiClassType)left, (PsiPrimitiveType)right);
       }
-      int leftTypeIndex = TYPE_TO_RANK_MAP.get(left) - 1;
-      int rightTypeIndex = TYPE_TO_RANK_MAP.get(right) - 1;
+      int leftTypeIndex = TYPE_TO_RANK_MAP.getInt(left) - 1;
+      int rightTypeIndex = TYPE_TO_RANK_MAP.getInt(right) - 1;
       return leftTypeIndex >= 0 &&
              rightTypeIndex >= 0 &&
              rightTypeIndex < IS_ASSIGNABLE_BIT_SET.length &&
@@ -830,8 +847,14 @@ public class TypeConversionUtil {
     }
     final PsiClassType.ClassResolveResult leftResult = PsiUtil.resolveGenericsClassInType(left);
     final PsiClassType.ClassResolveResult rightResult = PsiUtil.resolveGenericsClassInType(right);
-    if (leftResult.getElement() == null || rightResult.getElement() == null) {
-      if (leftResult.getElement() != rightResult.getElement()) return false;
+    PsiClass leftResultElement = leftResult.getElement();
+    PsiClass rightResultElement = rightResult.getElement();
+    if (leftResultElement == null || rightResultElement == null) {
+      if (leftResultElement == null && rightResultElement != null &&
+              left instanceof PsiClassType && left.equalsToText(JAVA_LANG_OBJECT)) {
+        return true;
+      }
+      if (leftResultElement != rightResultElement) return false;
       // let's suppose 2 unknown classes, which could be the same to be the same
       String lText = left.getPresentableText();
       String rText = right.getPresentableText();
@@ -867,7 +890,7 @@ public class TypeConversionUtil {
     return isAssignable(wildcardType.getExtendsBound(), right);
   }
 
-  private static boolean isUnboxable(@NotNull PsiPrimitiveType left, @NotNull PsiClassType right, @NotNull Set<PsiClassType> types) {
+  private static boolean isUnboxable(@NotNull PsiPrimitiveType left, @NotNull PsiClassType right, @NotNull Set<? super PsiClassType> types) {
     if (!right.getLanguageLevel().isAtLeast(LanguageLevel.JDK_1_5)) return false;
     final PsiClass psiClass = right.resolve();
     if (psiClass == null) return false;
@@ -928,7 +951,7 @@ public class TypeConversionUtil {
       project.putUserData(POSSIBLE_BOXED_HOLDER_TYPES, boxedHolderTypes = CachedValuesManager.getManager(manager.getProject()).createCachedValue(
         () -> {
           final JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
-          final Set<String> set = new THashSet<>();
+          final Set<String> set = new HashSet<>();
           for (final String qname : JvmPrimitiveTypeKind.getBoxedFqns()) {
             final PsiClass boxedClass = facade.findClass(qname, GlobalSearchScope.allScope(project));
             InheritanceUtil.processSupers(boxedClass, true, psiClass1 -> {
@@ -945,8 +968,8 @@ public class TypeConversionUtil {
 
   private static boolean isClassAssignable(@NotNull PsiClassType.ClassResolveResult leftResult,
                                            @NotNull PsiClassType.ClassResolveResult rightResult,
-                                           boolean allowUncheckedConversion, 
-                                           GlobalSearchScope resolveScope, 
+                                           boolean allowUncheckedConversion,
+                                           GlobalSearchScope resolveScope,
                                            boolean capture) {
     final PsiClass leftClass = leftResult.getElement();
     final PsiClass rightClass = rightResult.getElement();
@@ -997,32 +1020,31 @@ public class TypeConversionUtil {
     return true;
   }
 
-  private static final RecursionGuard ourGuard = RecursionManager.createGuard("isAssignable");
+  private static final RecursionGuard<PsiType> ourGuard = RecursionManager.createGuard("isAssignable");
 
-  public static boolean typesAgree(final @NotNull PsiType typeLeft,
-                                   final @NotNull PsiType typeRight,
+  public static boolean typesAgree(@NotNull final PsiType typeLeft,
+                                   @NotNull final PsiType typeRight,
                                    final boolean allowUncheckedConversion) {
     if (typeLeft instanceof PsiWildcardType) {
       final PsiWildcardType leftWildcard = (PsiWildcardType)typeLeft;
       final PsiType leftBound = leftWildcard.getBound();
       if (leftBound == null) return true;
-      if (leftBound.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
+      if (leftBound.equalsToText(JAVA_LANG_OBJECT)) {
         if (!leftWildcard.isSuper()) return true;
-        if (typeRight.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) return true;
+        if (typeRight.equalsToText(JAVA_LANG_OBJECT)) return true;
       }
 
       if (typeRight instanceof PsiWildcardType) {
         final PsiWildcardType rightWildcard = (PsiWildcardType)typeRight;
-        if (leftWildcard.isExtends()) {
-          return rightWildcard.isExtends() && isAssignable(leftBound, rightWildcard.getBound(), allowUncheckedConversion, false);
+        PsiType bound = rightWildcard.getBound();
+        if (leftWildcard.isExtends() && bound != null) {
+          return rightWildcard.isExtends() && isAssignable(leftBound, bound, allowUncheckedConversion, false);
         }
         else { //isSuper
-          if (rightWildcard.isSuper()) {
-            final Boolean assignable = ourGuard.doPreventingRecursion(rightWildcard, true,
-                                                                      (NotNullComputable<Boolean>)() -> isAssignable(rightWildcard.getBound(), leftBound, allowUncheckedConversion, false));
-            if (assignable != null && assignable) {
-              return true;
-            }
+          if (rightWildcard.isSuper() && bound != null) {
+            NotNullComputable<Boolean> checkAssignable = () -> isAssignable(bound, leftBound, allowUncheckedConversion, false);
+            final Boolean assignable = ourGuard.doPreventingRecursion(rightWildcard, true, checkAssignable);
+            return assignable != null && assignable;
           }
           return false;
         }
@@ -1032,9 +1054,9 @@ public class TypeConversionUtil {
           return isAssignable(leftBound, typeRight, false, false);
         }
         else { // isSuper
-          final Boolean assignable = ourGuard.doPreventingRecursion(leftWildcard, true,
-                                                                    (NotNullComputable<Boolean>)() -> isAssignable(typeRight, leftBound, false, false));
-          return assignable == null || assignable.booleanValue(); 
+          NotNullComputable<Boolean> checkAssignable = () -> isAssignable(typeRight, leftBound, false, false);
+          final Boolean assignable = ourGuard.doPreventingRecursion(leftWildcard, true, checkAssignable);
+          return assignable == null || assignable.booleanValue();
         }
       }
     }
@@ -1051,11 +1073,11 @@ public class TypeConversionUtil {
       PsiTypeParameter[] baseParams = superClassCandidate.getTypeParameters();
       PsiTypeParameter[] derivedParams = derivedClassCandidate.getTypeParameters();
       if (baseParams.length > 0 && derivedParams.length == 0) {
-        return JavaPsiFacade.getInstance(superClassCandidate.getProject()).getElementFactory().createRawSubstitutor(superClassCandidate);
+        return JavaPsiFacade.getElementFactory(superClassCandidate.getProject()).createRawSubstitutor(superClassCandidate);
       }
       return derivedSubstitutor;
     }
-    return getMaybeSuperClassSubstitutor(superClassCandidate, derivedClassCandidate, derivedSubstitutor, null);
+    return getMaybeSuperClassSubstitutor(superClassCandidate, derivedClassCandidate, derivedSubstitutor);
   }
 
   /**
@@ -1075,8 +1097,7 @@ public class TypeConversionUtil {
                                                         @NotNull PsiSubstitutor derivedSubstitutor) {
     if (!superClass.hasTypeParameters() && superClass.getContainingClass() == null) return PsiSubstitutor.EMPTY; //optimization and protection against EJB queer hierarchy
 
-    Set<PsiClass> visited = new THashSet<>();
-    PsiSubstitutor substitutor = getMaybeSuperClassSubstitutor(superClass, derivedClass, derivedSubstitutor, visited);
+    PsiSubstitutor substitutor = getMaybeSuperClassSubstitutor(superClass, derivedClass, derivedSubstitutor);
 
     if (substitutor == null) {
       JavaClassSupers.getInstance().reportHierarchyInconsistency(superClass, derivedClass);
@@ -1089,8 +1110,7 @@ public class TypeConversionUtil {
   @Nullable
   public static PsiSubstitutor getMaybeSuperClassSubstitutor(@NotNull PsiClass superClass,
                                                              @NotNull PsiClass derivedClass,
-                                                             @NotNull PsiSubstitutor derivedSubstitutor,
-                                                             @Nullable Set<PsiClass> visited) {
+                                                             @NotNull PsiSubstitutor derivedSubstitutor) {
     return JavaClassSupers.getInstance().getSuperClassSubstitutor(superClass, derivedClass, derivedClass.getResolveScope(), derivedSubstitutor);
   }
 
@@ -1105,6 +1125,8 @@ public class TypeConversionUtil {
    */
   @NotNull
   public static PsiType binaryNumericPromotion(PsiType type1, PsiType type2) {
+    type1 = uncapture(type1);
+    type2 = uncapture(type2);
     if (isDoubleType(type1)) return unbox(type1);
     if (isDoubleType(type2)) return unbox(type2);
     if (isFloatType(type1)) return unbox(type1);
@@ -1127,69 +1149,74 @@ public class TypeConversionUtil {
     return type;
   }
 
-  private static final Set<String> INTEGER_NUMBER_TYPES = new THashSet<>(5);
+  private static final Set<String> INTEGER_NUMBER_TYPES = new HashSet<>(5);
 
   static {
-    INTEGER_NUMBER_TYPES.add(PsiType.BYTE.getCanonicalText());
-    INTEGER_NUMBER_TYPES.add(PsiType.CHAR.getCanonicalText());
-    INTEGER_NUMBER_TYPES.add(PsiType.LONG.getCanonicalText());
-    INTEGER_NUMBER_TYPES.add(PsiType.INT.getCanonicalText());
-    INTEGER_NUMBER_TYPES.add(PsiType.SHORT.getCanonicalText());
+    INTEGER_NUMBER_TYPES.add(PsiType.BYTE.getName());
+    INTEGER_NUMBER_TYPES.add(PsiType.CHAR.getName());
+    INTEGER_NUMBER_TYPES.add(PsiType.LONG.getName());
+    INTEGER_NUMBER_TYPES.add(PsiType.INT.getName());
+    INTEGER_NUMBER_TYPES.add(PsiType.SHORT.getName());
   }
 
-  private static final Set<String> PRIMITIVE_TYPES = new THashSet<>(9);
+  private static final Set<String> PRIMITIVE_TYPES = new HashSet<>(9);
 
   static {
-    PRIMITIVE_TYPES.add(PsiType.VOID.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.BYTE.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.CHAR.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.DOUBLE.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.FLOAT.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.LONG.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.INT.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.SHORT.getCanonicalText());
-    PRIMITIVE_TYPES.add(PsiType.BOOLEAN.getCanonicalText());
+    PRIMITIVE_TYPES.add(PsiType.VOID.getName());
+    PRIMITIVE_TYPES.add(PsiType.BYTE.getName());
+    PRIMITIVE_TYPES.add(PsiType.CHAR.getName());
+    PRIMITIVE_TYPES.add(PsiType.DOUBLE.getName());
+    PRIMITIVE_TYPES.add(PsiType.FLOAT.getName());
+    PRIMITIVE_TYPES.add(PsiType.LONG.getName());
+    PRIMITIVE_TYPES.add(PsiType.INT.getName());
+    PRIMITIVE_TYPES.add(PsiType.SHORT.getName());
+    PRIMITIVE_TYPES.add(PsiType.BOOLEAN.getName());
   }
 
-  private static final Set<String> PRIMITIVE_WRAPPER_TYPES = new THashSet<>(8);
+  private static final Set<String> PRIMITIVE_WRAPPER_FQNS = ContainerUtil.immutableSet(
+    JAVA_LANG_BYTE, JAVA_LANG_CHARACTER, JAVA_LANG_DOUBLE, JAVA_LANG_FLOAT, JAVA_LANG_LONG, JAVA_LANG_INTEGER, JAVA_LANG_SHORT,
+    JAVA_LANG_BOOLEAN);
 
-  static {
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Byte");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Character");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Double");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Float");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Long");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Integer");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Short");
-    PRIMITIVE_WRAPPER_TYPES.add("java.lang.Boolean");
-  }
+  private static final Set<String> PRIMITIVE_WRAPPER_SIMPLE_NAMES =
+    ContainerUtil.map2Set(PRIMITIVE_WRAPPER_FQNS, StringUtil::getShortName);
 
-  public static boolean isIntegerNumber(String typeName) {
+  public static boolean isIntegerNumber(@NotNull String typeName) {
     return INTEGER_NUMBER_TYPES.contains(typeName);
   }
 
-  public static boolean isPrimitive(String typeName) {
+  public static boolean isPrimitive(@NotNull String typeName) {
     return PRIMITIVE_TYPES.contains(typeName);
   }
 
-  public static boolean isPrimitiveWrapper(String typeName) {
-    return PRIMITIVE_WRAPPER_TYPES.contains(typeName);
+  public static boolean isPrimitiveWrapper(@NotNull String fullyQualifiedName) {
+    return PRIMITIVE_WRAPPER_FQNS.contains(fullyQualifiedName);
   }
   @Contract("null -> false")
-  public static boolean isAssignableFromPrimitiveWrapper(final PsiType type) {
+  public static boolean isAssignableFromPrimitiveWrapper(@Nullable PsiType type) {
     if (type == null) return false;
-    return isPrimitiveWrapper(type) ||
-           type.equalsToText(CommonClassNames.JAVA_LANG_OBJECT) ||
-           type.equalsToText(CommonClassNames.JAVA_LANG_NUMBER);
+    if (isPrimitiveWrapper(type)) return true;
+    for (PsiType component : type instanceof PsiIntersectionType ? ((PsiIntersectionType)type).getConjuncts() : new PsiType[]{type}) {
+      if (!(component instanceof PsiClassType)) return false;
+      if (component.equalsToText(JAVA_LANG_OBJECT)) continue;
+      if (component.equalsToText(JAVA_LANG_NUMBER)) continue;
+      if (component.equalsToText(JAVA_IO_SERIALIZABLE)) continue;
+      if (component.equalsToText("java.lang.constant.Constable")) continue;
+      if (component.equalsToText("java.lang.constant.ConstantDesc")) continue;
+      if (((PsiClassType)component).rawType().equalsToText(JAVA_LANG_COMPARABLE)) continue;
+      return false;
+    }
+    return true;
   }
 
   @Contract("null -> false")
-  public static boolean isPrimitiveWrapper(final PsiType type) {
-    return type instanceof PsiClassType && isPrimitiveWrapper(type.getCanonicalText());
+  public static boolean isPrimitiveWrapper(@Nullable PsiType type) {
+    if (!(type instanceof PsiClassType)) return false;
+    String name = ((PsiClassType)type).getClassName();
+    return PRIMITIVE_WRAPPER_SIMPLE_NAMES.contains(name) && isPrimitiveWrapper(type.getCanonicalText());
   }
 
   @Contract("null -> false")
-  public static boolean isComposite(final PsiType type) {
+  public static boolean isComposite(@Nullable PsiType type) {
     return type instanceof PsiDisjunctionType || type instanceof PsiIntersectionType;
   }
 
@@ -1202,7 +1229,7 @@ public class TypeConversionUtil {
     if (extendsList.length > 0) {
       final PsiClass psiClass = extendsList[0].resolve();
       if (psiClass instanceof PsiTypeParameter) {
-        Set<PsiClass> visited = new THashSet<>();
+        Set<PsiClass> visited = new HashSet<>();
         visited.add(psiClass);
         final PsiTypeParameter boundTypeParameter = (PsiTypeParameter)psiClass;
         if (beforeSubstitutor.getSubstitutionMap().containsKey(boundTypeParameter)) {
@@ -1211,15 +1238,15 @@ public class TypeConversionUtil {
         return typeParameterErasureInner(boundTypeParameter, visited, beforeSubstitutor);
       }
       else if (psiClass != null) {
-        return JavaPsiFacade.getInstance(typeParameter.getProject()).getElementFactory().createType(psiClass);
+        return JavaPsiFacade.getElementFactory(typeParameter.getProject()).createType(psiClass);
       }
     }
     return PsiType.getJavaLangObject(typeParameter.getManager(), typeParameter.getResolveScope());
   }
 
-  private static PsiClassType typeParameterErasureInner(PsiTypeParameter typeParameter,
-                                                        Set<PsiClass> visited,
-                                                        PsiSubstitutor beforeSubstitutor) {
+  private static PsiClassType typeParameterErasureInner(@NotNull PsiTypeParameter typeParameter,
+                                                        @NotNull Set<? super PsiClass> visited,
+                                                        @NotNull PsiSubstitutor beforeSubstitutor) {
     final PsiClassType[] extendsList = typeParameter.getExtendsList().getReferencedTypes();
     if (extendsList.length > 0) {
       final PsiClass psiClass = extendsList[0].resolve();
@@ -1233,7 +1260,7 @@ public class TypeConversionUtil {
         }
       }
       else if (psiClass != null) {
-        return JavaPsiFacade.getInstance(typeParameter.getProject()).getElementFactory().createType(psiClass);
+        return JavaPsiFacade.getElementFactory(typeParameter.getProject()).createType(psiClass);
       }
     }
     return PsiType.getJavaLangObject(typeParameter.getManager(), typeParameter.getResolveScope());
@@ -1245,17 +1272,17 @@ public class TypeConversionUtil {
   }
 
   @Contract("null, _ -> null")
-  public static PsiType erasure(@Nullable final PsiType type, @NotNull final PsiSubstitutor beforeSubstitutor) {
+  public static PsiType erasure(@Nullable PsiType type, @NotNull PsiSubstitutor beforeSubstitutor) {
     if (type == null) return null;
     return type.accept(new PsiTypeVisitor<PsiType>() {
-      @Nullable
+      @NotNull
       @Override
-      public PsiType visitType(PsiType type) {
+      public PsiType visitType(@NotNull PsiType type) {
         return type;
       }
 
       @Override
-      public PsiType visitClassType(PsiClassType classType) {
+      public PsiType visitClassType(@NotNull PsiClassType classType) {
         final PsiClass aClass = classType.resolve();
         if (aClass instanceof PsiTypeParameter && !isFreshVariable((PsiTypeParameter)aClass)) {
           return typeParameterErasure((PsiTypeParameter)aClass, beforeSubstitutor);
@@ -1264,31 +1291,28 @@ public class TypeConversionUtil {
       }
 
       @Override
-      public PsiType visitWildcardType(PsiWildcardType wildcardType) {
+      public PsiType visitWildcardType(@NotNull PsiWildcardType wildcardType) {
         return wildcardType;
       }
 
       @Nullable
       @Override
-      public PsiType visitCapturedWildcardType(PsiCapturedWildcardType capturedWildcardType) {
+      public PsiType visitCapturedWildcardType(@NotNull PsiCapturedWildcardType capturedWildcardType) {
         return capturedWildcardType.getUpperBound().accept(this);
       }
 
       @Override
-      public PsiType visitPrimitiveType(PsiPrimitiveType primitiveType) {
+      public PsiType visitPrimitiveType(@NotNull PsiPrimitiveType primitiveType) {
         return primitiveType;
       }
 
       @Override
-      public PsiType visitEllipsisType(PsiEllipsisType ellipsisType) {
-        final PsiType componentType = ellipsisType.getComponentType();
-        final PsiType newComponentType = componentType.accept(this);
-        if (newComponentType == componentType) return ellipsisType;
-        return newComponentType != null ? newComponentType.createArrayType() : null;
+      public PsiType visitEllipsisType(@NotNull PsiEllipsisType ellipsisType) {
+        return visitArrayType(ellipsisType);
       }
 
       @Override
-      public PsiType visitArrayType(PsiArrayType arrayType) {
+      public PsiType visitArrayType(@NotNull PsiArrayType arrayType) {
         final PsiType componentType = arrayType.getComponentType();
         final PsiType newComponentType = componentType.accept(this);
         if (newComponentType == componentType) return arrayType;
@@ -1296,14 +1320,14 @@ public class TypeConversionUtil {
       }
 
       @Override
-      public PsiType visitDisjunctionType(PsiDisjunctionType disjunctionType) {
+      public PsiType visitDisjunctionType(@NotNull PsiDisjunctionType disjunctionType) {
         final PsiClassType lub = PsiTypesUtil.getLowestUpperBoundClassType(disjunctionType);
         return lub != null ? erasure(lub, beforeSubstitutor) : disjunctionType;
       }
     });
   }
 
-  public static Object computeCastTo(final Object operand, final PsiType castType) {
+  public static Object computeCastTo(final Object operand, PsiType castType) {
     if (operand == null || castType == null) return null;
     Object value;
     if (operand instanceof String && castType.equalsToText(JAVA_LANG_STRING) ||
@@ -1315,12 +1339,8 @@ public class TypeConversionUtil {
       if (primitiveType == null) return null;
       // identity cast, including (boolean)boolValue
       if (castType.equals(primitiveType)) return operand;
-      final int rankFrom = getTypeRank(primitiveType);
-      if (rankFrom > caster.length) return null;
       final int rankTo = getTypeRank(castType);
-      if (rankTo > caster.length) return null;
-
-      value = caster[rankFrom - 1][rankTo - 1].cast(operand);
+      value = cast(operand, rankTo);
     }
     return value;
   }
@@ -1374,7 +1394,6 @@ public class TypeConversionUtil {
     return opSign;
   }
 
-  @Nullable
   public static PsiType calcTypeForBinaryExpression(PsiType lType, PsiType rType, @NotNull IElementType sign, boolean accessLType) {
     if (sign == JavaTokenType.PLUS) {
       // evaluate right argument first, since '+-/*%' is left associative and left operand tends to be bigger
@@ -1397,10 +1416,10 @@ public class TypeConversionUtil {
     }
     if (sign == JavaTokenType.LTLT || sign == JavaTokenType.GTGT || sign == JavaTokenType.GTGTGT) {
       if (!accessLType) return NULL_TYPE;
+      if (lType instanceof PsiClassType) lType = PsiPrimitiveType.getUnboxedType(lType);
       if (PsiType.BYTE.equals(lType) || PsiType.CHAR.equals(lType) || PsiType.SHORT.equals(lType)) {
         return PsiType.INT;
       }
-      if (lType instanceof PsiClassType) lType = PsiPrimitiveType.getUnboxedType(lType);
       return lType;
     }
     if (PsiBinaryExpression.BOOLEAN_OPERATION_TOKENS.contains(sign)) {
@@ -1427,7 +1446,7 @@ public class TypeConversionUtil {
    * See JLS 3.10.2. Floating-Point Literals
    * @return true  if floating point literal consists of zeros only
    */
-  public static boolean isFPZero(@NotNull final String text) {
+  public static boolean isFPZero(@NotNull String text) {
     for (int i = 0; i < text.length(); i++) {
       final char c = text.charAt(i);
       if (Character.isDigit(c) && c != '0') return false;
@@ -1437,391 +1456,101 @@ public class TypeConversionUtil {
     return true;
   }
 
-  public static boolean areSameFreshVariables(PsiTypeParameter p1, PsiTypeParameter p2) {
+  public static boolean areSameFreshVariables(@NotNull PsiTypeParameter p1, @NotNull PsiTypeParameter p2) {
     final PsiElement originalContext = p1.getUserData(ORIGINAL_CONTEXT);
     return originalContext != null && originalContext == p2.getUserData(ORIGINAL_CONTEXT);
   }
 
-  public static boolean isFreshVariable(PsiTypeParameter typeParameter) {
+  public static boolean isFreshVariable(@NotNull PsiTypeParameter typeParameter) {
     return typeParameter.getUserData(ORIGINAL_CONTEXT) != null;
   }
-  
-  public static void markAsFreshVariable(PsiTypeParameter parameter, PsiElement context) {
+
+  public static void markAsFreshVariable(@NotNull PsiTypeParameter parameter, PsiElement context) {
     parameter.putUserData(ORIGINAL_CONTEXT, context);
   }
 
-  private interface Caster {
-    @NotNull
-    Object cast(@NotNull Object operand);
+  /**
+   * the upper bound for the non-physical (and may be non-denotable) type parameter temporarily created during type inference
+   * @see com.intellij.psi.impl.source.resolve.graphInference.InferenceSession
+   */
+  public static PsiType getInferredUpperBoundForSynthetic(@NotNull PsiTypeParameter psiClass) {
+    return psiClass.getUserData(UPPER_BOUND);
   }
 
-  private static final Caster[][] caster = {
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Number)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Number)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return ((Number)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)((Number)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (float)((Number)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)((Number)operand).intValue();
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Short)operand).shortValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Short)operand).shortValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (int)(Short)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)(Short)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (float)(Short)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)(Short)operand;
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Character)operand).charValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Character)operand).charValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (int)(Character)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)(Character)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (float)(Character)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)(Character)operand;
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Integer)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Integer)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Integer)operand).intValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)(Integer)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (float)(Integer)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)(Integer)operand;
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Long)operand).longValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Long)operand).longValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Long)operand).longValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (int)((Long)operand).longValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (float)(Long)operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)(Long)operand;
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Float)operand).floatValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Float)operand).floatValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Float)operand).floatValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (int)((Float)operand).floatValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)((Float)operand).floatValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (double)(Float)operand;
-        }
-      }
-    }
-    ,
-    {
-      new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (byte)((Double)operand).doubleValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (short)((Double)operand).doubleValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (char)((Double)operand).doubleValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (int)((Double)operand).doubleValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return (long)((Double)operand).doubleValue();
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return new Float((Double)operand);
-        }
-      }
-      , new Caster() {
-        @NotNull
-        @Override
-        public Object cast(@NotNull Object operand) {
-          return operand;
-        }
-      }
-    }
-  };
+  /**
+   * the lower bound for the non-physical (and may be non-denotable) type parameter temporarily created during type inference
+   * @see com.intellij.psi.impl.source.resolve.graphInference.InferenceSession
+   */
+  public static PsiType getInferredLowerBoundForSynthetic(@NotNull PsiTypeParameter psiClass) {
+    return psiClass.getUserData(LOWER_BOUND);
+  }
 
-  private static final Map<Class, PsiType> WRAPPER_TO_PRIMITIVE = new THashMap<>(8);
+  public static void setInferredBoundsForSynthetic(@NotNull PsiTypeParameter parameter, PsiType lowerBound, @NotNull PsiType upperBound) {
+    assert !parameter.isPhysical() : parameter;
+    parameter.putUserData(UPPER_BOUND, upperBound);
+    parameter.putUserData(LOWER_BOUND, lowerBound);
+  }
+
+  /**
+   * Returns true if numeric conversion (widening or narrowing) does not lose the information.
+   * This differs slightly from {@link #isAssignable(PsiType, PsiType)} result as some assignable types
+   * still may lose the information. E.g. {@code double doubleVar = longVar} may lose round the long value.
+   *
+   * @param target target type
+   * @param source source type
+   * @return true if numeric conversion (widening or narrowing) does not lose the information.
+   */
+  public static boolean isSafeConversion(PsiType target, PsiType source) {
+    /*  From \ To  byte short char int long float double
+     *  byte        +    +    -    +    +    +    +
+     *  short       -    +    -    +    +    +    +
+     *  char        -    -    +    +    +    +    +
+     *  int         -    -    -    +    +    -    +
+     *  long        -    -    -    -    +    -    -
+     *  float       -    -    -    -    -    +    +
+     *  double      -    -    -    -    -    -    +
+     */
+    if (target == null || source == null) return false;
+    if (target.equals(source)) return true;
+
+    int sourceRank = TYPE_TO_RANK_MAP.get(source);
+    int targetRank = TYPE_TO_RANK_MAP.get(target);
+    if (sourceRank == 0 || sourceRank > MAX_NUMERIC_RANK ||
+        targetRank == 0 || targetRank > MAX_NUMERIC_RANK ||
+        !IS_ASSIGNABLE_BIT_SET[sourceRank-1][targetRank-1]) {
+      return false;
+    }
+    if (PsiType.INT.equals(source) && PsiType.FLOAT.equals(target)) return false;
+    if (PsiType.LONG.equals(source) && isFloatOrDoubleType(target)) return false;
+    return true;
+  }
+
+  private static Object cast(@NotNull Object operand, @TypeRank int rankTo) {
+    Number number = operand instanceof Character ? Integer.valueOf((Character)operand)
+                                                 : operand instanceof Number ? (Number)operand : null;
+    if (number == null) return null;
+    switch (rankTo) {
+      case BYTE_RANK:
+        return number.byteValue();
+      case SHORT_RANK:
+        return number.shortValue();
+      case CHAR_RANK:
+        return (char)number.intValue();
+      case INT_RANK:
+        return number.intValue();
+      case LONG_RANK:
+        return number.longValue();
+      case FLOAT_RANK:
+        return number.floatValue();
+      case DOUBLE_RANK:
+        return number.doubleValue();
+      default:
+        return null;
+    }
+  }
+
+  private static final Map<Class<?>, PsiType> WRAPPER_TO_PRIMITIVE = new HashMap<>(8);
+
   static {
     WRAPPER_TO_PRIMITIVE.put(Boolean.class, PsiType.BOOLEAN);
     WRAPPER_TO_PRIMITIVE.put(Byte.class, PsiType.BYTE);

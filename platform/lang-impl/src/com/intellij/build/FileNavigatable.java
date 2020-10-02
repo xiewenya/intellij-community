@@ -24,14 +24,14 @@ public class FileNavigatable implements Navigatable {
       @Nullable
       @Override
       protected OpenFileDescriptor compute() {
-        return getDescriptor();
+        return createDescriptor();
       }
     };
   }
 
   @Override
   public void navigate(boolean requestFocus) {
-    OpenFileDescriptor descriptor = myValue.getValue();
+    Navigatable descriptor = getFileDescriptor();
     if (descriptor != null) {
       descriptor.navigate(requestFocus);
     }
@@ -39,7 +39,7 @@ public class FileNavigatable implements Navigatable {
 
   @Override
   public boolean canNavigate() {
-    OpenFileDescriptor descriptor = myValue.getValue();
+    Navigatable descriptor = getFileDescriptor();
     if (descriptor != null) {
       return descriptor.canNavigate();
     }
@@ -48,7 +48,7 @@ public class FileNavigatable implements Navigatable {
 
   @Override
   public boolean canNavigateToSource() {
-    OpenFileDescriptor descriptor = myValue.getValue();
+    Navigatable descriptor = getFileDescriptor();
     if (descriptor != null) {
       return descriptor.canNavigateToSource();
     }
@@ -56,7 +56,12 @@ public class FileNavigatable implements Navigatable {
   }
 
   @Nullable
-  private OpenFileDescriptor getDescriptor() {
+  public OpenFileDescriptor getFileDescriptor() {
+    return myValue.getValue();
+  }
+
+  @Nullable
+  private OpenFileDescriptor createDescriptor() {
     OpenFileDescriptor descriptor = null;
     VirtualFile file = VfsUtil.findFileByIoFile(myFilePosition.getFile(), false);
     if (file != null) {

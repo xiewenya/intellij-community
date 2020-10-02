@@ -18,6 +18,7 @@ package com.intellij.openapi.editor.event;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,12 +29,30 @@ public class CaretEvent extends EventObject {
   private final LogicalPosition myOldPosition;
   private final LogicalPosition myNewPosition;
 
+  /**
+   * @deprecated Use {@link #CaretEvent(Caret, LogicalPosition, LogicalPosition)} instead. To be removed in 2021.1.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public CaretEvent(@NotNull Editor editor, @NotNull LogicalPosition oldPosition, @NotNull LogicalPosition newPosition) {
     this(editor, null, oldPosition, newPosition);
   }
 
-  public CaretEvent(@NotNull Editor editor, @Nullable Caret caret, @NotNull LogicalPosition oldPosition, @NotNull LogicalPosition newPosition) {
+  /**
+   * @deprecated Use {@link #CaretEvent(Caret, LogicalPosition, LogicalPosition)} instead. To be removed in 2021.1.
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  public CaretEvent(@NotNull Editor editor, @Nullable Caret caret,
+                    @NotNull LogicalPosition oldPosition, @NotNull LogicalPosition newPosition) {
     super(editor);
+    myCaret = caret;
+    myOldPosition = oldPosition;
+    myNewPosition = newPosition;
+  }
+
+  public CaretEvent(@NotNull Caret caret, @NotNull LogicalPosition oldPosition, @NotNull LogicalPosition newPosition) {
+    super(caret.getEditor());
     myCaret = caret;
     myOldPosition = oldPosition;
     myNewPosition = newPosition;

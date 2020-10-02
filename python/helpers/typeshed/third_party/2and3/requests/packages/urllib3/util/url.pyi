@@ -1,12 +1,13 @@
 from typing import Any
+
 from .. import exceptions
 
 LocationParseError = exceptions.LocationParseError
 
-url_attrs = ...  # type: Any
+url_attrs: Any
 
 class Url:
-    slots = ...  # type: Any
+    slots: Any
     def __new__(cls, scheme=..., auth=..., host=..., port=..., path=..., query=..., fragment=...): ...
     @property
     def hostname(self): ...

@@ -1,41 +1,64 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components.breadcrumbs;
 
-import javax.swing.Icon;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.psi.PsiElement;
+import com.intellij.ui.breadcrumbs.BreadcrumbsProvider;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Sergey.Malenkov
- */
+import javax.swing.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
 public interface Crumb {
   default Icon getIcon() { return null; }
 
-  default String getText() { return toString(); }
+  default @Nls String getText() {
+    //noinspection HardCodedStringLiteral
+    return toString();
+  }
 
-  default String getTooltip() { return null; }
+  /**
+   * @return synchronously calculated tooltip text
+   */
+  @Nullable
+  default @NlsContexts.Tooltip String getTooltip() { return null; }
+
+  /**
+   * @return a list of actions for context menu
+   */
+  @NotNull
+  default List<? extends Action> getContextActions() {
+    return Collections.emptyList();
+  }
 
   class Impl implements Crumb {
     private final Icon icon;
-    private final String text;
-    private final String tooltip;
+    private final @Nls String text;
+    private final @NlsContexts.Tooltip String tooltip;
 
-    public Impl(Icon icon, String text, String tooltip) {
+    @NotNull
+    private final List<? extends Action> actions;
+
+    public Impl(@NotNull BreadcrumbsProvider provider, @NotNull PsiElement element) {
+      this(provider.getElementIcon(element),
+           provider.getElementInfo(element),
+           provider.getElementTooltip(element),
+           provider.getContextActions(element));
+    }
+
+    public Impl(Icon icon, @Nls String text, @NlsContexts.Tooltip String tooltip, Action... actions) {
+      this(icon, text, tooltip, actions == null || actions.length == 0 ? Collections.emptyList() : Arrays.asList(actions));
+    }
+
+    public Impl(Icon icon, @Nls String text, @NlsContexts.Tooltip String tooltip, @NotNull List<? extends Action> actions) {
       this.icon = icon;
       this.text = text;
       this.tooltip = tooltip;
+      this.actions = actions;
     }
 
     @Override
@@ -48,9 +71,21 @@ public interface Crumb {
       return tooltip;
     }
 
+    @Nls
+    @Override
+    public String getText() {
+      return text;
+    }
+
+    @NotNull
+    @Override
+    public List<? extends Action> getContextActions() {
+      return actions;
+    }
+
     @Override
     public String toString() {
-      return text;
+      return getText();
     }
   }
 }

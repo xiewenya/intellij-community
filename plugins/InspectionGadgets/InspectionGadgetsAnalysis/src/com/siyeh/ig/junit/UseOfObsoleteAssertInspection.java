@@ -35,12 +35,6 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("usage.of.obsolete.assert.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     String name = (String)infos[0];
     return InspectionGadgetsBundle.message("use.of.obsolete.assert.problem.descriptor", name);
@@ -88,8 +82,8 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
   private static class ReplaceObsoleteAssertsFix extends InspectionGadgetsFix {
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiElement psiElement = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiMethodCallExpression.class);
-      if (psiElement == null) {
+      final PsiMethodCallExpression call = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiMethodCallExpression.class);
+      if (call == null) {
         return;
       }
       final PsiClass newAssertClass =
@@ -100,15 +94,14 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
       if (newAssertClass == null) {
         return;
       }
-      final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)psiElement;
-      final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
+      final PsiReferenceExpression methodExpression = call.getMethodExpression();
       final PsiExpression qualifierExpression = methodExpression.getQualifierExpression();
       final PsiElement usedImport = qualifierExpression instanceof PsiReferenceExpression ?
                                     ((PsiReferenceExpression)qualifierExpression).advancedResolve(true).getCurrentFileResolveScope() :
                                     methodExpression.advancedResolve(true).getCurrentFileResolveScope();
-      final PsiMethod psiMethod = methodCallExpression.resolveMethod();
+      final PsiMethod psiMethod = call.resolveMethod();
 
-      final boolean isImportUnused = isImportBecomeUnused(methodCallExpression, usedImport, psiMethod);
+      final boolean isImportUnused = isImportBecomeUnused(call, usedImport, psiMethod);
 
       PsiImportStaticStatement staticStatement = null;
       if (qualifierExpression == null) {
@@ -147,13 +140,13 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
         }
       }
 
-      PsiMethod newTarget = methodCallExpression.resolveMethod();
+      PsiMethod newTarget = call.resolveMethod();
       if (newTarget != null && newTarget.isDeprecated()) {
         PsiParameter[] parameters = newTarget.getParameterList().getParameters();
         if (parameters.length > 0) {
           PsiType paramType = parameters[parameters.length - 1].getType();
           if (PsiType.DOUBLE.equals(paramType) || PsiType.FLOAT.equals(paramType)) {
-            methodCallExpression.getArgumentList().add(JavaPsiFacade.getElementFactory(project).createExpressionFromText("0.0", methodCallExpression));
+            call.getArgumentList().add(JavaPsiFacade.getElementFactory(project).createExpressionFromText("0.0", call));
           }
         }
       }
@@ -174,7 +167,7 @@ public class UseOfObsoleteAssertInspection extends BaseInspection {
       final boolean[] proceed = new boolean[]{true};
       methodCallExpression.getContainingFile().accept(new JavaRecursiveElementWalkingVisitor() {
         @Override
-        public void visitElement(PsiElement element) {
+        public void visitElement(@NotNull PsiElement element) {
           if (proceed[0]) {
             super.visitElement(element);
           }

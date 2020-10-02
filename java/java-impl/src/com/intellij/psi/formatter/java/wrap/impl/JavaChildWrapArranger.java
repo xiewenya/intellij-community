@@ -31,7 +31,6 @@ import static com.intellij.psi.impl.PsiImplUtil.isTypeAnnotation;
  * Thread-safe.
  *
  * @author Denis Zhdanov
- * @since Apr 21, 2010
  */
 public class JavaChildWrapArranger {
   /**
@@ -52,7 +51,6 @@ public class JavaChildWrapArranger {
    * @return                        wrap to use for the given {@code 'child'} node if it's possible to define the one;
    *                                {@code null} otherwise
    */
-  @SuppressWarnings({"MethodMayBeStatic"})
   @Nullable
   public Wrap arrange(ASTNode child,
                       ASTNode parent,
@@ -73,7 +71,9 @@ public class JavaChildWrapArranger {
     IElementType nodeType = parent.getElementType();
     IElementType childType = child.getElementType();
 
-    if (childType == JavaElementType.EXTENDS_LIST || childType == JavaElementType.IMPLEMENTS_LIST) {
+    if (childType == JavaElementType.EXTENDS_LIST ||
+        childType == JavaElementType.IMPLEMENTS_LIST ||
+        childType == JavaElementType.PERMITS_LIST) {
       return Wrap.createWrap(settings.EXTENDS_KEYWORD_WRAP, true);
     }
 
@@ -83,6 +83,7 @@ public class JavaChildWrapArranger {
 
     else if (nodeType == JavaElementType.EXTENDS_LIST ||
              nodeType == JavaElementType.IMPLEMENTS_LIST ||
+             nodeType == JavaElementType.PERMITS_LIST ||
              nodeType == JavaElementType.THROWS_LIST) {
       return role == ChildRole.REFERENCE_IN_LIST ? suggestedWrap : null;
     }
@@ -224,7 +225,8 @@ public class JavaChildWrapArranger {
     }
 
     else if (nodeType == JavaElementType.DO_WHILE_STATEMENT) {
-      if (role == ChildRole.LOOP_BODY || role == ChildRole.WHILE_KEYWORD) {
+      if (role == ChildRole.LOOP_BODY ||
+          role == ChildRole.WHILE_KEYWORD && isAfterNonBlockStatement(child)) {
         return Wrap.createWrap(WrapType.NORMAL, true);
       }
     }
@@ -241,8 +243,16 @@ public class JavaChildWrapArranger {
     return suggestedWrap;
   }
 
+
+  private static boolean isAfterNonBlockStatement(@NotNull ASTNode node) {
+    ASTNode prev = node.getTreePrev();
+    if (prev instanceof PsiWhiteSpace) prev = prev.getTreePrev();
+    return prev != null && prev.getElementType() != JavaElementType.BLOCK_STATEMENT;
+  }
+
   private static boolean isTypeAnnotationOrFalseIfDumb(@NotNull ASTNode child) {
     PsiElement node = child.getPsi();
+    if (node.getProject().isDefault()) return false;
     PsiElement next = PsiTreeUtil.skipSiblingsForward(node, PsiWhiteSpace.class, PsiAnnotation.class);
     if (next instanceof PsiKeyword) return false;
     return !DumbService.isDumb(node.getProject()) && isTypeAnnotation(node);

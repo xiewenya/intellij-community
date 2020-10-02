@@ -15,7 +15,6 @@
  */
 package org.jetbrains.plugins.gradle.model;
 
-import org.gradle.api.Nullable;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -23,7 +22,6 @@ import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/14/2014
  */
 public interface FileCollectionDependency extends ExternalDependency {
   /**

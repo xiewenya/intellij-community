@@ -1,6 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod.preview;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.DarculaColors;
@@ -8,7 +9,7 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.usageView.UsageTreeColors;
 import com.intellij.usageView.UsageTreeColorsScheme;
 import com.intellij.usages.TextChunk;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,8 +49,8 @@ class PreviewTreeRenderer extends ColoredTreeCellRenderer {
       append(node.getLineNumberChunk(), node);
     }
     else {
-      SimpleTextAttributes attributes = UIUtil.isUnderDarcula() ? ourInvalidAttributesDarcula : ourInvalidAttributes;
-      append("Invalid ", patchMainTextAttrs(attributes, node));
+      SimpleTextAttributes attributes = StartupUiUtil.isUnderDarcula() ? ourInvalidAttributesDarcula : ourInvalidAttributes;
+      append(JavaRefactoringBundle.message("extract.method.preview.node.invalid.prefix"), patchMainTextAttrs(attributes, node));
     }
 
     for (TextChunk textChunk : node.getTextChunks()) {

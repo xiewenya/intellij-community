@@ -1,29 +1,15 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.ide.CopyPasteManagerEx;
 import com.intellij.ide.DataManager;
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.ui.OptionAction;
 import com.intellij.ui.UIBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,18 +26,14 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * @author max
- */
 public class MultiplePasteAction extends AnAction implements DumbAware {
-  private static final int PASTE_SIMPLE_EXIT_CODE = DialogWrapper.NEXT_USER_EXIT_CODE;
 
   public MultiplePasteAction() {
     setEnabledInModalContext(true);
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     Project project = CommonDataKeys.PROJECT.getData(dataContext);
     Component focusedComponent = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
@@ -68,7 +50,7 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
       chooser.close(DialogWrapper.CANCEL_EXIT_CODE);
     }
 
-    if (chooser.getExitCode() == DialogWrapper.OK_EXIT_CODE || chooser.getExitCode() == PASTE_SIMPLE_EXIT_CODE) {
+    if (chooser.getExitCode() == DialogWrapper.OK_EXIT_CODE || chooser.getExitCode() == getPasteSimpleExitCode()) {
       List<Transferable> selectedContents = chooser.getSelectedContents();
       CopyPasteManagerEx copyPasteManager = CopyPasteManagerEx.getInstanceEx();
       if (selectedContents.size() == 1) {
@@ -81,8 +63,8 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
       if (editor != null) {
         if (editor.isViewer()) return;
 
-        final AnAction pasteAction = ActionManager.getInstance().getAction(chooser.getExitCode() == PASTE_SIMPLE_EXIT_CODE 
-                                                                           ? IdeActions.ACTION_EDITOR_PASTE_SIMPLE 
+        final AnAction pasteAction = ActionManager.getInstance().getAction(chooser.getExitCode() == getPasteSimpleExitCode()
+                                                                           ? IdeActions.ACTION_EDITOR_PASTE_SIMPLE
                                                                            : IdeActions.ACTION_PASTE);
         AnActionEvent newEvent = new AnActionEvent(e.getInputEvent(),
                                                    DataManager.getInstance().getDataContext(focusedComponent),
@@ -101,7 +83,7 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final boolean enabled = isEnabled(e);
     if (ActionPlaces.isPopupPlace(e.getPlace())) {
       e.getPresentation().setVisible(enabled);
@@ -111,7 +93,7 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
     }
   }
 
-  private static boolean isEnabled(AnActionEvent e) {
+  private static boolean isEnabled(@NotNull AnActionEvent e) {
     Object component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
     if (!(component instanceof JComponent)) return false;
     Editor editor = e.getData(CommonDataKeys.EDITOR);
@@ -120,11 +102,21 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
     return pasteAction != null;
   }
 
+  private static int getPasteSimpleExitCode() {
+    return DialogWrapper.NEXT_USER_EXIT_CODE;
+  }
+
   private static class ClipboardContentChooser extends ContentChooser<Transferable> {
 
-    public ClipboardContentChooser(Project project) {
+    ClipboardContentChooser(Project project) {
       super(project, UIBundle.message("choose.content.to.paste.dialog.title"), true, true);
-      setOKButtonText(UIBundle.message("choose.content.to.paste.dialog.ok.button"));
+      setOKButtonText(ActionsBundle.actionText(IdeActions.ACTION_EDITOR_PASTE));
+      setOKButtonMnemonic('P');
+    }
+
+    @Override
+    protected Action @NotNull [] createActions() {
+      return new Action[]{getHelpAction(), getOKAction(), new PasteSimpleAction(), getCancelAction()};
     }
 
     @Nullable
@@ -155,30 +147,14 @@ public class MultiplePasteAction extends AnAction implements DumbAware {
       CopyPasteManagerEx.getInstanceEx().removeContent(content);
     }
 
-    @Override
-    protected void createDefaultActions() {
-      super.createDefaultActions();
-      myOKAction = new PasteAction();
-    }
-
-    class PasteAction extends OkAction implements OptionAction {
-      private final Action[] myActions = new Action[] {new PasteSimpleAction()};
-        
-      @NotNull
-      @Override
-      public Action[] getOptions() {
-        return myActions;
-      }
-    }
-
-    class PasteSimpleAction extends DialogWrapperAction {
+    final class PasteSimpleAction extends DialogWrapperAction {
       private PasteSimpleAction() {
-        super(UIBundle.message("choose.content.to.paste.dialog.simple.button"));
+        super(ActionsBundle.actionText(IdeActions.ACTION_EDITOR_PASTE_SIMPLE));
       }
 
       @Override
       protected void doAction(ActionEvent e) {
-        close(PASTE_SIMPLE_EXIT_CODE);
+        close(getPasteSimpleExitCode());
       }
     }
   }

@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger.breakpoints;
 
@@ -19,6 +17,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
 import java.util.Collections;
@@ -31,10 +30,8 @@ import java.util.List;
  * &nbsp;&nbsp;&lt;xdebugger.breakpointType implementation="qualified-class-name"/&gt;<br>
  * &lt;/extensions&gt;
  * <p><p>
- * In order to support actual setting breakpoints in a debugging process create a {@link XBreakpointHandler} implementation and return it  
+ * In order to support actual setting breakpoints in a debugging process create a {@link XBreakpointHandler} implementation and return it
  * from {@link com.intellij.xdebugger.XDebugProcess#getBreakpointHandlers()} method
- *
- * @author nik
  */
 public abstract class XLineBreakpointType<P extends XBreakpointProperties> extends XBreakpointType<XLineBreakpoint<P>,P> {
   protected XLineBreakpointType(@NonNls @NotNull final String id, @Nls @NotNull final String title) {
@@ -85,17 +82,20 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
     return null;
   }
 
+  // Preserved for API compatibility
+  @Override
   public List<? extends AnAction> getAdditionalPopupMenuActions(@NotNull XLineBreakpoint<P> breakpoint, @Nullable XDebugSession currentSession) {
-    return Collections.emptyList();
+    return super.getAdditionalPopupMenuActions(breakpoint, currentSession);
   }
 
   public Icon getTemporaryIcon() {
-    return AllIcons.Debugger.Db_temporary_breakpoint;
+    return AllIcons.Debugger.Db_set_breakpoint;
   }
 
   /**
-   * Priority is considered when several breakpoint types can be set on the same code line,
+   * Priority is considered when several breakpoint types can be set inside a folded code block,
    * in this case we choose type with the highest priority
+   * Also it affects types sorting in various places
    */
   public int getPriority() {
     return 0;
@@ -127,10 +127,12 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
 
   @NotNull
   public Promise<List<? extends XLineBreakpointVariant>> computeVariantsAsync(@NotNull Project project, @NotNull XSourcePosition position) {
-    return Promise.resolve(computeVariants(project, position));
+    return Promises.resolvedPromise(computeVariants(project, position));
   }
 
   public abstract class XLineBreakpointVariant {
+    @NotNull
+    @Nls
     public abstract String getText();
 
     @Nullable
@@ -141,6 +143,10 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
 
     @Nullable
     public abstract P createProperties();
+
+    public final XLineBreakpointType<P> getType() {
+      return XLineBreakpointType.this;
+    }
   }
 
   public class XLineBreakpointAllVariant extends XLineBreakpointVariant {
@@ -150,9 +156,10 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
       mySourcePosition = position;
     }
 
+    @NotNull
     @Override
     public String getText() {
-      return "All";
+      return XDebuggerBundle.message("breakpoint.variant.text.all");
     }
 
     @Nullable
@@ -189,6 +196,7 @@ public abstract class XLineBreakpointType<P extends XBreakpointProperties> exten
       return myElement.getIcon(0);
     }
 
+    @NotNull
     @Override
     public String getText() {
       return StringUtil.shortenTextWithEllipsis(myElement.getText(), 100, 0);

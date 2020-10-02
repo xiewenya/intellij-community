@@ -15,29 +15,30 @@
  */
 package org.intellij.plugins.intelliLang;
 
+import com.intellij.ide.plugins.DynamicPluginListener;
+import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.lang.Language;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.command.undo.GlobalUndoableAction;
-import com.intellij.openapi.command.undo.UndoManager;
-import com.intellij.openapi.command.undo.UndoableAction;
+import com.intellij.openapi.command.undo.*;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
+import com.intellij.patterns.compiler.PatternCompilerFactory;
 import com.intellij.psi.PsiCompiledElement;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
-import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.CachedValueImpl;
 import com.intellij.util.FileContentUtil;
@@ -48,6 +49,7 @@ import com.intellij.util.containers.JBIterable;
 import com.intellij.util.containers.MultiMap;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
+import one.util.streamex.StreamEx;
 import org.intellij.plugins.intelliLang.inject.InjectorUtils;
 import org.intellij.plugins.intelliLang.inject.LanguageInjectionConfigBean;
 import org.intellij.plugins.intelliLang.inject.LanguageInjectionSupport;
@@ -55,17 +57,12 @@ import org.intellij.plugins.intelliLang.inject.config.BaseInjection;
 import org.intellij.plugins.intelliLang.inject.config.InjectionPlace;
 import org.jdom.Element;
 import org.jdom.JDOMException;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.*;
-
-import static com.intellij.util.JdomKt.loadElement;
 
 /**
  * Configuration that holds configured xml tag, attribute and method parameter
@@ -80,19 +77,78 @@ public class Configuration extends SimpleModificationTracker implements Persiste
   private static final Condition<BaseInjection> LANGUAGE_INJECTION_CONDITION =
     o -> Language.findLanguageByID(o.getInjectedLanguageId()) != null;
 
+  {
+    LanguageInjectionSupport.CONFIG_EP_NAME.addChangeListener(this::reloadInjections, null);
+    LanguageInjectionSupport.EP_NAME.addChangeListener(this::reloadInjections, null);
+  }
+
+  protected void reloadInjections() {
+    Element state = getState();
+    myInjections.clear();
+    PatternCompilerFactory.getFactory().dropCache();
+    loadState(state);
+    configurationModified();
+  }
+
+  protected void invokeAfterReload(Runnable runnable) { runnable.run(); }
+
   @State(name = Configuration.COMPONENT_NAME, defaultStateAsResource = true, storages = @Storage("IntelliLang.xml"))
-  public static class App extends Configuration {
-    private final List<BaseInjection> myDefaultInjections;
+  public static final class App extends Configuration implements Disposable {
+    private volatile @NotNull List<BaseInjection> myDefaultInjections;
+    private volatile @Nullable List<BaseInjection> myUnloadingDefaultInjections = null;
+    private final Deque<Runnable> myActionsPostponedUntilUnloadingEnds = new ArrayDeque<>();
+
     private final AdvancedConfiguration myAdvancedConfiguration;
 
     App() {
       myDefaultInjections = loadDefaultInjections();
       myAdvancedConfiguration = new AdvancedConfiguration();
+      ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(DynamicPluginListener.TOPIC, new DynamicPluginListener() {
+        @Override
+        public void beforePluginUnload(@NotNull IdeaPluginDescriptor pluginDescriptor, boolean isUpdate) {
+          // myDefaultInjections could change while we perform the unloading, but we need to have original state until plugin is fully unloaded
+          myUnloadingDefaultInjections = getDefaultInjections();
+        }
+
+        @Override
+        public void pluginUnloaded(@NotNull IdeaPluginDescriptor pluginDescriptor, boolean isUpdate) {
+          reloadInjections();
+          myUnloadingDefaultInjections = null;
+          while (!myActionsPostponedUntilUnloadingEnds.isEmpty()) {
+            myActionsPostponedUntilUnloadingEnds.removeLast().run();
+          }
+          configurationModified();
+        }
+      });
+    }
+
+    @Override
+    public void dispose() { }
+
+    @Override
+    protected void invokeAfterReload(Runnable runnable) {
+      if (myUnloadingDefaultInjections == null) {
+        runnable.run();
+      }
+      else {
+        myActionsPostponedUntilUnloadingEnds.add(runnable);
+      }
+    }
+
+    @Override
+    protected void reloadInjections() {
+      super.reloadInjections();
+      myDefaultInjections = loadDefaultInjections();
     }
 
     @Override
     public List<BaseInjection> getDefaultInjections() {
-      return myDefaultInjections;
+      if (myUnloadingDefaultInjections != null) {
+        return myUnloadingDefaultInjections;
+      }
+      else {
+        return myDefaultInjections;
+      }
     }
 
     @Override
@@ -107,7 +163,7 @@ public class Configuration extends SimpleModificationTracker implements Persiste
     }
 
     @Override
-    public Element getState() {
+    public @NotNull Element getState() {
       final Element element = new Element(COMPONENT_NAME);
       myAdvancedConfiguration.writeState(element);
       return getState(element);
@@ -119,8 +175,8 @@ public class Configuration extends SimpleModificationTracker implements Persiste
 
     private final Configuration myParentConfiguration;
 
-    Prj(final Configuration configuration) {
-      myParentConfiguration = configuration;
+    Prj() {
+      myParentConfiguration = Configuration.getInstance();
     }
 
     @Override
@@ -148,6 +204,16 @@ public class Configuration extends SimpleModificationTracker implements Persiste
 
     public Configuration getParentConfiguration() {
       return myParentConfiguration;
+    }
+
+    @Override
+    protected void invokeAfterReload(Runnable runnable) {
+      Configuration parentConfiguration = getParentConfiguration();
+      if(parentConfiguration != null){
+        parentConfiguration.invokeAfterReload(runnable);
+        return;
+      }
+      super.invokeAfterReload(runnable);
     }
 
     public List<BaseInjection> getOwnInjections(final String injectorId) {
@@ -243,11 +309,10 @@ public class Configuration extends SimpleModificationTracker implements Persiste
       }
     }
 
-    importPlaces(getDefaultInjections());
+    invokeAfterReload(() -> importPlaces(getDefaultInjections()));
   }
 
-  @Nullable
-  private static InjectionPlace[] dropKnownInvalidPlaces(InjectionPlace[] places) {
+  private static InjectionPlace @Nullable [] dropKnownInvalidPlaces(InjectionPlace[] places) {
     InjectionPlace[] result = places;
     for (InjectionPlace place : places) {
       if (place.getText().contains("matches(\"[^${}/\\\\]+\")")) {
@@ -266,7 +331,7 @@ public class Configuration extends SimpleModificationTracker implements Persiste
   private static List<BaseInjection> loadDefaultInjections() {
     final List<Configuration> cfgList = new ArrayList<>();
     final Set<Object> visited = new THashSet<>();
-    for (LanguageInjectionConfigBean configBean : Extensions.getExtensions(LanguageInjectionSupport.CONFIG_EP_NAME)) {
+    for (LanguageInjectionConfigBean configBean : LanguageInjectionSupport.CONFIG_EP_NAME.getExtensionList()) {
       PluginDescriptor descriptor = configBean.getPluginDescriptor();
       final ClassLoader loader = descriptor.getPluginClassLoader();
       try {
@@ -278,9 +343,7 @@ public class Configuration extends SimpleModificationTracker implements Persiste
           while (enumeration.hasMoreElements()) {
             URL url = enumeration.nextElement();
             if (!visited.add(url.getFile())) continue; // for DEBUG mode
-            InputStream stream = null;
-            try {
-              stream = url.openStream();
+            try (InputStream stream = url.openStream()) {
               cfgList.add(load(stream));
             }
             catch (ProcessCanceledException e) {
@@ -288,11 +351,6 @@ public class Configuration extends SimpleModificationTracker implements Persiste
             }
             catch (Exception e) {
               LOG.warn(e);
-            }
-            finally {
-              if (stream != null) {
-                stream.close();
-              }
             }
           }
         }
@@ -312,15 +370,15 @@ public class Configuration extends SimpleModificationTracker implements Persiste
         defaultInjections.addAll(imported);
       }
     }
-    return defaultInjections;
+    return Collections.unmodifiableList(defaultInjections);
   }
 
   @Override
-  public Element getState() {
+  public @NotNull Element getState() {
     return getState(new Element(COMPONENT_NAME));
   }
 
-  protected Element getState(Element element) {
+  protected @NotNull Element getState(Element element) {
     Comparator<BaseInjection> comparator = (o1, o2) -> {
       int rc = Comparing.compare(o1.getDisplayName(), o2.getDisplayName());
       if (rc != 0) return rc;
@@ -333,8 +391,8 @@ public class Configuration extends SimpleModificationTracker implements Persiste
           return Comparing.compare(o11.getElementPattern().toString(), o22.getElementPattern().toString());
         });
     };
-    for (String key : ContainerUtil.newTreeSet(myInjections.keySet())) {
-      Set<BaseInjection> injections = ContainerUtil.newHashSet(myInjections.get(key));
+    for (String key : new TreeSet<>(myInjections.keySet())) {
+      Set<BaseInjection> injections = new HashSet<>(myInjections.get(key));
       injections.removeAll(getDefaultInjections());
       for (BaseInjection injection : ContainerUtil.sorted(injections, comparator)) {
         element.addContent(injection.getState());
@@ -348,7 +406,7 @@ public class Configuration extends SimpleModificationTracker implements Persiste
   }
 
   public static Configuration getProjectInstance(Project project) {
-    return ServiceManager.getService(project, Configuration.class);
+    return project.getService(Configuration.class);
   }
 
   public List<BaseInjection> getDefaultInjections() {
@@ -362,14 +420,13 @@ public class Configuration extends SimpleModificationTracker implements Persiste
   @Nullable
   public static Configuration load(final InputStream is) throws IOException, JDOMException {
     final List<Element> elements = new ArrayList<>();
-    final Element rootElement = loadElement(is);
+    final Element rootElement = JDOMUtil.load(is);
     final Element state;
     if (rootElement.getName().equals(COMPONENT_NAME)) {
       state = rootElement;
     }
     else {
       elements.add(rootElement);
-      //noinspection unchecked
       elements.addAll(rootElement.getChildren("component"));
       state = ContainerUtil.find(elements, element -> "component".equals(element.getName()) && COMPONENT_NAME.equals(element.getAttributeValue("name")));
     }
@@ -394,8 +451,8 @@ public class Configuration extends SimpleModificationTracker implements Persiste
     replaceInjections(newInjections, originalInjections, true);
   }
 
-  static void importInjections(final Collection<BaseInjection> existingInjections, final Collection<BaseInjection> importingInjections,
-                               final Collection<BaseInjection> originalInjections, final Collection<BaseInjection> newInjections) {
+  static void importInjections(final Collection<? extends BaseInjection> existingInjections, final Collection<? extends BaseInjection> importingInjections,
+                               final Collection<? super BaseInjection> originalInjections, final Collection<? super BaseInjection> newInjections) {
     final MultiValuesMap<InjectionPlace, BaseInjection> placeMap = new MultiValuesMap<>();
     for (BaseInjection exising : existingInjections) {
       for (InjectionPlace place : exising.getInjectionPlaces()) {
@@ -432,7 +489,7 @@ public class Configuration extends SimpleModificationTracker implements Persiste
     }
   }
 
-  private void configurationModified() {
+  protected void configurationModified() {
     incModificationCount();
   }
 
@@ -470,13 +527,13 @@ public class Configuration extends SimpleModificationTracker implements Persiste
       }
     }
     if (!originalInjections.isEmpty()) {
-      replaceInjectionsWithUndo(host.getProject(), newInjections, originalInjections, Collections.emptyList());
+      replaceInjectionsWithUndo(host.getProject(), host.getContainingFile(), newInjections, originalInjections, Collections.emptyList());
       return true;
     }
     return false;
   }
 
-  protected void setInjections(Collection<BaseInjection> injections) {
+  protected void setInjections(Collection<? extends BaseInjection> injections) {
     for (BaseInjection injection : injections) {
       myInjections.get(injection.getSupportId()).add(injection);
     }
@@ -490,15 +547,30 @@ public class Configuration extends SimpleModificationTracker implements Persiste
     return Collections.unmodifiableList(myInjections.get(injectorId));
   }
 
+  /**
+   * @deprecated use {@link #replaceInjectionsWithUndo(Project, PsiFile, List, List, List)},
+   * and consider passing non-null {@code hostFile} to make undo-redo registered for this file,
+   * especially when {@code psiElementsToRemove} is null (IDEA-109366)
+   * To be removed in IDEA 2020.1
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
   public void replaceInjectionsWithUndo(final Project project,
-                                final List<? extends BaseInjection> newInjections,
-                                final List<? extends BaseInjection> originalInjections,
-                                final List<? extends PsiElement> psiElementsToRemove) {
-    replaceInjectionsWithUndo(project, newInjections, originalInjections, psiElementsToRemove,
-                              (add, remove) -> {
+                                        final List<? extends BaseInjection> newInjections,
+                                        final List<? extends BaseInjection> originalInjections,
+                                        final List<? extends PsiElement> psiElementsToRemove) {
+    replaceInjectionsWithUndo(project, null, newInjections, originalInjections, psiElementsToRemove);
+  }
+
+  public void replaceInjectionsWithUndo(Project project,
+                                        @Nullable PsiFile hostFile,
+                                        List<? extends BaseInjection> newInjections,
+                                        List<? extends BaseInjection> originalInjections,
+                                        List<? extends PsiElement> psiElementsToRemove) {
+    replaceInjectionsWithUndo(project, hostFile, newInjections, originalInjections, true, psiElementsToRemove, (add, remove) -> {
                                 replaceInjectionsWithUndoInner(add, remove);
-                                if (ContainerUtil.find(add, LANGUAGE_INJECTION_CONDITION) != null || ContainerUtil.find(remove,
-                                                                                                                        LANGUAGE_INJECTION_CONDITION) != null) {
+                                if (ContainerUtil.find(add, LANGUAGE_INJECTION_CONDITION) != null ||
+                                    ContainerUtil.find(remove, LANGUAGE_INJECTION_CONDITION) != null) {
                                   FileContentUtil.reparseOpenedFiles();
                                 }
                                 return true;
@@ -509,10 +581,25 @@ public class Configuration extends SimpleModificationTracker implements Persiste
     replaceInjections(add, remove, false);
   }
 
-  public static <T> void replaceInjectionsWithUndo(final Project project, final T add, final T remove,
-                                final List<? extends PsiElement> psiElementsToRemove,
-                                final PairProcessor<T, T> actualProcessor) {
-    final UndoableAction action = new GlobalUndoableAction() {
+  public static <T> void replaceInjectionsWithUndo(final Project project,
+                                                   @Nullable PsiFile hostFile,
+                                                   final T add,
+                                                   final T remove,
+                                                   boolean global,
+                                                   final List<? extends PsiElement> psiElementsToRemove,
+                                                   final PairProcessor<T, T> actualProcessor) {
+
+    PsiFile[] psiFiles = StreamEx.ofNullable(hostFile)
+                                 .append(psiElementsToRemove
+                                           .stream()
+                                           .map(e -> e.getContainingFile()))
+                                 .filter(e -> !(e instanceof PsiCompiledElement))
+                                 .toArray(PsiFile.class);
+
+    DocumentReference[] documentReferences = ContainerUtil
+      .map2Array(psiFiles, DocumentReference.class, file -> DocumentReferenceManager.getInstance().create(file.getVirtualFile()));
+
+    final UndoableAction action = new BasicUndoableAction(documentReferences) {
       @Override
       public void undo() {
         actualProcessor.process(remove, add);
@@ -522,10 +609,14 @@ public class Configuration extends SimpleModificationTracker implements Persiste
       public void redo() {
         actualProcessor.process(add, remove);
       }
+
+      @Override
+      public boolean isGlobal() {
+        return global;
+      }
     };
-    final List<PsiFile> psiFiles = ContainerUtil.mapNotNull(psiElementsToRemove, o -> o instanceof PsiCompiledElement ? null : o.getContainingFile());
-    WriteCommandAction.writeCommandAction(project, PsiUtilCore.toPsiFileArray(psiFiles))
-                      .withName("Language Injection Configuration Update")
+    WriteCommandAction.writeCommandAction(project, psiFiles)
+                      .withName(IntelliLangBundle.message("command.name.language.injection.configuration.update"))
                       .withUndoConfirmationPolicy(UndoConfirmationPolicy.REQUEST_CONFIRMATION)
                       .run(() -> {
                         for (PsiElement annotation : psiElementsToRemove) {
@@ -687,7 +778,6 @@ public class Configuration extends SimpleModificationTracker implements Persiste
       }
 
       if (myDfaOption != DfaOption.RESOLVE) {
-        //noinspection EnumSwitchStatementWhichMissesCases
         switch (myDfaOption) {
           case OFF:
             break;

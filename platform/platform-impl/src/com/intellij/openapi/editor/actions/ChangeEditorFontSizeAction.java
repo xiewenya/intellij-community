@@ -23,7 +23,10 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorBundle;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.function.Supplier;
 
 /**
  * @author Konstantin Bulenkov
@@ -31,13 +34,13 @@ import org.jetbrains.annotations.Nullable;
 public abstract class ChangeEditorFontSizeAction extends AnAction implements DumbAware {
   private final int myStep;
 
-  protected ChangeEditorFontSizeAction(@Nullable String text, int increaseStep) {
+  protected ChangeEditorFontSizeAction(@NotNull Supplier<String> text, int increaseStep) {
     super(text);
     myStep = increaseStep;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final EditorImpl editor = getEditor(e);
     if (editor != null) {
       final int size = editor.getFontSize() + myStep;
@@ -48,7 +51,7 @@ public abstract class ChangeEditorFontSizeAction extends AnAction implements Dum
   }
 
   @Nullable
-  private static EditorImpl getEditor(AnActionEvent e) {
+  private static EditorImpl getEditor(@NotNull AnActionEvent e) {
     final Editor editor = e.getData(CommonDataKeys.EDITOR);
     if (editor instanceof EditorImpl) {
       return (EditorImpl)editor;
@@ -57,19 +60,19 @@ public abstract class ChangeEditorFontSizeAction extends AnAction implements Dum
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(getEditor(e) != null);
   }
 
   public static class IncreaseEditorFontSize extends ChangeEditorFontSizeAction {
     protected IncreaseEditorFontSize() {
-      super(EditorBundle.message("increase.editor.font"), 1);
+      super(EditorBundle.messagePointer("increase.editor.font"), 1);
     }
   }
 
   public static class DecreaseEditorFontSize extends ChangeEditorFontSizeAction {
     protected DecreaseEditorFontSize() {
-      super(EditorBundle.message("decrease.editor.font"), -1);
+      super(EditorBundle.messagePointer("decrease.editor.font"), -1);
     }
   }
 }

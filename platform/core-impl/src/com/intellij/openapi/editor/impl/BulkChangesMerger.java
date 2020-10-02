@@ -29,9 +29,7 @@ import java.util.List;
  * Thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 12/22/10 12:02 PM
  */
-@SuppressWarnings({"MethodMayBeStatic"})
 public class BulkChangesMerger {
 
   public static final BulkChangesMerger INSTANCE = new BulkChangesMerger();
@@ -46,7 +44,7 @@ public class BulkChangesMerger {
    *                      are sorted by offsets in ascending order 
    * @return              merge result
    */
-  public CharSequence mergeToCharSequence(@NotNull char[] text, int textLength, @NotNull List<? extends TextChange> changes) {
+  public CharSequence mergeToCharSequence(char @NotNull [] text, int textLength, @NotNull List<? extends TextChange> changes) {
     return StringFactory.createShared(mergeToCharArray(text, textLength, changes));
   }
   
@@ -59,8 +57,7 @@ public class BulkChangesMerger {
    *                      are sorted by offsets in ascending order 
    * @return              merge result
    */
-  @NotNull
-  public char[] mergeToCharArray(@NotNull char[] text, int textLength, @NotNull List<? extends TextChange> changes) {
+  public char @NotNull [] mergeToCharArray(char @NotNull [] text, int textLength, @NotNull List<? extends TextChange> changes) {
     int newLength = textLength;
     for (TextChange change : changes) {
       newLength += change.getText().length() - (change.getEnd() - change.getStart());
@@ -105,7 +102,7 @@ public class BulkChangesMerger {
    * @param changes   change to apply to the target text
    * @throws IllegalArgumentException     if given array is not big enough to contain the resulting text
    */
-  public void mergeInPlace(@NotNull char[] data, int length, @NotNull List<? extends TextChangeImpl> changes)
+  public void mergeInPlace(char @NotNull [] data, int length, @NotNull List<? extends TextChangeImpl> changes)
     throws IllegalArgumentException
   {
     // Consider two corner cases:
@@ -169,7 +166,7 @@ public class BulkChangesMerger {
     }
   }
   
-  private static void copy(@NotNull char[] data, int offset, @NotNull CharSequence text) {
+  private static void copy(char @NotNull [] data, int offset, @NotNull CharSequence text) {
     for (int i = 0; i < text.length(); i++) {
       data[i + offset] = text.charAt(i);
     }
@@ -203,7 +200,7 @@ public class BulkChangesMerger {
     private       int                            myFirstChangeShift;
     private       int                            myLastChangeShift;
 
-    Context(@NotNull List<? extends TextChangeImpl> changes, @NotNull char[] data, int inputLength, int outputLength) {
+    Context(@NotNull List<? extends TextChangeImpl> changes, char @NotNull [] data, int inputLength, int outputLength) {
       myChanges = changes;
       myData = data;
       myInputLength = inputLength;
@@ -215,7 +212,6 @@ public class BulkChangesMerger {
      * 
      * @return      {@code true} if the first change in a group is found; {@code false} otherwise
      */
-    @SuppressWarnings({"ForLoopThatDoesntUseLoopVariable"})
     public boolean startGroup() {
       // Define first change that increases or reduces text length.
       for (boolean first = true; myDiff == 0 && myChangeGroupStartIndex < myChanges.size(); myChangeGroupStartIndex++, first = false) {
@@ -256,7 +252,7 @@ public class BulkChangesMerger {
         }
 
         // Changes group is not constructed yet.
-        if (!(myDiff > 0 ^ newDiff > 0)) {
+        if (myDiff > 0 == newDiff > 0) {
           myDiff = newDiff;
           continue;
         }

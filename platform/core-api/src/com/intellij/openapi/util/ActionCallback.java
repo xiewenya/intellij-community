@@ -40,7 +40,7 @@ public class ActionCallback implements Disposable {
     this(null);
   }
 
-  public ActionCallback(String name) {
+  public ActionCallback(@NonNls String name) {
     myName = name;
     myDone = new ExecutionCallback();
     myRejected = new ExecutionCallback();
@@ -60,7 +60,7 @@ public class ActionCallback implements Disposable {
     myName = name;
 
     assert countToDone >= 0 : "count=" + countToDone;
-    myDone = new ExecutionCallback(countToDone >= 1 ? countToDone : 1);
+    myDone = new ExecutionCallback(Math.max(countToDone, 1));
     myRejected = new ExecutionCallback();
 
     if (countToDone < 1) {
@@ -95,7 +95,7 @@ public class ActionCallback implements Disposable {
   }
 
   @NotNull
-  public ActionCallback reject(String error) {
+  public ActionCallback reject(@NonNls String error) {
     myError = error;
     setRejected();
     return this;
@@ -119,7 +119,7 @@ public class ActionCallback implements Disposable {
   }
 
   @NotNull
-  public final ActionCallback doWhenRejected(@NotNull final Consumer<String> consumer) {
+  public final ActionCallback doWhenRejected(@NotNull final Consumer<? super String> consumer) {
     myRejected.doWhenExecuted(() -> consumer.consume(myError));
     return this;
   }
@@ -168,7 +168,7 @@ public class ActionCallback implements Disposable {
   }
 
   private static class ExecutedExecutionCallback extends ExecutionCallback {
-    public ExecutedExecutionCallback() {
+    ExecutedExecutionCallback() {
       super(0);
     }
 
@@ -262,15 +262,6 @@ public class ActionCallback implements Disposable {
   @NotNull
   public Runnable createSetDoneRunnable() {
     return () -> setDone();
-  }
-
-  /**
-   * @deprecated use {@link #notifyWhenRejected(ActionCallback)}
-   */
-  @NotNull
-  @Deprecated
-  public Runnable createSetRejectedRunnable() {
-    return () -> setRejected();
   }
 
   public boolean waitFor(long msTimeout) {

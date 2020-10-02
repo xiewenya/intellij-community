@@ -1,8 +1,7 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
@@ -19,6 +18,7 @@ public class LogicallyLockedHolder implements FileHolder {
     myMap = new HashMap<>();
   }
 
+  @Override
   public void cleanAll() {
     myMap.clear();
   }
@@ -27,22 +27,16 @@ public class LogicallyLockedHolder implements FileHolder {
     myMap.put(file, lock);
   }
 
+  @Override
   public void cleanAndAdjustScope(@NotNull VcsModifiableDirtyScope scope) {
-    VirtualFileHolder.cleanScope(myProject, myMap.keySet(), scope);
-  }
-
-  public FileHolder copy() {
-    final LogicallyLockedHolder result = new LogicallyLockedHolder(myProject);
-    result.myMap.putAll(myMap);
-    return result;
-  }
-
-  public HolderType getType() {
-    return HolderType.LOGICALLY_LOCKED;
+    VirtualFileHolder.Companion.cleanScope(myMap.keySet(), scope);
   }
 
   @Override
-  public void notifyVcsStarted(AbstractVcs vcs) {
+  public LogicallyLockedHolder copy() {
+    final LogicallyLockedHolder result = new LogicallyLockedHolder(myProject);
+    result.myMap.putAll(myMap);
+    return result;
   }
 
   public boolean containsKey(final VirtualFile vf) {

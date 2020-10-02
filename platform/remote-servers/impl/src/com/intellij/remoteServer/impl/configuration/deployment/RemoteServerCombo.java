@@ -1,18 +1,20 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.impl.configuration.deployment;
 
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.remoteServer.CloudBundle;
 import com.intellij.remoteServer.ServerType;
 import com.intellij.remoteServer.configuration.RemoteServer;
 import com.intellij.remoteServer.configuration.RemoteServersManager;
 import com.intellij.remoteServer.configuration.ServerConfiguration;
 import com.intellij.remoteServer.impl.configuration.RemoteServerListConfigurable;
-import com.intellij.remoteServer.util.CloudBundle;
 import com.intellij.ui.*;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -106,7 +108,7 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
     return myServerListModel.getItems().stream()
       .filter(Objects::nonNull)
       .filter(item -> !(item instanceof TransientItem))
-      .filter(item -> Comparing.equal(item.getServerName(), serverName))
+      .filter(item -> Objects.equals(item.getServerName(), serverName))
       .findAny().orElse(null);
   }
 
@@ -206,17 +208,17 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
   @NotNull
   private List<RemoteServer<S>> getSortedServers() {
     List<RemoteServer<S>> result = new ArrayList<>(RemoteServersManager.getInstance().getServers(myServerType));
-    Collections.sort(result, SERVERS_COMPARATOR);
+    result.sort(SERVERS_COMPARATOR);
     return result;
   }
 
   @Override
-  public void addChangeListener(ChangeListener changeListener) {
+  public void addChangeListener(@NotNull ChangeListener changeListener) {
     myChangeListeners.add(changeListener);
   }
 
   @Override
-  public void removeChangeListener(ChangeListener changeListener) {
+  public void removeChangeListener(@NotNull ChangeListener changeListener) {
     myChangeListeners.remove(changeListener);
   }
 
@@ -245,8 +247,8 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
 
     @Override
     public void render(@NotNull SimpleColoredComponent ui) {
-      ui.setIcon(null);
-      ui.append(CloudBundle.getText("remote.server.combo.create.new.server"), SimpleTextAttributes.REGULAR_ITALIC_ATTRIBUTES);
+      ui.setIcon(EmptyIcon.create(myServerType.getIcon()));
+      ui.append(CloudBundle.message("remote.server.combo.create.new.server"), SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }
 
     @Override
@@ -272,12 +274,14 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
   }
 
   public class ServerItemImpl implements ServerItem {
-    private final String myServerName;
+    private final @NlsSafe String myServerName;
 
-    public ServerItemImpl(String serverName) {
+    public ServerItemImpl(@NlsSafe String serverName) {
       myServerName = serverName;
     }
 
+    @Override
+    @NlsSafe
     public String getServerName() {
       return myServerName;
     }
@@ -315,6 +319,7 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
 
     @Override
     @NotNull
+    @NlsSafe
     public String getServerName() {
       String result = super.getServerName();
       assert result != null;
@@ -336,7 +341,7 @@ public class RemoteServerCombo<S extends ServerConfiguration> extends ComboboxWi
     @Override
     public void render(@NotNull SimpleColoredComponent ui) {
       ui.setIcon(null);
-      ui.append(CloudBundle.getText("remote.server.combo.no.servers"), SimpleTextAttributes.ERROR_ATTRIBUTES);
+      ui.append(CloudBundle.message("remote.server.combo.no.servers"), SimpleTextAttributes.ERROR_ATTRIBUTES);
     }
   }
 }

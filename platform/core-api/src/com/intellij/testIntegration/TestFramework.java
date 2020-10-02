@@ -20,6 +20,7 @@ import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.lang.Language;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -30,7 +31,7 @@ import javax.swing.*;
 public interface TestFramework {
   ExtensionPointName<TestFramework> EXTENSION_NAME = ExtensionPointName.create("com.intellij.testFramework");
 
-  @NotNull
+  @NotNull @NlsSafe
   String getName();
 
   @NotNull
@@ -63,6 +64,24 @@ public interface TestFramework {
 
   @NotNull
   FileTemplateDescriptor getTestMethodFileTemplateDescriptor();
+
+  @Nullable
+  default PsiElement findBeforeClassMethod(@NotNull PsiElement clazz) {
+    return null;
+  }
+
+  default FileTemplateDescriptor getBeforeClassMethodFileTemplateDescriptor() {
+    return null;
+  }
+
+  @Nullable
+  default PsiElement findAfterClassMethod(@NotNull PsiElement clazz) {
+    return null;
+  }
+
+  default FileTemplateDescriptor getAfterClassMethodFileTemplateDescriptor() {
+    return null;
+  }
 
   /**
    * should be checked for abstract method error

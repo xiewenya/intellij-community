@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2005 Sascha Weinreuter
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,22 +16,17 @@
 package org.intellij.lang.xpath.xslt.impl;
 
 import com.intellij.ide.projectView.ProjectView;
-import com.intellij.lang.Language;
-import com.intellij.lang.LanguageFormatting;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import org.intellij.lang.xpath.xslt.XsltConfig;
-import org.jetbrains.annotations.Nls;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,12 +34,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 
-@State(
-  name = "XSLT-Support.Configuration",
-  storages = {
-    @Storage("other.xml")}
-)
-class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<XsltConfigImpl>, ApplicationComponent {
+@State(name = "XSLT-Support.Configuration", storages = {@Storage(StoragePathMacros.NON_ROAMABLE_FILE)})
+class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<XsltConfigImpl> {
   public boolean SHOW_LINKED_FILES = true;
 
   @Nullable
@@ -59,29 +50,6 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
   }
 
   @Override
-  @SuppressWarnings({"StringEquality"})
-  public void initComponent() {
-    final Language xmlLang = StdFileTypes.XML.getLanguage();
-
-    //            intentionManager.addAction(new DeleteUnusedParameterFix());
-    //            intentionManager.addAction(new DeleteUnusedVariableFix());
-
-    final XsltFormattingModelBuilder builder = new XsltFormattingModelBuilder(LanguageFormatting.INSTANCE.forLanguage(xmlLang));
-    LanguageFormatting.INSTANCE.addExplicitExtension(xmlLang, builder);
-
-    try {
-      // TODO: put this into com.intellij.refactoring.actions.IntroduceParameterAction, just like IntroduceVariableAction
-      final AnAction introduceParameter = ActionManager.getInstance().getAction("IntroduceParameter");
-      if (introduceParameter != null) {
-        introduceParameter.setInjectedContext(true);
-      }
-    }
-    catch (Exception e) {
-      Logger.getInstance(XsltConfigImpl.class.getName()).error(e);
-    }
-  }
-
-  @Override
   public boolean isShowLinkedFiles() {
     return SHOW_LINKED_FILES;
   }
@@ -91,12 +59,11 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
 
     private final XsltConfigImpl myConfig;
 
-    public UIImpl(XsltConfigImpl config) {
-      myConfig = config;
+    public UIImpl() {
+      myConfig = (XsltConfigImpl)XsltConfig.getInstance();
       setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 
-      myShowLinkedFiles = new JCheckBox("Show Associated Files in Project View");
-      myShowLinkedFiles.setMnemonic('A');
+      myShowLinkedFiles = new JBCheckBox(XPathBundle.message("checkbox.show.associated.files.in.project.view"));
       myShowLinkedFiles.setSelected(myConfig.SHOW_LINKED_FILES);
 
       add(myShowLinkedFiles);
@@ -111,10 +78,9 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
     }
 
     @Override
-    @Nls
-    public String getDisplayName() {
-      return "XSLT";
-    }
+  public String getDisplayName() {
+    return XPathBundle.message("configurable.xslt.display.name");
+  }
 
     @Override
     @NotNull

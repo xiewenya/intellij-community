@@ -58,7 +58,7 @@ public class FormEditorErrorCollector extends FormErrorCollector {
   @Override
   public void addError(@NotNull final String inspectionId, @NotNull final IComponent component, @Nullable IProperty prop,
                        @NotNull String errorMessage,
-                       @NotNull EditorQuickFixProvider... editorQuickFixProviders) {
+                       EditorQuickFixProvider @NotNull ... editorQuickFixProviders) {
     if (myResults == null) {
       myResults = new ArrayList<>();
     }
@@ -71,7 +71,7 @@ public class FormEditorErrorCollector extends FormErrorCollector {
 
     final ErrorInfo errorInfo = new ErrorInfo(myComponent, prop == null ? null : prop.getName(), errorMessage,
                                               myProfile.getErrorLevel(HighlightDisplayKey.find(inspectionId), myFormPsiFile),
-                                              quickFixes.toArray(new QuickFix[0]));
+                                              quickFixes.toArray(QuickFix.EMPTY_ARRAY));
     errorInfo.setInspectionId(inspectionId);
     myResults.add(errorInfo);
   }

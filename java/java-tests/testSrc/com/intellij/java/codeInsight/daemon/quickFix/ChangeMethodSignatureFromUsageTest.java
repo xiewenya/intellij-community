@@ -18,12 +18,7 @@ package com.intellij.java.codeInsight.daemon.quickFix;
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
 import com.intellij.pom.java.LanguageLevel;
 
-/**
- * @author cdr
- */
 public class ChangeMethodSignatureFromUsageTest extends LightQuickFixParameterizedTestCase {
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

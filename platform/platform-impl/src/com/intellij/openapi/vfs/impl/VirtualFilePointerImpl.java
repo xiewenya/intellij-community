@@ -18,24 +18,25 @@ package com.intellij.openapi.vfs.impl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TraceableDisposable;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
 import com.intellij.util.PathUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 class VirtualFilePointerImpl extends TraceableDisposable implements VirtualFilePointer {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.impl.VirtualFilePointerImpl");
+  private static final Logger LOG = Logger.getInstance(VirtualFilePointerImpl.class);
 
-  private final VirtualFilePointerListener myListener;
   private static final boolean TRACE_CREATION = LOG.isDebugEnabled() || ApplicationManager.getApplication().isUnitTestMode();
 
-  volatile FilePointerPartNode myNode; // null means disposed
+  volatile FilePartNode myNode; // null means disposed
+  private int useCount;
   boolean recursive; // true if the validityChanged() event should be fired for any change under this directory. Used for library jar directories.
+  final VirtualFilePointerListener myListener;
 
   VirtualFilePointerImpl(@Nullable VirtualFilePointerListener listener) {
     super(TRACE_CREATION);
@@ -45,96 +46,81 @@ class VirtualFilePointerImpl extends TraceableDisposable implements VirtualFileP
   @Override
   @NotNull
   public String getFileName() {
-    if (!checkDisposed()) return "";
-    Pair<VirtualFile, String> result = update();
-    VirtualFile file = result.first;
-    if (file != null) {
-      return file.getName();
+    FilePartNode node = checkDisposed(myNode);
+    if (node == null) return "";
+    Object result = node.myFileOrUrl;
+    if (result instanceof VirtualFile) {
+      return ((VirtualFile)result).getName();
     }
-    String url = result.second;
+    String url = (String)result;
     int index = url.lastIndexOf('/');
     return index >= 0 ? url.substring(index + 1) : url;
   }
 
-  @NotNull
-  private Pair<VirtualFile, String> update() {
-    while (true) {
-      Pair<VirtualFile, String> result = myNode.update();
-      if (result != null) {
-        return result;
-      }
-      // otherwise the node is becoming invalid, retry
-    }
-  }
-
   @Override
   public VirtualFile getFile() {
-    if (!checkDisposed()) return null;
-    Pair<VirtualFile, String> result = update();
-    return result.first;
+    FilePartNode node = checkDisposed(myNode);
+    if (node == null) return null;
+    return FilePartNode.myFile(node.myFileOrUrl);
   }
 
   @Override
   @NotNull
   public String getUrl() {
-    if (isDisposed()) return "";
-    Pair<VirtualFile, String> update = update();
-    return update.second;
+    FilePartNode node = myNode;
+    if (node == null) return "";
+    return FilePartNode.myUrl(node.myFileOrUrl);
   }
 
   @Override
   @NotNull
   public String getPresentableUrl() {
-    if (!checkDisposed()) return "";
     return PathUtil.toPresentableUrl(getUrl());
   }
 
-  private boolean checkDisposed() {
-    if (isDisposed()) {
+  private FilePartNode checkDisposed(FilePartNode node) {
+    if (node == null) {
       ProgressManager.checkCanceled();
       LOG.error("Already disposed: URL='" + this + "'");
-      return false;
     }
-    return true;
+    return node;
   }
 
 
   @Override
   public boolean isValid() {
-    Pair<VirtualFile, String> result = isDisposed() ? null : update();
-    return result != null && result.first != null;
+    FilePartNode node = myNode;
+    return node != null && FilePartNode.myFile(node.myFileOrUrl) != null;
   }
 
   @Override
+  @NonNls
   public String toString() {
-    return isDisposed() ? "" : myNode.myFileAndUrl.second;
+    FilePartNode node = myNode;
+    return node == null ? "(disposed)" : FilePartNode.myUrl(node.myFileOrUrl);
   }
 
   public void dispose() {
-    checkDisposed();
-    if (myNode.incrementUsageCount(-1) == 0) {
-      kill("URL when die: "+ toString());
-      VirtualFilePointerManager pointerManager = VirtualFilePointerManager.getInstance();
-      if (pointerManager instanceof VirtualFilePointerManagerImpl) {
-        ((VirtualFilePointerManagerImpl)pointerManager).removeNodeFrom(this);
-      }
+    VirtualFilePointerManager pointerManager = VirtualFilePointerManager.getInstance();
+    String url = TRACE_CREATION ? getUrl() : "?";
+    boolean shouldKill;
+    if (pointerManager instanceof VirtualFilePointerManagerImpl) {
+      shouldKill = ((VirtualFilePointerManagerImpl)pointerManager).decrementUsageCount(this);
+    }
+    else {
+      shouldKill = incrementUsageCount(-1) == 0;
+    }
+
+    if (shouldKill) {
+      kill("URL when die: " + url);
     }
   }
 
-  public boolean isDisposed() {
-    return myNode == null;
-  }
-
-  VirtualFilePointerListener getListener() {
-    return myListener;
-  }
-
   int incrementUsageCount(int delta) {
-    return myNode.incrementUsageCount(delta);
+    return useCount += delta;
   }
 
-  @Override
-  public boolean isRecursive() {
+  boolean isRecursive() {
     return recursive;
   }
 }

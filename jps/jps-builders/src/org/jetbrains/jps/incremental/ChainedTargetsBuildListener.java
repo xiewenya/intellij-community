@@ -17,6 +17,7 @@ package org.jetbrains.jps.incremental;
 
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildRootDescriptor;
 import org.jetbrains.jps.builders.BuildRootIndex;
 import org.jetbrains.jps.cmdline.ProjectDescriptor;
@@ -29,18 +30,16 @@ import java.io.IOException;
 
 /**
  * Notifies targets about changes in their sources made by other builders
- *
- * @author nik
-*/
+ */
 class ChainedTargetsBuildListener implements BuildListener {
   private final CompileContextImpl myContext;
 
-  public ChainedTargetsBuildListener(CompileContextImpl context) {
+  ChainedTargetsBuildListener(CompileContextImpl context) {
     myContext = context;
   }
 
   @Override
-  public void filesGenerated(FileGeneratedEvent event) {
+  public void filesGenerated(@NotNull FileGeneratedEvent event) {
     final ProjectDescriptor pd = myContext.getProjectDescriptor();
     final BuildFSState fsState = pd.fsState;
     for (Pair<String, String> pair : event.getPaths()) {
@@ -51,7 +50,7 @@ class ChainedTargetsBuildListener implements BuildListener {
           // do not mark files belonging to the target that originated the event
           // It is assumed that those files will be explicitly marked dirty by particular builder, if needed.
           try {
-            fsState.markDirty(myContext, file, desc, pd.timestamps.getStorage(), false);
+            fsState.markDirty(myContext, file, desc, pd.getProjectStamps().getStampStorage(), false);
           }
           catch (IOException ignored) {
           }
@@ -61,7 +60,7 @@ class ChainedTargetsBuildListener implements BuildListener {
   }
 
   @Override
-  public void filesDeleted(FileDeletedEvent event) {
+  public void filesDeleted(@NotNull FileDeletedEvent event) {
     final BuildFSState state = myContext.getProjectDescriptor().fsState;
     final BuildRootIndex rootsIndex = myContext.getProjectDescriptor().getBuildRootIndex();
     for (String path : event.getFilePaths()) {

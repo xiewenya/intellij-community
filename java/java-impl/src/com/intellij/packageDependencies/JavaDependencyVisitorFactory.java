@@ -31,7 +31,7 @@ public class JavaDependencyVisitorFactory extends DependencyVisitorFactory {
     private final DependenciesBuilder.DependencyProcessor myProcessor;
     private final VisitorOptions myOptions;
 
-    public MyVisitor(DependenciesBuilder.DependencyProcessor processor, VisitorOptions options) {
+    MyVisitor(DependenciesBuilder.DependencyProcessor processor, VisitorOptions options) {
       myProcessor = processor;
       myOptions = options;
     }
@@ -42,7 +42,7 @@ public class JavaDependencyVisitorFactory extends DependencyVisitorFactory {
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       super.visitElement(element);
 
       for (PsiReference ref : element.getReferences()) {

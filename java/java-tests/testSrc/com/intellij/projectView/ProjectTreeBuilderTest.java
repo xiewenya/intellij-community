@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
 import com.intellij.ide.projectView.impl.AbstractProjectViewPSIPane;
@@ -77,7 +78,6 @@ public class ProjectTreeBuilderTest extends BaseProjectViewTestCase {
                                                      "      myField2:boolean\n" +
                                                      "      myField3:boolean\n" +
                                                      "      myField4:boolean\n" +
-                                                     getRootFiles() +
                                                      " +External Libraries\n"
     );
 
@@ -122,6 +122,7 @@ public class ProjectTreeBuilderTest extends BaseProjectViewTestCase {
     StructureViewComponent svc2 = (StructureViewComponent)fileEditor.getStructureViewBuilder().createStructureView(fileEditor, myProject);
     Disposer.register(getTestRootDisposable(), svc2);
     svc2.setActionActive(JavaInheritedMembersNodeProvider.ID, false);
+    PlatformTestUtil.waitWhileBusy(svc2.getTree());
     PlatformTestUtil.assertTreeEqual(svc2.getTree(), expected);
   }
 }

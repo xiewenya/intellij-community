@@ -1,16 +1,15 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.execution.configurations.SimpleJavaParameters;
 import com.intellij.execution.configurations.coverage.JavaCoverageEnabledConfiguration;
-import com.intellij.execution.testframework.JavaTestAgentUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.rt.coverage.data.ClassData;
 import com.intellij.rt.coverage.data.ProjectData;
 import com.intellij.rt.coverage.instrumentation.SaveHook;
 import com.intellij.rt.coverage.util.ProjectDataLoader;
 import com.intellij.util.PathUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -19,9 +18,10 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class IDEACoverageRunner extends JavaCoverageRunner {
+public final class IDEACoverageRunner extends JavaCoverageRunner {
   private static final Logger LOG = Logger.getInstance(IDEACoverageRunner.class);
 
+  @Override
   public ProjectData loadCoverageData(@NotNull final File sessionDataFile, @Nullable final CoverageSuite coverageSuite) {
     ProjectData projectData = ProjectDataLoader.load(sessionDataFile);
     File sourceMapFile = new File(JavaCoverageEnabledConfiguration.getSourceMapPath(sessionDataFile.getPath()));
@@ -51,13 +51,14 @@ public class IDEACoverageRunner extends JavaCoverageRunner {
 
   @Override
   public void appendCoverageArgument(String sessionDataFilePath,
-                                     @Nullable String[] patterns,
+                                     String @Nullable [] patterns,
                                      SimpleJavaParameters parameters,
                                      boolean collectLineInfo,
                                      boolean isSampling) {
     appendCoverageArgument(sessionDataFilePath, patterns, null, parameters, collectLineInfo, isSampling, null);
   }
 
+  @Override
   public void appendCoverageArgument(final String sessionDataFilePath,
                                      final String[] patterns,
                                      final String[] excludePatterns,
@@ -65,8 +66,10 @@ public class IDEACoverageRunner extends JavaCoverageRunner {
                                      final boolean collectLineInfo,
                                      final boolean isSampling,
                                      @Nullable String sourceMapPath) {
-    StringBuilder argument = new StringBuilder("-javaagent:");
-    argument.append(JavaTestAgentUtil.handleSpacesInAgentPath(PathUtil.getJarPathForClass(ProjectData.class)));
+    @NonNls StringBuilder argument = new StringBuilder("-javaagent:");
+    String agentPath = handleSpacesInAgentPath(PathUtil.getJarPathForClass(ProjectData.class));
+    if (agentPath == null) return;
+    argument.append(agentPath);
     argument.append("=");
     try {
       final File tempFile = createTempFile();
@@ -108,14 +111,20 @@ public class IDEACoverageRunner extends JavaCoverageRunner {
   }
 
 
+  @Override
+  @NotNull
   public String getPresentableName() {
     return "IntelliJ IDEA";
   }
 
+  @Override
+  @NotNull
   public String getId() {
     return "idea";
   }
 
+  @Override
+  @NotNull
   public String getDataFileExtension() {
     return "ic";
   }

@@ -20,23 +20,16 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ImportUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
-public class UnnecessarilyQualifiedStaticallyImportedElementInspection extends BaseInspection implements CleanupLocalInspectionTool{
+import java.util.Objects;
 
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessarily.qualified.statically.imported.element.display.name");
-  }
+public class UnnecessarilyQualifiedStaticallyImportedElementInspection extends BaseInspection implements CleanupLocalInspectionTool{
 
   @NotNull
   @Override
@@ -80,66 +73,13 @@ public class UnnecessarilyQualifiedStaticallyImportedElementInspection extends B
     @Override
     public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
       super.visitReferenceElement(reference);
-      if (reference instanceof PsiMethodReferenceExpression) {
+      if (PsiKeyword.YIELD.equals(reference.getReferenceName()) && reference.getParent() instanceof PsiMethodCallExpression) {
+        // Qualifier might be required since Java 14, so don't warn
         return;
       }
-      final PsiElement qualifier = reference.getQualifier();
-      if (!(qualifier instanceof PsiJavaCodeReferenceElement)) {
-        return;
+      if (ImportUtils.isAlreadyStaticallyImported(reference)) {
+        registerError(Objects.requireNonNull(reference.getQualifier()), ProblemHighlightType.LIKE_UNUSED_SYMBOL, reference.resolve());
       }
-      if (PsiTreeUtil.getParentOfType(reference, PsiImportStatementBase.class) != null) {
-        return;
-      }
-      if (UnnecessarilyQualifiedStaticUsageInspection.isGenericReference(reference, (PsiJavaCodeReferenceElement)qualifier)) return;
-      final PsiElement target = reference.resolve();
-      if (!(target instanceof PsiMember)) {
-        return;
-      }
-      final PsiMember member = (PsiMember)target;
-      final PsiJavaCodeReferenceElement referenceExpression = (PsiJavaCodeReferenceElement)qualifier;
-      final PsiElement qualifierTarget = referenceExpression.resolve();
-      if (!(qualifierTarget instanceof PsiClass)) {
-        return;
-      }
-      if (!ImportUtils.isStaticallyImported(member, reference)) {
-        return;
-      }
-      if (!isReferenceCorrectWithoutQualifier(reference, member)) {
-        return;
-      }
-      registerError(qualifier, ProblemHighlightType.LIKE_UNUSED_SYMBOL, member);
-    }
-
-    private static boolean isReferenceCorrectWithoutQualifier(PsiJavaCodeReferenceElement reference, PsiMember member) {
-      final String referenceName = reference.getReferenceName();
-      if (referenceName == null) {
-        return false;
-      }
-      final Project project = reference.getProject();
-      final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
-      final PsiResolveHelper resolveHelper = psiFacade.getResolveHelper();
-      if (member instanceof PsiMethod) {
-        final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)reference.getParent().copy();
-        final PsiElement qualifier = methodCallExpression.getMethodExpression().getQualifier();
-        assert qualifier != null;
-        qualifier.delete();
-        if (!member.equals(methodCallExpression.resolveMethod())) {
-          return false;
-        }
-      }
-      else if (member instanceof PsiField) {
-        final PsiVariable variable = resolveHelper.resolveAccessibleReferencedVariable(referenceName, reference);
-        if (!member.equals(variable)) {
-          return false;
-        }
-      }
-      else if (member instanceof PsiClass) {
-        final PsiClass aClass = resolveHelper.resolveReferencedClass(referenceName, reference);
-        if (!member.equals(aClass)) {
-          return false;
-        }
-      }
-      return true;
     }
   }
 }

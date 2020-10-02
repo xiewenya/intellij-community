@@ -1,10 +1,11 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
-import com.intellij.configurationStore.ROOT_CONFIG
 import com.intellij.configurationStore.StateStorageManagerImpl
 import com.intellij.configurationStore.getExportableComponentsMap
+import com.intellij.configurationStore.getExportableItemsFromLocalStorage
 import com.intellij.configurationStore.removeMacroIfStartsWith
+import com.intellij.configurationStore.schemeManager.ROOT_CONFIG
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.stateStore
@@ -20,17 +21,17 @@ import java.nio.file.Path
 fun copyLocalConfig(storageManager: StateStorageManagerImpl = ApplicationManager.getApplication()!!.stateStore.storageManager as StateStorageManagerImpl) {
   val streamProvider = storageManager.compoundStreamProvider.providers.first { it is IcsManager.IcsStreamProvider } as IcsManager.IcsStreamProvider
 
-  val fileToItems = getExportableComponentsMap(true, false, storageManager)
+  val fileToItems = getExportableItemsFromLocalStorage(getExportableComponentsMap(false), storageManager)
   fileToItems.keys.forEachGuaranteed { file ->
     var fileSpec: String
     try {
       val absolutePath = file.toAbsolutePath().systemIndependentPath
-      fileSpec = removeMacroIfStartsWith(storageManager.collapseMacros(absolutePath), ROOT_CONFIG)
+      fileSpec = removeMacroIfStartsWith(storageManager.collapseMacro(absolutePath), ROOT_CONFIG)
       if (fileSpec == absolutePath) {
         // we have not experienced such problem yet, but we are just aware
         val canonicalPath = file.toRealPath().systemIndependentPath
         if (canonicalPath != absolutePath) {
-          fileSpec = removeMacroIfStartsWith(storageManager.collapseMacros(canonicalPath), ROOT_CONFIG)
+          fileSpec = removeMacroIfStartsWith(storageManager.collapseMacro(canonicalPath), ROOT_CONFIG)
         }
       }
     }

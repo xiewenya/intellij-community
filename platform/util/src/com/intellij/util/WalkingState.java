@@ -18,9 +18,6 @@ package com.intellij.util;
 
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class WalkingState<T> {
   public interface TreeGuide<T> {
     T getNextSibling(@NotNull T element);
@@ -110,7 +107,7 @@ public class WalkingState<T> {
   /**
    * process in the in-order fashion
    */
-  public static <T> boolean processAll(@NotNull T root, @NotNull TreeGuide<T> treeGuide, @NotNull final Processor<T> processor) {
+  public static <T> boolean processAll(@NotNull T root, @NotNull TreeGuide<T> treeGuide, @NotNull final Processor<? super T> processor) {
     final boolean[] result = {true};
     new WalkingState<T>(treeGuide){
       @Override

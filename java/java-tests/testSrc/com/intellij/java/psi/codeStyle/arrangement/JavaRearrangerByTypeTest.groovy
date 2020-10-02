@@ -15,19 +15,17 @@
  */
 package com.intellij.java.psi.codeStyle.arrangement
 
-import org.junit.Before
+import groovy.transform.CompileStatic
 
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.EntryType.*
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Modifier.*
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Order.BY_NAME
-
 /**
  * @author Denis Zhdanov
- * @since 7/20/12 2:45 PM
  */
+@CompileStatic
 class JavaRearrangerByTypeTest extends AbstractJavaRearrangerTest {
 
-  @Before
   void setUp() {
     super.setUp()
     commonSettings.BLANK_LINES_AROUND_METHOD = 0

@@ -1,63 +1,47 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
 import com.google.common.collect.Lists;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeTooltipManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.ui.TooltipWithClickableLinks;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBTextField;
+import com.intellij.ui.components.labels.ActionLink;
+import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.util.List;
 
-import static com.jetbrains.python.debugger.PyDebugSupportUtils.DEBUGGER_WARNING_MESSAGE;
-
-/**
- * @author traff
- */
 public class PyDebuggerConfigurable implements SearchableConfigurable, Configurable.NoScroll {
-  private final PyDebuggerOptionsProvider mySettings;
   private JPanel myMainPanel;
   private JCheckBox myAttachToSubprocess;
   private JCheckBox mySaveSignatures;
-  private JButton myClearCacheButton;
   private JCheckBox mySupportGevent;
   private JBCheckBox mySupportQt;
+  private JCheckBox myDropIntoDebuggerOnFailedTests;
   private JBLabel warningIcon;
   private ComboBox<String> myPyQtBackend;
-  private final List<String> myPyQtBackendsList = Lists.newArrayList("Auto", "PyQt4", "PyQt5", "PySide");
+  private ActionLink myActionLink;
+  private JBTextField myAttachProcessFilter;
+  private JBLabel myAttachFilterLabel;
+  private final List<String> myPyQtBackendsList = Lists.newArrayList("Auto", "PyQt4", "PyQt5", "PySide", "PySide2");
 
   private final Project myProject;
 
-  public PyDebuggerConfigurable(Project project, final PyDebuggerOptionsProvider settings) {
+  public PyDebuggerConfigurable(Project project) {
     myProject = project;
-    mySettings = settings;
-    myPyQtBackendsList.forEach(e -> myPyQtBackend.addItem(e));
+    myPyQtBackendsList.forEach(e -> myPyQtBackend.addItem(e)); //NON-NLS
 
     mySupportQt.addItemListener(new ItemListener() {
       @Override
@@ -65,10 +49,13 @@ public class PyDebuggerConfigurable implements SearchableConfigurable, Configura
         myPyQtBackend.setEnabled(mySupportQt.isSelected());
       }
     });
+
+    myAttachFilterLabel.setText(PyBundle.message("debugger.attach.to.process.filter.names"));
   }
 
+  @Override
   public String getDisplayName() {
-    return "Python Debugger";
+    return PyBundle.message("configurable.PyDebuggerConfigurable.display.name");
   }
 
   @Override
@@ -76,45 +63,54 @@ public class PyDebuggerConfigurable implements SearchableConfigurable, Configura
     return "reference.idesettings.debugger.python";
   }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();
   }
 
+  @Override
   public JComponent createComponent() {
-    myClearCacheButton.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent event) {
-        PySignatureCacheManager.getInstance(myProject).clearCache();
-      }
-    });
     return myMainPanel;
   }
 
+  @Override
   public boolean isModified() {
-    return myAttachToSubprocess.isSelected() != mySettings.isAttachToSubprocess() ||
-           mySaveSignatures.isSelected() != mySettings.isSaveCallSignatures() ||
-           mySupportGevent.isSelected() != mySettings.isSupportGeventDebugging() ||
-           mySupportQt.isSelected() != mySettings.isSupportQtDebugging() ||
-           (myPyQtBackend.getSelectedItem() != null && !myPyQtBackend.getSelectedItem().equals(mySettings.getPyQtBackend()));
+    PyDebuggerOptionsProvider settings = PyDebuggerOptionsProvider.getInstance(myProject);
+    return myAttachToSubprocess.isSelected() != settings.isAttachToSubprocess() ||
+           mySaveSignatures.isSelected() != settings.isSaveCallSignatures() ||
+           mySupportGevent.isSelected() != settings.isSupportGeventDebugging() ||
+           myDropIntoDebuggerOnFailedTests.isSelected() != settings.isDropIntoDebuggerOnFailedTest() ||
+           mySupportQt.isSelected() != settings.isSupportQtDebugging() ||
+           (myPyQtBackend.getSelectedItem() != null && !myPyQtBackend.getSelectedItem().equals(settings.getPyQtBackend())) ||
+           !myAttachProcessFilter.getText().equals(settings.getAttachProcessFilter());
   }
 
-  public void apply() throws ConfigurationException {
-    mySettings.setAttachToSubprocess(myAttachToSubprocess.isSelected());
-    mySettings.setSaveCallSignatures(mySaveSignatures.isSelected());
-    mySettings.setSupportGeventDebugging(mySupportGevent.isSelected());
-    mySettings.setSupportQtDebugging(mySupportQt.isSelected());
-    mySettings.setPyQtBackend(myPyQtBackendsList.get(myPyQtBackend.getSelectedIndex()));
+  @Override
+  public void apply() {
+    PyDebuggerOptionsProvider settings = PyDebuggerOptionsProvider.getInstance(myProject);
+    settings.setAttachToSubprocess(myAttachToSubprocess.isSelected());
+    settings.setSaveCallSignatures(mySaveSignatures.isSelected());
+    settings.setSupportGeventDebugging(mySupportGevent.isSelected());
+    settings.setDropIntoDebuggerOnFailedTest(myDropIntoDebuggerOnFailedTests.isSelected());
+    settings.setSupportQtDebugging(mySupportQt.isSelected());
+    settings.setPyQtBackend(myPyQtBackendsList.get(myPyQtBackend.getSelectedIndex()));
+    settings.setAttachProcessFilter(myAttachProcessFilter.getText());
   }
 
+  @Override
   public void reset() {
-    myAttachToSubprocess.setSelected(mySettings.isAttachToSubprocess());
-    mySaveSignatures.setSelected(mySettings.isSaveCallSignatures());
-    mySupportGevent.setSelected(mySettings.isSupportGeventDebugging());
-    mySupportQt.setSelected(mySettings.isSupportQtDebugging());
-    myPyQtBackend.setSelectedItem(mySettings.getPyQtBackend());
+    PyDebuggerOptionsProvider settings = PyDebuggerOptionsProvider.getInstance(myProject);
+    myAttachToSubprocess.setSelected(settings.isAttachToSubprocess());
+    mySaveSignatures.setSelected(settings.isSaveCallSignatures());
+    mySupportGevent.setSelected(settings.isSupportGeventDebugging());
+    myDropIntoDebuggerOnFailedTests.setSelected(settings.isDropIntoDebuggerOnFailedTest());
+    mySupportQt.setSelected(settings.isSupportQtDebugging());
+    myPyQtBackend.setSelectedItem(settings.getPyQtBackend()); //NON-NLS
+    myAttachProcessFilter.setText(settings.getAttachProcessFilter());
   }
 
+  @Override
   public void disposeUIResources() {
   }
 
@@ -123,6 +119,13 @@ public class PyDebuggerConfigurable implements SearchableConfigurable, Configura
     IdeTooltipManager.getInstance().setCustomTooltip(
       warningIcon,
       new TooltipWithClickableLinks.ForBrowser(warningIcon,
-                                               DEBUGGER_WARNING_MESSAGE));
+                                               PyBundle.message("debugger.warning.message")));
+
+    myActionLink = new ActionLink(PyBundle.message("form.debugger.clear.caches.action"), new AnAction() {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
+        PySignatureCacheManager.getInstance(myProject).clearCache();
+      }
+    });
   }
 }

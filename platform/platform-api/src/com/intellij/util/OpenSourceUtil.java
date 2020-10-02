@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 import static java.util.Arrays.asList;
 
-public class OpenSourceUtil {
+public final class OpenSourceUtil {
 
   private OpenSourceUtil() {
   }
@@ -40,21 +40,21 @@ public class OpenSourceUtil {
   /**
    * Invokes {@link #navigate(boolean, Navigatable...)} that always requests focus.
    */
-  public static void navigate(@Nullable Navigatable... navigatables) {
+  public static void navigate(Navigatable @Nullable ... navigatables) {
     navigate(true, navigatables);
   }
 
   /**
    * Invokes {@link #navigate(boolean, boolean, Navigatable...)} that does not try to preserve a state of a corresponding editor.
    */
-  public static void navigate(boolean requestFocus, @Nullable Navigatable... navigatables) {
+  public static void navigate(boolean requestFocus, Navigatable @Nullable ... navigatables) {
     navigate(requestFocus, false, navigatables);
   }
 
   /**
    * Invokes {@link #navigate(boolean, boolean, Iterable)} if at least one navigatable exists
    */
-  public static void navigate(boolean requestFocus, boolean tryNotToScroll, @Nullable Navigatable... navigatables) {
+  public static void navigate(boolean requestFocus, boolean tryNotToScroll, Navigatable @Nullable ... navigatables) {
     if (navigatables != null && navigatables.length > 0) navigate(requestFocus, tryNotToScroll, asList(navigatables));
   }
 
@@ -66,7 +66,7 @@ public class OpenSourceUtil {
    * @param navigatables   an iterable collection of navigatables
    * @return {@code true} if at least one navigatable was processed, {@code false} otherwise
    */
-  public static boolean navigate(boolean requestFocus, boolean tryNotToScroll, @Nullable Iterable<Navigatable> navigatables) {
+  public static boolean navigate(boolean requestFocus, boolean tryNotToScroll, @Nullable Iterable<? extends Navigatable> navigatables) {
     if (navigatables == null) return false;
     Navigatable nonSourceNavigatable = null;
     boolean alreadyNavigatedToSource = false;
@@ -92,7 +92,7 @@ public class OpenSourceUtil {
    * @param navigatables   an iterable collection of navigatables
    * @return {@code true} if at least one navigatable was processed, {@code false} otherwise
    */
-  public static boolean navigateToSource(boolean requestFocus, boolean tryNotToScroll, @Nullable Iterable<Navigatable> navigatables) {
+  public static boolean navigateToSource(boolean requestFocus, boolean tryNotToScroll, @Nullable Iterable<? extends Navigatable> navigatables) {
     if (navigatables == null) return false;
     boolean alreadyNavigatedToSource = false;
     for (Navigatable navigatable : navigatables) {

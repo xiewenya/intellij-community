@@ -1,24 +1,13 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.changes.patch.RelativePathCalculator;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
@@ -26,15 +15,22 @@ import java.io.File;
  * @author yole
  */
 public class PlatformVcsPathPresenter extends VcsPathPresenter {
+  @Override
+  @NotNull
   public String getPresentableRelativePathFor(final VirtualFile file) {
     return FileUtil.toSystemDependentName(file.getPath());
   }
 
+  @Override
+  @NotNull
   public String getPresentableRelativePath(final ContentRevision fromRevision, final ContentRevision toRevision) {
-    RelativePathCalculator calculator = new RelativePathCalculator(toRevision.getFile().getPath(), fromRevision.getFile().getPath());
+    FilePath path = toRevision.getFile();
+    FilePath originalPath = fromRevision.getFile();
+    return getPresentableRelativePath(path, originalPath);
+  }
 
-    calculator.execute();
-    final String result = calculator.getResult();
-    return (result == null) ? null : result.replace("/", File.separator);
+  public static @NlsSafe @NotNull String getPresentableRelativePath(@NotNull FilePath path, @NotNull FilePath originalPath) {
+    RelativePathCalculator calculator = new RelativePathCalculator(path.getPath(), originalPath.getPath());
+    return calculator.execute().replace("/", File.separator);
   }
 }

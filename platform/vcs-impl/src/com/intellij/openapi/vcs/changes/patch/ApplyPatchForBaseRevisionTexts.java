@@ -27,6 +27,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.CalledInAny;
@@ -103,14 +104,10 @@ public class ApplyPatchForBaseRevisionTexts {
 
   @NotNull
   private static ApplyPatchForBaseRevisionTexts createFromLocal(@NotNull String localContent, @NotNull TextFilePatch patch) {
-    final GenericPatchApplier applier = new GenericPatchApplier(localContent, patch.getHunks());
-    boolean exactlyApplied = applier.execute();
-    if (!exactlyApplied) {
-      applier.trySolveSomehow();
-    }
-    String patched = StringUtil.convertLineSeparators(applier.getAfter());
+    GenericPatchApplier.AppliedSomehowPatch appliedPatch = GenericPatchApplier.applySomehow(localContent, patch.getHunks());
 
-    return new ApplyPatchForBaseRevisionTexts(patched, localContent, null, !exactlyApplied);
+    String patchedContent = StringUtil.convertLineSeparators(appliedPatch.patchedText);
+    return new ApplyPatchForBaseRevisionTexts(patchedContent, localContent, null, appliedPatch.isAppliedSomehow);
   }
 
   @Nullable
@@ -120,21 +117,18 @@ public class ApplyPatchForBaseRevisionTexts {
                                                                               @NotNull String beforeVersionId,
                                                                               @NotNull VirtualFile file,
                                                                               @NotNull FilePath pathBeforeRename) {
-    DefaultPatchBaseVersionProvider baseVersionProvider = new DefaultPatchBaseVersionProvider(project, file, beforeVersionId);
-    if (!baseVersionProvider.canProvideContent()) return null;
-
     try {
       List<PatchHunk> hunks = patch.getHunks();
 
       Ref<String> baseRef = new Ref<>();
       Ref<String> patchedRef = new Ref<>();
 
-      baseVersionProvider.getBaseVersionContent(pathBeforeRename, base -> {
-        final GenericPatchApplier applier = new GenericPatchApplier(base, hunks);
-        if (!applier.execute()) return true;
+      DefaultPatchBaseVersionProvider.getBaseVersionContent(project, beforeVersionId, file, pathBeforeRename, base -> {
+        GenericPatchApplier.AppliedPatch appliedPatch = GenericPatchApplier.apply(base, hunks);
+        if (appliedPatch == null) return true;
 
         baseRef.set(base);
-        patchedRef.set(StringUtil.convertLineSeparators(applier.getAfter()));
+        patchedRef.set(StringUtil.convertLineSeparators(appliedPatch.patchedText));
         return false;
       });
 
@@ -157,17 +151,16 @@ public class ApplyPatchForBaseRevisionTexts {
     final List<PatchHunk> hunks = patch.getHunks();
 
     String base = baseContents.toString();
-    final GenericPatchApplier applier = new GenericPatchApplier(base, hunks);
-    boolean exactlyApplied = applier.execute();
+    GenericPatchApplier.AppliedPatch appliedPatch = GenericPatchApplier.apply(base, hunks);
 
-    if (!exactlyApplied) {
-      LOG.warn(String.format("Patch for %s has wrong base and can't be applied properly",
-                             chooseNotNull(patch.getBeforeName(), patch.getAfterName())));
+    if (appliedPatch == null) {
+      LOG.warn(VcsBundle.message("patch.apply.wrong.base.and.can.t.be.applied.warning",
+                                 chooseNotNull(patch.getBeforeName(), patch.getAfterName())));
 
       return null;
     }
 
-    String patched = StringUtil.convertLineSeparators(applier.getAfter());
+    String patched = StringUtil.convertLineSeparators(appliedPatch.patchedText);
 
     return new ApplyPatchForBaseRevisionTexts(patched, localContent, base, false);
   }

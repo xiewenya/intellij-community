@@ -15,10 +15,10 @@
  */
 package org.intellij.plugins.intelliLang.inject.config;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
-import org.intellij.plugins.intelliLang.Configuration;
 
 import java.util.List;
 
@@ -36,6 +36,7 @@ import java.util.List;
 public interface Injection {
 
   @NotNull
+  @NlsSafe
   String getInjectedLanguageId();
 
   @NotNull

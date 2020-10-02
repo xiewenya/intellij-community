@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.MethodCallUtils;
@@ -57,7 +45,7 @@ public class ConvertCompareToToEqualsIntention extends BaseElementAtCaretIntenti
     return CompareToResult.findCompareTo(element) != null;
   }
 
-  private static class CompareToResult {
+  private static final class CompareToResult {
 
     private final PsiBinaryExpression myBinaryExpression;
     private final PsiMethodCallExpression myCompareToCall;
@@ -94,8 +82,8 @@ public class ConvertCompareToToEqualsIntention extends BaseElementAtCaretIntenti
         return null;
       }
       PsiMethodCallExpression compareToExpression;
-      final PsiExpression lhs = binaryExpression.getLOperand();
-      final PsiExpression rhs = binaryExpression.getROperand();
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(binaryExpression.getLOperand());
+      final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(binaryExpression.getROperand());
       if (lhs instanceof PsiMethodCallExpression) {
         compareToExpression = (PsiMethodCallExpression)lhs;
         if (!MethodCallUtils.isCompareToCall(compareToExpression) || !ExpressionUtils.isZero(rhs)) {
@@ -116,12 +104,12 @@ public class ConvertCompareToToEqualsIntention extends BaseElementAtCaretIntenti
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Convert 'compareTo()' expression to 'equals()' call";
+    return JavaBundle.message("convert.compareto.expression.to.equals.call");
   }
 
   @NotNull
   @Override
   public String getText() {
-    return "Convert 'compareTo()' expression to 'equals()' call (may change semantics)";
+    return JavaBundle.message("convert.compareto.expression.to.equals.call.may.change.semantics");
   }
 }

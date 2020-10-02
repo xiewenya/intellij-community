@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.ui;
 
 import com.intellij.ide.projectView.PresentationData;
@@ -38,13 +24,13 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
   private final TypeMigrationLabeler myLabeler;
   private final PsiType myMigrationType;
   private final HashMap<TypeMigrationUsageInfo, Set<MigrationNode>> myProcessed;
-  private final HashSet<TypeMigrationUsageInfo> myParents;
+  private final HashSet<? extends TypeMigrationUsageInfo> myParents;
 
   public MigrationNode(final Project project,
                        final TypeMigrationUsageInfo info,
                        final PsiType migrationType,
                        final TypeMigrationLabeler labeler,
-                       final HashSet<TypeMigrationUsageInfo> parents,
+                       final HashSet<? extends TypeMigrationUsageInfo> parents,
                        final HashMap<TypeMigrationUsageInfo, Set<MigrationNode>> processed) {
     super(project, info);
     myLabeler = labeler;
@@ -70,11 +56,12 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
     return myInfo;
   }
 
+  @Override
   @NotNull
-  public Collection<? extends AbstractTreeNode> getChildren() {
+  public Collection<? extends AbstractTreeNode<?>> getChildren() {
     if (myCachedChildren == null) {
       myCachedChildren = new ArrayList<>();
-      
+
       final PsiElement element = myInfo.getElement();
       if (element != null) {
         try {
@@ -113,10 +100,12 @@ public class MigrationNode extends AbstractTreeNode<TypeMigrationUsageInfo> impl
     return myCachedChildren != null;
   }
 
-  protected void update(final PresentationData presentation) {
+  @Override
+  protected void update(@NotNull final PresentationData presentation) {
 
   }
 
+  @Override
   public MigrationNode getDuplicate() {
     return myDuplicatedNode;
   }

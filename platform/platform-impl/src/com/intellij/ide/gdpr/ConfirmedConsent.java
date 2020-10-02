@@ -1,8 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.gdpr;
 
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,6 +25,7 @@ public final class ConfirmedConsent extends ConsentBase {
     myAcceptanceTime = acceptanceTime;
   }
 
+  @Override
   public boolean isAccepted() {
     return myIsAccepted;
   }
@@ -42,6 +42,8 @@ public final class ConfirmedConsent extends ConsentBase {
     myAcceptanceTime = acceptanceTime;
   }
 
+  @Override
+  @NonNls
   public String toString() {
     return "AcceptedConsent{" +
       "id='" + getId() + '\'' +
@@ -52,7 +54,7 @@ public final class ConfirmedConsent extends ConsentBase {
   }
 
   public String toExternalString() {
-    return getId() + ":" + getVersion().toString() + ":" + (isAccepted() ? "1" : "0") + ":" + Long.toString(myAcceptanceTime);
+    return getId() + ":" + getVersion().toString() + ":" + (isAccepted() ? "1" : "0") + ":" + myAcceptanceTime;
   }
 
   @Nullable

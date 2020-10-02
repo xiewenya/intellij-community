@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.config.impl;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.JDOMExternalizable;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
+
+import java.util.Objects;
 
 @Tag("build-property")
 public final class BuildFileProperty implements JDOMExternalizable, Cloneable {
@@ -56,11 +43,13 @@ public final class BuildFileProperty implements JDOMExternalizable, Cloneable {
     myPropertyValue = propertyValue;
   }
 
+  @Override
   public void readExternal(Element element) {
     myPropertyName = element.getAttributeValue(NAME);
     myPropertyValue = element.getAttributeValue(VALUE);
   }
 
+  @Override
   public void writeExternal(Element element) {
     element.setAttribute(NAME, getPropertyName());
     element.setAttribute(VALUE, getPropertyValue());
@@ -72,7 +61,7 @@ public final class BuildFileProperty implements JDOMExternalizable, Cloneable {
     if (o == null || getClass() != o.getClass()) return false;
 
     BuildFileProperty that = (BuildFileProperty)o;
-    return Comparing.equal(myPropertyName, that.myPropertyName) && Comparing.equal(myPropertyValue, that.myPropertyValue);
+    return Objects.equals(myPropertyName, that.myPropertyName) && Objects.equals(myPropertyValue, that.myPropertyValue);
   }
 
   @Override

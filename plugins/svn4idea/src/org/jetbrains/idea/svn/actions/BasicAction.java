@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 
 package org.jetbrains.idea.svn.actions;
@@ -38,7 +24,9 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static com.intellij.openapi.application.ApplicationManager.getApplication;
+import static com.intellij.openapi.util.text.StringUtil.removeEllipsisSuffix;
 import static com.intellij.util.ArrayUtil.isEmpty;
+import static com.intellij.util.ui.UIUtil.removeMnemonic;
 
 public abstract class BasicAction extends AnAction implements DumbAware {
 
@@ -53,7 +41,7 @@ public abstract class BasicAction extends AnAction implements DumbAware {
 
     project.save();
 
-    String actionName = getActionName();
+    String actionName = removeMnemonic(removeEllipsisSuffix(getActionName()));
     LocalHistoryAction action = LocalHistory.getInstance().startAction(actionName);
     AbstractVcsHelper helper = AbstractVcsHelper.getInstance(project);
 
@@ -110,7 +98,7 @@ public abstract class BasicAction extends AnAction implements DumbAware {
     VcsDirtyScopeManager.getInstance(vcs.getProject()).fileDirty(file);
   }
 
-  private void batchExecute(@NotNull SvnVcs vcs, @NotNull VirtualFile[] files, @NotNull DataContext context) throws VcsException {
+  private void batchExecute(@NotNull SvnVcs vcs, VirtualFile @NotNull [] files, @NotNull DataContext context) throws VcsException {
     batchPerform(vcs, files, context);
 
     getApplication().runWriteAction(() -> {
@@ -126,7 +114,7 @@ public abstract class BasicAction extends AnAction implements DumbAware {
   @NotNull
   protected abstract String getActionName();
 
-  protected boolean isEnabled(@NotNull SvnVcs vcs, @NotNull VirtualFile[] files) {
+  protected boolean isEnabled(@NotNull SvnVcs vcs, VirtualFile @NotNull [] files) {
     Stream<VirtualFile> fileStream = Stream.of(files);
     Predicate<VirtualFile> enabledPredicate = file -> isEnabled(vcs, file);
 
@@ -138,7 +126,7 @@ public abstract class BasicAction extends AnAction implements DumbAware {
 
   protected abstract void perform(@NotNull SvnVcs vcs, @NotNull VirtualFile file, @NotNull DataContext context) throws VcsException;
 
-  protected abstract void batchPerform(@NotNull SvnVcs vcs, @NotNull VirtualFile[] files, @NotNull DataContext context) throws VcsException;
+  protected abstract void batchPerform(@NotNull SvnVcs vcs, VirtualFile @NotNull [] files, @NotNull DataContext context) throws VcsException;
 
   protected abstract boolean isBatchAction();
 }

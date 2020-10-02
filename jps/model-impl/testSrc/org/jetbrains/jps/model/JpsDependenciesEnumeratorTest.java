@@ -35,9 +35,6 @@ import java.util.Collections;
 import static org.jetbrains.jps.model.java.JpsJavaExtensionService.dependencies;
 
 
-/**
- * @author nik
- */
 public class JpsDependenciesEnumeratorTest extends JpsJavaModelTestCase {
   private JpsModule myModule;
 
@@ -69,7 +66,8 @@ public class JpsDependenciesEnumeratorTest extends JpsJavaModelTestCase {
   }
 
   private static String getJDomSources() {
-    return JpsPathUtil.urlToPath(assertOneElement(IntelliJProjectConfiguration.getProjectLibrary("JDOM").getSourcesUrls()));
+    //todo[nik] download sources of JDOM library and locate the JAR via IntelliJProjectConfiguration instead
+    return JpsPathUtil.getLibraryRootUrl(PathManagerEx.findFileUnderCommunityHome("lib/src/jdom.zip"));
   }
 
   private static String getJDomJar() {

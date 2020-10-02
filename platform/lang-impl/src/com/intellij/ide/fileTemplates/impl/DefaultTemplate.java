@@ -16,8 +16,10 @@
 package com.intellij.ide.fileTemplates.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +31,7 @@ import java.net.URL;
  * @author Eugene Zhuravlev
  */
 public class DefaultTemplate {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.fileTemplates.impl.DefaultTemplate");
+  private static final Logger LOG = Logger.getInstance(DefaultTemplate.class);
   
   private final String myName;
   private final String myExtension;
@@ -49,7 +51,7 @@ public class DefaultTemplate {
   }
 
   @NotNull
-  private static String loadText(@NotNull URL url) {
+  private static @NlsSafe String loadText(@NotNull URL url) {
     String text = "";
     try {
       text = StringUtil.convertLineSeparators(UrlUtil.loadText(url));
@@ -91,9 +93,9 @@ public class DefaultTemplate {
   }
 
   @NotNull
-  public String getDescriptionText() {
+  public @Nls String getDescriptionText() {
     if (myDescriptionURL == null) return "";
-    String text = SoftReference.dereference(myDescriptionText);
+    String text = SoftReference.dereference(myDescriptionText); //NON-NLS
     if (text == null) {
       text = loadText(myDescriptionURL);
       myDescriptionText = new java.lang.ref.SoftReference<>(text);

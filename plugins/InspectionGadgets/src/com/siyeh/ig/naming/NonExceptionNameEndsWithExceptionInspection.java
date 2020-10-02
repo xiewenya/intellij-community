@@ -19,17 +19,20 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.InheritanceUtil;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.fixes.RenameFix;
 import com.siyeh.ig.psiutils.CommentTracker;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-public class NonExceptionNameEndsWithExceptionInspection extends NonExceptionNameEndsWithExceptionInspectionBase {
+public class NonExceptionNameEndsWithExceptionInspection extends BaseInspection {
 
   @Override
-  @NotNull
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
     final String name = (String)infos[0];
     final Boolean onTheFly = (Boolean)infos[1];
     if (onTheFly.booleanValue()) {
@@ -40,6 +43,23 @@ public class NonExceptionNameEndsWithExceptionInspection extends NonExceptionNam
       return new InspectionGadgetsFix[]{
         new ExtendExceptionFix(name)};
     }
+  }
+
+  @Override
+  @NotNull
+  protected String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message(
+      "non.exception.name.ends.with.exception.problem.descriptor");
+  }
+
+  @Override
+  protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
+    return true;
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new NonExceptionNameEndsWithExceptionVisitor();
   }
 
   private static class ExtendExceptionFix extends InspectionGadgetsFix {
@@ -60,7 +80,7 @@ public class NonExceptionNameEndsWithExceptionInspection extends NonExceptionNam
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Make class extend 'Exception'";
+      return InspectionGadgetsBundle.message("extend.exception.fix.family.name");
     }
 
     @Override
@@ -86,6 +106,29 @@ public class NonExceptionNameEndsWithExceptionInspection extends NonExceptionNam
         tracker.delete(referenceElement);
       }
       tracker.insertCommentsBefore(extendsList.add(reference));
+    }
+  }
+
+  private static class NonExceptionNameEndsWithExceptionVisitor
+    extends BaseInspectionVisitor {
+
+    @Override
+    public void visitClass(@NotNull PsiClass aClass) {
+      // no call to super, so it doesn't drill down into inner classes
+      final String className = aClass.getName();
+      if (className == null) {
+        return;
+      }
+      @NonNls final String exception = "Exception";
+      if (!className.endsWith(exception)) {
+        return;
+      }
+      if (InheritanceUtil.isInheritor(aClass,
+                                      CommonClassNames.JAVA_LANG_EXCEPTION)) {
+        return;
+      }
+      registerClassError(aClass, className,
+                         Boolean.valueOf(isOnTheFly()));
     }
   }
 }

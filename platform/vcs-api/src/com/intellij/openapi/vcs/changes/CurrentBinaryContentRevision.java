@@ -29,8 +29,8 @@ public class CurrentBinaryContentRevision extends CurrentContentRevision impleme
     super(file);
   }
 
-  @Nullable
-  public byte[] getBinaryContent() throws VcsException {
+  @Override
+  public byte @Nullable [] getBinaryContent() throws VcsException {
     return getContentAsBytes();
   }
 

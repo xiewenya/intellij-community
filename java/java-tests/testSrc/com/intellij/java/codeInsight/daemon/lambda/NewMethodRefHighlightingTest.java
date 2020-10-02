@@ -16,12 +16,14 @@
 package com.intellij.java.codeInsight.daemon.lambda;
 
 import com.intellij.codeInsight.daemon.LightDaemonAnalyzerTestCase;
+import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.deadCode.UnusedDeclarationInspection;
 import com.intellij.codeInspection.uncheckedWarnings.UncheckedWarningLocalInspection;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.testFramework.IdeaTestUtil;
 import org.jetbrains.annotations.NotNull;
+import org.junit.Assert;
 
 public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   private static final String BASE_PATH = "/codeInsight/daemonCodeAnalyzer/lambda/newMethodRef/";
@@ -32,9 +34,8 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
     enableInspectionTool(new UnusedDeclarationInspection());
   }
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new UncheckedWarningLocalInspection()
     };
@@ -77,7 +78,14 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testIncorrectArrayCreationSignature() { doTest(); }
   public void testRawTargetType() { doTest(); }
   public void testReturnTypeCheckForRawReceiver() { doTest(); }
-  public void testStaticNonStaticReferenceTypeAmbiguity() { doTest(); }
+  public void testStaticNonStaticReferenceTypeAmbiguity() { 
+    doTest();
+    doHighlighting()
+      .stream()
+      .filter(info -> info.type == HighlightInfoType.ERROR)
+      .forEach(info -> Assert.assertEquals("<html>Reference to 'm' is ambiguous, both 'm(Test, String)' and 'm(String)' match</html>",
+                                           info.getToolTip()));
+  }
   public void testSuperClassPotentiallyApplicableMembers() { doTest(); }
   public void testExactMethodReferencePertinentToApplicabilityCheck() { doTest(); }
   public void testAmbiguityVarargs() { doTest(); }
@@ -180,8 +188,16 @@ public class NewMethodRefHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testMethodReferenceSwallowedErrors() { doTest(); }
   public void testConflictingVarargsFromFirstSearchWithNArityOfTheSecondSearch() { doTest(); }
   public void testSkipInferenceForInapplicableMethodReference() { doTest(); }
+  public void testRegisterVariablesForNonFoundParameterizations() { doTest(); }
 
+  public void testConstructorReferenceOnRawTypeWithInferredSubtypes() { doTest(); }
   public void testPreferErrorOnTopLevelToFailedSubstitutorOnNestedLevel() { doTest(); }
+  public void testDontIgnoreIncompatibilitiesDuringFirstApplicabilityCheck() { doTest(); }
+  public void testCaptureOnDedicatedParameterOfSecondSearch() { doTest(); }
+  public void testVoidConflict() { doTest(); }
+  public void testCreateMethodFromMethodRefApplicability() { doTest(); }
+  public void testErrorMessageOnTopCallWhenFunctionalInterfaceIsNotInferred() { doTest(); }
+  public void testReferencesToPolymorphicMethod() { doTest(); }
 
   private void doTest() {
     doTest(false);

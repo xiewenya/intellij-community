@@ -16,38 +16,39 @@
  */
 package com.intellij.refactoring.ui;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
+
+import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import javax.swing.*;
-
-import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.project.Project;
-import com.intellij.util.ui.UIUtil;
-import com.intellij.refactoring.RefactoringBundle;
-import org.jetbrains.annotations.NotNull;
 
 public class InfoDialog extends DialogWrapper{
   private JCheckBox myShowInFutureCheckBox;
   private JTextArea myTextArea;
-  private final String myText;
+  private final @Nls String myText;
   private boolean isToShowInFuture;
 
-  public InfoDialog(String text, Project project) {
+  public InfoDialog(@Nls String text, Project project) {
     super(project, false);
     myText = text;
     setButtonsAlignment(SwingUtilities.CENTER);
-    setTitle(RefactoringBundle.message("information.title"));
-    setButtonsMargin(null);
+    setTitle(JavaRefactoringBundle.message("information.title"));
     init();
-    setOKButtonText(RefactoringBundle.message("ok.button"));
+    setOKButtonText(JavaRefactoringBundle.message("ok.button"));
   }
 
-  @NotNull
-  protected Action[] createActions(){
+  @Override
+  protected Action @NotNull [] createActions(){
     return new Action[]{getOKAction()};
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JPanel panel = new JPanel();
     panel.setBorder(BorderFactory.createEtchedBorder());
@@ -56,7 +57,7 @@ public class InfoDialog extends DialogWrapper{
     JPanel cbPanel = new JPanel(new BorderLayout());
     cbPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
     myShowInFutureCheckBox = new JCheckBox();
-    myShowInFutureCheckBox.setText(RefactoringBundle.message("do.not.show.this.message.in.the.future"));
+    myShowInFutureCheckBox.setText(JavaRefactoringBundle.message("do.not.show.this.message.in.the.future"));
     panel.add(cbPanel, BorderLayout.SOUTH);
     cbPanel.add(myShowInFutureCheckBox, BorderLayout.WEST);
 
@@ -75,6 +76,7 @@ public class InfoDialog extends DialogWrapper{
     isToShowInFuture = true;
     myShowInFutureCheckBox.addActionListener(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent event) {
           isToShowInFuture = !myShowInFutureCheckBox.isSelected();
         }

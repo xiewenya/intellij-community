@@ -30,9 +30,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public abstract class UsageContextPanelBase extends JBPanelWithEmptyText implements UsageContextPanel {
   protected final Project myProject;
   @NotNull protected final UsageViewPresentation myPresentation;
@@ -58,9 +55,9 @@ public abstract class UsageContextPanelBase extends JBPanelWithEmptyText impleme
   }
 
   @Override
-  public final void updateLayout(@Nullable final List<UsageInfo> infos) {
+  public final void updateLayout(@Nullable final List<? extends UsageInfo> infos) {
     AppUIExecutor.onUiThread().withDocumentsCommitted(myProject).expireWith(this).execute(() -> updateLayoutLater(infos));
   }
 
-  protected abstract void updateLayoutLater(@Nullable List<UsageInfo> infos);
+  protected abstract void updateLayoutLater(@Nullable List<? extends UsageInfo> infos);
 }

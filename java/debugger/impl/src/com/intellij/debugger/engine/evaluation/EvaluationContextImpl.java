@@ -1,16 +1,17 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.evaluation;
 
 import com.intellij.debugger.EvaluatingComputable;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
+import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.sun.jdi.ClassLoaderReference;
+import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,7 +35,7 @@ public final class EvaluationContextImpl implements EvaluationContext {
 
   public EvaluationContextImpl(@NotNull SuspendContextImpl suspendContext,
                                @Nullable StackFrameProxyImpl frameProxy,
-                               @NotNull EvaluatingComputable<Value> thisObjectFactory) {
+                               @NotNull EvaluatingComputable<? extends Value> thisObjectFactory) {
     this(suspendContext, frameProxy, new DebuggerComputableValue(thisObjectFactory));
   }
 
@@ -128,5 +129,24 @@ public final class EvaluationContextImpl implements EvaluationContext {
     EvaluationContextImpl copy = new EvaluationContextImpl(mySuspendContext, myFrameProxy, myThisObject);
     copy.setAutoLoadClasses(autoLoadClasses);
     return copy;
+  }
+
+  @Override
+  public void keep(Value value) {
+    if (value instanceof ObjectReference) {
+      getSuspendContext().keep((ObjectReference)value);
+    }
+  }
+
+  @Override
+  public <T extends Value> T computeAndKeep(@NotNull ThrowableComputable<T, EvaluateException> computable) throws EvaluateException {
+    return DebuggerUtils.processCollectibleValue(computable, value -> {
+      keep(value);
+      return value;
+    });
+  }
+
+  public boolean isEvaluationPossible() {
+    return getSuspendContext().getDebugProcess().isEvaluationPossible(getSuspendContext());
   }
 }

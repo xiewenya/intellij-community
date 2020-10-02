@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template;
 
 import com.intellij.codeInsight.template.impl.TemplateImpl;
@@ -27,6 +13,7 @@ import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -58,12 +45,13 @@ public class CustomTemplateCallback {
     myProject = file.getProject();
     myTemplateManager = TemplateManager.getInstance(myProject);
 
-    myOffset = getOffset(editor);
-    PsiElement element = InjectedLanguageManager.getInstance(file.getProject()).findInjectedElementAt(file, myOffset);
+    int parentEditorOffset = getOffset(editor);
+    PsiElement element = InjectedLanguageManager.getInstance(file.getProject()).findInjectedElementAt(file, parentEditorOffset);
     myFile = element != null ? element.getContainingFile() : file;
 
     myInInjectedFragment = InjectedLanguageManager.getInstance(myProject).isInjectedFragment(myFile);
-    myEditor = myInInjectedFragment ? InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file, myOffset) : editor;
+    myEditor = myInInjectedFragment ? InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file, parentEditorOffset) : editor;
+    myOffset = myInInjectedFragment ? getOffset(myEditor) : parentEditorOffset;
   }
 
   public TemplateManager getTemplateManager() {
@@ -90,12 +78,12 @@ public class CustomTemplateCallback {
   }
 
   @Nullable
-  public TemplateImpl findApplicableTemplate(@NotNull String key) {
+  public TemplateImpl findApplicableTemplate(@NotNull @NlsSafe String key) {
     return ContainerUtil.getFirstItem(findApplicableTemplates(key));
   }
 
   @NotNull
-  public List<TemplateImpl> findApplicableTemplates(@NotNull String key) {
+  public List<TemplateImpl> findApplicableTemplates(@NotNull @NlsSafe String key) {
     List<TemplateImpl> result = new ArrayList<>();
     for (TemplateImpl candidate : getMatchingTemplates(key)) {
       if (isAvailableTemplate(candidate)) {
@@ -107,7 +95,8 @@ public class CustomTemplateCallback {
 
   private boolean isAvailableTemplate(@NotNull TemplateImpl template) {
     if (myApplicableContextTypes == null) {
-      myApplicableContextTypes = TemplateManagerImpl.getApplicableContextTypes(myFile, myOffset);
+      myApplicableContextTypes =
+        TemplateManagerImpl.getApplicableContextTypes(TemplateActionContext.create(myFile, myEditor, myOffset, myOffset, false));
     }
     return !template.isDeactivated() && TemplateManagerImpl.isApplicable(template, myApplicableContextTypes);
   }

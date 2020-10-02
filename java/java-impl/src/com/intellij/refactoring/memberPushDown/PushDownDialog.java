@@ -35,10 +35,12 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
     super(project, memberInfos, aClass);
   }
 
+  @Override
   protected MemberInfoModel<PsiMember, MemberInfo> createMemberInfoModel() {
     return new MyMemberInfoModel();
   }
 
+  @Override
   protected MemberSelectionPanel createMemberInfoPanel() {
     return new MemberSelectionPanel(
       RefactoringBundle.message("members.to.be.pushed.down.panel.title"),
@@ -46,13 +48,13 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
       RefactoringBundle.message("keep.abstract.column.header"));
   }
 
+  @Override
   protected int getDocCommentPolicy() {
     return JavaRefactoringSettings.getInstance().PULL_UP_MEMBERS_JAVADOC;
   }
 
   @Override
   protected void savePreviewOption(boolean isPreview) {
-    JavaRefactoringSettings.getInstance().PUSH_DOWN_PREVIEW_USAGES = isPreview;
   }
 
   @Nullable
@@ -62,7 +64,7 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
   }
 
   private class MyMemberInfoModel extends DelegatingMemberInfoModel<PsiMember,MemberInfo> {
-    public MyMemberInfoModel() {
+    MyMemberInfoModel() {
       super(new ANDCombinedMemberInfoModel<>(
         new UsesDependencyMemberInfoModel<>(getSourceClass(), null, false),
         new UsedByDependencyMemberInfoModel<>(getSourceClass()))

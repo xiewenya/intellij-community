@@ -21,14 +21,12 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.EdtTestUtil;
 import com.jetbrains.env.PyEnvTestCase;
 import com.jetbrains.env.PyExecutionFixtureTestTask;
 import com.jetbrains.env.PyTestTask;
-import com.jetbrains.env.Staging;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import com.jetbrains.python.psi.*;
@@ -36,8 +34,8 @@ import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.resolve.PythonSdkPathCache;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.sdk.PythonSdkType;
-import com.jetbrains.python.sdk.skeletons.PySkeletonRefresher;
-import com.jetbrains.python.sdk.skeletons.SkeletonVersionChecker;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import com.jetbrains.python.sdk.skeleton.PySkeletonHeader;
 import com.jetbrains.python.toolbox.Maybe;
 import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
@@ -75,11 +73,11 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
           assertNotNull(virtualFile);
           assertTrue(virtualFile.isInLocalFileSystem());
           final String path = virtualFile.getPath();
-          final PySkeletonRefresher.SkeletonHeader header = PySkeletonRefresher.readSkeletonHeader(new File(path));
+          final PySkeletonHeader header = PySkeletonHeader.readSkeletonHeader(new File(path));
           assertNotNull(header);
           final int version = header.getVersion();
           assertTrue("Header version must be > 0, currently it is " + version, version > 0);
-          assertEquals(SkeletonVersionChecker.BUILTIN_NAME, header.getBinaryFile());
+          assertEquals(PySkeletonHeader.BUILTIN_NAME, header.getBinaryFile());
         });
 
         // Run inspections on a file that uses builtins
@@ -90,7 +88,7 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
 
           final Module module = ModuleUtilCore.findModuleForPsiElement(expr);
 
-          final Sdk sdkFromModule = PythonSdkType.findPythonSdk(module);
+          final Sdk sdkFromModule = PythonSdkUtil.findPythonSdk(module);
           assertNotNull(sdkFromModule);
 
           final Sdk sdkFromPsi = PyBuiltinCache.findSdkForFile(expr.getContainingFile());
@@ -108,26 +106,6 @@ public class PythonSkeletonsTest extends PyEnvTestCase {
 
         myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
         EdtTestUtil.runInEdtAndWait((() -> myFixture.checkHighlighting(true, false, false)));
-      }
-    });
-  }
-
-  // PY-4349
-  @Test
-  @Staging
-  public void testFakeNamedTuple() {
-    runTest(new SkeletonsTask() {
-      @Override
-      protected void runTestOn(@NotNull Sdk sdk) {
-        final LanguageLevel languageLevel = PythonSdkType.getLanguageLevelForSdk(sdk);
-        // XXX: A workaround for invalidating VFS cache with the test file copied to our temp directory
-        LocalFileSystem.getInstance().refresh(false);
-
-        // Run inspections on code that uses named tuples
-        EdtTestUtil.runInEdtAndWait(() -> myFixture.configureByFile(getTestName(false) + ".py"));
-        myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
-
-        EdtTestUtil.runInEdtAndWait(() -> myFixture.checkHighlighting(true, false, false));
       }
     });
   }

@@ -2,8 +2,6 @@
 
 import sys
 from typing import Any, MutableMapping
-import collections
-from . import compat
 
 if sys.version_info < (3, 0):
     from cookielib import CookieJar
@@ -11,7 +9,7 @@ else:
     from http.cookiejar import CookieJar
 
 class MockRequest:
-    type = ...  # type: Any
+    type: Any
     def __init__(self, request) -> None: ...
     def get_type(self): ...
     def get_host(self): ...
@@ -41,7 +39,7 @@ def remove_cookie_by_name(cookiejar, name, domain=..., path=...): ...
 
 class CookieConflictError(RuntimeError): ...
 
-class RequestsCookieJar(CookieJar, MutableMapping):
+class RequestsCookieJar(CookieJar, MutableMapping[Any, Any]):
     def get(self, name, default=..., domain=..., path=...): ...
     def set(self, name, value, **kwargs): ...
     def iterkeys(self): ...

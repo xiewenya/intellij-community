@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations.coverage;
 
 import com.intellij.coverage.CoverageEngine;
@@ -9,7 +7,6 @@ import com.intellij.coverage.CoverageSuite;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
@@ -37,7 +34,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
   @NonNls protected static final String TRACK_TEST_FOLDERS = "track_test_folders";
 
   private final Project myProject;
-  private final RunConfigurationBase myConfiguration;
+  private final RunConfigurationBase<?> myConfiguration;
 
   private boolean myIsCoverageEnabled = false;
   private String myRunnerId;
@@ -49,12 +46,12 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
   @NonNls protected String myCoverageFilePath;
   private CoverageSuite myCurrentCoverageSuite;
 
-  public CoverageEnabledConfiguration(RunConfigurationBase configuration) {
+  public CoverageEnabledConfiguration(@NotNull RunConfigurationBase<?> configuration) {
     myConfiguration = configuration;
     myProject = configuration.getProject();
   }
 
-  public RunConfigurationBase getConfiguration() {
+  public @NotNull RunConfigurationBase<?> getConfiguration() {
     return myConfiguration;
   }
 
@@ -87,6 +84,13 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     myCoverageRunner = coverageRunner;
     myRunnerId = coverageRunner != null ? coverageRunner.getId() : null;
     myCoverageFilePath = null;
+  }
+
+  public void coverageRunnerExtensionRemoved(@NotNull CoverageRunner runner) {
+    if (runner.getId().equals(myRunnerId)) {
+      myCoverageRunner = null;
+      myCoverageFilePath = null;
+    }
   }
 
   public boolean isTrackPerTestCoverage() {
@@ -169,6 +173,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     return myCoverageFilePath;
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     // is enabled
     myIsCoverageEnabled = Boolean.parseBoolean(element.getAttributeValue(COVERAGE_ENABLED_ATTRIBUTE_NAME));
@@ -189,7 +194,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     if (runnerId != null) {
       myRunnerId = runnerId;
       myCoverageRunner = null;
-      for (CoverageRunner coverageRunner : Extensions.getExtensions(CoverageRunner.EP_NAME)) {
+      for (CoverageRunner coverageRunner : CoverageRunner.EP_NAME.getExtensionList()) {
         if (Comparing.strEqual(coverageRunner.getId(), myRunnerId)) {
           myCoverageRunner = coverageRunner;
           break;
@@ -198,6 +203,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     }
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     // enabled
     if (myIsCoverageEnabled) {

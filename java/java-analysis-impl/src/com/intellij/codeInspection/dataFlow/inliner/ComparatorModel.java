@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow.inliner;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.dataFlow.CFGBuilder;
-import com.intellij.codeInspection.dataFlow.Nullness;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ObjectUtils;
@@ -103,11 +89,11 @@ abstract class ComparatorModel {
 
     @Override
     void invoke(CFGBuilder builder) {
-      builder.dup().ifNotNull().chain(myDownstream::invoke).elseBranch().pop().endIf();
+      builder.dup().ifNotNull().chain(myDownstream::invoke).elseBranch().pop().end();
     }
   }
 
-  private static class KeyExtractor extends ComparatorModel {
+  private static final class KeyExtractor extends ComparatorModel {
     private final PsiExpression myKeyExtractor;
     private final ComparatorModel myDownstream;
 
@@ -125,7 +111,7 @@ abstract class ComparatorModel {
 
     @Override
     void invoke(CFGBuilder builder) {
-      builder.invokeFunction(1, myKeyExtractor, myDownstream.myFailsOnNull ? Nullness.NOT_NULL : Nullness.UNKNOWN)
+      builder.invokeFunction(1, myKeyExtractor, myDownstream.myFailsOnNull ? Nullability.NOT_NULL : Nullability.UNKNOWN)
         .chain(myDownstream::invoke);
     }
   }

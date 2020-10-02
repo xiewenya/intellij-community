@@ -35,6 +35,7 @@ import com.intellij.util.xml.DomUtil;
 import com.intellij.util.xml.GenericDomValue;
 import com.intellij.util.xml.highlighting.DomElementAnnotationHolder;
 import com.intellij.util.xml.highlighting.DomHighlightingHelper;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,16 +46,13 @@ public class AntResolveInspection extends AntInspection {
 
   public static final String SHORT_NAME = "AntResolveInspection";
 
-  @NotNull
-  public String getDisplayName() {
-    return "Ant references resolve problems";
-  }
-
+  @Override
   @NotNull
   public String getShortName() {
     return SHORT_NAME;
   }
 
+  @Override
   protected void checkDomElement(DomElement element, DomElementAnnotationHolder holder, DomHighlightingHelper helper) {
     if (element instanceof GenericDomValue) {
       final XmlElement valueElement = DomUtil.getValueElement(((GenericDomValue)element));
@@ -66,7 +64,7 @@ public class AntResolveInspection extends AntInspection {
       final AntDomTypeDef typeDef = (AntDomTypeDef)element;
       final List<String> errors = typeDef.getErrorDescriptions();
       if (!errors.isEmpty()) {
-        final StringBuilder builder = new StringBuilder();
+        @Nls final StringBuilder builder = new StringBuilder();
         builder.append(AntBundle.message("failed.to.load.types")).append(":");
         for (String error : errors) {
           builder.append("\n").append(error);
@@ -89,7 +87,7 @@ public class AntResolveInspection extends AntInspection {
       }
     }
   }
-  
+
   private static void checkReferences(final XmlElement xmlElement, final @NonNls DomElementAnnotationHolder holder, DomElement domElement) {
     if (xmlElement == null) {
       return;

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
 import com.intellij.codeInsight.AnnotationTargetUtil;
@@ -33,7 +19,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.BitUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.WeakInterner;
+import com.intellij.util.containers.Interner;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -61,8 +47,10 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
     NAME_TO_KEYWORD_TYPE_MAP.put(DEFAULT, JavaTokenType.DEFAULT_KEYWORD);
     NAME_TO_KEYWORD_TYPE_MAP.put(OPEN, JavaTokenType.OPEN_KEYWORD);
     NAME_TO_KEYWORD_TYPE_MAP.put(TRANSITIVE, JavaTokenType.TRANSITIVE_KEYWORD);
+    NAME_TO_KEYWORD_TYPE_MAP.put(SEALED, JavaTokenType.SEALED_KEYWORD);
+    NAME_TO_KEYWORD_TYPE_MAP.put(NON_SEALED, JavaTokenType.NON_SEALED_KEYWORD);
 
-    KEYWORD_TYPE_TO_NAME_MAP = ContainerUtil.newTroveMap();
+    KEYWORD_TYPE_TO_NAME_MAP = new THashMap<>();
     for (String name : NAME_TO_KEYWORD_TYPE_MAP.keySet()) {
       KEYWORD_TYPE_TO_NAME_MAP.put(NAME_TO_KEYWORD_TYPE_MAP.get(name), name);
     }
@@ -98,7 +86,7 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   }
 
   private Set<String> calcExplicitModifiers() {
-    Set<String> explicitModifiers = ContainerUtil.newHashSet();
+    Set<String> explicitModifiers = new HashSet<>();
     PsiModifierListStub stub = getGreenStub();
     if (stub != null) {
       int mask = stub.getModifiersMask();
@@ -118,7 +106,7 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   }
 
   private Set<String> calcImplicitModifiers(Set<String> explicitModifiers) {
-    Set<String> implicitModifiers = ContainerUtil.newHashSet();
+    Set<String> implicitModifiers = new HashSet<>();
     PsiElement parent = getParent();
     if (parent instanceof PsiClass) {
       PsiElement grandParent = parent.getContext();
@@ -128,10 +116,16 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
       if (((PsiClass)parent).isInterface()) {
         implicitModifiers.add(ABSTRACT);
 
-        // nested interface is implicitly static
-        if (grandParent instanceof PsiClass) {
+        // nested or local interface is implicitly static
+        if (!(grandParent instanceof PsiFile)) {
           implicitModifiers.add(STATIC);
         }
+      }
+      if (((PsiClass)parent).isRecord()) {
+        if (!(grandParent instanceof PsiFile)) {
+          implicitModifiers.add(STATIC);
+        }
+        implicitModifiers.add(FINAL);
       }
       if (((PsiClass)parent).isEnum()) {
         if (!(grandParent instanceof PsiFile)) {
@@ -140,7 +134,10 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
         List<PsiField> fields = parent instanceof PsiExtensibleClass ? ((PsiExtensibleClass)parent).getOwnFields()
                                                                      : Arrays.asList(((PsiClass)parent).getFields());
         boolean hasSubClass = ContainerUtil.find(fields, field -> field instanceof PsiEnumConstant && ((PsiEnumConstant)field).getInitializingClass() != null) != null;
-        if (!hasSubClass) {
+        if (hasSubClass) {
+          implicitModifiers.add(SEALED);
+        }
+        else {
           implicitModifiers.add(FINAL);
         }
 
@@ -168,6 +165,9 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
         implicitModifiers.add(PRIVATE);
       }
     }
+    else if (parent instanceof PsiRecordComponent) {
+      implicitModifiers.add(FINAL);
+    }
     else if (parent instanceof PsiField) {
       if (parent instanceof PsiEnumConstant) {
         Collections.addAll(implicitModifiers, PUBLIC, STATIC, FINAL);
@@ -194,7 +194,7 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   public boolean hasExplicitModifier(@NotNull String name) {
     PsiModifierListStub stub = getGreenStub();
     if (stub != null) {
-      return BitUtil.isSet(stub.getModifiersMask(), ModifierFlags.NAME_TO_MODIFIER_FLAG_MAP.get(name));
+      return BitUtil.isSet(stub.getModifiersMask(), ModifierFlags.NAME_TO_MODIFIER_FLAG_MAP.getInt(name));
     }
 
     final CompositeElement tree = (CompositeElement)getNode();
@@ -215,7 +215,10 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
     // changes horizontal position of parameters list start, hence, we need to reformat them in order to preserve alignment.
     if (parent instanceof PsiMethod) {
       PsiMethod method = (PsiMethod)parent;
-      CodeEditUtil.markToReformat(method.getParameterList().getNode(), true);
+      ASTNode node = method.getParameterList().getNode();
+      if (node != null) { // could be a compact constructor parameter list
+        CodeEditUtil.markToReformat(node, true);
+      }
     }
 
     if (value) {
@@ -233,6 +236,18 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
           setModifierProperty(PROTECTED, false);
         }
         if (type == null) return;
+      }
+
+      if (type == JavaTokenType.SEALED_KEYWORD || type == JavaTokenType.FINAL_KEYWORD || type == JavaTokenType.NON_SEALED_KEYWORD) {
+        if (type != JavaTokenType.SEALED_KEYWORD) {
+          setModifierProperty(SEALED, false);
+        }
+        if (type != JavaTokenType.NON_SEALED_KEYWORD) {
+          setModifierProperty(NON_SEALED, false);
+        }
+        if (type != JavaTokenType.FINAL_KEYWORD) {
+          setModifierProperty(FINAL, false);
+        }
       }
 
       if (parent instanceof PsiField && grandParent instanceof PsiClass && ((PsiClass)grandParent).isInterface()) {
@@ -271,16 +286,14 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   }
 
   @Override
-  @NotNull
-  public PsiAnnotation[] getAnnotations() {
-    final PsiAnnotation[] own = getStubOrPsiChildren(JavaStubElementTypes.ANNOTATION, PsiAnnotation.ARRAY_FACTORY);
-    final List<PsiAnnotation> ext = PsiAugmentProvider.collectAugments(this, PsiAnnotation.class);
+  public PsiAnnotation @NotNull [] getAnnotations() {
+    PsiAnnotation[] own = getStubOrPsiChildren(JavaStubElementTypes.ANNOTATION, PsiAnnotation.ARRAY_FACTORY);
+    List<PsiAnnotation> ext = PsiAugmentProvider.collectAugments(this, PsiAnnotation.class, null);
     return ArrayUtil.mergeArrayAndCollection(own, ext, PsiAnnotation.ARRAY_FACTORY);
   }
 
   @Override
-  @NotNull
-  public PsiAnnotation[] getApplicableAnnotations() {
+  public PsiAnnotation @NotNull [] getApplicableAnnotations() {
     final PsiAnnotation.TargetType[] targets = AnnotationTargetUtil.getTargetsForLocation(this);
     List<PsiAnnotation> filtered = ContainerUtil.findAll(getAnnotations(), annotation -> {
       PsiAnnotation.TargetType target = AnnotationTargetUtil.findAnnotationTarget(annotation, targets);
@@ -298,7 +311,7 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   @Override
   @NotNull
   public PsiAnnotation addAnnotation(@NotNull @NonNls String qualifiedName) {
-    return (PsiAnnotation)addAfter(JavaPsiFacade.getInstance(getProject()).getElementFactory().createAnnotationFromText("@" + qualifiedName, this), null);
+    return (PsiAnnotation)addAfter(JavaPsiFacade.getElementFactory(getProject()).createAnnotationFromText("@" + qualifiedName, this), null);
   }
 
   @Override
@@ -317,14 +330,14 @@ public class PsiModifierListImpl extends JavaStubPsiElement<PsiModifierListStub>
   }
 
   private static class ModifierCache {
-    static final WeakInterner<List<String>> ourInterner = new WeakInterner<>();
+    static final Interner<List<String>> ourInterner = Interner.createWeakInterner();
     final PsiFile file;
     final List<String> modifiers;
     final long modCount;
 
     ModifierCache(@NotNull PsiFile file, @NotNull Set<String> modifiers) {
       this.file = file;
-      List<String> modifierList = ContainerUtil.newArrayList(modifiers);
+      List<String> modifierList = new ArrayList<>(modifiers);
       Collections.sort(modifierList);
       this.modifiers = ourInterner.intern(modifierList);
       this.modCount = getModCount();

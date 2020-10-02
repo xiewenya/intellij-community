@@ -15,10 +15,14 @@
  */
 package net.sf.cglib.proxy;
 
+import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.ide.plugins.cl.PluginClassLoader;
+import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import net.sf.cglib.asm.$ClassVisitor;
 import net.sf.cglib.asm.$Label;
 import net.sf.cglib.asm.$Type;
@@ -65,9 +69,10 @@ import java.util.*;
  */
 
 @SuppressWarnings("StaticFieldReferencedViaSubclass")
-public class AdvancedEnhancer extends AbstractClassGenerator
+public final class AdvancedEnhancer extends AbstractClassGenerator
 {
   private static final CallbackFilter ALL_ZERO = new CallbackFilter(){
+    @Override
     public int accept(Method method) {
       return 0;
     }
@@ -363,15 +368,27 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     return tuple;
   }
 
+  @Override
   protected ClassLoader getDefaultClassLoader() {
     int maxIndex = -1;
     ClassLoader bestLoader = null;
     ClassLoader nonPluginLoader = null;
+
+    List<? extends IdeaPluginDescriptor> plugins = PluginManagerCore.getLoadedPlugins();
+    NotNullLazyValue<Object2IntOpenHashMap<PluginId>> idToIndex = NotNullLazyValue.createValue(() -> {
+      int count = 0;
+      Object2IntOpenHashMap<PluginId > map = new Object2IntOpenHashMap<>(plugins.size());
+      for (IdeaPluginDescriptor descriptor : plugins) {
+        map.put(descriptor.getPluginId(), count++);
+      }
+      return map;
+    });
+
     if (interfaces != null && interfaces.length > 0) {
-      for (final Class anInterface : interfaces) {
-        final ClassLoader loader = anInterface.getClassLoader();
+      for (Class<?> anInterface : interfaces) {
+        ClassLoader loader = anInterface.getClassLoader();
         if (loader instanceof PluginClassLoader) {
-          final int order = PluginManagerCore.getPluginLoadingOrder(((PluginClassLoader)loader).getPluginId());
+          int order = idToIndex.getValue().getInt(((PluginClassLoader)loader).getPluginId());
           if (maxIndex < order) {
             maxIndex = order;
             bestLoader = loader;
@@ -382,15 +399,19 @@ public class AdvancedEnhancer extends AbstractClassGenerator
         }
       }
     }
+
     ClassLoader superLoader = null;
     if (superclass != null) {
       superLoader = superclass.getClassLoader();
       if (superLoader instanceof PluginClassLoader &&
-          maxIndex < PluginManagerCore.getPluginLoadingOrder(((PluginClassLoader)superLoader).getPluginId())) {
+          maxIndex < idToIndex.getValue().getInt(((PluginClassLoader)superLoader).getPluginId())) {
         return superLoader;
       }
     }
-    if (bestLoader != null) return bestLoader;
+
+    if (bestLoader != null) {
+      return bestLoader;
+    }
     return superLoader == null ? nonPluginLoader : superLoader;
   }
 
@@ -421,7 +442,8 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     CollectionUtils.filter(methods, new VisibilityPredicate(superclass, true));
   }
 
-  public void generateClass($ClassVisitor v) throws Exception {
+  @Override
+  public void generateClass($ClassVisitor v) {
     Class sc = (superclass == null) ? Object.class : superclass;
 
     if (TypeUtils.isFinal(sc.getModifiers())) {
@@ -481,7 +503,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
         modifiers = (modifiers & ~Constants.ACC_PROTECTED) | Constants.ACC_PUBLIC;
       }
       if (covariantMethods.containsKey(method)) {
-        modifiers = modifiers | Constants.ACC_BRIDGE;
+        modifiers |= Constants.ACC_BRIDGE;
       }
       methodInfoMap.put(method, ReflectUtils.getMethodInfo(method, modifiers));
     }
@@ -548,32 +570,38 @@ public class AdvancedEnhancer extends AbstractClassGenerator
    * @param constructors the list of all declared constructors from the superclass
    * @throws IllegalArgumentException if there are no non-private constructors
    */
-  protected void filterConstructors(Class sc, List<Constructor> constructors) {
+  private static void filterConstructors(Class sc, List<Constructor> constructors) {
     CollectionUtils.filter(constructors, new VisibilityPredicate(sc, true));
     if (constructors.size() == 0) {
       throw new IllegalArgumentException("No visible constructors in " + sc);
     }
   }
 
-  protected Object firstInstance(Class type) throws Exception {
+  @Override
+  protected Object firstInstance(Class type) {
     if (classOnly) {
       return type;
-    } else {
+    }
+    else {
       return createUsingReflection(type);
     }
   }
 
+  @Override
   protected Object nextInstance(Object instance) {
-    Class protoclass = (instance instanceof Class) ? (Class) instance : instance.getClass();
+    Class<?> protoclass = (instance instanceof Class) ? (Class) instance : instance.getClass();
     if (classOnly) {
       return protoclass;
-    } else if (instance instanceof Factory) {
+    }
+    else if (instance instanceof Factory) {
       if (argumentTypes != null) {
         return ((Factory)instance).newInstance(argumentTypes, arguments, callbacks);
-      } else {
+      }
+      else {
         return ((Factory)instance).newInstance(callbacks);
       }
-    } else {
+    }
+    else {
       return createUsingReflection(protoclass);
     }
   }
@@ -657,10 +685,12 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     e.load_this();
     e.load_arg(0);
     e.process_switch(keys, new ProcessSwitchCallback() {
+      @Override
       public void processCase(int key, $Label end) {
         e.getfield(getCallbackField(key));
         e.goTo(end);
       }
+      @Override
       public void processDefault() {
         e.pop(); // stack height
         e.aconst_null();
@@ -676,11 +706,13 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     e.load_arg(1);
     e.load_arg(0);
     e.process_switch(keys, new ProcessSwitchCallback() {
+      @Override
       public void processCase(int key, $Label end) {
         e.checkcast(callbackTypes[key]);
         e.putfield(getCallbackField(key));
         e.goTo(end);
       }
+      @Override
       public void processDefault() {
         final $Type type = $Type.getType(AssertionError.class);
         e.new_instance(type);
@@ -772,6 +804,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     e.dup();
     e.load_arg(0);
     EmitUtils.constructor_switch(e, constructors, new ObjectSwitchCallback() {
+      @Override
       public void processCase(Object key, $Label end) {
         MethodInfo constructor = (MethodInfo)key;
         $Type[] types = constructor.getSignature().getArgumentTypes();
@@ -784,6 +817,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
         e.invoke_constructor_this(constructor.getSignature());
         e.goTo(end);
       }
+      @Override
       public void processDefault() {
         e.throw_exception(ILLEGAL_ARGUMENT_EXCEPTION, "Constructor not found");
       }
@@ -833,18 +867,23 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     se.putfield(THREAD_CALLBACKS_FIELD);
 
     CallbackGenerator.Context context = new CallbackGenerator.Context() {
+      @Override
       public ClassLoader getClassLoader() {
   	return AdvancedEnhancer.this.getClassLoader();
       }
+      @Override
       public int getOriginalModifiers(MethodInfo method) {
         return originalModifiers.get(method);
       }
+      @Override
       public int getIndex(MethodInfo method) {
         return indexes.get(method);
       }
+      @Override
       public void emitCallback(CodeEmitter e, int index) {
         emitCurrentCallback(e, index);
       }
+      @Override
       public Signature getImplSignature(MethodInfo method) {
         return rename(method.getSignature(), (Integer)positions.get(method));
       }
@@ -854,6 +893,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
         codeEmitter.super_invoke(methodInfo.getSignature());
       }
 
+      @Override
       public CodeEmitter beginMethod(ClassEmitter ce, MethodInfo method) {
         CodeEmitter e = EmitUtils.begin_method(ce, method);
         if (!interceptDuringConstruction &&
@@ -861,7 +901,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
           $Label constructed = e.make_label();
           e.load_this();
           e.getfield(CONSTRUCTED_FIELD);
-          e.if_jump(e.NE, constructed);
+          e.if_jump(CodeEmitter.NE, constructed);
           e.load_this();
           e.load_args();
           e.super_invoke();
@@ -940,7 +980,7 @@ public class AdvancedEnhancer extends AbstractClassGenerator
     $Label end = e.make_label();
     e.load_local(me);
     e.getfield(BOUND_FIELD);
-    e.if_jump(e.NE, end);
+    e.if_jump(CodeEmitter.NE, end);
     e.load_local(me);
     e.push(1);
     e.putfield(BOUND_FIELD);

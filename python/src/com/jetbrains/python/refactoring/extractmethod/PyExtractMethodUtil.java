@@ -1,10 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.extractmethod;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
 import com.intellij.codeInsight.codeFragment.CodeFragment;
 import com.intellij.lang.LanguageNamesValidation;
-import com.intellij.lang.refactoring.NamesValidator;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
@@ -26,11 +25,10 @@ import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.util.AbstractVariableData;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.usageView.UsageInfo;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.HashMap;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PythonFileType;
@@ -49,10 +47,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author oleg
- */
-public class PyExtractMethodUtil {
+public final class PyExtractMethodUtil {
   public static final String NAME = "extract.method.name";
 
   private PyExtractMethodUtil() {
@@ -123,7 +118,7 @@ public class PyExtractMethodUtil {
       }
 
       // Generate method
-      final PyFunction generatedMethod = generateMethodFromElements(project, methodName, variableData, newMethodElements, flags, isAsync);
+      final PyFunction generatedMethod = generateMethodFromElements(methodName, variableData, newMethodElements, flags, isAsync);
       final PyFunction insertedMethod = WriteAction.compute(() -> insertGeneratedMethod(statement1, generatedMethod));
 
       // Process parameters
@@ -299,7 +294,7 @@ public class PyExtractMethodUtil {
       CommandProcessor.getInstance().executeCommand(project, () -> {
         // Generate method
         final boolean isAsync = fragment.isAsync();
-        final PyFunction generatedMethod = generateMethodFromExpression(project, methodName, variableData, expression, flags, isAsync);
+        final PyFunction generatedMethod = generateMethodFromExpression(methodName, variableData, expression, flags, isAsync);
         final PyFunction insertedMethod = WriteAction.compute(() -> insertGeneratedMethod(expression, generatedMethod));
 
         // Process parameters
@@ -412,13 +407,13 @@ public class PyExtractMethodUtil {
 
   // Creates string for call
   @NotNull
-  private static String createCallArgsString(@NotNull final AbstractVariableData[] variableDatas) {
+  private static String createCallArgsString(final AbstractVariableData @NotNull [] variableDatas) {
     return StringUtil.join(ContainerUtil.mapNotNull(variableDatas, data -> data.isPassAsParameter() ? data.getOriginalName() : null), ",");
   }
 
   private static void processParameters(@NotNull final Project project,
                                         @NotNull final PyFunction generatedMethod,
-                                        @NotNull final AbstractVariableData[] variableData,
+                                        final AbstractVariableData @NotNull [] variableData,
                                         final boolean isMethod,
                                         final boolean isClassMethod,
                                         final boolean isStaticMethod) {
@@ -453,12 +448,12 @@ public class PyExtractMethodUtil {
         builder.parameter(data.getName());
       }
     }
-    final PyParameterList pyParameterList = builder.buildFunction(project, LanguageLevel.forElement(generatedMethod)).getParameterList();
+    final PyParameterList pyParameterList = builder.buildFunction().getParameterList();
     generatedMethod.getParameterList().replace(pyParameterList);
   }
 
   @NotNull
-  private static Map<String, String> createMap(@NotNull final AbstractVariableData[] variableData) {
+  private static Map<String, String> createMap(final AbstractVariableData @NotNull [] variableData) {
     final Map<String, String> map = new HashMap<>();
     for (AbstractVariableData data : variableData) {
       map.put(data.getOriginalName(), data.getName());
@@ -498,9 +493,8 @@ public class PyExtractMethodUtil {
   }
 
   @NotNull
-  private static PyFunction generateMethodFromExpression(@NotNull final Project project,
-                                                         @NotNull final String methodName,
-                                                         @NotNull final AbstractVariableData[] variableData,
+  private static PyFunction generateMethodFromExpression(@NotNull final String methodName,
+                                                         final AbstractVariableData @NotNull [] variableData,
                                                          @NotNull final PsiElement expression,
                                                          @Nullable final PyUtil.MethodFlags flags, boolean isAsync) {
     final PyFunctionBuilder builder = new PyFunctionBuilder(methodName, expression);
@@ -517,13 +511,12 @@ public class PyExtractMethodUtil {
       text = expression.getText();
     }
     builder.statement("return " + text);
-    return builder.buildFunction(project, LanguageLevel.forElement(expression));
+    return builder.buildFunction();
   }
 
   @NotNull
-  private static PyFunction generateMethodFromElements(@NotNull final Project project,
-                                                       @NotNull final String methodName,
-                                                       @NotNull final AbstractVariableData[] variableData,
+  private static PyFunction generateMethodFromElements(@NotNull final String methodName,
+                                                       final AbstractVariableData @NotNull [] variableData,
                                                        @NotNull final List<PsiElement> elementsRange,
                                                        @Nullable PyUtil.MethodFlags flags,
                                                        boolean isAsync) {
@@ -535,7 +528,7 @@ public class PyExtractMethodUtil {
     }
     addDecorators(builder, flags);
     addFakeParameters(builder, variableData);
-    final PyFunction method = builder.buildFunction(project, LanguageLevel.forElement(elementsRange.get(0)));
+    final PyFunction method = builder.buildFunction();
     final PyStatementList statementList = method.getStatementList();
     for (PsiElement element : elementsRange) {
       if (element instanceof PsiWhiteSpace) {
@@ -569,7 +562,7 @@ public class PyExtractMethodUtil {
     }
   }
 
-  private static void addFakeParameters(@NotNull PyFunctionBuilder builder, @NotNull AbstractVariableData[] variableData) {
+  private static void addFakeParameters(@NotNull PyFunctionBuilder builder, AbstractVariableData @NotNull [] variableData) {
     for (AbstractVariableData data : variableData) {
       builder.parameter(data.getOriginalName());
     }
@@ -610,6 +603,7 @@ public class PyExtractMethodUtil {
 
     final boolean isMethod = PyPsiUtils.isMethodContext(element);
     final ExtractMethodDecorator<Object> decorator = new ExtractMethodDecorator<Object>() {
+      @Override
       @NotNull
       public String createMethodSignature(@NotNull ExtractMethodSettings<Object> settings) {
         final StringBuilder builder = new StringBuilder();
@@ -636,7 +630,7 @@ public class PyExtractMethodUtil {
     };
 
     final AbstractExtractMethodDialog<?> dialog = new AbstractExtractMethodDialog<Object>(project, "method_name", fragment,
-                                                                                          ArrayUtil.EMPTY_OBJECT_ARRAY, validator,
+                                                                                          ArrayUtilRt.EMPTY_OBJECT_ARRAY, validator,
                                                                                           decorator, PythonFileType.INSTANCE) {
       @Override
       protected String getHelpId() {
@@ -663,7 +657,7 @@ public class PyExtractMethodUtil {
     private final Project myProject;
     @Nullable private final Function<String, Boolean> myFunction;
 
-    public PyExtractMethodValidator(final PsiElement element, final Project project) {
+    PyExtractMethodValidator(final PsiElement element, final Project project) {
       myElement = element;
       myProject = project;
       final ScopeOwner parent = ScopeUtil.getScopeOwner(myElement);
@@ -685,6 +679,7 @@ public class PyExtractMethodUtil {
       };
     }
 
+    @Override
     @Nullable
     public String check(final String name) {
       if (myFunction != null && !myFunction.fun(name)) {
@@ -693,10 +688,9 @@ public class PyExtractMethodUtil {
       return null;
     }
 
+    @Override
     public boolean isValidName(@NotNull final String name) {
-      final NamesValidator validator = LanguageNamesValidation.INSTANCE.forLanguage(PythonLanguage.getInstance());
-      assert validator != null;
-      return validator.isIdentifier(name, myProject);
+      return LanguageNamesValidation.isIdentifier(PythonLanguage.getInstance(), name, myProject);
     }
   }
 }

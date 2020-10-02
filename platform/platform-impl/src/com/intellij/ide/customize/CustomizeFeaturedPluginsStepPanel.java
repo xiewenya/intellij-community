@@ -1,32 +1,23 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.customize;
 
 import com.intellij.CommonBundle;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.plugins.IdeaPluginDependency;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.ide.plugins.PluginNode;
-import com.intellij.internal.statistic.collectors.legacy.ideSettings.IdeInitialConfigButtonUsages;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase;
 import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.text.HtmlBuilder;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.JBColor;
@@ -37,6 +28,7 @@ import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -46,13 +38,16 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
-public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardStep {
+import static com.intellij.openapi.util.text.HtmlChunk.body;
+import static com.intellij.openapi.util.text.HtmlChunk.html;
+
+public final class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardStep {
   private static final int COLS = 3;
   private static final ExecutorService ourService = AppExecutorUtil.createBoundedApplicationPoolExecutor(
     "CustomizeFeaturedPluginsStepPanel Pool", 4);
@@ -63,18 +58,18 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
 
   public CustomizeFeaturedPluginsStepPanel(PluginGroups pluginGroups) {
     setLayout(new GridLayout(1, 1));
-    add(myInProgressLabel = new JLabel("Loading...", SwingConstants.CENTER));
+    add(myInProgressLabel = new JLabel(CommonBundle.getLoadingTreeNodeText(), SwingConstants.CENTER));
     myPluginGroups = pluginGroups;
     myPluginGroups.setLoadingCallback(() -> onPluginGroupsLoaded());
   }
 
   private void onPluginGroupsLoaded() {
-    Map<String, IdeaPluginDescriptor> pluginsFromRepository = ContainerUtil.map2Map(myPluginGroups.getPluginsFromRepository(),
-                                                                                    descriptor ->
-                                                                                      Pair.create(descriptor.getPluginId().getIdString(),
-                                                                                                  descriptor));
+    Map<String, IdeaPluginDescriptor> pluginsFromRepository = ContainerUtil.map2Map(
+      myPluginGroups.getPluginsFromRepository(),
+      descriptor -> Pair.create(descriptor.getPluginId().getIdString(), descriptor)
+    );
     if (pluginsFromRepository.isEmpty()) {
-      myInProgressLabel.setText("Cannot get featured plugins description online.");
+      myInProgressLabel.setText(IdeBundle.message("label.cannot.get.featured.plugins.description.online"));
       return;
     }
     removeAll();
@@ -82,7 +77,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
     JBScrollPane scrollPane = CustomizePluginsStepPanel.createScrollPane(gridPanel);
 
     Map<String, String> config = myPluginGroups.getFeaturedPlugins();
-    for (Map.Entry<String, String> entry : config.entrySet()) {
+    for (Map.Entry<@NlsSafe String, @Nls String> entry : config.entrySet()) {
       JPanel groupPanel = new JPanel(new GridBagLayout());
       GridBagConstraints gbc = new GridBagConstraints();
       gbc.fill = GridBagConstraints.BOTH;
@@ -96,25 +91,19 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
       String topic = s.substring(0, i);
       int j = s.indexOf(':', i + 1);
       String description = s.substring(i + 1, j);
-      final String pluginId = s.substring(j + 1);
+      final String pluginId = PluginGroups.parsePluginId(s);
       IdeaPluginDescriptor foundDescriptor = pluginsFromRepository.get(pluginId);
       if (foundDescriptor == null || PluginManagerCore.isBrokenPlugin(foundDescriptor)) {
         continue;
       }
       final IdeaPluginDescriptor descriptor = foundDescriptor;
 
-      List<PluginId> dependentPluginIds;
-      if (descriptor instanceof PluginNode) {
-        dependentPluginIds = ContainerUtil
-          .filter(ContainerUtil.notNullize(((PluginNode)descriptor).getDepends()), id -> !id.getIdString().startsWith("(optional)"));
-      }
-      else {
-        dependentPluginIds = Arrays.asList(descriptor.getDependentPluginIds());
-      }
-      List<IdeaPluginDescriptor> dependentDescriptors = new ArrayList<>(dependentPluginIds.size());
+      List<IdeaPluginDescriptor> dependentDescriptors = new ArrayList<>();
       boolean failedToFindDependencies = false;
-      for (PluginId id : dependentPluginIds) {
-        if (PluginManagerCore.isModuleDependency(id) || myPluginGroups.findPlugin(id.getIdString()) != null) {
+      for (IdeaPluginDependency dep : descriptor.getDependencies()) {
+        if (dep.isOptional()) continue;
+        PluginId id = dep.getPluginId();
+        if (PluginManagerCore.isModuleDependency(id) || myPluginGroups.findPlugin(id) != null) {
           continue;
         }
         IdeaPluginDescriptor dependentDescriptor = pluginsFromRepository.get(id.getIdString());
@@ -133,40 +122,37 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
 
       if (isCloud) {
         title = descriptor.getName();
-        description = StringUtil.defaultIfEmpty(descriptor.getDescription(), "No description available");
-        topic = StringUtil.defaultIfEmpty(descriptor.getCategory(), "Unknown");
+        description = StringUtil.defaultIfEmpty(descriptor.getDescription(), IdeBundle.message("label.no.description.available"));
+        topic = StringUtil.defaultIfEmpty(descriptor.getCategory(), IdeBundle.message("label.plugin.descriptor.category.unknown"));
       }
 
-      JLabel titleLabel = new JLabel("<html><body><h2 style=\"text-align:left;\">" + title + "</h2></body></html>");
-      JLabel topicLabel = new JLabel("<html><body><h4 style=\"text-align:left;color:#808080;font-weight:bold;\">" + topic + "</h4></body></html>");
+      HtmlBuilder titleHtml =
+        new HtmlBuilder().append(html().child(body().child(HtmlChunk.tag("h2").attr("style", "text-align:left;").addText(title))));
+      JLabel titleLabel = new JLabel(titleHtml.toString());
+      HtmlBuilder topicHtml =
+        new HtmlBuilder().append(html().child(body().child(
+          HtmlChunk.tag("h4").attr("style", "text-align:left;color:#808080;font-weight:bold;").addText(topic)
+        )));
+      JLabel topicLabel = new JLabel(topicHtml.toString());
 
       JLabel descriptionLabel = createHTMLLabel(description);
 
-      StringBuilder dependenciesLabelText = new StringBuilder();
-      if (dependentDescriptors.size() > 1) {
-        dependenciesLabelText.append("With dependencies: ");
+      String dependenciesLabelText = "";
+      if (!dependentDescriptors.isEmpty()) {
+        String descriptors = dependentDescriptors.stream().map(PluginDescriptor::getName).collect(Collectors.joining(", "));
+        dependenciesLabelText = IdeBundle.message("label.text.plugin.dependencies", dependentDescriptors.size(), descriptors);
       }
-      else if (dependentDescriptors.size() == 1) {
-        dependenciesLabelText.append("With dependency: ");
-      }
-      for (int k = 0; k < dependentDescriptors.size(); k++) {
-        IdeaPluginDescriptor dependentDescriptor = dependentDescriptors.get(k);
-        if (k > 0) {
-          dependenciesLabelText.append(", ");
-        }
-        dependenciesLabelText.append(dependentDescriptor.getName());
-      }
-      JLabel dependenciesLabel = createHTMLLabel(dependenciesLabelText.toString());
+      JLabel dependenciesLabel = createHTMLLabel(dependenciesLabelText);
       if (!SystemInfo.isWindows) UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, dependenciesLabel);
 
       JLabel warningLabel = null;
       if (isVIM || isCloud) {
         if (isCloud) {
-          warningLabel = createHTMLLabel("From your JetBrains account");
+          warningLabel = createHTMLLabel(IdeBundle.message("label.from.your.jetbrains.account"));
           warningLabel.setIcon(AllIcons.General.BalloonInformation);
         }
         else {
-          warningLabel = createHTMLLabel("Recommended only if you are<br> familiar with Vim.");
+          warningLabel = createHTMLLabel(IdeBundle.message("label.recommended.only.if.you.are.br.familiar.with.vim"));
           warningLabel.setIcon(AllIcons.General.BalloonWarning);
         }
 
@@ -175,13 +161,14 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
 
       final CardLayout wrapperLayout = new CardLayout();
       final JPanel buttonWrapper = new JPanel(wrapperLayout);
-      final JButton installButton = new JButton(isVIM ? "Install and Enable" : "Install");
+      final JButton installButton = new JButton(isVIM ? IdeBundle.message("button.install.and.enable")
+                                                      : IdeBundle.message("button.install"));
 
       final JProgressBar progressBar = new JProgressBar(0, 100);
       progressBar.setStringPainted(true);
       JPanel progressPanel = new JPanel(new VerticalFlowLayout(true, false));
       progressPanel.add(progressBar);
-      final LinkLabel cancelLink = new LinkLabel("Cancel", AllIcons.Actions.Cancel);
+      final LinkLabel cancelLink = new LinkLabel(IdeBundle.message("link.cancel"), AllIcons.Actions.Cancel);
       JPanel linkWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
       linkWrapper.add(cancelLink);
       progressPanel.add(linkWrapper);
@@ -199,13 +186,13 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
       installButton.addActionListener(new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
+          CustomizeIDEWizardInteractions.INSTANCE.record(CustomizeIDEWizardInteractionType.FeaturedPluginInstalled, descriptor);
           wrapperLayout.show(buttonWrapper, "progress");
           ourService.execute(new Runnable() {
             @Override
             public void run() {
               try {
                 indicator.start();
-                IdeInitialConfigButtonUsages.addDownloadedPlugin(descriptor.getPluginId().getIdString());
                 PluginDownloader downloader = PluginDownloader.createDownloader(descriptor);
                 downloader.prepareToInstall(indicator);
                 downloader.install();
@@ -229,7 +216,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
               SwingUtilities.invokeLater(() -> {
                 indicator.stop();
                 wrapperLayout.show(buttonWrapper, "progress");
-                progressBar.setString("Cannot download plugin");
+                progressBar.setString(IdeBundle.message("label.cannot.download.plugin"));
               });
             }
           });
@@ -294,7 +281,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
   }
 
   @NotNull
-  private static JLabel createHTMLLabel(final String text) {
+  private static JLabel createHTMLLabel(final @NlsContexts.Label String text) {
     return new JLabel("<html><body>" + text + "</body></html>") {
       @Override
       public Dimension getPreferredSize() {
@@ -307,21 +294,17 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
 
   @Override
   public String getTitle() {
-    return "Featured plugins";
+    return IdeBundle.message("step.title.featured.plugins");
   }
 
   @Override
   public String getHTMLHeader() {
-    return "<html><body><h2>Download featured plugins</h2>" +
-           "We have a few plugins in our repository that most users like to download. " +
-           "Perhaps, you need them too?</body></html>";
+    return IdeBundle.message("label.download.featured.plugins");
   }
 
   @Override
   public String getHTMLFooter() {
-    return "New plugins can also be downloaded in "
-           + CommonBundle.settingsTitle()
-           + " | " + "Plugins";
+    return IdeBundle.message("label.new.plugins.can.also.be.downloaded.in.0.plugins", CommonBundle.settingsTitle());
   }
 
   private static class MyIndicator extends AbstractProgressIndicatorExBase {
@@ -333,7 +316,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
     private final int myNumberOfDownloads;
     private int myDownload;
 
-    public MyIndicator(CardLayout wrapperLayout,
+    MyIndicator(CardLayout wrapperLayout,
                        JPanel buttonWrapper,
                        JButton installButton,
                        JProgressBar progressBar,
@@ -355,6 +338,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
     @Override
     public void start() {
       myCanceled.set(false);
+      dontStartActivity();
       super.start();
       SwingUtilities.invokeLater(() -> myWrapperLayout.show(myButtonWrapper, "progress"));
     }
@@ -365,7 +349,7 @@ public class CustomizeFeaturedPluginsStepPanel extends AbstractCustomizeWizardSt
       SwingUtilities.invokeLater(() -> {
         myWrapperLayout.show(myButtonWrapper, "button");
         myInstallButton.setEnabled(false);
-        myInstallButton.setText("Installed");
+        myInstallButton.setText(IdeBundle.message("button.installed"));
       });
     }
 

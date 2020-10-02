@@ -26,8 +26,6 @@ import javax.swing.*;
 
 /**
  * Base class for tabs of facet editors
- *
- * @author nik
  */
 public abstract class FacetEditorTab implements Configurable {
   @NotNull
@@ -44,6 +42,7 @@ public abstract class FacetEditorTab implements Configurable {
   public void onTabLeaving() {
   }
 
+  @Override
   @Nullable
   public JComponent getPreferredFocusedComponent() {
     return null;

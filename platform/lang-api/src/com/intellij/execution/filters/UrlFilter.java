@@ -15,8 +15,14 @@
  */
 package com.intellij.execution.filters;
 
+import com.intellij.execution.ExecutionBundle;
+import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NotNull;
@@ -25,18 +31,30 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author yole
  */
 public class UrlFilter implements Filter, DumbAware {
+  private final Project myProject;
+
+  public UrlFilter() {
+    this(null);
+  }
+
+  public UrlFilter(Project project) {
+    myProject = project;
+  }
+
   @Nullable
   @Override
-  public Result applyFilter(String line, int entireLength) {
+  public Result applyFilter(@NotNull String line, int entireLength) {
     if (!URLUtil.canContainUrl(line)) return null;
 
     int textStartOffset = entireLength - line.length();
-    Matcher m = URLUtil.URL_PATTERN.matcher(line);
+    Pattern pattern = line.contains(LocalFileSystem.PROTOCOL_PREFIX) ? URLUtil.FILE_URL_PATTERN : URLUtil.URL_PATTERN;
+    Matcher m = pattern.matcher(line);
     ResultItem item = null;
     List<ResultItem> items = null;
     while (m.find()) {
@@ -57,18 +75,57 @@ public class UrlFilter implements Filter, DumbAware {
 
   @NotNull
   protected HyperlinkInfo buildHyperlinkInfo(@NotNull String url) {
-    return new BrowserHyperlinkInfo(url);
+    HyperlinkInfo fileHyperlinkInfo = buildFileHyperlinkInfo(url);
+    return fileHyperlinkInfo != null ? fileHyperlinkInfo : new BrowserHyperlinkInfo(url);
+  }
+
+  @Nullable
+  private HyperlinkInfo buildFileHyperlinkInfo(@NotNull String url) {
+    if (myProject != null && url.startsWith(LocalFileSystem.PROTOCOL_PREFIX)) {
+      int documentLine = 0, documentColumn = 0;
+      int filePathEndIndex = url.length();
+      final int lastColonInd = url.lastIndexOf(':');
+      if (lastColonInd > LocalFileSystem.PROTOCOL_PREFIX.length() && lastColonInd < url.length() - 1) {
+        int lastValue = StringUtil.parseInt(url.substring(lastColonInd + 1), Integer.MIN_VALUE);
+        if (lastValue != Integer.MIN_VALUE) {
+          documentLine = lastValue - 1;
+          filePathEndIndex = lastColonInd;
+          int preLastColonInd = url.lastIndexOf(':', lastColonInd - 1);
+          if (preLastColonInd > LocalFileSystem.PROTOCOL_PREFIX.length()) {
+            int preLastValue = StringUtil.parseInt(url.substring(preLastColonInd + 1, lastColonInd), Integer.MIN_VALUE);
+            if (preLastValue != Integer.MIN_VALUE) {
+              documentLine = preLastValue - 1;
+              documentColumn = lastValue - 1;
+              filePathEndIndex = preLastColonInd;
+            }
+          }
+        }
+      }
+      String filePath = url.substring(LocalFileSystem.PROTOCOL_PREFIX.length(), filePathEndIndex);
+      return new LazyFileHyperlinkInfo(myProject, filePath, documentLine, documentColumn) {
+        @Nullable
+        @Override
+        public OpenFileDescriptor getDescriptor() {
+          OpenFileDescriptor descriptor = super.getDescriptor();
+          if (descriptor == null) {
+            Messages.showErrorDialog(myProject, ExecutionBundle.message("message.cannot.find.file.0", StringUtil.trimMiddle(url, 150)),
+                                     IdeBundle.message("title.cannot.open.file"));
+          }
+          return descriptor;
+        }
+      };
+    }
+    return null;
   }
 
   public static class UrlFilterProvider implements ConsoleFilterProviderEx {
     @Override
-    public Filter[] getDefaultFilters(@NotNull Project project, @NotNull GlobalSearchScope scope) {
-      return new Filter[]{new UrlFilter()};
+    public Filter @NotNull [] getDefaultFilters(@NotNull Project project, @NotNull GlobalSearchScope scope) {
+      return new Filter[]{new UrlFilter(project)};
     }
 
-    @NotNull
     @Override
-    public Filter[] getDefaultFilters(@NotNull Project project) {
+    public Filter @NotNull [] getDefaultFilters(@NotNull Project project) {
       return getDefaultFilters(project, GlobalSearchScope.allScope(project));
     }
   }

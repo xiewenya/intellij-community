@@ -1,34 +1,32 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.messages;
 
 import com.apple.eawt.FullScreenUtilities;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.impl.LaterInvocator;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.mac.MacMainFrameDecorator;
+import com.intellij.ui.mac.touchbar.TouchBarsManager;
 import com.intellij.util.IJSwingUtilities;
 import com.intellij.util.ui.Animator;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
 import static com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance;
 
 /**
  * Created by Denis Fokin
  */
-class SheetMessage implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ui.messages.SheetMessage");
-
+final class SheetMessage implements Disposable {
   private final JDialog myWindow;
   private final Window myParent;
   private final SheetController myController;
@@ -38,34 +36,32 @@ class SheetMessage implements Disposable {
   private Image staticImage;
   private int imageHeight;
 
-  SheetMessage(final Window owner,
-               final String title,
-               final String message,
-               final Icon icon,
-               final String[] buttons,
-               final DialogWrapper.DoNotAskOption doNotAskOption,
-               final String defaultButton,
-               final String focusedButton) {
-    final Window activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
-    final Component recentFocusOwner = activeWindow == null ? null : activeWindow.getMostRecentFocusOwner();
+  SheetMessage(@NotNull Window owner,
+               @Nls String title,
+               @Nls String message,
+               Icon icon,
+               String[] buttons,
+               DialogWrapper.DoNotAskOption doNotAskOption,
+               String defaultButton,
+               String focusedButton) {
+    myParent = owner;
+
+    Window activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getActiveWindow();
+    Component recentFocusOwner = activeWindow == null ? null : activeWindow.getMostRecentFocusOwner();
     WeakReference<Component> beforeShowFocusOwner = new WeakReference<>(recentFocusOwner);
 
     maximizeIfNeeded(owner);
 
-    myWindow = new JDialog(owner, "This should not be shown", Dialog.ModalityType.APPLICATION_MODAL);
+    // the actual title will be taken from a sheet panel, not from this dialog
+    myWindow = new JDialog(owner, title, Dialog.ModalityType.APPLICATION_MODAL);
     myWindow.getRootPane().putClientProperty("apple.awt.draggableWindowBackground", Boolean.FALSE);
-
-    //Sometimes we cannot find the owner from the project. For instance, WelcomeScreen could be showing without a
-    // project being loaded. Let's employ the focus manager then.
-    myParent = (owner == null) ? KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow() : owner;
-
     myWindow.setUndecorated(true);
     myWindow.setBackground(Gray.TRANSPARENT);
     myController = new SheetController(this, title, message, icon, buttons, defaultButton, doNotAskOption, focusedButton);
     Disposer.register(this, myController);
 
     imageHeight = 0;
-    ComponentAdapter componentAdapter = new ComponentAdapter() {
+    ComponentListener componentAdapter = new ComponentAdapter() {
       @Override
       public void componentResized(ComponentEvent event) {
         setPositionRelativeToParent();
@@ -81,14 +77,13 @@ class SheetMessage implements Disposable {
     myWindow.setFocusable(true);
     myWindow.setFocusableWindowState(true);
     myWindow.setSize(myController.SHEET_NC_WIDTH, 0);
-
-    setWindowOpacity(0.0f);
+    myWindow.setOpacity(0.0f);
 
     ComponentAdapter componentListener = new ComponentAdapter() {
       @Override
       public void componentShown(@NotNull ComponentEvent e) {
         super.componentShown(e);
-        setWindowOpacity(1.0f);
+        myWindow.setOpacity(1.0f);
         myWindow.setSize(myController.SHEET_NC_WIDTH, myController.SHEET_NC_HEIGHT);
       }
     };
@@ -137,13 +132,14 @@ class SheetMessage implements Disposable {
     }
 
     LaterInvocator.enterModal(myWindow);
+    _showTouchBar();
     myWindow.setVisible(true);
     LaterInvocator.leaveModal(myWindow);
 
     Component focusCandidate = beforeShowFocusOwner.get();
 
     if (focusCandidate == null) {
-      focusCandidate = getGlobalInstance().getLastFocusedFor(getGlobalInstance().getLastFocusedFrame());
+      focusCandidate = getGlobalInstance().getLastFocusedFor(getGlobalInstance().getLastFocusedIdeWindow());
     }
 
     final Component finalFocusCandidate = focusCandidate;
@@ -161,23 +157,23 @@ class SheetMessage implements Disposable {
     myWindow.dispose();
   }
 
-  private static void maximizeIfNeeded(final Window owner) {
-    if (owner == null) return;
+  private void _showTouchBar() {
+    if (!TouchBarsManager.isTouchBarEnabled()) {
+      return;
+    }
+
+    final Disposable tb = TouchBarsManager.showDialogWrapperButtons(myController.getSheetPanel());
+    if (tb != null) {
+      Disposer.register(this, tb);
+    }
+  }
+
+  private static void maximizeIfNeeded(@Nullable Window owner) {
     if (owner instanceof Frame) {
       Frame f = (Frame)owner;
       if (f.getState() == Frame.ICONIFIED) {
         f.setState(Frame.NORMAL);
       }
-    }
-  }
-
-  private void setWindowOpacity(float opacity) {
-    try {
-      Method setOpacityMethod = myWindow.getClass().getMethod("setOpacity", Float.TYPE);
-      setOpacityMethod.invoke(myWindow, opacity);
-    }
-    catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
-      LOG.error(e);
     }
   }
 

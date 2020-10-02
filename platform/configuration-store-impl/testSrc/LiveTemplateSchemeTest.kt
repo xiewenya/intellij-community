@@ -1,10 +1,13 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.codeInsight.template.impl.TemplateSettings
+import com.intellij.configurationStore.schemeManager.SchemeManagerFactoryBase
 import com.intellij.testFramework.ProjectRule
 import com.intellij.testFramework.rules.InMemoryFsRule
 import com.intellij.util.io.readText
 import com.intellij.util.io.write
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.ClassRule
 import org.junit.Rule
@@ -38,7 +41,7 @@ class LiveTemplateSchemeTest {
     schemeFile.write(schemeData)
 
     TemplateSettings(schemeManagerFactory)
-    schemeManagerFactory.save()
+    runBlocking { schemeManagerFactory.save() }
     assertThat(schemeFile.readText()).isEqualTo(schemeData)
   }
 }

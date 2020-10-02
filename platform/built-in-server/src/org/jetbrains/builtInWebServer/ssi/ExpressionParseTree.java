@@ -16,6 +16,8 @@
  */
 package org.jetbrains.builtInWebServer.ssi;
 
+import org.jetbrains.annotations.NonNls;
+
 import java.text.ParseException;
 import java.util.LinkedList;
 import java.util.List;
@@ -50,7 +52,7 @@ final class ExpressionParseTree {
   /**
    * Creates a new parse tree for the specified expression.
    */
-  public ExpressionParseTree(String expr, SsiProcessingState ssiProcessingState)
+  ExpressionParseTree(String expr, SsiProcessingState ssiProcessingState)
     throws ParseException {
     this.ssiProcessingState = ssiProcessingState;
     parseExpression(expr);
@@ -81,7 +83,6 @@ final class ExpressionParseTree {
       OppNode top = oppStack.get(0);
       // If the top is a spacer then don't pop
       // anything
-      //noinspection ConstantConditions
       if (top == null) break;
       // If the top node has a lower precedence then
       // let it stay
@@ -219,7 +220,7 @@ final class ExpressionParseTree {
     String resolved = null;
 
 
-    public StringNode(String value) {
+    StringNode(String value) {
       this.value = new StringBuilder(value);
     }
 
@@ -308,6 +309,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " NOT";
     }
@@ -331,6 +333,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " AND";
     }
@@ -354,6 +357,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " OR";
     }
@@ -403,6 +407,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " EQ";
     }
@@ -422,6 +427,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " GT";
     }
@@ -441,6 +447,7 @@ final class ExpressionParseTree {
 
 
     @Override
+    @NonNls
     public String toString() {
       return left + " " + right + " LT";
     }

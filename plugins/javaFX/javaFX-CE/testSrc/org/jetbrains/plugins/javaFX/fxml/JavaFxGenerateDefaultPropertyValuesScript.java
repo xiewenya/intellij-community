@@ -1,5 +1,7 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml;
 
+import com.intellij.util.containers.ContainerUtil;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.NamedArg;
@@ -21,6 +23,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.reflect.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -120,10 +123,8 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
     ourFromSource.put("javafx.stage.PopupWindow#consumeAutoHidingEvents", true);
   }
 
-  private static final Set<String> ourSkippedProperties = new HashSet<>(
-    Arrays.asList("javafx.scene.web.HTMLEditor#htmlText",
-                  "javafx.scene.web.WebEngine#userAgent",
-                  "javafx.scene.control.ButtonBar#buttonOrder"));
+  private static final Set<String> ourSkippedProperties = ContainerUtil
+    .set("javafx.scene.web.HTMLEditor#htmlText", "javafx.scene.web.WebEngine#userAgent", "javafx.scene.control.ButtonBar#buttonOrder");
 
 
   /**
@@ -275,8 +276,8 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
 
     System.out.println("-------- Overridden properties' values ---------");
     overriddenProperties
-      .forEach((className, propertyValues) -> propertyValues.entrySet()
-        .forEach(e -> System.out.println("-- " + className + "#" + e.getKey() + e.getValue())));
+      .forEach((className, propertyValues) -> propertyValues
+        .forEach((key, value) -> System.out.println("-- " + className + "#" + key + value)));
     System.out.println("-------- Skipped properties ---------");
     ourSkippedProperties.forEach(propName -> System.out.println("-- " + propName));
   }
@@ -349,7 +350,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
                 args.add(name, type, Integer.valueOf(defaultValue));
               }
               catch (NumberFormatException e) {
-                args.add(name, type, Integer.valueOf(0));
+                args.add(name, type, 0);
               }
             }
             else if (type == long.class) {
@@ -357,7 +358,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
                 args.add(name, type, Long.valueOf(defaultValue));
               }
               catch (NumberFormatException e) {
-                args.add(name, type, Long.valueOf(0));
+                args.add(name, type, 0L);
               }
             }
             else if (type == double.class) {
@@ -365,7 +366,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
                 args.add(name, type, Double.valueOf(defaultValue));
               }
               catch (NumberFormatException e) {
-                args.add(name, type, Double.valueOf(0));
+                args.add(name, type, 0.0);
               }
             }
             else if (type == float.class) {
@@ -373,7 +374,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
                 args.add(name, type, Float.valueOf(defaultValue));
               }
               catch (NumberFormatException e) {
-                args.add(name, type, Float.valueOf(0));
+                args.add(name, type, 0F);
               }
             }
             else if (!type.isEnum() && type != String.class) {
@@ -459,8 +460,6 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
     ourSourceClasses.add("javafx.scene.control.Labeled");
     ourSourceClasses.add("javafx.scene.control.MultipleSelectionModel");
     ourSourceClasses.add("javafx.scene.control.SpinnerValueFactory");
-    ourSourceClasses.add("javafx.scene.control.SpinnerValueFactory");
-    ourSourceClasses.add("javafx.scene.control.SpinnerValueFactory");
     ourSourceClasses.add("javafx.scene.control.TableColumnBase");
     ourSourceClasses.add("javafx.scene.control.TableSelectionModel");
     ourSourceClasses.add("javafx.scene.control.TextFormatter");
@@ -498,7 +497,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
             StringBuilder text = new StringBuilder();
             int len;
             while ((len = zip.read(buffer)) > 0) {
-              String str = new String(buffer, 0, len);
+              String str = new String(buffer, 0, len, StandardCharsets.UTF_8);
               text.append(str);
             }
             String[] lines = text.toString().split("\n");
@@ -562,7 +561,7 @@ public class JavaFxGenerateDefaultPropertyValuesScript extends Application {
     private final String myValueText;
     private final String myDeclaringClass;
 
-    public DefaultValue(@NotNull Object value, @NotNull String declaringClass) {
+    DefaultValue(@NotNull Object value, @NotNull String declaringClass) {
       myValueText = String.valueOf(value);
       myDeclaringClass = declaringClass;
     }

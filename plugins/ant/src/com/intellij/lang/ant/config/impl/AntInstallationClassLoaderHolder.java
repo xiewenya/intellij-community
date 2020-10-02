@@ -25,12 +25,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AntInstallationClassLoaderHolder extends ClassLoaderHolder {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.config.impl.AntInstallationClassLoaderHolder");
+  private static final Logger LOG = Logger.getInstance(AntInstallationClassLoaderHolder.class);
 
   public AntInstallationClassLoaderHolder(AbstractProperty.AbstractPropertyContainer options) {
     super(options);
   }
 
+  @Override
   protected ClassLoader buildClasspath() {
     final ArrayList<File> files = new ArrayList<>();
     // ant installation jars

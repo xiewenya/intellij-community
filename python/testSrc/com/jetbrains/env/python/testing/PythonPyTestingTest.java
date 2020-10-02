@@ -1,8 +1,11 @@
 package com.jetbrains.env.python.testing;
 
+import com.intellij.execution.RunManager;
 import com.intellij.execution.configurations.RuntimeConfigurationWarning;
 import com.intellij.execution.testframework.AbstractTestProxy;
 import com.intellij.execution.testframework.sm.runner.ui.MockPrinter;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ModuleRootManager;
@@ -16,13 +19,12 @@ import com.jetbrains.env.PyExecutionFixtureTestTask;
 import com.jetbrains.env.PyProcessWithConsoleTestTask;
 import com.jetbrains.env.python.testing.CreateConfigurationTestTask.PyConfigurationValidationTask;
 import com.jetbrains.env.ut.PyTestTestProcessRunner;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant;
-import com.jetbrains.python.testing.ConfigurationTarget;
-import com.jetbrains.python.testing.PyTestConfiguration;
-import com.jetbrains.python.testing.PyTestFactory;
-import com.jetbrains.python.testing.PyTestFrameworkService;
+import com.jetbrains.python.testing.*;
 import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.hamcrest.Matchers;
 import org.jdom.Element;
@@ -65,6 +67,32 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
     });
   }
 
+
+  @Test
+  public void testDiff() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/diff", SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_diff.py", 1);
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                        @NotNull final String stdout,
+                                        @NotNull final String stderr,
+                                        @NotNull final String all, int exitCode) {
+
+          final String expectedConsoleText = "Expected :expected\n" +
+                                             "Actual   :actual\n" +
+                                             "<Click to see difference>";
+          Assert.assertThat("No diff", runner.getAllConsoleText(), Matchers.containsString(expectedConsoleText));
+        }
+      });
+  }
+
   /**
    * Provides existing .xml and checks that configuration is able to parse it
    */
@@ -94,7 +122,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         final CharBuffer data = Charset.defaultCharset().decode(ByteBuffer.wrap(file.contentsToByteArray()));
         final Element element = builder.build(new StringReader(data.toString())).getRootElement();
 
-        final PyTestConfiguration configuration = new PyTestConfiguration(myFixture.getProject(), PyTestFactory.INSTANCE);
+        final PyTestConfiguration configuration = new PyTestConfiguration(myFixture.getProject(), new PyTestFactory());
         configuration.readExternal(element);
         return configuration;
       }
@@ -127,6 +155,58 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
     });
   }
 
+  @EnvTestTagsRequired(tags = "-messages") //messages registered 2 times when launched with testdir plugin, should be fixed separately
+  @Test
+  public void testTestDirFixture() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/testdir", SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_foo.py", 0);
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                        @NotNull final String stdout,
+                                        @NotNull final String stderr,
+                                        @NotNull final String all, int exitCode) {
+
+          Assert.assertEquals(stderr, 1, runner.getAllTestsCount());
+          Assert.assertEquals(stderr, 1, runner.getPassedTestsCount());
+        }
+      });
+  }
+
+  /**
+   * Test name must be reported as meta info to be used as parameter for for parametrized tests
+   */
+  @Test
+  public void testMetaInfoForMethod() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/", SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_with_method.py", 0);
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                        @NotNull final String stdout,
+                                        @NotNull final String stderr,
+                                        @NotNull final String all, int exitCode) {
+
+          final String testName = "test_method";
+          final AbstractTestProxy method = runner.findTestByName(testName);
+          assert method != null : "Method not reported";
+          assertEquals("Meta info must be test name", testName, method.getMetainfo());
+        }
+      });
+  }
+
 
   @Test
   public void testParametrized() {
@@ -143,15 +223,53 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           Assert.assertEquals("Parametrized test produced bad tree",
                               "Test tree:\n" +
-                              "[root]\n" +
-                              ".test_pytest_parametrized\n" +
-                              "..test_eval\n" +
+                              "[root](-)\n" +
+                              ".test_pytest_parametrized(-)\n" +
+                              "..test_eval(-)\n" +
                               "...(three plus file-8)(-)\n" +
-                              "...((2)+(4)-6)(+)\n" +
+                              ((runner.getCurrentRerunStep() == 0) ? "...((2)+(4)-6)(+)\n" : "") +
                               "...( six times nine_-42)(-)\n", runner.getFormattedTestTree());
+        }
+      });
+  }
+
+  /**
+   * Ensure that testName[param] is only launched for parametrized test if param provided
+   */
+  @Test
+  public void testParametrizedRunByParameter() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/parametrized", SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_pytest_parametrized.py", 1) {
+            @Override
+            protected void configurationCreatedAndWillLaunch(@NotNull PyTestConfiguration configuration) throws IOException {
+              super.configurationCreatedAndWillLaunch(configuration);
+              configuration.getTarget().setTarget("test_pytest_parametrized.test_eval");
+              configuration.getTarget().setTargetType(PyRunTargetVariant.PYTHON);
+              configuration.setMetaInfo("test_eval[three plus file-8]");
+            }
+          };
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                        @NotNull final String stdout,
+                                        @NotNull final String stderr,
+                                        @NotNull final String all, int exitCode) {
+          assertEquals("Only one test should be launched",
+                       "Test tree:\n" +
+                       "[root](-)\n" +
+                       ".test_pytest_parametrized(-)\n" +
+                       "..test_eval(-)\n" +
+                       "...(three plus file-8)(-)\n",
+                       runner.getFormattedTestTree());
         }
       });
   }
@@ -176,17 +294,17 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           Assert.assertEquals("Test name before message broke output",
                               "Test tree:\n" +
-                              "[root]\n" +
-                              ".test_test\n" +
-                              "..SampleTest1\n" +
+                              "[root](+)\n" +
+                              ".test_test(+)\n" +
+                              "..SampleTest1(+)\n" +
                               "...test_sample_1(+)\n" +
                               "...test_sample_2(+)\n" +
                               "...test_sample_3(+)\n" +
                               "...test_sample_4(+)\n" +
-                              "..SampleTest2\n" +
+                              "..SampleTest2(+)\n" +
                               "...test_sample_5(+)\n" +
                               "...test_sample_6(+)\n" +
                               "...test_sample_7(+)\n" +
@@ -195,6 +313,74 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       });
   }
 
+  @Test
+  public void testTestEmptySuite() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/testNameBeforeTestStarted",
+                                                                SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_test.py", 0) {
+            @Override
+            protected void configurationCreatedAndWillLaunch(@NotNull final PyTestConfiguration configuration) throws IOException {
+              super.configurationCreatedAndWillLaunch(configuration);
+              configuration.setKeywords("asdasdasd");
+            }
+          };
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                        @NotNull final String stdout,
+                                        @NotNull final String stderr,
+                                        @NotNull final String all,
+                                        final int exitCode) {
+          Assert.assertEquals("Wrong message for empty suite",
+                              PyBundle.message("runcfg.tests.empty_suite"),
+                              runner.getTestProxy().getPresentation());
+          Assert.assertEquals("Wrong empty suite tree", "Test tree:\n" +
+                                                        "[root](-)\n", runner.getFormattedTestTree());
+
+          runner.getFormattedTestTree();
+        }
+      });
+  }
+
+
+  @Test
+  @EnvTestTagsRequired(tags = "xdist")
+  public void testParallelWithSetup() {
+    runPythonTest(
+      new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/parallel", SdkCreationType.EMPTY_SDK) {
+
+        @NotNull
+        @Override
+        protected PyTestTestProcessRunner createProcessRunner() {
+          return new PyTestTestProcessRunner("test_parallel.py", 0) {
+            @Override
+            protected void configurationCreatedAndWillLaunch(@NotNull PyTestConfiguration configuration) throws IOException {
+              super.configurationCreatedAndWillLaunch(configuration);
+              configuration.setAdditionalArguments("-n 4");
+            }
+          };
+        }
+
+        @Override
+        protected void checkTestResults(@NotNull PyTestTestProcessRunner runner,
+                                        @NotNull String stdout,
+                                        @NotNull String stderr,
+                                        @NotNull String all, int exitCode) {
+          Assert.assertThat("xdist not launched?", all, Matchers.containsString("xdist"));
+          Assert.assertEquals("Test tree:\n" +
+                              "[root](+)\n" +
+                              ".test_parallel(+)\n" +
+                              "..ExampleTestCase(+)\n" +
+                              "...test_example(+)\n", runner.getFormattedTestTree());
+        }
+      });
+  }
 
   // Ensure test survives patched strftime
   @Test
@@ -212,7 +398,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         protected void checkTestResults(@NotNull PyTestTestProcessRunner runner,
                                         @NotNull String stdout,
                                         @NotNull String stderr,
-                                        @NotNull String all) {
+                                        @NotNull String all, int exitCode) {
           assertEquals("Monkeypatch broke the test: " + stderr, 1, runner.getPassedTestsCount());
         }
       });
@@ -241,10 +427,10 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         protected void checkTestResults(@NotNull PyTestTestProcessRunner runner,
                                         @NotNull String stdout,
                                         @NotNull String stderr,
-                                        @NotNull String all) {
+                                        @NotNull String all, int exitCode) {
           Assert.assertEquals("Marker support broken", "Test tree:\n" +
-                                                       "[root]\n" +
-                                                       ".test_with_markers\n" +
+                                                       "[root](+)\n" +
+                                                       ".test_with_markers(+)\n" +
                                                        "..test_fast(+)\n",
                               runner.getFormattedTestTree());
         }
@@ -309,7 +495,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           Assert.assertEquals("Failed to run test" + stderr, 1, runner.getPassedTestsCount());
         }
       });
@@ -332,9 +518,96 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
   }
 
   @Test
+  @EnvTestTagsRequired(tags = "python3")
+  public void testResolveQName() {
+    runPythonTest(new CreateConfigurationTestTask.PyConfigurationCreationTask() {
+      @NotNull
+      @Override
+      protected PyAbstractTestFactory<PyTestConfiguration> createFactory() {
+        return new PyTestFactory();
+      }
+
+      @Override
+      public void runTestOn(@NotNull String sdkHome, @Nullable Sdk existingSdk) {
+        super.runTestOn(sdkHome, existingSdk);
+        myFixture.copyDirectoryToProject("testRunner/env/createConfigurationTest/configurationByContext/foo", "");
+        final PyAbstractTestConfiguration configuration = getConfiguration();
+        configuration.getTarget().setTargetType(PyRunTargetVariant.PYTHON);
+        configuration.getTarget().setTarget("test_foo");
+        configuration.setWorkingDirectory(myFixture.getTempDirPath());
+
+        ReadAction.run(() -> Assert.assertThat("Failed to resolve qname",
+                                               configuration.getTarget().asPsiElement(configuration),
+                                               Matchers.instanceOf(PyFile.class)));
+      }
+    });
+  }
+
+  @Test
   public void testMultipleCases() {
     runPythonTest(
       new CreateConfigurationMultipleCasesTask<>(myFrameworkName, PyTestConfiguration.class));
+  }
+
+  /**
+   * Create configuration by right click and check that same configuration is chosen when clicked on same element.
+   * New one created in other case.
+   */
+  @Test
+  public void testConfigurationByContext() {
+    runPythonTest(
+      new CreateConfigurationTestTask<PyTestConfiguration>(myFrameworkName, PyTestConfiguration.class) {
+
+
+        @NotNull
+        private PyFunction getFunction(@NotNull final String folder) {
+          final PyFile file = (PyFile)myFixture.configureByFile(String.format("configurationByContext/%s/test_foo.py", folder));
+          assert file != null;
+          final PyFunction function = file.findTopLevelFunction("test_test");
+          assert function != null;
+          return function;
+        }
+
+        @Override
+        protected void checkConfiguration(@NotNull final PyTestConfiguration configuration,
+                                          @NotNull final PsiElement elementToRightClickOn) {
+
+
+          PyFunction bar = getFunction("bar");
+          final PyTestConfiguration sameConfig = createConfigurationByElement(bar, PyTestConfiguration.class);
+          Assert.assertEquals("Same element must provide same config", sameConfig, configuration);
+
+          PyFunction foo = getFunction("foo");
+          final PyTestConfiguration differentConfig = createConfigurationByElement(foo, PyTestConfiguration.class);
+          //Although targets are same, working dirs are different
+          assert differentConfig.getTarget().equals(configuration.getTarget());
+
+          Assert.assertNotEquals("Function from different folder must provide different config", differentConfig, configuration);
+
+          try {
+            // Test "custom symbol" mode: instead of QN we must get custom with additional arguments pointing to file and symbol
+            ((PyTestConfiguration)RunManager.getInstance(getProject())
+              .getConfigurationTemplate(new PyTestFactory())
+              .getConfiguration())
+              .setWorkingDirectory(bar.getContainingFile().getParent().getVirtualFile().getPath());
+            PyTestConfiguration customConfiguration = createConfigurationByElement(foo, PyTestConfiguration.class);
+            assertEquals(PyRunTargetVariant.CUSTOM, customConfiguration.getTarget().getTargetType());
+            assertEquals(foo.getContainingFile().getVirtualFile().getPath() + "::test_test", customConfiguration.getAdditionalArguments());
+          }
+          finally {
+            ((PyTestConfiguration)RunManager.getInstance(getProject())
+              .getConfigurationTemplate(new PyTestFactory())
+              .getConfiguration())
+              .setWorkingDirectory(null);
+          }
+        }
+
+        @NotNull
+        @Override
+        protected List<PsiElement> getPsiElementsToRightClickOn() {
+          return Collections.singletonList(getFunction("bar"));
+        }
+      });
   }
 
   /**
@@ -387,7 +660,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
         @NotNull
         @Override
         protected PyTestFactory createFactory() {
-          return PyTestFactory.INSTANCE;
+          return new PyTestFactory();
         }
       });
   }
@@ -436,10 +709,12 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
-        final String resultTree = runner.getFormattedTestTree().trim();
-        final String expectedTree = myFixture.configureByFile("test_escape_me.tree.txt").getText().trim();
-        Assert.assertEquals("Test result wrong tree", expectedTree, resultTree);
+                                      @NotNull final String all, int exitCode) {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          final String resultTree = runner.getFormattedTestTree().trim();
+          final String expectedTree = myFixture.configureByFile("test_escape_me.tree.txt").getText().trim();
+          assertEquals("Test result wrong tree", expectedTree, resultTree);
+        });
       }
     });
   }
@@ -460,7 +735,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull PyTestTestProcessRunner runner,
                                       @NotNull String stdout,
                                       @NotNull String stderr,
-                                      @NotNull String all) {
+                                      @NotNull String all, int exitCode) {
         Assert.assertThat("Import error is not marked as error", runner.getFailedTestsCount(), Matchers.greaterThanOrEqualTo(1));
       }
     });
@@ -492,7 +767,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         final String projectDir = myFixture.getTempDirFixture().getTempDirPath();
         Assert.assertThat("No directory found in output", runner.getConsole().getText(),
                           Matchers.containsString(String.format("Directory %s", PathUtil.toSystemDependentName(projectDir))));
@@ -514,7 +789,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(3, runner.getAllTestsCount());
         assertEquals(3, runner.getPassedTestsCount());
         runner.assertAllTestsPassed();
@@ -554,7 +829,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(runner.getFormattedTestTree(), 1, runner.getFailedTestsCount());
         if (runner.getCurrentRerunStep() == 0) {
           assertEquals(runner.getFormattedTestTree(), 2, runner.getAllTestsCount());
@@ -567,6 +842,62 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       }
     });
   }
+
+  //PY-32431
+  @Test
+  public void testRerunWithParent() {
+    runPythonTest(new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/rerun", SdkCreationType.EMPTY_SDK) {
+      @NotNull
+      @Override
+      protected PyTestTestProcessRunner createProcessRunner() {
+        return new PyTestTestProcessRunner("test:test_subsystems.TestBar", 2);
+      }
+
+      @Override
+      protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                      @NotNull final String stdout,
+                                      @NotNull final String stderr,
+                                      @NotNull final String all, int exitCode) {
+        assertEquals("Wrong number of passed tests", 0, runner.getPassedTestsCount());
+        assertEquals("Wrong number of failed tests", 1, runner.getFailedTestsCount());
+        assertEquals("Wrong tests executed", "Test tree:\n" +
+                                             "[root](-)\n" +
+                                             ".test_subsystems(-)\n" +
+                                             "..TestBar(-)\n" +
+                                             "...test_something(-)\n", runner.getFormattedTestTree());
+      }
+    });
+  }
+
+  /**
+   * Rerun failed with with additional arguments
+   */
+  @Test
+  public void testRerunWithArguments() {
+    runPythonTest(new PyProcessWithConsoleTestTask<PyTestTestProcessRunner>("/testRunner/env/pytest/rerun", SdkCreationType.EMPTY_SDK) {
+      @NotNull
+      @Override
+      protected PyTestTestProcessRunner createProcessRunner() {
+        return new PyTestTestProcessRunner("failed_test.py", 2) {
+          @Override
+          protected void configurationCreatedAndWillLaunch(@NotNull PyTestConfiguration configuration) throws IOException {
+            super.configurationCreatedAndWillLaunch(configuration);
+            configuration.setAdditionalArguments("-vv");
+          }
+        };
+      }
+
+      @Override
+      protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
+                                      @NotNull final String stdout,
+                                      @NotNull final String stderr,
+                                      @NotNull final String all, int exitCode) {
+        assert runner.getFailedTestsCount() == 1 : "Test must fail";
+        Assert.assertThat("No -vv argument in command line", stdout, Matchers.containsString("-vv"));
+      }
+    });
+  }
+
 
   @Test
   public void testPytestRunner2() {
@@ -581,12 +912,10 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         if (runner.getCurrentRerunStep() > 0) {
-          // We rerun all tests, since running parametrized tests is broken until
-          // https://github.com/JetBrains/teamcity-messages/issues/121
-          assertEquals(runner.getFormattedTestTree(), 7, runner.getAllTestsCount());
-          assertEquals(runner.getFormattedTestTree(), 3, runner.getPassedTestsCount());
+          assertEquals(runner.getFormattedTestTree(), 4, runner.getAllTestsCount());
+          assertEquals(runner.getFormattedTestTree(), 0, runner.getPassedTestsCount());
           assertEquals(runner.getFormattedTestTree(), 4, runner.getFailedTestsCount());
           return;
         }
@@ -604,7 +933,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
                           Matchers.containsString("I will fail"));
 
         // This test has "sleep(1)", so duration should be >=1000
-        Assert.assertThat("Wrong duration", testFail.getDuration(), Matchers.greaterThanOrEqualTo(1000L));
+        Assert.assertThat("Wrong duration", testFail.getDuration(), Matchers.greaterThanOrEqualTo(900L));
       }
     });
   }
@@ -628,7 +957,7 @@ public final class PythonPyTestingTest extends PyEnvTestCase {
       protected void checkTestResults(@NotNull final PyTestTestProcessRunner runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         final List<String> fileNames = runner.getHighlightedStringsInConsole().second;
         Assert.assertThat("No lines highlighted", fileNames, Matchers.not(Matchers.empty()));
         // PyTest highlights file:line_number

@@ -22,8 +22,10 @@ import com.intellij.history.core.changes.Change;
 import com.intellij.history.core.changes.ChangeSet;
 import com.intellij.history.core.tree.Entry;
 import com.intellij.history.core.tree.RootEntry;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -38,8 +40,8 @@ public class ChangeRevision extends Revision {
   private final boolean myBefore;
 
   private final long myId;
-  private final String myName;
-  private final String myLabel;
+  private final @NlsContexts.Label String myName;
+  private final @NlsContexts.Label String myLabel;
   private final int myLabelColor;
   private final Pair<List<String>, Integer> myAffectedFiles;
 
@@ -59,7 +61,7 @@ public class ChangeRevision extends Revision {
 
     List<String> allAffectedFiles = changeSet.getAffectedPaths();
     List<String> someAffectedFiles = new SmartList<>();
-    for (String each : allAffectedFiles.subList(0, Math.min(3, allAffectedFiles.size()))) {
+    for (String each : ContainerUtil.getFirstItems(allAffectedFiles, 3)) {
       someAffectedFiles.add(Paths.getNameOf(each));
     }
     myAffectedFiles = Pair.create(someAffectedFiles, allAffectedFiles.size());

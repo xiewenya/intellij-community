@@ -1,15 +1,22 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
 import com.intellij.openapi.util.Pair;
+import com.intellij.ui.JreHiDpiUtil;
+import com.intellij.ui.RestoreScaleRule;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.RetinaImage;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.ExternalResource;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.awt.image.BufferedImageOp;
 import java.awt.image.ImageObserver;
 
+import static com.intellij.util.ui.TestScaleHelper.createImageAndGraphics;
+import static com.intellij.util.ui.TestScaleHelper.overrideJreHiDPIEnabled;
 import static java.lang.Math.ceil;
 import static java.lang.Math.floor;
 import static junit.framework.TestCase.assertEquals;
@@ -19,7 +26,10 @@ import static junit.framework.TestCase.assertEquals;
  *
  * @author tav
  */
-public class DrawImageTest extends TestScaleHelper {
+public class DrawImageTest {
+  @ClassRule
+  public static final ExternalResource manageState = new RestoreScaleRule();
+
   private final static int IMAGE_SIZE = 4;
   private final static int IMAGE_QUARTER_SIZE = IMAGE_SIZE / 2;
 
@@ -93,18 +103,18 @@ public class DrawImageTest extends TestScaleHelper {
   public void test() {
     for (double scale : new double[] {1, 2, 2.5}) {
       overrideJreHiDPIEnabled(true);
-      JBUI.setUserScaleFactor(1);
+      JBUIScale.setUserScaleFactor((float)1);
       test(scale);
 
       overrideJreHiDPIEnabled(false);
-      JBUI.setUserScaleFactor((float)scale);
+      JBUIScale.setUserScaleFactor((float)scale);
       test(scale);
     }
   }
 
   public void test(double scale) {
     source = RetinaImage.createFrom(supplyImage(scale, IMAGE_SIZE, IMAGE_SIZE, IMAGE_QUARTER_COLORS, false).first,
-                                    UIUtil.isJreHiDPIEnabled() ? scale : 1, null);
+                                    JreHiDpiUtil.isJreHiDPIEnabled() ? scale : 1, null);
 
     //
     // 1) draw one to one
@@ -133,7 +143,7 @@ public class DrawImageTest extends TestScaleHelper {
     };
     testDrawImage(dest = new Dest(scale),
                   new Rectangle(0, 0, -1, -1),
-                  new Rectangle(JBUI.scale(IMAGE_QUARTER_SIZE), JBUI.scale(IMAGE_QUARTER_SIZE), -1, -1), colors);
+                  new Rectangle(JBUIScale.scale(IMAGE_QUARTER_SIZE), JBUIScale.scale(IMAGE_QUARTER_SIZE), -1, -1), colors);
 
     //
     // 3) draw random quarter to random quarter, all the rest quarter colors should remain DEST_SURFACE_COLOR
@@ -152,21 +162,20 @@ public class DrawImageTest extends TestScaleHelper {
     testDrawImage(dest = new Dest(scale), bounds(dstCol, dstRow), bounds(srcCol, srcRow), colors);
   }
 
-  private void testDrawImage(Dest dest, Rectangle dstBounds, Rectangle srcBounds, TestColor[] testColors) {
+  private static void testDrawImage(Dest dest, Rectangle dstBounds, Rectangle srcBounds, TestColor[] testColors) {
     UIUtil.drawImage(dest.gr, source, dstBounds, srcBounds, null);
     for (TestColor t : testColors) t.test();
     dest.dispose();
   }
 
+  @SuppressWarnings("SameParameterValue")
   private static Pair<Image, Graphics2D> supplyImage(double scale, int width, int height, Color[] quarterColors, boolean supplyGraphics) {
-    @SuppressWarnings("UndesirableClassUsage")
-    BufferedImage image = new BufferedImage((int)ceil(width * scale), (int)ceil(height * scale), BufferedImage.TYPE_INT_RGB);
-    Graphics2D g = image.createGraphics();
-    double gScale = UIUtil.isJreHiDPIEnabled() ? scale : 1;
-    g.scale(gScale, gScale);
+    Pair<BufferedImage, Graphics2D> pair = createImageAndGraphics(scale, width, height);
+    BufferedImage image = pair.first;
+    Graphics2D g = pair.second;
 
-    int qw = JBUI.scale(width) / 2;
-    int qh = JBUI.scale(height) / 2;
+    int qw = JBUIScale.scale(width) / 2;
+    int qh = JBUIScale.scale(height) / 2;
 
     g.setColor(quarterColors[0]);
     g.fillRect(0, 0, qw, qh);
@@ -184,15 +193,15 @@ public class DrawImageTest extends TestScaleHelper {
     return new Pair<>(image, g);
   }
 
-  private Rectangle bounds() {
-    return bounds(0, 0, JBUI.scale(IMAGE_SIZE));
+  private static Rectangle bounds() {
+    return bounds(0, 0, JBUIScale.scale(IMAGE_SIZE));
   }
 
-  private Rectangle bounds(int col, int row) {
-    return bounds(col, row, JBUI.scale(IMAGE_QUARTER_SIZE));
+  private static Rectangle bounds(int col, int row) {
+    return bounds(col, row, JBUIScale.scale(IMAGE_QUARTER_SIZE));
   }
 
-  private Rectangle bounds(int col, int row, int size) {
+  private static Rectangle bounds(int col, int row, int size) {
     return new Rectangle(col * size, row * size, size, size);
   }
 }

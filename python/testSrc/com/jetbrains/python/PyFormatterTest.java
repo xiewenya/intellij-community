@@ -12,11 +12,17 @@ import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyElementGenerator;
 import com.jetbrains.python.psi.PyStatement;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
 public class PyFormatterTest extends PyTestCase {
+  @NotNull
+  private PyCodeStyleSettings getPythonCodeStyleSettings() {
+    return getCodeStyleSettings().getCustomSettings(PyCodeStyleSettings.class);
+  }
+
   public void testBlankLineBetweenMethods() {
     doTest();
   }
@@ -660,6 +666,19 @@ public class PyFormatterTest extends PyTestCase {
     doTest();
   }
 
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensions() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    doTest();
+  }
+
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensionsHangingIndentOfClosingBrace() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
   // PY-18265
   public void testNoSpaceAroundPowerOperator() {
     getPythonCodeStyleSettings().SPACE_AROUND_POWER_OPERATOR = false;
@@ -911,6 +930,54 @@ public class PyFormatterTest extends PyTestCase {
 
   // PY-27266
   public void testChainedAttributeAccessInParentheses() {
+    doTest();
+  }
+
+  public void testMultilineFStringExpressions() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-33656
+  public void testBackslashGluedFStringNodesAlignment() {
+    doTest();
+  }
+
+  // PY-27615
+  public void testFStringFragmentWrappingSplitInsideExpression() {
+    getCodeStyleSettings().setRightMargin(PythonLanguage.getInstance(), 20);
+    getCommonCodeStyleSettings().WRAP_LONG_LINES = true;
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-27615
+  public void testFStringFragmentWrappingSplitInsideNestedExpression() {
+    getCodeStyleSettings().setRightMargin(PythonLanguage.getInstance(), 20);
+    getCommonCodeStyleSettings().WRAP_LONG_LINES = true;
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-40778
+  public void testFStringSpacesBetweenFragmentAndExpressionBracesPreserved() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-31991
+  public void testSpacesAroundFStringFragmentExpressionStripped() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-36009
+  public void testSpacesAroundEqualsSignInFStringFragment() {
+    doTest();
+  }
+
+  // PY-35975
+  public void testSpacesAroundColonEqInAssignmentExpression() {
+    runWithLanguageLevel(LanguageLevel.PYTHON38, this::doTest);
+  }
+
+  // PY-23475
+  public void testModuleLevelDunderWithImports() {
     doTest();
   }
 }

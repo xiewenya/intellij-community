@@ -3,162 +3,223 @@
 
 # based on http://docs.python.org/3.2/library/sys.html
 
-from typing import (
-    List, Sequence, Any, Dict, Tuple, TextIO, overload, Optional, Union,
-    TypeVar, Callable, Type,
-)
 import sys
-from types import FrameType, TracebackType
-from mypy_extensions import NoReturn
+from builtins import object as _object
+from importlib.abc import MetaPathFinder
+from types import FrameType, ModuleType, TracebackType
+from typing import Any, Callable, Dict, List, NoReturn, Optional, Sequence, TextIO, Tuple, Type, TypeVar, Union, overload
 
-_T = TypeVar('_T')
+_T = TypeVar("_T")
+
+# The following type alias are stub-only and do not exist during runtime
+_ExcInfo = Tuple[Type[BaseException], BaseException, TracebackType]
+_OptExcInfo = Union[_ExcInfo, Tuple[None, None, None]]
 
 # ----- sys variables -----
-abiflags = ...  # type: str
-argv = ...  # type: List[str]
-byteorder = ...  # type: str
-builtin_module_names = ...  # type: Sequence[str] # actually a tuple of strings
-copyright = ...  # type: str
-# dllhandle = 0  # Windows only
+if sys.platform != "win32":
+    abiflags: str
+argv: List[str]
+base_exec_prefix: str
+base_prefix: str
+byteorder: str
+builtin_module_names: Sequence[str]  # actually a tuple of strings
+copyright: str
+if sys.platform == "win32":
+    dllhandle: int
 dont_write_bytecode: bool
-__displayhook__ = ...  # type: Any # contains the original value of displayhook
-__excepthook__ = ...  # type: Any  # contains the original value of excepthook
-exec_prefix = ...  # type: str
-executable = ...  # type: str
-float_repr_style = ...  # type: str
+displayhook: Callable[[object], Any]
+excepthook: Callable[[Type[BaseException], BaseException, TracebackType], Any]
+exec_prefix: str
+executable: str
+float_repr_style: str
 hexversion: int
-last_type = ...  # type: Any
-last_value = ...  # type: Any
-last_traceback = ...  # type: Any
+last_type: Optional[Type[BaseException]]
+last_value: Optional[BaseException]
+last_traceback: Optional[TracebackType]
 maxsize: int
 maxunicode: int
-meta_path = ...  # type: List[Any]
-modules = ...  # type: Dict[str, Any]
-path = ...  # type: List[str]
-path_hooks = ...  # type: List[Any] # TODO precise type; function, path to finder
-path_importer_cache = ...  # type: Dict[str, Any] # TODO precise type
-platform = ...  # type: str
-prefix = ...  # type: str
-ps1 = ...  # type: str
-ps2 = ...  # type: str
-stdin = ...  # type: TextIO
-stdout = ...  # type: TextIO
-stderr = ...  # type: TextIO
-__stdin__ = ...  # type: TextIO
-__stdout__ = ...  # type: TextIO
-__stderr__ = ...  # type: TextIO
-# deprecated and removed in Python 3.3:
-subversion = ...  # type: Tuple[str, str, str]
-tracebacklimit = 0
-version = ...  # type: str
-api_version = 0
-warnoptions = ...  # type: Any
+meta_path: List[MetaPathFinder]
+modules: Dict[str, ModuleType]
+path: List[str]
+path_hooks: List[Any]  # TODO precise type; function, path to finder
+path_importer_cache: Dict[str, Any]  # TODO precise type
+platform: str
+if sys.version_info >= (3, 9):
+    platlibdir: str
+prefix: str
+if sys.version_info >= (3, 8):
+    pycache_prefix: Optional[str]
+ps1: str
+ps2: str
+stdin: TextIO
+stdout: TextIO
+stderr: TextIO
+__stdin__: TextIO
+__stdout__: TextIO
+__stderr__: TextIO
+tracebacklimit: int
+version: str
+api_version: int
+warnoptions: Any
 #  Each entry is a tuple of the form (action, message, category, module,
 #    lineno)
-# winver = ''  # Windows only
-_xoptions = ...  # type: Dict[Any, Any]
+if sys.platform == "win32":
+    winver: str
+_xoptions: Dict[Any, Any]
 
-flags = ...  # type: _flags
+flags: _flags
+
 class _flags:
-    debug = 0
-    division_warning = 0
-    inspect = 0
-    interactive = 0
-    optimize = 0
-    dont_write_bytecode = 0
-    no_user_site = 0
-    no_site = 0
-    ignore_environment = 0
-    verbose = 0
-    bytes_warning = 0
-    quiet = 0
-    hash_randomization = 0
+    debug: int
+    division_warning: int
+    inspect: int
+    interactive: int
+    optimize: int
+    dont_write_bytecode: int
+    no_user_site: int
+    no_site: int
+    ignore_environment: int
+    verbose: int
+    bytes_warning: int
+    quiet: int
+    hash_randomization: int
+    if sys.version_info >= (3, 7):
+        dev_mode: int
+        utf8_mode: int
 
-float_info = ...  # type: _float_info
+float_info: _float_info
+
 class _float_info:
-    epsilon = 0.0   # DBL_EPSILON
-    dig = 0         # DBL_DIG
-    mant_dig = 0    # DBL_MANT_DIG
-    max = 0.0       # DBL_MAX
-    max_exp = 0     # DBL_MAX_EXP
-    max_10_exp = 0  # DBL_MAX_10_EXP
-    min = 0.0       # DBL_MIN
-    min_exp = 0     # DBL_MIN_EXP
-    min_10_exp = 0  # DBL_MIN_10_EXP
-    radix = 0       # FLT_RADIX
-    rounds = 0      # FLT_ROUNDS
+    epsilon: float  # DBL_EPSILON
+    dig: int  # DBL_DIG
+    mant_dig: int  # DBL_MANT_DIG
+    max: float  # DBL_MAX
+    max_exp: int  # DBL_MAX_EXP
+    max_10_exp: int  # DBL_MAX_10_EXP
+    min: float  # DBL_MIN
+    min_exp: int  # DBL_MIN_EXP
+    min_10_exp: int  # DBL_MIN_10_EXP
+    radix: int  # FLT_RADIX
+    rounds: int  # FLT_ROUNDS
 
-hash_info = ...  # type: _hash_info
+hash_info: _hash_info
+
 class _hash_info:
-    width = 0
-    modulus = 0
-    inf = 0
-    nan = 0
-    imag = 0
+    width: int
+    modulus: int
+    inf: int
+    nan: int
+    imag: int
 
-int_info = ...  # type: _int_info
+implementation: _implementation
+
+class _implementation:
+    name: str
+    version: _version_info
+    hexversion: int
+    cache_tag: str
+
+int_info: _int_info
+
 class _int_info:
-    bits_per_digit = 0
-    sizeof_digit = 0
+    bits_per_digit: int
+    sizeof_digit: int
 
 class _version_info(Tuple[int, int, int, str, int]):
-    major = 0
-    minor = 0
-    micro = 0
-    releaselevel = ...  # type: str
-    serial = 0
-version_info = ...  # type: _version_info
+    major: int
+    minor: int
+    micro: int
+    releaselevel: str
+    serial: int
 
-def call_tracing(fn: Callable[..., _T], args: Any) -> _T: ...
+version_info: _version_info
+
+def call_tracing(__func: Callable[..., _T], __args: Any) -> _T: ...
 def _clear_type_cache() -> None: ...
 def _current_frames() -> Dict[int, Any]: ...
-def displayhook(value: Optional[int]) -> None: ...
-def excepthook(type_: Type[BaseException], value: BaseException,
-               traceback: TracebackType) -> None: ...
-# TODO should be a union of tuple, see mypy#1178
-def exc_info() -> Tuple[Optional[Type[BaseException]],
-                        Optional[BaseException],
-                        Optional[TracebackType]]: ...
-# sys.exit() accepts an optional argument of anything printable
-def exit(arg: object = ...) -> NoReturn:
-    raise SystemExit()
-def getcheckinterval() -> int: ...  # deprecated
-def getdefaultencoding() -> str: ...
-def getdlopenflags() -> int: ...  # Unix only
-def getfilesystemencoding() -> str: ...
-def getrefcount(arg: Any) -> int: ...
-def getrecursionlimit() -> int: ...
+def _debugmallocstats() -> None: ...
+def __displayhook__(value: object) -> None: ...
+def __excepthook__(type_: Type[BaseException], value: BaseException, traceback: TracebackType) -> None: ...
+def exc_info() -> _OptExcInfo: ...
 
+# sys.exit() accepts an optional argument of anything printable
+def exit(__status: object = ...) -> NoReturn: ...
+def getdefaultencoding() -> str: ...
+
+if sys.platform != "win32":
+    def getdlopenflags() -> int: ...
+
+def getfilesystemencoding() -> str: ...
+def getrefcount(__object: Any) -> int: ...
+def getrecursionlimit() -> int: ...
 @overload
 def getsizeof(obj: object) -> int: ...
 @overload
 def getsizeof(obj: object, default: int) -> int: ...
-
 def getswitchinterval() -> float: ...
-
-@overload
-def _getframe() -> FrameType: ...
-@overload
-def _getframe(depth: int) -> FrameType: ...
+def _getframe(__depth: int = ...) -> FrameType: ...
 
 _ProfileFunc = Callable[[FrameType, str, Any], Any]
+
 def getprofile() -> Optional[_ProfileFunc]: ...
 def setprofile(profilefunc: Optional[_ProfileFunc]) -> None: ...
 
 _TraceFunc = Callable[[FrameType, str, Any], Optional[Callable[[FrameType, str, Any], Any]]]
+
 def gettrace() -> Optional[_TraceFunc]: ...
-def settrace(tracefunc: _TraceFunc) -> None: ...
+def settrace(tracefunc: Optional[_TraceFunc]) -> None: ...
 
-def getwindowsversion() -> Any: ...  # Windows only, TODO return type
-def intern(string: str) -> str: ...
+class _WinVersion(Tuple[int, int, int, int, str, int, int, int, int, Tuple[int, int, int]]):
+    major: int
+    minor: int
+    build: int
+    platform: int
+    service_pack: str
+    service_pack_minor: int
+    service_pack_major: int
+    suite_mast: int
+    product_type: int
+    platform_version: Tuple[int, int, int]
 
-if sys.version_info >= (3, 5):
-    def is_finalizing() -> bool: ...
+if sys.platform == "win32":
+    def getwindowsversion() -> _WinVersion: ...
 
-def setcheckinterval(interval: int) -> None: ...  # deprecated
-def setdlopenflags(n: int) -> None: ...  # Linux only
-def setrecursionlimit(limit: int) -> None: ...
-def setswitchinterval(interval: float) -> None: ...
-def settscdump(on_flag: bool) -> None: ...
+def intern(__string: str) -> str: ...
+def is_finalizing() -> bool: ...
 
+if sys.version_info >= (3, 7):
+    __breakpointhook__: Any  # contains the original value of breakpointhook
+    def breakpointhook(*args: Any, **kwargs: Any) -> Any: ...
+
+if sys.platform != "win32":
+    def setdlopenflags(__flags: int) -> None: ...
+
+def setrecursionlimit(__limit: int) -> None: ...
+def setswitchinterval(__interval: float) -> None: ...
 def gettotalrefcount() -> int: ...  # Debug builds only
+
+if sys.version_info < (3, 9):
+    def getcheckinterval() -> int: ...  # deprecated
+    def setcheckinterval(__n: int) -> None: ...  # deprecated
+
+if sys.version_info >= (3, 8):
+    # not exported by sys
+    class UnraisableHookArgs:
+        exc_type: Type[BaseException]
+        exc_value: Optional[BaseException]
+        exc_traceback: Optional[TracebackType]
+        err_msg: Optional[str]
+        object: Optional[_object]
+    unraisablehook: Callable[[UnraisableHookArgs], Any]
+    def addaudithook(hook: Callable[[str, Tuple[Any, ...]], Any]) -> None: ...
+    def audit(__event: str, *args: Any) -> None: ...
+
+if sys.version_info >= (3, 6):
+    from typing import AsyncGenerator
+
+    _AsyncgenHook = Optional[Callable[[AsyncGenerator[Any, Any]], None]]
+    class _asyncgen_hooks(Tuple[_AsyncgenHook, _AsyncgenHook]):
+        firstiter: _AsyncgenHook
+        finalizer: _AsyncgenHook
+    def get_asyncgen_hooks() -> _asyncgen_hooks: ...
+    def set_asyncgen_hooks(firstiter: _AsyncgenHook = ..., finalizer: _AsyncgenHook = ...) -> None: ...

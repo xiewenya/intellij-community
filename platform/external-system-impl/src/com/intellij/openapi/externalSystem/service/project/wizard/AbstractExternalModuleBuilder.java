@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.project.wizard;
 
 import com.intellij.ide.util.projectWizard.ModuleBuilder;
@@ -8,6 +8,8 @@ import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,7 +17,6 @@ import javax.swing.*;
 
 /**
  * @author Denis Zhdanov
- * @since 6/26/13 10:39 AM
  */
 public abstract class AbstractExternalModuleBuilder<S extends ExternalProjectSettings> extends ModuleBuilder {
   @NotNull private final Icon myIcon;
@@ -26,12 +27,13 @@ public abstract class AbstractExternalModuleBuilder<S extends ExternalProjectSet
                                           @NotNull final S externalProjectSettings) {
     myExternalSystemId = externalSystemId;
     myExternalProjectSettings = externalProjectSettings;
+    externalProjectSettings.setupNewProjectDefault();
     Icon icon = ExternalSystemUiUtil.getUiAware(externalSystemId).getProjectIcon();
     myIcon = icon == null ? super.getNodeIcon() : icon;
   }
 
   @Override
-  public String getBuilderId() {
+  public @NonNls String getBuilderId() {
     return getClass().getName();
   }
 
@@ -41,6 +43,7 @@ public abstract class AbstractExternalModuleBuilder<S extends ExternalProjectSet
   }
 
   @Override
+  @Nls(capitalization = Nls.Capitalization.Sentence)
   public String getDescription() {
     return ExternalSystemBundle.message("module.type.description", myExternalSystemId.getReadableName());
   }

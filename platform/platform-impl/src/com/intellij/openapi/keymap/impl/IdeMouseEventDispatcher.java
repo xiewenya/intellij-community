@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -22,6 +8,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.PresentationFactory;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.impl.ui.MouseShortcutPanel;
@@ -31,7 +18,9 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.impl.FocusManagerImpl;
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
+import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.components.JBScrollPane;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.JdkConstants;
@@ -42,10 +31,11 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import static com.intellij.Patches.JDK_BUG_ID_8147994;
 import static java.awt.event.MouseEvent.*;
 
 /**
@@ -57,8 +47,8 @@ import static java.awt.event.MouseEvent.*;
  */
 public final class IdeMouseEventDispatcher {
   private final PresentationFactory myPresentationFactory = new PresentationFactory();
-  private final ArrayList<AnAction> myActions = new ArrayList<>(1);
-  private final Map<Container, BlockState> myRootPane2BlockedId = new HashMap<>();
+  private final List<AnAction> myActions = new ArrayList<>(1);
+  private final Map<Container, BlockState> myRootPaneToBlockedId = new HashMap<>();
   private int myLastHorScrolledComponentHash;
   private boolean myPressedModifiersStored;
   @JdkConstants.InputEventMask
@@ -79,14 +69,16 @@ public final class IdeMouseEventDispatcher {
   // Don't compare MouseEvent ids. Swing has wrong sequence of events: first is mouse_clicked(500)
   // then mouse_pressed(501), mouse_released(502) etc. Here, mouse events sorted so we can compare
   // theirs ids to properly use method blockNextEvents(MouseEvent)
-  private static final List<Integer> SWING_EVENTS_PRIORITY = Arrays.asList(MOUSE_PRESSED,
-                                                                           MOUSE_ENTERED,
-                                                                           MOUSE_EXITED,
-                                                                           MOUSE_MOVED,
-                                                                           MOUSE_DRAGGED,
-                                                                           MOUSE_WHEEL,
-                                                                           MOUSE_RELEASED,
-                                                                           MOUSE_CLICKED);
+  private static final int[] SWING_EVENTS_PRIORITY = new int[]{
+    MOUSE_PRESSED,
+    MOUSE_ENTERED,
+    MOUSE_EXITED,
+    MOUSE_MOVED,
+    MOUSE_DRAGGED,
+    MOUSE_WHEEL,
+    MOUSE_RELEASED,
+    MOUSE_CLICKED
+  };
 
   public IdeMouseEventDispatcher() {
   }
@@ -111,20 +103,26 @@ public final class IdeMouseEventDispatcher {
       }
     }
 
-    // search in main keymap
-    KeymapManager keymapManager = KeymapManagerImpl.ourKeymapManagerInitialized ? KeymapManager.getInstance() : null;
-    if (keymapManager != null) {
-      Keymap keymap = keymapManager.getActiveKeymap();
-      ActionManager actionManager = ActionManager.getInstance();
-      for (String actionId : keymap.getActionIds(mouseShortcut)) {
-        AnAction action = actionManager.getAction(actionId);
-        if (action == null || isModalContext && !action.isEnabledInModalContext()) {
-          continue;
-        }
+    ActionManager actionManager = ApplicationManager.getApplication().getServiceIfCreated(ActionManager.class);
+    if (actionManager == null) {
+      return;
+    }
 
-        if (!myActions.contains(action)) {
-          myActions.add(action);
-        }
+    // search in main keymap
+    KeymapManager keymapManager = KeymapManagerImpl.isKeymapManagerInitialized() ? KeymapManager.getInstance() : null;
+    if (keymapManager == null) {
+      return;
+    }
+
+    Keymap keymap = keymapManager.getActiveKeymap();
+    for (String actionId : keymap.getActionIds(mouseShortcut)) {
+      AnAction action = actionManager.getAction(actionId);
+      if (action == null || isModalContext && !action.isEnabledInModalContext()) {
+        continue;
+      }
+
+      if (!myActions.contains(action)) {
+        myActions.add(action);
       }
     }
   }
@@ -144,7 +142,8 @@ public final class IdeMouseEventDispatcher {
       if (focusManager instanceof FocusManagerImpl) {
         Component at = SwingUtilities.getDeepestComponentAt(c, e.getX(), e.getY());
         if (at != null && at.isFocusable()) {
-          ((FocusManagerImpl)focusManager).setLastFocusedAtDeactivation((IdeFrame)c, at);
+          //noinspection CastConflictsWithInstanceof
+          ((FocusManagerImpl)focusManager).setLastFocusedAtDeactivation((Window)c, at);
         }
       }
     }
@@ -206,9 +205,9 @@ public final class IdeMouseEventDispatcher {
 
     final JRootPane root = findRoot(e);
     if (root != null) {
-      BlockState blockState = myRootPane2BlockedId.get(root);
+      BlockState blockState = myRootPaneToBlockedId.get(root);
       if (blockState != null) {
-        if (SWING_EVENTS_PRIORITY.indexOf(blockState.currentEventId) < SWING_EVENTS_PRIORITY.indexOf(e.getID())) {
+        if (ArrayUtil.indexOf(SWING_EVENTS_PRIORITY, blockState.currentEventId) < ArrayUtil.indexOf(SWING_EVENTS_PRIORITY, e.getID())) {
           blockState.currentEventId = e.getID();
           if (blockState.blockMode == IdeEventQueue.BlockMode.COMPLETE) {
             return true;
@@ -216,8 +215,9 @@ public final class IdeMouseEventDispatcher {
           else {
             ignore = true;
           }
-        } else {
-          myRootPane2BlockedId.remove(root);
+        }
+        else {
+          myRootPaneToBlockedId.remove(root);
         }
       }
     }
@@ -251,19 +251,19 @@ public final class IdeMouseEventDispatcher {
     if (ignore) return false;
 
     // avoid "cyclic component initialization error" in case of dialogs shown because of component initialization failure
-    if (!KeymapManagerImpl.ourKeymapManagerInitialized) {
+    if (!KeymapManagerImpl.isKeymapManagerInitialized()) {
       return false;
     }
 
-    final MouseShortcut shortcut = new MouseShortcut(button, modifiersEx, clickCount);
+    MouseShortcut shortcut = new MouseShortcut(button, modifiersEx, clickCount);
     fillActionsList(c, shortcut, IdeKeyEventDispatcher.isModalContext(c));
-    ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
+    ActionManagerEx actionManager = (ActionManagerEx)ApplicationManager.getApplication().getServiceIfCreated(ActionManager.class);
     if (actionManager != null) {
       AnAction[] actions = myActions.toArray(AnAction.EMPTY_ARRAY);
       for (AnAction action : actions) {
         DataContext dataContext = DataManager.getInstance().getDataContext(c);
         Presentation presentation = myPresentationFactory.getPresentation(action);
-        AnActionEvent actionEvent = new AnActionEvent(e, dataContext, ActionPlaces.MAIN_MENU, presentation,
+        AnActionEvent actionEvent = new AnActionEvent(e, dataContext, ActionPlaces.MOUSE_SHORTCUT, presentation,
                                                       ActionManager.getInstance(),
                                                       modifiers);
         if (ActionUtil.lastUpdateAndCheckDumb(action, actionEvent, false)) {
@@ -275,6 +275,7 @@ public final class IdeMouseEventDispatcher {
           ActionUtil.performActionDumbAware(action, actionEvent);
           actionManager.fireAfterActionPerformed(action, dataContext, actionEvent);
           e.consume();
+          break;
         }
       }
     }
@@ -361,7 +362,7 @@ public final class IdeMouseEventDispatcher {
   private static boolean isHorizontalScrolling(Component c, MouseEvent e) {
     if ( c != null
          && e instanceof MouseWheelEvent
-         && (JDK_BUG_ID_8147994 || isDiagramViewComponent(c.getParent()))) {
+         && isDiagramViewComponent(c.getParent())) {
       final MouseWheelEvent mwe = (MouseWheelEvent)e;
       return mwe.isShiftDown()
              && mwe.getScrollType() == MouseWheelEvent.WHEEL_UNIT_SCROLL
@@ -393,7 +394,7 @@ public final class IdeMouseEventDispatcher {
     return findHorizontalScrollBar(c.getParent());
   }
 
-  private static boolean isDiagramViewComponent(@Nullable Component component) {
+  public static boolean isDiagramViewComponent(@Nullable Component component) {
     // in production yfiles classes is obfuscated
     return UIUtil.isClientPropertyTrue(component, "Diagram-View-Component-Key");
   }
@@ -402,7 +403,7 @@ public final class IdeMouseEventDispatcher {
     final JRootPane root = findRoot(e);
     if (root == null) return;
 
-    myRootPane2BlockedId.put(root, new BlockState(e.getID(), blockMode));
+    myRootPaneToBlockedId.put(root, new BlockState(e.getID(), blockMode));
   }
 
   @Nullable
@@ -423,7 +424,7 @@ public final class IdeMouseEventDispatcher {
     return root;
   }
 
-  private static class BlockState {
+  private static final class BlockState {
     private int currentEventId;
     private final IdeEventQueue.BlockMode blockMode;
 
@@ -431,5 +432,38 @@ public final class IdeMouseEventDispatcher {
       currentEventId = id;
       blockMode = mode;
     }
+  }
+
+  public static void requestFocusInNonFocusedWindow(@NotNull MouseEvent event) {
+    if (event.getID() == MOUSE_PRESSED) {
+      // request focus by mouse pressed before focus settles down
+      requestFocusInNonFocusedWindow(event.getComponent());
+    }
+  }
+
+  private static void requestFocusInNonFocusedWindow(@Nullable Component component) {
+    Window window = ComponentUtil.getWindow(component);
+    if (window != null && !UIUtil.isFocusAncestor(window)) {
+      Component focusable = UIUtil.isFocusable(component) ? component : findDefaultFocusableComponent(component);
+      if (focusable != null) focusable.requestFocus();
+    }
+  }
+
+  @Nullable
+  private static Component findDefaultFocusableComponent(@Nullable Component component) {
+    Container provider = findFocusTraversalPolicyProvider(component);
+    return provider == null ? null : provider.getFocusTraversalPolicy().getDefaultComponent(provider);
+  }
+
+  @Nullable
+  private static Container findFocusTraversalPolicyProvider(@Nullable Component component) {
+    Container container = component == null || component instanceof Container ? (Container)component : component.getParent();
+    while (container != null) {
+      // ensure that container is focus cycle root and provides focus traversal policy
+      // it means that Container.getFocusTraversalPolicy() returns non-null object
+      if (container.isFocusCycleRoot() && container.isFocusTraversalPolicyProvider()) return container;
+      container = container.getParent();
+    }
+    return null;
   }
 }

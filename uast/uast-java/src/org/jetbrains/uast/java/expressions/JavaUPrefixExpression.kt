@@ -17,23 +17,20 @@ package org.jetbrains.uast.java
 
 import com.intellij.psi.JavaTokenType
 import com.intellij.psi.PsiPrefixExpression
-import org.jetbrains.uast.UElement
-import org.jetbrains.uast.UIdentifier
-import org.jetbrains.uast.UPrefixExpression
-import org.jetbrains.uast.UastPrefixOperator
+import org.jetbrains.uast.*
 
 class JavaUPrefixExpression(
-  override val psi: PsiPrefixExpression,
+  override val sourcePsi: PsiPrefixExpression,
   givenParent: UElement?
 ) : JavaAbstractUExpression(givenParent), UPrefixExpression {
-  override val operand by lz { JavaConverter.convertOrEmpty(psi.operand, this) }
+  override val operand: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.operand, this) }
 
   override val operatorIdentifier: UIdentifier?
-    get() = UIdentifier(psi.operationSign, this)
+    get() = UIdentifier(sourcePsi.operationSign, this)
 
-  override fun resolveOperator() = null
+  override fun resolveOperator(): Nothing? = null
 
-  override val operator = when (psi.operationTokenType) {
+  override val operator: UastPrefixOperator = when (sourcePsi.operationTokenType) {
     JavaTokenType.PLUS -> UastPrefixOperator.UNARY_PLUS
     JavaTokenType.MINUS -> UastPrefixOperator.UNARY_MINUS
     JavaTokenType.PLUSPLUS -> UastPrefixOperator.INC

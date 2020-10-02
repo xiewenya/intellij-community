@@ -1,50 +1,62 @@
-from typing import overload, Any, List, Optional, SupportsFloat, TypeVar, Union
 from datetime import date, datetime, timedelta
+from typing import Optional, SupportsFloat, TypeVar, Union, overload
 
-__all__ = ...  # type: List[str]
+from ._common import weekday
 
-_SelfT = TypeVar('_SelfT', bound=relativedelta)
-_DateT = TypeVar('_DateT', date, datetime)
+_SelfT = TypeVar("_SelfT", bound=relativedelta)
+_DateT = TypeVar("_DateT", date, datetime)
+# Work around attribute and type having the same name.
+_weekday = weekday
 
-
-class weekday(object):
-    def __init__(self, weekday: int, n: Optional[int]=...) -> None: ...
-
-    def __call__(self, n: int) -> 'weekday': ...
-
-    def __eq__(self, other) -> bool: ...
-
-    def __repr__(self) -> str: ...
-
-    weekday = ...  # type: int
-    n = ...  # type: int
-
-MO = ...  # type: weekday
-TU = ...  # type: weekday
-WE = ...  # type: weekday
-TH = ...  # type: weekday
-FR = ...  # type: weekday
-SA = ...  # type: weekday
-SU = ...  # type: weekday
-
+MO: weekday
+TU: weekday
+WE: weekday
+TH: weekday
+FR: weekday
+SA: weekday
+SU: weekday
 
 class relativedelta(object):
-    def __init__(self,
-                 dt1: Optional[date]=...,
-                 dt2: Optional[date]=...,
-                 years: Optional[int]=..., months: Optional[int]=...,
-                 days: Optional[int]=..., leapdays: Optional[int]=...,
-                 weeks: Optional[int]=...,
-                 hours: Optional[int]=..., minutes: Optional[int]=...,
-                 seconds: Optional[int]=..., microseconds: Optional[int]=...,
-                 year: Optional[int]=..., month: Optional[int]=...,
-                 day: Optional[int]=...,
-                 weekday: Optional[Union[int, weekday]]=...,
-                 yearday: Optional[int]=...,
-                 nlyearday: Optional[int]=...,
-                 hour: Optional[int]=..., minute: Optional[int]=...,
-                 second: Optional[int]=...,
-                 microsecond: Optional[int]=...) -> None: ...
+    years: int
+    months: int
+    days: int
+    leapdays: int
+    hours: int
+    minutes: int
+    seconds: int
+    microseconds: int
+    year: Optional[int]
+    month: Optional[int]
+    weekday: Optional[_weekday]
+    day: Optional[int]
+    hour: Optional[int]
+    minute: Optional[int]
+    second: Optional[int]
+    microsecond: Optional[int]
+    def __init__(
+        self,
+        dt1: Optional[date] = ...,
+        dt2: Optional[date] = ...,
+        years: Optional[int] = ...,
+        months: Optional[int] = ...,
+        days: Optional[int] = ...,
+        leapdays: Optional[int] = ...,
+        weeks: Optional[int] = ...,
+        hours: Optional[int] = ...,
+        minutes: Optional[int] = ...,
+        seconds: Optional[int] = ...,
+        microseconds: Optional[int] = ...,
+        year: Optional[int] = ...,
+        month: Optional[int] = ...,
+        day: Optional[int] = ...,
+        weekday: Optional[Union[int, _weekday]] = ...,
+        yearday: Optional[int] = ...,
+        nlyearday: Optional[int] = ...,
+        hour: Optional[int] = ...,
+        minute: Optional[int] = ...,
+        second: Optional[int] = ...,
+        microsecond: Optional[int] = ...,
+    ) -> None: ...
     @property
     def weeks(self) -> int: ...
     @weeks.setter
@@ -81,3 +93,5 @@ class relativedelta(object):
     def __div__(self: _SelfT, other: SupportsFloat) -> _SelfT: ...
     def __truediv__(self: _SelfT, other: SupportsFloat) -> _SelfT: ...
     def __repr__(self) -> str: ...
+    def __abs__(self: _SelfT) -> _SelfT: ...
+    def __hash__(self) -> int: ...

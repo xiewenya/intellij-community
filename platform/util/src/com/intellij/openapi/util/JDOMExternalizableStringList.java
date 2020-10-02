@@ -16,7 +16,7 @@ import java.util.List;
 @SuppressWarnings({"HardCodedStringLiteral"})
 @Deprecated
 public class JDOMExternalizableStringList extends ArrayList<String> implements JDOMExternalizable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.JDOMExternalizableStringList");
+  private static final Logger LOG = Logger.getInstance(JDOMExternalizableStringList.class);
 
   private static final String ATTR_LIST = "list";
   private static final String ATTR_LISTSIZE = "size";
@@ -41,7 +41,7 @@ public class JDOMExternalizableStringList extends ArrayList<String> implements J
     readList(this, element);
   }
 
-  public static void readList(@NotNull List<String> strings, Element element) {
+  public static void readList(@NotNull List<? super String> strings, Element element) {
     strings.clear();
 
     Class callerClass = null;

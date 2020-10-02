@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractclass;
 
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
@@ -27,6 +13,7 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.psi.MethodInheritanceUtils;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -34,7 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 class ExtractedClassBuilder {
-  private static final Logger LOGGER = Logger.getInstance("com.siyeh.rpp.extractclass.ExtractedClassBuilder");
+  private static final Logger LOGGER = Logger.getInstance(ExtractedClassBuilder.class);
 
   private String className;
   private String packageName;
@@ -53,7 +40,7 @@ class ExtractedClassBuilder {
   private JavaCodeStyleManager myJavaCodeStyleManager;
   private Set<PsiField> myFieldsNeedingSetters;
   private Set<PsiField> myFieldsNeedingGetter;
-  private List<PsiField> enumConstantFields;
+  private List<? extends PsiField> enumConstantFields;
   private PsiType myEnumParameterType;
 
   public void setClassName(String className) {
@@ -87,12 +74,12 @@ class ExtractedClassBuilder {
     }
   }
 
-  public void setTypeArguments(List<PsiTypeParameter> typeParams) {
+  public void setTypeArguments(List<? extends PsiTypeParameter> typeParams) {
     this.typeParams.clear();
     this.typeParams.addAll(typeParams);
   }
 
-  public void setInterfaces(List<PsiClass> interfaces) {
+  public void setInterfaces(List<? extends PsiClass> interfaces) {
     this.interfaces.clear();
     this.interfaces.addAll(interfaces);
   }
@@ -181,7 +168,7 @@ class ExtractedClassBuilder {
 
   private void calculateBackpointerName() {
     final String baseName;
-    if (originalClassName.indexOf((int)'.') == 0) {
+    if (originalClassName.indexOf('.') == 0) {
       baseName = StringUtil.decapitalize(originalClassName);
     }
     else {
@@ -367,14 +354,14 @@ class ExtractedClassBuilder {
     return innerClasses.contains(containingClass);
   }
 
-  public void setExtractAsEnum(List<PsiField> extractAsEnum) {
+  public void setExtractAsEnum(List<? extends PsiField> extractAsEnum) {
     this.enumConstantFields = extractAsEnum;
     if (hasEnumConstants()) {
       myEnumParameterType = enumConstantFields.get(0).getType();
     }
   }
 
-  private class Mutator extends JavaElementVisitor {
+  private final class Mutator extends JavaElementVisitor {
     @NonNls
     private final StringBuffer out;
 
@@ -383,7 +370,8 @@ class ExtractedClassBuilder {
       this.out = out;
     }
 
-    public void visitElement(PsiElement element) {
+    @Override
+    public void visitElement(@NotNull PsiElement element) {
 
       super.visitElement(element);
       final PsiElement[] children = element.getChildren();
@@ -398,6 +386,7 @@ class ExtractedClassBuilder {
       }
     }
 
+    @Override
     public void visitReferenceExpression(PsiReferenceExpression expression) {
       final JavaResolveResult resolveResult = expression.advancedResolve(true);
       final boolean staticImported = resolveResult.getCurrentFileResolveScope() instanceof PsiImportStaticStatement;
@@ -451,6 +440,7 @@ class ExtractedClassBuilder {
       }
     }
 
+    @Override
     public void visitAssignmentExpression(PsiAssignmentExpression expression) {
       PsiExpression lhs = expression.getLExpression();
       final PsiExpression rhs = expression.getRExpression();
@@ -480,25 +470,20 @@ class ExtractedClassBuilder {
 
     private void delegate(final PsiExpression rhs, final PsiField field, final PsiJavaToken sign, final IElementType tokenType,
                           final String fieldName) {
-      if (tokenType.equals(JavaTokenType.EQ)) {
-        final String setterName = GenerateMembersUtil.suggestSetterName(field);
-        out.append(fieldName + '.' + setterName + '(');
-        rhs.accept(this);
-        out.append(')');
-      }
-      else {
+      final String setterName = GenerateMembersUtil.suggestSetterName(field);
+      out.append(fieldName).append('.').append(setterName).append('(');
+      if (!tokenType.equals(JavaTokenType.EQ)) {
         final String operator = sign.getText().substring(0, sign.getTextLength() - 1);
-        final String setterName = GenerateMembersUtil.suggestSetterName(field);
-        out.append(fieldName + '.' + setterName + '(');
         final String getterName = GenerateMembersUtil.suggestGetterName(field);
-        out.append(fieldName + '.' + getterName + "()");
+        out.append(fieldName).append('.').append(getterName).append("()");
         out.append(operator);
-        rhs.accept(this);
-        out.append(')');
       }
+      rhs.accept(this);
+      out.append(')');
     }
 
 
+    @Override
     public void visitUnaryExpression(PsiUnaryExpression expression) {
       PsiExpression operand = expression.getOperand();
       final IElementType tokenType = expression.getOperationSign().getTokenType();
@@ -541,12 +526,14 @@ class ExtractedClassBuilder {
     }
 
 
+    @Override
     public void visitThisExpression(PsiThisExpression expression) {
       out.append(backPointerName);
     }
 
 
 
+    @Override
     public void visitMethodCallExpression(PsiMethodCallExpression call) {
       final PsiReferenceExpression expression = call.getMethodExpression();
       final JavaResolveResult resolveResult = expression.advancedResolve(false);
@@ -579,6 +566,7 @@ class ExtractedClassBuilder {
       }
     }
 
+    @Override
     public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
       final String referenceText = reference.getCanonicalText();
       out.append(referenceText);

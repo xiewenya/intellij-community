@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.javaee;
 
 import com.intellij.openapi.editor.colors.EditorColorsManager;
@@ -36,6 +22,7 @@ import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.tree.TreeUtil;
+import com.intellij.xml.XmlBundle;
 import com.intellij.xml.config.ConfigFileSearcher;
 import com.intellij.xml.config.ConfigFilesTreeBuilder;
 import com.intellij.xml.index.IndexedRelevantResource;
@@ -64,7 +51,8 @@ import java.util.Set;
  */
 public class MapExternalResourceDialog extends DialogWrapper {
 
-  private static final FileChooserDescriptor FILE_CHOOSER_DESCRIPTOR = new FileChooserDescriptor(true, false, false, false, true, false).withTitle("Choose Schema File");
+  private static final FileChooserDescriptor FILE_CHOOSER_DESCRIPTOR = new FileChooserDescriptor(true, false, false, false, true, false).withTitle(
+    XmlBundle.message("choose.schema.file"));
 
   private JTextField myUri;
   private JPanel myMainPanel;
@@ -75,11 +63,11 @@ public class MapExternalResourceDialog extends DialogWrapper {
 
   public MapExternalResourceDialog(String uri, @Nullable Project project, @Nullable PsiFile file, @Nullable String location) {
     super(project);
-    setTitle("Map External Resource");
+    setTitle(XmlBundle.message("map.external.resource"));
     myUri.setText(uri);
     myUri.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         validateInput();
       }
     });
@@ -108,7 +96,7 @@ public class MapExternalResourceDialog extends DialogWrapper {
     ConfigFileSearcher searcher = new ConfigFileSearcher(file == null ? null : ModuleUtilCore.findModuleForPsiElement(file), project) {
       @Override
       public Set<PsiFile> search(@Nullable Module module, @NotNull Project project) {
-        List<IndexedRelevantResource<String, XsdNamespaceBuilder>> resources = XmlNamespaceIndex.getAllResources(module, project, null);
+        List<IndexedRelevantResource<String, XsdNamespaceBuilder>> resources = XmlNamespaceIndex.getAllResources(module, project);
 
         HashSet<PsiFile> files = new HashSet<>();
         PsiManager psiManager = PsiManager.getInstance(project);

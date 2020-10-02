@@ -35,6 +35,11 @@ public class ConvertJavadocInspectionTest extends BaseTestNGInspectionsTest {
   }
 
   @Override
+  protected String getActionName() {
+    return "Convert TestNG Javadoc to 1.5 annotations";
+  }
+
+  @Override
   protected String getBasePath() {
     return PluginPathManager.getPluginHomePathRelative("testng") + "/testData/javadoc2Annotation";
   }

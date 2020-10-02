@@ -84,6 +84,34 @@ public class PyProtectedMemberInspectionTest extends PyInspectionTestCase {
     runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
   }
 
+  // PY-26139
+  public void testProtectedModuleInSamePackage() {
+    doMultiFileTest("my_package/module2.py");
+  }
+
+  // PY-26139
+  public void testProtectedModuleInPackageAbove() {
+    doMultiFileTest("my_package/my_subpackage/module2.py");
+  }
+
+  // PY-32485
+  public void testProtectedMemberOfSameFileClass() {
+    // created file should be considered as located inside a package so Python 3 is used here
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON34,
+      () -> doTestByText("class A:\n" +
+                         "    def __init__(self, arg):\n" +
+                         "        self._arg = arg\n" +
+                         "\n" +
+                         "    def _f(self):\n" +
+                         "        return self._arg\n" +
+                         "\n" +
+                         "a = A(1)\n" +
+                         "print(<weak_warning descr=\"Access to a protected member _arg of a class\">a._arg</weak_warning>)\n" +
+                         "print(<weak_warning descr=\"Access to a protected member _f of a class\">a._f</weak_warning>())")
+    );
+  }
+
   @NotNull
   @Override
   protected Class<? extends PyInspection> getInspectionClass() {

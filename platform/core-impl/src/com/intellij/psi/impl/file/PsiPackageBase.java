@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.file;
 
 import com.intellij.lang.ASTNode;
@@ -8,39 +6,33 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Queryable;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.PsiElementBase;
+import com.intellij.psi.search.EverythingGlobalScope;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.ui.RowIcon;
-import com.intellij.util.ArrayUtil;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 public abstract class PsiPackageBase extends PsiElementBase implements PsiDirectoryContainer, Queryable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.file.PsiPackageBase");
+  private static final Logger LOG = Logger.getInstance(PsiPackageBase.class);
 
   private final PsiManager myManager;
   private final String myQualifiedName;
 
-  protected Collection<PsiDirectory> getAllDirectories() {
-    return getAllDirectories(false);
-  }
+  protected abstract Collection<PsiDirectory> getAllDirectories(GlobalSearchScope scope);
 
-  protected abstract Collection<PsiDirectory> getAllDirectories(boolean includeLibrarySources);
-
-  protected abstract PsiElement findPackage(String qName);
-
-  protected abstract PsiPackageBase createInstance(PsiManager manager, String qName);
+  protected abstract PsiPackageBase findPackage(String qName);
 
   public PsiPackageBase(PsiManager manager, String qualifiedName) {
     myManager = manager;
@@ -63,30 +55,19 @@ public abstract class PsiPackageBase extends PsiElementBase implements PsiDirect
   }
 
   @Override
-  @NotNull
-  public PsiDirectory[] getDirectories() {
-    final Collection<PsiDirectory> collection = getAllDirectories();
-    return ContainerUtil.toArray(collection, new PsiDirectory[collection.size()]);
+  public PsiDirectory @NotNull [] getDirectories() {
+    return getDirectories(new EverythingGlobalScope());
   }
 
   @Override
-  @NotNull
-  public PsiDirectory[] getDirectories(@NotNull GlobalSearchScope scope) {
-    List<PsiDirectory> result = null;
-    final boolean includeLibrarySources = scope.isForceSearchingInLibrarySources();
-    final Collection<PsiDirectory> directories = getAllDirectories(includeLibrarySources);
-    for (final PsiDirectory directory : directories) {
-      if (scope.contains(directory.getVirtualFile())) {
-        if (result == null) result = new ArrayList<>();
-        result.add(directory);
-      }
-    }
-    return result == null ? PsiDirectory.EMPTY_ARRAY : result.toArray(PsiDirectory.EMPTY_ARRAY);
+  public PsiDirectory @NotNull [] getDirectories(@NotNull GlobalSearchScope scope) {
+    Collection<PsiDirectory> directories = getAllDirectories(scope);
+    return directories.isEmpty() ? PsiDirectory.EMPTY_ARRAY : directories.toArray(PsiDirectory.EMPTY_ARRAY);
   }
 
   @Override
   public RowIcon getElementIcon(final int elementFlags) {
-    return createLayeredIcon(this, PlatformIcons.PACKAGE_ICON, elementFlags);
+    return IconManager.getInstance().createLayeredIcon(this, PlatformIcons.PACKAGE_ICON, elementFlags);
   }
 
   @Override
@@ -125,13 +106,7 @@ public abstract class PsiPackageBase extends PsiElementBase implements PsiDirect
 
   public PsiPackageBase getParentPackage() {
     if (myQualifiedName.isEmpty()) return null;
-    int lastDot = myQualifiedName.lastIndexOf('.');
-    if (lastDot < 0) {
-      return createInstance(myManager, "");
-    }
-    else {
-      return createInstance(myManager, myQualifiedName.substring(0, lastDot));
-    }
+    return findPackage(StringUtil.getPackageName(myQualifiedName));
   }
 
   @Override
@@ -140,8 +115,7 @@ public abstract class PsiPackageBase extends PsiElementBase implements PsiDirect
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     LOG.error("method not implemented in " + getClass());
     return PsiElement.EMPTY_ARRAY;
   }
@@ -191,9 +165,8 @@ public abstract class PsiPackageBase extends PsiElementBase implements PsiDirect
   }
 
   @Override
-  @NotNull
-  public char[] textToCharArray() {
-    return ArrayUtil.EMPTY_CHAR_ARRAY; // TODO throw new InsupportedOperationException()
+  public char @NotNull [] textToCharArray() {
+    return ArrayUtilRt.EMPTY_CHAR_ARRAY; // TODO throw new InsupportedOperationException()
   }
 
   @Override
@@ -262,6 +235,7 @@ public abstract class PsiPackageBase extends PsiElementBase implements PsiDirect
     return true;
   }
 
+  @Override
   public String toString() {
     return "PsiPackageBase:" + getQualifiedName();
   }

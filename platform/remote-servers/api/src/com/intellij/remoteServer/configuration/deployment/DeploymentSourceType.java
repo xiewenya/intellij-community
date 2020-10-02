@@ -33,8 +33,6 @@ import javax.swing.*;
  * &lt;/extensions&gt;
  * </pre>
  * </p>
- *
- * @author nik
  */
 public abstract class DeploymentSourceType<S extends DeploymentSource> {
   public static final ExtensionPointName<DeploymentSourceType<?>> EP_NAME = ExtensionPointName.create("com.intellij.remoteServer.deploymentSource.type");
@@ -58,5 +56,9 @@ public abstract class DeploymentSourceType<S extends DeploymentSource> {
   }
 
   public void updateBuildBeforeRunOption(@NotNull JComponent runConfigurationEditorComponent, @NotNull Project project, @NotNull S source, boolean select) {
+  }
+
+  public boolean isEditableInDumbMode() {
+    return false;
   }
 }

@@ -1,36 +1,41 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.SystemProperties;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class VMOptions {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.diagnostic.VMOptions");
+public final class VMOptions {
+  private static final Logger LOG = Logger.getInstance(VMOptions.class);
 
   public enum MemoryKind {
-    HEAP("Xmx", ""), PERM_GEN("XX:MaxPermSize", "="), METASPACE("XX:MaxMetaspaceSize", "="), CODE_CACHE("XX:ReservedCodeCacheSize", "=");
+    HEAP("Xmx", ""), MIN_HEAP("Xms", ""), PERM_GEN("XX:MaxPermSize", "="), METASPACE("XX:MaxMetaspaceSize", "="), CODE_CACHE("XX:ReservedCodeCacheSize", "=");
 
-    public final String optionName;
+    public final @NlsSafe String optionName;
     public final String option;
     private final Pattern pattern;
 
-    MemoryKind(String name, String separator) {
+    MemoryKind(@NonNls String name, String separator) {
       optionName = name;
       option = "-" + name + separator;
       pattern = Pattern.compile(option + "(\\d*)([a-zA-Z]*)");
@@ -43,13 +48,13 @@ public class VMOptions {
       arguments = ManagementFactory.getRuntimeMXBean().getInputArguments();
     }
     else {
-      File file = getWriteFile();
-      if (file == null || !file.exists()) {
+      Path file = getWriteFile();
+      if (file == null || !Files.exists(file)) {
         return -1;
       }
 
       try {
-        String content = FileUtil.loadFile(file);
+        String content = FileUtil.loadFile(file.toFile());
         arguments = Collections.singletonList(content);
       }
       catch (IOException e) {
@@ -91,17 +96,31 @@ public class VMOptions {
     writeGeneralOption(Pattern.compile("-D" + option + separator + "(true|false)*([a-zA-Z0-9]*)"), "-D" + option + separator + value);
   }
 
+  public static void writeEnableCDSArchiveOption(@NotNull final String archivePath) {
+    writeGeneralOptions(
+      Function.<String>identity()
+        .andThen(replaceOrAddOption(Pattern.compile("-Xshare:.*"), "-Xshare:auto"))
+        .andThen(replaceOrAddOption(Pattern.compile("-XX:\\+UnlockDiagnosticVMOptions"), "-XX:+UnlockDiagnosticVMOptions"))
+        .andThen(replaceOrAddOption(Pattern.compile("-XX:SharedArchiveFile=.*"), "-XX:SharedArchiveFile=" + archivePath))
+    );
+  }
+
+  public static void writeDisableCDSArchiveOption() {
+    writeGeneralOptions(
+      Function.<String>identity()
+        .andThen(replaceOrAddOption(Pattern.compile("-Xshare:.*\\r?\\n?"), ""))
+        // we cannot remove "-XX:+UnlockDiagnosticVMOptions", we do not know the reason it was included
+        .andThen(replaceOrAddOption(Pattern.compile("-XX:SharedArchiveFile=.*\\r?\\n?"), ""))
+    );
+  }
 
   private static void writeGeneralOption(@NotNull Pattern pattern, @NotNull String value) {
-    File file = getWriteFile();
-    if (file == null) {
-      LOG.warn("VM options file not configured");
-      return;
-    }
+    writeGeneralOptions(replaceOrAddOption(pattern, value));
+  }
 
-    try {
-      String content = file.exists() ? FileUtil.loadFile(file) : read();
-
+  @NotNull
+  private static Function<String, String> replaceOrAddOption(@NotNull Pattern pattern, @NotNull String value) {
+    return content -> {
       if (!StringUtil.isEmptyOrSpaces(content)) {
         Matcher m = pattern.matcher(content);
         if (m.find()) {
@@ -110,13 +129,29 @@ public class VMOptions {
           m.appendTail(b);
           content = b.toString();
         }
-        else {
+        else if (!StringUtil.isEmptyOrSpaces(value)) {
           content = StringUtil.trimTrailing(content) + SystemProperties.getLineSeparator() + value;
         }
       }
       else {
         content = value;
       }
+
+      return content;
+    };
+  }
+
+  private static void writeGeneralOptions(@NotNull Function<? super String, String> transformContent) {
+    Path path = getWriteFile();
+    if (path == null) {
+      LOG.warn("VM options file not configured");
+      return;
+    }
+
+    File file = path.toFile();
+    try {
+      String content = file.exists() ? FileUtil.loadFile(file) : read();
+      content = transformContent.apply(content);
 
       if (file.exists()) {
         FileUtil.setReadOnlyAttribute(file.getPath(), false);
@@ -132,12 +167,16 @@ public class VMOptions {
     }
   }
 
+  public static boolean canWriteOptions() {
+    return getWriteFile() != null;
+  }
+
   @Nullable
   public static String read() {
     try {
-      File newFile = getWriteFile();
-      if (newFile != null && newFile.exists()) {
-        return FileUtil.loadFile(newFile);
+      Path newFile = getWriteFile();
+      if (newFile != null && Files.exists(newFile)) {
+        return FileUtil.loadFile(newFile.toFile());
       }
 
       String vmOptionsFile = System.getProperty("jb.vmOptionsFile");
@@ -152,18 +191,17 @@ public class VMOptions {
     return null;
   }
 
-  @Nullable
-  public static File getWriteFile() {
+  public static @Nullable Path getWriteFile() {
     String vmOptionsFile = System.getProperty("jb.vmOptionsFile");
     if (vmOptionsFile == null) {
-      // launchers should specify a path to an options file used to configure a JVM
+      // launchers should specify a path to a VM options file used to configure a JVM
       return null;
     }
 
     vmOptionsFile = new File(vmOptionsFile).getAbsolutePath();
     if (!PathManager.isUnderHomeDirectory(vmOptionsFile)) {
       // a file is located outside the IDE installation - meaning it is safe to overwrite
-      return new File(vmOptionsFile);
+      return Paths.get(vmOptionsFile);
     }
 
     String location = PathManager.getCustomOptionsDirectory();
@@ -171,42 +209,15 @@ public class VMOptions {
       return null;
     }
 
-    String fileName = ApplicationNamesInfo.getInstance().getProductName().toLowerCase(Locale.US);
+    return Paths.get(location, getCustomVMOptionsFileName());
+  }
+
+  @NotNull
+  public static String getCustomVMOptionsFileName() {
+    String fileName = ApplicationNamesInfo.getInstance().getScriptName();
     if (SystemInfo.is64Bit && !SystemInfo.isMac) fileName += "64";
     if (SystemInfo.isWindows) fileName += ".exe";
     fileName += ".vmoptions";
-    return new File(location, fileName);
+    return fileName;
   }
-
-  //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link #readOption(MemoryKind, boolean)} (to be removed in IDEA 2018) */
-  public static int readXmx() {
-    return readOption(MemoryKind.HEAP, true);
-  }
-
-  /** @deprecated use {@link #readOption(MemoryKind, boolean)} (to be removed in IDEA 2018) */
-  public static int readMaxPermGen() {
-    return readOption(MemoryKind.PERM_GEN, true);
-  }
-
-  /** @deprecated use {@link #readOption(MemoryKind, boolean)} (to be removed in IDEA 2018) */
-  public static int readCodeCache() {
-    return readOption(MemoryKind.CODE_CACHE, true);
-  }
-
-  /** @deprecated use {@link #writeOption(MemoryKind, int)} (to be removed in IDEA 2018) */
-  public static void writeXmx(int value) {
-    writeOption(MemoryKind.HEAP, value);
-  }
-
-  /** @deprecated use {@link #writeOption(MemoryKind, int)} (to be removed in IDEA 2018) */
-  public static void writeMaxPermGen(int value) {
-    writeOption(MemoryKind.PERM_GEN, value);
-  }
-
-  /** @deprecated use {@link #writeOption(MemoryKind, int)} (to be removed in IDEA 2018) */
-  public static void writeCodeCache(int value) {
-    writeOption(MemoryKind.CODE_CACHE, value);
-  }
-  //</editor-fold>
 }

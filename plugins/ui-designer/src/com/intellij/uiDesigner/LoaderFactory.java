@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner;
 
 import com.intellij.ProjectTopics;
@@ -24,7 +10,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.roots.OrderEnumerator;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -48,7 +33,7 @@ import java.util.concurrent.ConcurrentMap;
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
-public final class LoaderFactory {
+public final class LoaderFactory implements Disposable {
   private final Project myProject;
 
   private final ConcurrentMap<Module, ClassLoader> myModule2ClassLoader;
@@ -64,17 +49,17 @@ public final class LoaderFactory {
     myModule2ClassLoader = ContainerUtil.createConcurrentWeakMap();
     myConnection = myProject.getMessageBus().connect();
     myConnection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
-      public void rootsChanged(final ModuleRootEvent event) {
+      @Override
+      public void rootsChanged(@NotNull final ModuleRootEvent event) {
         clearClassLoaderCache();
       }
     });
+  }
 
-    Disposer.register(project, new Disposable() {
-      public void dispose() {
-        myConnection.disconnect();
-        myModule2ClassLoader.clear();
-      }
-    });
+  @Override
+  public void dispose() {
+    myConnection.disconnect();
+    myModule2ClassLoader.clear();
   }
 
   @NotNull public ClassLoader getLoader(final VirtualFile formFile) {
@@ -159,7 +144,7 @@ public final class LoaderFactory {
 
     private final String myModuleName;
 
-    public DesignTimeClassLoader(final List<URL> urls, final ClassLoader parent, final String moduleName) {
+    DesignTimeClassLoader(final List<URL> urls, final ClassLoader parent, final String moduleName) {
       super(build().urls(urls).parent(parent));
       myModuleName = moduleName;
     }

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractSuperclass;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
@@ -24,7 +11,6 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.MethodSignatureUtil;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.turnRefsToSuper.TurnRefsToSuperProcessorBase;
 import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.RefactoringUIUtil;
@@ -38,12 +24,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Objects;
 
 /**
  * @author dsl
  */
 public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessorBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.extractSuperclass.ExtractSuperClassProcessor");
+  private static final Logger LOG = Logger.getInstance(ExtractSuperClassProcessor.class);
   protected PsiDirectory myTargetDirectory;
   protected final String myNewClassName;
   protected final MemberInfo[] myMemberInfos;
@@ -63,8 +50,9 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
     myJavaDocPolicy = javaDocPolicy;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new ExtractSuperClassViewDescriptor(myTargetDirectory, myClass, myMemberInfos);
   }
 
@@ -102,8 +90,8 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
     return false;
   }
 
-  @NotNull
-  protected UsageInfo[] findUsages() {
+  @Override
+  protected UsageInfo @NotNull [] findUsages() {
     PsiReference[] refs = ReferencesSearch.search(myClass, GlobalSearchScope.projectScope(myProject), false).toArray(
       PsiReference.EMPTY_ARRAY);
     final ArrayList<UsageInfo> result = new ArrayList<>();
@@ -122,7 +110,8 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
     return UsageViewUtil.removeDuplicatedUsages(usageInfos);
   }
 
-  protected void performRefactoring(@NotNull UsageInfo[] usages) {
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usages) {
     try {
       final String superClassName = myClass.getName();
       final String oldQualifiedName = myClass.getQualifiedName();
@@ -147,7 +136,7 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
           }
         }
       }
-      if (!Comparing.equal(oldQualifiedName, superClass.getQualifiedName())) {
+      if (!Objects.equals(oldQualifiedName, superClass.getQualifiedName())) {
         processTurnToSuperRefs(usages, superClass);
       }
       if (containingFile instanceof PsiJavaFile) {
@@ -164,7 +153,7 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
   protected abstract PsiClass extractSuper(String superClassName) throws IncorrectOperationException;
 
   @Override
-  protected void refreshElements(@NotNull PsiElement[] elements) {
+  protected void refreshElements(PsiElement @NotNull [] elements) {
     myClass = (PsiClass)elements[0];
     myTargetDirectory = (PsiDirectory)elements[1];
     for (int i = 0; i < myMemberInfos.length; i++) {
@@ -173,9 +162,10 @@ public abstract class ExtractSuperBaseProcessor extends TurnRefsToSuperProcessor
     }
   }
 
+  @Override
   @NotNull
   protected String getCommandName() {
-    return RefactoringBundle.message("extract.subclass.command");
+    return JavaRefactoringBundle.message("extract.subclass.command");
   }
 
   @NotNull

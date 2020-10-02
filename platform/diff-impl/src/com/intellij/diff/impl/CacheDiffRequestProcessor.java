@@ -15,6 +15,8 @@
  */
 package com.intellij.diff.impl;
 
+import com.intellij.CommonBundle;
+import com.intellij.diff.chains.DiffRequestProducer;
 import com.intellij.diff.chains.DiffRequestProducerException;
 import com.intellij.diff.requests.*;
 import com.intellij.diff.tools.util.SoftHardCacheMap;
@@ -31,8 +33,9 @@ import com.intellij.openapi.progress.util.ProgressWindow;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.UserDataHolder;
-import org.jetbrains.annotations.CalledInAwt;
-import org.jetbrains.annotations.CalledInBackground;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,8 +57,7 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
     super(project, place);
   }
 
-  public CacheDiffRequestProcessor(@Nullable Project project,
-                                   @NotNull UserDataHolder context) {
+  public CacheDiffRequestProcessor(@Nullable Project project, @NotNull UserDataHolder context) {
     super(project, context);
   }
 
@@ -63,13 +65,14 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
   // Abstract
   //
 
+  @Nls
   @Nullable
   protected abstract String getRequestName(@NotNull T provider);
 
   protected abstract T getCurrentRequestProvider();
 
   @NotNull
-  @CalledInBackground
+  @RequiresBackgroundThread
   protected abstract DiffRequest loadRequest(@NotNull T provider, @NotNull ProgressIndicator indicator)
     throws ProcessCanceledException, DiffRequestProducerException;
 
@@ -83,15 +86,16 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   public void updateRequest(final boolean force, @Nullable final ScrollToPolicy scrollToChangePolicy) {
     updateRequest(force, true, scrollToChangePolicy);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void updateRequest(final boolean force, boolean useCache, @Nullable final ScrollToPolicy scrollToChangePolicy) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (isDisposed()) return;
+    myQueue.abort();
 
     final T requestProvider = getCurrentRequestProvider();
     if (requestProvider == null) {
@@ -113,11 +117,13 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
           applyRequest(request, force, scrollToChangePolicy);
         };
       },
-      () -> {
-        applyRequest(new LoadingDiffRequest(getRequestName(requestProvider)), force, scrollToChangePolicy);
-      },
-      ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS
+      () -> applyRequest(new LoadingDiffRequest(getRequestName(requestProvider)), force, scrollToChangePolicy),
+      getFastLoadingTimeMillis()
     );
+  }
+
+  protected int getFastLoadingTimeMillis() {
+    return ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS;
   }
 
   @Nullable
@@ -146,7 +152,7 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onDispose() {
     super.onDispose();
     myQueue.abort();
@@ -165,14 +171,41 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
     @NotNull private final T myProducer;
 
     public ReloadRequestAction(@NotNull T provider) {
-      super("Reload", null, AllIcons.Actions.Refresh);
+      super(CommonBundle.message("action.text.reload"), null, AllIcons.Actions.Refresh);
       myProducer = provider;
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myRequestCache.remove(myProducer);
       updateRequest(true);
+    }
+  }
+
+  public static abstract class Simple extends CacheDiffRequestProcessor<DiffRequestProducer> {
+    protected Simple(@Nullable Project project) {
+      super(project);
+    }
+
+    protected Simple(@Nullable Project project, @NotNull String place) {
+      super(project, place);
+    }
+
+    protected Simple(@Nullable Project project, @NotNull UserDataHolder context) {
+      super(project, context);
+    }
+
+    @Nullable
+    @Override
+    protected String getRequestName(@NotNull DiffRequestProducer provider) {
+      return provider.getName();
+    }
+
+    @NotNull
+    @Override
+    protected DiffRequest loadRequest(@NotNull DiffRequestProducer provider, @NotNull ProgressIndicator indicator)
+      throws ProcessCanceledException, DiffRequestProducerException {
+      return provider.process(getContext(), indicator);
     }
   }
 }

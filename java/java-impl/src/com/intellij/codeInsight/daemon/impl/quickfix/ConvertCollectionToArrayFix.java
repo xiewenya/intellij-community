@@ -17,12 +17,14 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -31,7 +33,7 @@ import org.jetbrains.annotations.NotNull;
 public class ConvertCollectionToArrayFix implements IntentionAction {
   private final PsiExpression myCollectionExpression;
   private final PsiExpression myExpressionToReplace;
-  private final String myNewArrayText;
+  @NonNls private final String myNewArrayText;
 
   public ConvertCollectionToArrayFix(@NotNull PsiExpression collectionExpression,
                                      @NotNull PsiExpression expressionToReplace,
@@ -59,13 +61,13 @@ public class ConvertCollectionToArrayFix implements IntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return myCollectionExpression.isValid() && PsiManager.getInstance(project).isInProject(myCollectionExpression) &&
-        myExpressionToReplace.isValid() && PsiManager.getInstance(project).isInProject(myExpressionToReplace);
+    return myCollectionExpression.isValid() && BaseIntentionAction.canModify(myCollectionExpression) &&
+           myExpressionToReplace.isValid() && BaseIntentionAction.canModify(myExpressionToReplace);
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     String replacement = ParenthesesUtils.getText(myCollectionExpression, ParenthesesUtils.POSTFIX_PRECEDENCE) +
                          ".toArray(" + myNewArrayText + ")";
     myExpressionToReplace.replace(factory.createExpressionFromText(replacement, myCollectionExpression));

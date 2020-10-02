@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.vcs;
 
 import com.intellij.openapi.Disposable;
@@ -27,30 +13,24 @@ import com.intellij.util.ThreeState;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 import java.io.File;
 import java.util.*;
 
-/**
- * @author Kirill Likhodedov
- */
 public class MockChangeListManager extends ChangeListManagerEx {
-
-  public static final String DEFAULT_CHANGE_LIST_NAME = "Default";
 
   private final Map<String, MockChangeList> myChangeLists = new HashMap<>();
   private LocalChangeList myActiveChangeList;
   private final MockChangeList myDefaultChangeList;
 
   public MockChangeListManager() {
-    myDefaultChangeList = new MockChangeList(DEFAULT_CHANGE_LIST_NAME);
-    myChangeLists.put(DEFAULT_CHANGE_LIST_NAME, myDefaultChangeList);
+    myDefaultChangeList = new MockChangeList(LocalChangeList.getDefaultName());
+    myChangeLists.put(LocalChangeList.getDefaultName(), myDefaultChangeList);
     myActiveChangeList = myDefaultChangeList;
   }
 
   public void addChanges(Change... changes) {
-    MockChangeList changeList = myChangeLists.get(DEFAULT_CHANGE_LIST_NAME);
+    MockChangeList changeList = myChangeLists.get(LocalChangeList.getDefaultName());
     for (Change change : changes) {
       changeList.add(change);
     }
@@ -78,15 +58,14 @@ public class MockChangeListManager extends ChangeListManagerEx {
   public void invokeAfterUpdate(@NotNull Runnable afterUpdate,
                                 @NotNull InvokeAfterUpdateMode mode,
                                 String title,
-                                Consumer<VcsDirtyScopeManager> dirtyScopeManager,
+                                Consumer<? super VcsDirtyScopeManager> dirtyScopeManager,
                                 ModalityState state) {
     afterUpdate.run();
   }
 
-  @TestOnly
   @Override
-  public boolean ensureUpToDate(boolean canBeCanceled) {
-    throw new UnsupportedOperationException();
+  public boolean areChangeListsEnabled() {
+    return true;
   }
 
   @Override
@@ -138,8 +117,9 @@ public class MockChangeListManager extends ChangeListManagerEx {
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   @Override
-  public LocalChangeList getChangeList(String id) {
+  public LocalChangeList getChangeList(@Nullable String id) {
     throw new UnsupportedOperationException();
   }
 
@@ -208,6 +188,16 @@ public class MockChangeListManager extends ChangeListManagerEx {
     throw new UnsupportedOperationException();
   }
 
+  @Override
+  public @NotNull List<FilePath> getUnversionedFilesPaths() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public @NotNull FileStatus getStatus(@NotNull FilePath file) {
+    throw new UnsupportedOperationException();
+  }
+
   @NotNull
   @Override
   public FileStatus getStatus(@NotNull VirtualFile file) {
@@ -267,12 +257,12 @@ public class MockChangeListManager extends ChangeListManagerEx {
   }
 
   @Override
-  public void commitChanges(@NotNull LocalChangeList changeList, @NotNull List<Change> changes) {
+  public void commitChanges(@NotNull LocalChangeList changeList, @NotNull List<? extends Change> changes) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void reopenFiles(@NotNull List<FilePath> paths) {
+  public void reopenFiles(@NotNull List<? extends FilePath> paths) {
     throw new UnsupportedOperationException();
   }
 
@@ -283,7 +273,12 @@ public class MockChangeListManager extends ChangeListManagerEx {
   }
 
   @Override
-  public void addFilesToIgnore(@NotNull IgnoredFileBean... ignoredFiles) {
+  public void addFilesToIgnore(IgnoredFileBean @NotNull ... ignoredFiles) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void addUnversionedFiles(@NotNull LocalChangeList list, @NotNull List<? extends VirtualFile> unversionedFiles) {
     throw new UnsupportedOperationException();
   }
 
@@ -298,18 +293,27 @@ public class MockChangeListManager extends ChangeListManagerEx {
   }
 
   @Override
-  public void setFilesToIgnore(@NotNull IgnoredFileBean... ignoredFiles) {
+  public void setFilesToIgnore(IgnoredFileBean @NotNull ... ignoredFiles) {
     throw new UnsupportedOperationException();
   }
 
-  @NotNull
   @Override
-  public IgnoredFileBean[] getFilesToIgnore() {
+  public IgnoredFileBean @NotNull [] getFilesToIgnore() {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public boolean isIgnoredFile(@NotNull VirtualFile file) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isIgnoredFile(@NotNull FilePath file) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public @NotNull List<FilePath> getIgnoredFilePaths() {
     throw new UnsupportedOperationException();
   }
 
@@ -330,6 +334,11 @@ public class MockChangeListManager extends ChangeListManagerEx {
 
   @Override
   public void unfreeze() {
+  }
+
+  @Override
+  public void waitForUpdate() {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -384,7 +393,7 @@ public class MockChangeListManager extends ChangeListManagerEx {
   }
 
   @Override
-  public void moveChangesTo(@NotNull LocalChangeList list, @NotNull Change... changes) {
+  public void moveChangesTo(@NotNull LocalChangeList list, Change @NotNull ... changes) {
   }
 
   @Override
@@ -403,13 +412,18 @@ public class MockChangeListManager extends ChangeListManagerEx {
   }
 
   @Override
+  public boolean editChangeListData(@NotNull String name, @Nullable ChangeListData newData) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public boolean isInUpdate() {
     throw new UnsupportedOperationException();
   }
 
   @NotNull
   @Override
-  public Collection<LocalChangeList> getAffectedLists(@NotNull Collection<Change> changes) {
+  public Collection<LocalChangeList> getAffectedLists(@NotNull Collection<? extends Change> changes) {
     throw new UnsupportedOperationException();
   }
 

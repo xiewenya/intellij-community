@@ -16,6 +16,7 @@
 package org.zmlx.hg4idea.execution;
 
 import com.intellij.execution.ui.ConsoleViewContentType;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
@@ -23,17 +24,20 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.SystemProperties;
 import com.intellij.vcsUtil.VcsImplUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
+import org.zmlx.hg4idea.HgDisposable;
 import org.zmlx.hg4idea.HgExecutableManager;
 import org.zmlx.hg4idea.HgVcs;
-import org.zmlx.hg4idea.HgVcsMessages;
 import org.zmlx.hg4idea.util.HgEncodingUtil;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 import org.zmlx.hg4idea.util.HgUtil;
 
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
@@ -99,11 +103,16 @@ public class HgCommandExecutor {
     myOutputAlwaysSuppressed = outputAlwaysSuppressed;
   }
 
+  /**
+   * @deprecated Use synchronous versions of "execute", e.g. {@link #executeInCurrentThread(VirtualFile, String, List)}.
+   * Use {@link BackgroundTaskUtil#executeOnPooledThread(Disposable, Runnable)} if need to execute on a pooled thread.
+   */
+  @Deprecated
   public void execute(@Nullable final VirtualFile repo,
-                      @NotNull final String operation,
+                      @NotNull final @NonNls String operation,
                       @Nullable final List<String> arguments,
                       @Nullable final HgCommandResultHandler handler) {
-    BackgroundTaskUtil.executeOnPooledThread(myProject, () -> {
+    BackgroundTaskUtil.executeOnPooledThread(HgDisposable.getInstance(myProject), () -> {
       HgCommandResult result = executeInCurrentThread(repo, operation, arguments);
       if (handler != null) {
         handler.process(result);
@@ -113,15 +122,15 @@ public class HgCommandExecutor {
 
   @Nullable
   public HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo,
-                                                @NotNull final String operation,
-                                                @Nullable final List<String> arguments) {
+                                                @NotNull final @NonNls String operation,
+                                                @Nullable final List<@NonNls String> arguments) {
     return executeInCurrentThread(repo, operation, arguments, false);
   }
 
   @Nullable
   public HgCommandResult executeInCurrentThread(@Nullable VirtualFile repo,
-                                                @NotNull String operation,
-                                                @Nullable List<String> arguments,
+                                                @NotNull @NonNls String operation,
+                                                @Nullable List<@NonNls String> arguments,
                                                 boolean ignoreDefaultOptions) {
     ShellCommand.CommandResultCollector collector = new ShellCommand.CommandResultCollector(myIsBinary);
     boolean success = executeInCurrentThread(repo, operation, arguments, ignoreDefaultOptions, collector);
@@ -129,22 +138,22 @@ public class HgCommandExecutor {
   }
 
   public boolean executeInCurrentThread(@Nullable VirtualFile repo,
-                                        @NotNull String operation,
-                                        @Nullable List<String> arguments,
+                                        @NotNull @NonNls String operation,
+                                        @Nullable List<@NonNls String> arguments,
                                         boolean ignoreDefaultOptions,
                                         @NotNull HgLineProcessListener listener) {
     boolean success = executeInCurrentThreadAndLog(repo, operation, arguments, ignoreDefaultOptions, listener);
     List<String> errors = StringUtil.split(listener.getErrorOutput().toString(), SystemProperties.getLineSeparator());
     if (success && HgErrorUtil.isUnknownEncodingError(errors)) {
-      setCharset(Charset.forName("utf8"));
+      setCharset(StandardCharsets.UTF_8);
       return executeInCurrentThreadAndLog(repo, operation, arguments, ignoreDefaultOptions, listener);
     }
     return success;
   }
 
   private boolean executeInCurrentThreadAndLog(@Nullable VirtualFile repo,
-                                               @NotNull String operation,
-                                               @Nullable List<String> arguments,
+                                               @NotNull @NonNls String operation,
+                                               @Nullable List<@NonNls String> arguments,
                                                boolean ignoreDefaultOptions,
                                                @NotNull HgLineProcessListener listener) {
     if (myProject == null || myProject.isDisposed() || myVcs == null) return false;
@@ -173,8 +182,8 @@ public class HgCommandExecutor {
 
   @NotNull
   private ShellCommand createShellCommandWithArgs(@Nullable VirtualFile repo,
-                                                  @NotNull String operation,
-                                                  @Nullable List<String> arguments,
+                                                  @NotNull @NonNls String operation,
+                                                  @Nullable List<@NonNls String> arguments,
                                                   boolean ignoreDefaultOptions) {
 
     logCommand(operation, arguments);
@@ -203,7 +212,6 @@ public class HgCommandExecutor {
   }
 
   // logging to the Version Control console (without extensions and configs)
-  @SuppressWarnings("UseOfSystemOutOrSystemErr")
   protected void logCommand(@NotNull String operation, @Nullable List<String> arguments) {
     if (myProject.isDisposed()) {
       return;
@@ -212,8 +220,8 @@ public class HgCommandExecutor {
     final int lastSlashIndex = exeName.lastIndexOf(File.separator);
     exeName = exeName.substring(lastSlashIndex + 1);
 
-    String str = String
-      .format("%s %s %s", exeName, operation, arguments == null ? "" : StringUtil.escapeStringCharacters(StringUtil.join(arguments, " ")));
+    @NonNls String str = String.format("%s %s %s", exeName, operation,
+                                       arguments == null ? "" : StringUtil.escapeStringCharacters(StringUtil.join(arguments, " ")));
     //remove password from path before log
     final String cmdString = myDestination != null ? HgUtil.removePasswordIfNeeded(str) : str;
     // log command
@@ -229,10 +237,8 @@ public class HgCommandExecutor {
   protected void showError(Exception e) {
     final HgVcs vcs = HgVcs.getInstance(myProject);
     if (vcs == null) return;
-    String message =
-      HgVcsMessages.message("hg4idea.command.executable.error", HgExecutableManager.getInstance().getHgExecutable(myProject)) +
-      "\nOriginal Error:\n" +
-      e.getMessage();
-    VcsImplUtil.showErrorMessage(myProject, message, HgVcsMessages.message("hg4idea.error"));
+    String message = HgBundle.message("hg4idea.command.executor.error", HgExecutableManager.getInstance().getHgExecutable(myProject),
+                                      e.getMessage());
+    VcsImplUtil.showErrorMessage(myProject, message, HgBundle.message("hg4idea.error"));
   }
 }

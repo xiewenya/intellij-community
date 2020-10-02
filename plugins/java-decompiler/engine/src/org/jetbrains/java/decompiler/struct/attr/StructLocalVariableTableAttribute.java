@@ -1,14 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.struct.attr;
 
 import org.jetbrains.java.decompiler.struct.consts.ConstantPool;
 import org.jetbrains.java.decompiler.util.DataInputFullStream;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -67,14 +64,14 @@ public class StructLocalVariableTableAttribute extends StructGeneralAttribute {
   }
 
   public boolean containsName(String name) {
-    return localVariables.stream().anyMatch(v -> v.name == name);
+    return localVariables.stream().anyMatch(v -> Objects.equals(v.name, name));
   }
 
   public Map<Integer, String> getMapParamNames() {
     return localVariables.stream().filter(v -> v.start_pc == 0).collect(Collectors.toMap(v -> v.index, v -> v.name, (n1, n2) -> n2));
   }
 
-  private static class LocalVariable {
+  private static final class LocalVariable {
     final int start_pc;
     final int length;
     final String name;

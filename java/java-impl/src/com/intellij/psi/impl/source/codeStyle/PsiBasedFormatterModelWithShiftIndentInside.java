@@ -22,7 +22,6 @@ package com.intellij.psi.impl.source.codeStyle;
 import com.intellij.formatting.Block;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiFile;
@@ -40,7 +39,7 @@ import org.jetbrains.annotations.NotNull;
 
 public class PsiBasedFormatterModelWithShiftIndentInside extends PsiBasedFormattingModel {
   private static final Logger LOG =
-      Logger.getInstance("#com.intellij.psi.impl.source.codeStyle.PsiBasedFormatterModelWithShiftIndentInside");
+    Logger.getInstance(PsiBasedFormatterModelWithShiftIndentInside.class);
 
   private final Project myProject;
 
@@ -59,7 +58,8 @@ public class PsiBasedFormatterModelWithShiftIndentInside extends PsiBasedFormatt
 
   private TextRange shiftIndentInsideWithPsi(ASTNode node, final TextRange textRange, final int shift) {
     if (node != null && node.getTextRange().equals(textRange) && ShiftIndentInsideHelper.mayShiftIndentInside(node)) {
-      return new ShiftIndentInsideHelper(StdFileTypes.JAVA, myProject).shiftIndentInside(node, shift).getTextRange();
+      PsiFile file = node.getPsi().getContainingFile();
+      return new ShiftIndentInsideHelper(file).shiftIndentInside(node, shift).getTextRange();
     } else {
       return textRange;
     }
@@ -79,7 +79,7 @@ public class PsiBasedFormatterModelWithShiftIndentInside extends PsiBasedFormatt
 
            @NonNls final String cdataStartMarker = "<![CDATA[";
            final int cdataPos = text.indexOf(cdataStartMarker);
-           if (cdataPos != -1 && whiteSpace.indexOf(cdataStartMarker) == -1) {
+           if (cdataPos != -1 && !whiteSpace.contains(cdataStartMarker)) {
              whiteSpace = DocumentBasedFormattingModel.mergeWsWithCdataMarker(whiteSpace, text, cdataPos);
              if (whiteSpace == null) return null;
            }
@@ -89,7 +89,7 @@ public class PsiBasedFormatterModelWithShiftIndentInside extends PsiBasedFormatt
          }
 
          @NonNls final String cdataEndMarker = "]]>";
-         if(type == XmlTokenType.XML_CDATA_END && whiteSpace.indexOf(cdataEndMarker) == -1) {
+         if(type == XmlTokenType.XML_CDATA_END && !whiteSpace.contains(cdataEndMarker)) {
            final ASTNode at = findElementAt(prevNode.getStartOffset());
 
            if (at != null && at.getPsi() instanceof PsiWhiteSpace) {

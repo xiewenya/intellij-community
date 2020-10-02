@@ -1,39 +1,30 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.bugs;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.refactoring.util.RefactoringChangeUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
 import com.intellij.util.SmartList;
-import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.MethodUtils;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * @author Bas Leijdekkers
  */
 public class CopyConstructorMissesFieldInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("copy.constructor.misses.field.display.name");
-  }
 
   @NotNull
   @Override
@@ -69,13 +60,13 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       if (aClass == null) {
         return;
       }
-      final List<PsiField> fields = Arrays.stream(aClass.getFields())
-        .filter(f -> !f.hasModifierProperty(PsiModifier.STATIC)
-                     && !f.hasModifierProperty(PsiModifier.TRANSIENT)
-                     && (!f.hasModifierProperty(PsiModifier.FINAL) || f.getInitializer() == null))
-        .collect(Collectors.toList());
+      final List<PsiField> fields = ContainerUtil.filter(aClass.getFields(),
+                                                         f -> !f.hasModifierProperty(PsiModifier.STATIC) &&
+                                                              !f.hasModifierProperty(PsiModifier.TRANSIENT) &&
+                                                              (!f.hasModifierProperty(PsiModifier.FINAL) ||
+                                                               f.getInitializer() == null));
       if (fields.isEmpty()) return;
-      final PsiParameter parameter = method.getParameterList().getParameters()[0];
+      final PsiParameter parameter = Objects.requireNonNull(method.getParameterList().getParameter(0));
       final List<PsiField> assignedFields = new SmartList<>();
       final Set<PsiMethod> methodsOneLevelDeep = new HashSet<>();
       if (!PsiTreeUtil.processElements(method, e -> collectAssignedFields(e, parameter, methodsOneLevelDeep, assignedFields))) {
@@ -84,7 +75,7 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       for (PsiMethod calledMethod : methodsOneLevelDeep) {
         if (!PsiTreeUtil.processElements(calledMethod, e -> collectAssignedFields(e, parameter, null, assignedFields))) {
           return;
-        };
+        }
       }
       for (PsiField assignedField : assignedFields) {
         if (aClass == PsiUtil.resolveClassInClassTypeOnly(assignedField.getType())) {
@@ -99,18 +90,18 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
     }
 
     private static boolean collectAssignedFields(PsiElement element, PsiParameter parameter,
-                                                 @Nullable Set<PsiMethod> methods, List<PsiField> assignedFields) {
+                                                 @Nullable Set<? super PsiMethod> methods, List<? super PsiField> assignedFields) {
       if (element instanceof PsiAssignmentExpression) {
-        final PsiExpression lhs = ParenthesesUtils.stripParentheses(((PsiAssignmentExpression)element).getLExpression());
+        final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(((PsiAssignmentExpression)element).getLExpression());
         final PsiVariable variable = resolveVariable(lhs, null);
         if (variable instanceof PsiField) {
           assignedFields.add((PsiField)variable);
         }
       }
-      else if (RefactoringChangeUtil.isSuperOrThisMethodCall(element)) {
+      else if (JavaPsiConstructorUtil.isChainedConstructorCall(element)) {
         final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)element;
         for (PsiExpression argument : methodCallExpression.getArgumentList().getExpressions()) {
-          argument = ParenthesesUtils.stripParentheses(argument);
+          argument = PsiUtil.skipParenthesizedExprDown(argument);
           final PsiVariable variable = resolveVariable(argument, parameter);
           if (variable == parameter) {
             // instance to copy is passed to another constructor
@@ -119,13 +110,13 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
           if (variable instanceof PsiField) {
             assignedFields.add((PsiField)variable);
           }
-          ContainerUtilRt.addIfNotNull(assignedFields, resolveFieldOfGetter(argument, parameter));
+          ContainerUtil.addIfNotNull(assignedFields, resolveFieldOfGetter(argument, parameter));
         }
       }
       else if (element instanceof PsiMethodCallExpression) {
         final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)element;
         final PsiExpression qualifier =
-          ParenthesesUtils.stripParentheses(methodCallExpression.getMethodExpression().getQualifierExpression());
+          PsiUtil.skipParenthesizedExprDown(methodCallExpression.getMethodExpression().getQualifierExpression());
         if (qualifier == null || qualifier instanceof PsiThisExpression) {
           final PsiMethod method = methodCallExpression.resolveMethod();
           final PsiField field = PropertyUtil.getFieldOfSetter(method);
@@ -149,12 +140,12 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       return true;
     }
 
-    private static PsiVariable resolveVariable(PsiExpression expression, PsiParameter requiredQualifier) {
+    private static PsiVariable resolveVariable(PsiExpression expression, @Nullable PsiParameter requiredQualifier) {
       if (!(expression instanceof PsiReferenceExpression)) {
         return null;
       }
       final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)expression;
-      final PsiExpression qualifier = ParenthesesUtils.stripParentheses(referenceExpression.getQualifierExpression());
+      final PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(referenceExpression.getQualifierExpression());
       final PsiElement target = referenceExpression.resolve();
       if (requiredQualifier == null) {
         if (!(qualifier == null || qualifier instanceof PsiThisExpression)) {
@@ -167,7 +158,7 @@ public class CopyConstructorMissesFieldInspection extends BaseInspection {
       return target instanceof PsiVariable ? (PsiVariable)target : null;
     }
 
-    private static PsiField resolveFieldOfGetter(PsiExpression expression, PsiParameter requiredQualifier) {
+    private static PsiField resolveFieldOfGetter(PsiExpression expression, @NotNull PsiParameter requiredQualifier) {
       if (!(expression instanceof PsiMethodCallExpression)) {
         return null;
       }

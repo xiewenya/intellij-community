@@ -29,7 +29,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @State(name = "LogFilters", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
-@SuppressWarnings({"AssignmentToStaticFieldFromInstanceMethod"})
 public class LogConsolePreferences extends LogFilterRegistrar {
   private final SortedMap<LogFilter, Boolean> myRegisteredLogFilters = new TreeMap<>((o1, o2) -> -1);
   @NonNls private static final String FILTER = "filter";
@@ -82,7 +81,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
     }
 
     @Nullable
-    public static LevelPattern findBestMatchingPattern(@NotNull String text, @NotNull LevelPattern[] patterns) {
+    public static LevelPattern findBestMatchingPattern(@NotNull String text, LevelPattern @NotNull [] patterns) {
       int bestStart = Integer.MAX_VALUE;
       LevelPattern bestMatch = null;
       for (LevelPattern next : patterns) {
@@ -218,7 +217,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   }
 
   @Override
-  public void setFilterSelected(LogFilter filter, boolean state) {
+  public void setFilterSelected(@NotNull LogFilter filter, boolean state) {
     if (filter instanceof IndependentLogFilter) {
       ((IndependentLogFilter)filter).selectFilter();
     }
@@ -237,7 +236,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
     }
   }
 
-  private void fireStateChanged(final LogFilter filter) {
+  private void fireStateChanged(@NotNull LogFilter filter) {
     for (LogFilterListener listener : myListeners) {
       listener.onFilterStateChange(filter);
     }

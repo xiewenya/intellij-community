@@ -22,9 +22,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * @author nik
- */
 public class ExpressionInputComponent extends EvaluationInputComponent {
   private final XDebuggerEditorBase myExpressionEditor;
   private final ExpressionInputForm myMainForm = new ExpressionInputForm();
@@ -68,10 +65,12 @@ public class ExpressionInputComponent extends EvaluationInputComponent {
     contentPanel.add(myMainForm.getMainPanel(), BorderLayout.NORTH);
   }
 
+  @Override
   public JPanel getMainComponent() {
     return myMainForm.getMainPanel();
   }
 
+  @Override
   @NotNull
   public XDebuggerEditorBase getInputEditor() {
     return myExpressionEditor;

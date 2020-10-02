@@ -32,7 +32,6 @@ import com.intellij.refactoring.util.usageInfo.NoConstructorClassUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashSet;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocTagValueToken;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrOpenBlock;
@@ -41,15 +40,16 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author Maxim.Medvedev
  */
 class GrChageSignatureUsageSearcher {
+  private static final Logger LOG = Logger.getInstance(GrChageSignatureUsageSearcher.class);
+
   private final JavaChangeInfo myChangeInfo;
-  private static final Logger LOG =
-    Logger.getInstance("org.jetbrains.plugins.groovy.refactoring.changeSignature.GrChageSignatureUsageSearcher");
 
   GrChageSignatureUsageSearcher(JavaChangeInfo changeInfo) {
     this.myChangeInfo = changeInfo;
@@ -57,10 +57,8 @@ class GrChageSignatureUsageSearcher {
 
   public UsageInfo[] findUsages() {
     ArrayList<UsageInfo> result = new ArrayList<>();
-    final PsiElement element = myChangeInfo.getMethod();
-    if (element instanceof PsiMethod) {
-      final PsiMethod method = (PsiMethod)element;
-
+    final PsiMethod method = myChangeInfo.getMethod();
+    if (method != null) {
       findSimpleUsages(method, result);
 
       final UsageInfo[] usageInfos = result.toArray(UsageInfo.EMPTY_ARRAY);
@@ -274,9 +272,6 @@ class GrChageSignatureUsageSearcher {
       UsageInfo usageInfo = new ChangeSignatureParameterUsageInfo(parmRef, parameter.getName(), info.getName());
       results.add(usageInfo);
     }
-    if (info.getName() != parameter.getName()) {
-      
-    }
   }
 
   private boolean needToCatchExceptions(PsiMethod caller) {
@@ -292,7 +287,7 @@ class GrChageSignatureUsageSearcher {
     private final PsiElement myCollidingElement;
     private final PsiMethod myMethod;
 
-    public RenamedParameterCollidesWithLocalUsageInfo(PsiParameter parameter, PsiElement collidingElement, PsiMethod method) {
+    RenamedParameterCollidesWithLocalUsageInfo(PsiParameter parameter, PsiElement collidingElement, PsiMethod method) {
       super(parameter, collidingElement);
       myCollidingElement = collidingElement;
       myMethod = method;

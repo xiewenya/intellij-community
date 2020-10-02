@@ -1,30 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
-import com.intellij.ide.startup.impl.StartupManagerImpl;
+import com.intellij.diagnostic.ThreadDumper;
+import com.intellij.ide.startup.StartupManagerEx;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.SomeQueue;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.util.concurrency.Semaphore;
-import com.intellij.util.io.storage.HeavyProcessLatch;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -32,6 +17,7 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import static com.intellij.util.ObjectUtils.notNull;
 
@@ -41,13 +27,12 @@ import static com.intellij.util.ObjectUtils.notNull;
  * own inner synchronization
  */
 @SomeQueue
-public class UpdateRequestsQueue {
-  private final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.changes.UpdateRequestsQueue");
-  private final boolean myTrackHeavyLatch = Boolean.parseBoolean(System.getProperty("vcs.local.changes.track.heavy.latch"));
+public final class UpdateRequestsQueue {
+  private static final Logger LOG = Logger.getInstance(UpdateRequestsQueue.class);
 
   private final Project myProject;
   private final ChangeListManagerImpl.Scheduler myScheduler;
-  private final Runnable myDelegate;
+  private final BooleanSupplier myDelegate;
   private final Object myLock = new Object();
   private volatile boolean myStarted;
   private volatile boolean myStopped;
@@ -57,17 +42,13 @@ public class UpdateRequestsQueue {
   private boolean myRequestRunning;
   private final List<Runnable> myWaitingUpdateCompletionQueue = new ArrayList<>();
   private final List<Semaphore> myWaitingUpdateCompletionSemaphores = new ArrayList<>();
-  private final ProjectLevelVcsManager myPlVcsManager;
-  //private final ScheduledSlowlyClosingAlarm mySharedExecutor;
-  private final StartupManager myStartupManager;
 
-  public UpdateRequestsQueue(final Project project, @NotNull ChangeListManagerImpl.Scheduler scheduler, final Runnable delegate) {
+  public UpdateRequestsQueue(@NotNull Project project,
+                             @NotNull ChangeListManagerImpl.Scheduler scheduler,
+                             @NotNull BooleanSupplier delegate) {
     myProject = project;
     myScheduler = scheduler;
-
     myDelegate = delegate;
-    myPlVcsManager = ProjectLevelVcsManager.getInstance(myProject);
-    myStartupManager = StartupManager.getInstance(myProject);
 
     // not initialized
     myStarted = false;
@@ -153,7 +134,7 @@ public class UpdateRequestsQueue {
         myWaitingUpdateCompletionSemaphores.add(semaphore);
       }
       if (!semaphore.waitFor(100 * 1000)) {
-        LOG.error("Too long VCS update");
+        LOG.error("Too long VCS update\n" + ThreadDumper.dumpThreadsToString());
         return;
       }
     }
@@ -199,18 +180,18 @@ public class UpdateRequestsQueue {
 
   // true = do not execute
   private boolean checkHeavyOperations() {
-    if (myIgnoreBackgroundOperation) return false;
-    return myPlVcsManager.isBackgroundVcsOperationRunning() || myTrackHeavyLatch && HeavyProcessLatch.INSTANCE.isRunning();
+    return !myIgnoreBackgroundOperation && ProjectLevelVcsManager.getInstance(myProject).isBackgroundVcsOperationRunning();
   }
 
   // true = do not execute
   private boolean checkLifeCycle() {
-    return !myStarted || !((StartupManagerImpl)myStartupManager).startupActivityPassed();
+    return !myStarted || !StartupManagerEx.getInstanceEx(myProject).startupActivityPassed();
   }
 
-  private class MyRunnable implements Runnable {
+  private final class MyRunnable implements Runnable {
+    @Override
     public void run() {
-      final List<Runnable> copy = new ArrayList<>(myWaitingUpdateCompletionQueue.size());
+      final List<Runnable> copy = new ArrayList<>();
       try {
         synchronized (myLock) {
           if (!myRequestSubmitted) return;
@@ -235,8 +216,17 @@ public class UpdateRequestsQueue {
         }
 
         LOG.debug("MyRunnable: INVOKE, project: " + myProject.getName() + ", runnable: " + hashCode());
-        myDelegate.run();
-        LOG.debug("MyRunnable: invokeD, project: " + myProject.getName() + ", runnable: " + hashCode());
+        boolean success = myDelegate.getAsBoolean(); // CLM.updateImmediately
+        LOG.debug("MyRunnable: invokeD, project: " + myProject.getName() + ", was success: " + success +
+                  ", runnable: " + hashCode());
+
+        if (!success) {
+          // Refresh was cancelled, will fire events later
+          synchronized (myLock) {
+            myWaitingUpdateCompletionQueue.addAll(0, copy);
+            copy.clear();
+          }
+        }
       }
       finally {
         synchronized (myLock) {
@@ -258,7 +248,7 @@ public class UpdateRequestsQueue {
 
     @Override
     public String toString() {
-      return "UpdateRequestQueue delegate: " + myDelegate;
+      return "UpdateRequestQueue delegate: " + myDelegate; //NON-NLS
     }
   }
 

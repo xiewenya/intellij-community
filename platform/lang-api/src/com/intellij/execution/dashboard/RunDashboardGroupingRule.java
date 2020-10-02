@@ -16,45 +16,14 @@
 package com.intellij.execution.dashboard;
 
 import com.intellij.ide.util.treeView.AbstractTreeNode;
-import com.intellij.ide.util.treeView.smartTree.TreeAction;
-import com.intellij.openapi.extensions.ExtensionPointName;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Comparator;
-
 /**
- * Action for grouping items in a run dashboard tree.
- *
- * @author konstantin.aleev
+ * Action for grouping items in a run dashboard (services) tree.
+ * Grouping rules are applied to dashboard nodes according to their order defined in plug-in configuration.
  */
-public interface RunDashboardGroupingRule extends TreeAction {
-  ExtensionPointName<RunDashboardGroupingRule> EP_NAME = ExtensionPointName.create("com.intellij.runDashboardGroupingRule");
-
-  Comparator<RunDashboardGroupingRule> PRIORITY_COMPARATOR = (o1, o2) -> {
-    final int res = o2.getPriority() - o1.getPriority();
-    return res != 0 ? res : (o1.getName().compareTo(o2.getName()));
-  };
-
-  Comparator<RunDashboardGroup> GROUP_NAME_COMPARATOR = Comparator.comparing(RunDashboardGroup::getName);
-
-  /**
-   * Grouping rules are ordered and applied to dashboard nodes according to their priority.
-   * The higher the priority, the higher groups produced by this rule are presented in the dashboard tree.
-   *
-   * @return rule's priority.
-   */
-  int getPriority();
-
-  /**
-   * @return {@code true} if grouping rule should always be applied to dashboard nodes.
-   */
-  boolean isAlwaysEnabled();
-
-  /**
-   * @return {@code false} if groups with single node should not added to the dashboard tree keeping such nodes ungrouped.
-   */
-  boolean shouldGroupSingleNodes();
-
+public interface RunDashboardGroupingRule {
   /**
    * @param node node which should be grouped by this grouping rule.
    * @return a group which node belongs to or {@code null} if node could not be grouped by this rule.
@@ -62,14 +31,11 @@ public interface RunDashboardGroupingRule extends TreeAction {
   @Nullable
   RunDashboardGroup getGroup(AbstractTreeNode<?> node);
 
-  default Comparator<RunDashboardGroup> getGroupComparator() {
-    return GROUP_NAME_COMPARATOR;
-  }
-
-  interface Priorities {
-    int BY_RUN_CONFIG = 200;
-    int BY_FOLDER = 400;
-    int BY_STATUS = 800;
-    int BY_TYPE = 1000;
-  }
+  /**
+   * Returns a unique identifier for the rule.
+   *
+   * @return the rule identifier.
+   */
+  @NotNull
+  String getName();
 }

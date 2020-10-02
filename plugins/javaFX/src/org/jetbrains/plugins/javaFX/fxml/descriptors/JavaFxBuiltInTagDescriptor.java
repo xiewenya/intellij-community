@@ -16,6 +16,7 @@
 package org.jetbrains.plugins.javaFX.fxml.descriptors;
 
 import com.intellij.codeInsight.daemon.Validator;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
@@ -23,7 +24,6 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlElementsGroup;
@@ -31,6 +31,7 @@ import com.intellij.xml.XmlNSDescriptor;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.javaFX.JavaFXBundle;
 import org.jetbrains.plugins.javaFX.fxml.FxmlConstants;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
@@ -226,12 +227,6 @@ public class JavaFxBuiltInTagDescriptor implements XmlElementDescriptor, Validat
   public void init(PsiElement element) {
   }
 
-  @NotNull
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
   @Override
   public void validate(@NotNull XmlTag context, @NotNull ValidationHost host) {
     final XmlTag referencedTag = getReferencedTag(context);
@@ -241,7 +236,7 @@ public class JavaFxBuiltInTagDescriptor implements XmlElementDescriptor, Validat
         final PsiElement declaration = descriptor.getDeclaration();
         if (declaration instanceof PsiClass) {
           final PsiClass psiClass = (PsiClass)declaration;
-          JavaFxPsiUtil.isClassAcceptable(context.getParentTag(), psiClass, (errorMessage, errorType) ->
+          JavaFxPsiUtil.isClassAcceptable(context.getParentTag(), psiClass, (@InspectionMessage var errorMessage, var errorType) ->
             host.addMessage(context.getNavigationElement(), errorMessage, errorType));
           final String contextName = context.getName();
           if (FxmlConstants.FX_COPY.equals(contextName)) {
@@ -254,7 +249,8 @@ public class JavaFxBuiltInTagDescriptor implements XmlElementDescriptor, Validat
               }
             }
             if (!copyConstructorFound) {
-              host.addMessage(context.getNavigationElement(), "Copy constructor not found for \'" + psiClass.getName() + "\'",
+              host.addMessage(context.getNavigationElement(),
+                              JavaFXBundle.message("inspection.message.copy.constructor.not.found", psiClass.getName()),
                               ValidationHost.ErrorType.ERROR);
             }
           }

@@ -1,28 +1,22 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ui.actions;
 
-import com.intellij.application.options.CodeStyle;
 import com.intellij.codeEditor.printing.ExportToHTMLSettings;
-import com.intellij.codeInspection.InspectionApplication;
 import com.intellij.codeInspection.InspectionsBundle;
-import com.intellij.codeInspection.ex.GlobalInspectionContextImpl;
-import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.codeInspection.ex.ScopeToolState;
-import com.intellij.codeInspection.ex.Tools;
+import com.intellij.codeInspection.InspectionsResultUtil;
+import com.intellij.codeInspection.ex.*;
 import com.intellij.codeInspection.export.ExportToHTMLDialog;
 import com.intellij.codeInspection.export.InspectionTreeHtmlWriter;
 import com.intellij.codeInspection.ui.InspectionNode;
 import com.intellij.codeInspection.ui.InspectionResultsView;
-import com.intellij.codeInspection.ui.InspectionToolPresentation;
-import com.intellij.codeInspection.ui.InspectionTreeNode;
+import com.intellij.codeInspection.ui.InspectionTreeModel;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.PathMacroManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
@@ -32,156 +26,145 @@ import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.util.ui.tree.TreeUtil;
-import gnu.trove.THashSet;
-import org.jdom.Document;
-import org.jdom.Element;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.HashSet;
-import java.util.Set;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Map;
 
-public class ExportHTMLAction extends AnAction implements DumbAware {
+public final class ExportHTMLAction extends AnAction implements DumbAware {
+  private static final Logger LOG = Logger.getInstance(ExportHTMLAction.class);
+
   private final InspectionResultsView myView;
-  @NonNls private static final String PROBLEMS = "problems";
-  @NonNls private static final String HTML = "HTML";
-  @NonNls private static final String XML = "XML";
+  private static final String HTML = "HTML";
+  private static final String XML = "XML";
 
-  public ExportHTMLAction(final InspectionResultsView view) {
-    super(InspectionsBundle.message("inspection.action.export.html"), null, AllIcons.Actions.Export);
+  public ExportHTMLAction(@NotNull InspectionResultsView view) {
+    super(InspectionsBundle.message("inspection.action.export.html"), null, AllIcons.ToolbarDecorator.Export);
+
     myView = view;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    final ListPopup popup = JBPopupFactory.getInstance().createListPopup(
-      new BaseListPopupStep<String>(InspectionsBundle.message("inspection.action.export.popup.title"), HTML, XML) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    ListPopup popup = JBPopupFactory.getInstance()
+      .createListPopup(new BaseListPopupStep<String>(InspectionsBundle.message("inspection.action.export.popup.title"), HTML, XML) {
         @Override
-        public PopupStep onChosen(final String selectedValue, final boolean finalChoice) {
+        public PopupStep<?> onChosen(String selectedValue, boolean finalChoice) {
           return doFinalStep(() -> exportHTML(Comparing.strEqual(selectedValue, HTML)));
         }
       });
     InspectionResultsView.showPopup(e, popup);
   }
 
-  private void exportHTML(final boolean exportToHTML) {
+  private void exportHTML(boolean exportToHTML) {
     ExportToHTMLDialog exportToHTMLDialog = new ExportToHTMLDialog(myView.getProject(), exportToHTML);
-    final ExportToHTMLSettings exportToHTMLSettings = ExportToHTMLSettings.getInstance(myView.getProject());
+    ExportToHTMLSettings exportToHTMLSettings = ExportToHTMLSettings.getInstance(myView.getProject());
     if (exportToHTMLSettings.OUTPUT_DIRECTORY == null) {
       exportToHTMLSettings.OUTPUT_DIRECTORY = PathManager.getHomePath() + File.separator + "inspections";
     }
+
     exportToHTMLDialog.reset();
     if (!exportToHTMLDialog.showAndGet()) {
       return;
     }
     exportToHTMLDialog.apply();
 
-    final String outputDirectoryName = exportToHTMLSettings.OUTPUT_DIRECTORY;
+    Path outputDir = Paths.get(exportToHTMLSettings.OUTPUT_DIRECTORY);
     ApplicationManager.getApplication().invokeLater(() -> {
-      final Runnable exportRunnable = () -> ApplicationManager.getApplication().runReadAction(() -> {
-        if (!exportToHTML) {
-          dump2xml(outputDirectoryName);
-        }
-        else {
-          try {
-            new InspectionTreeHtmlWriter(myView, outputDirectoryName);
+      ThrowableComputable<Void, IOException> exportRunnable = () -> {
+        ApplicationManager.getApplication().runReadAction((ThrowableComputable<Void, IOException>)() -> {
+          if (myView.isDisposed()) {
+            return null;
           }
-          catch (ProcessCanceledException e) {
-            // Do nothing here.
-          }
-        }
-      });
 
-      if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(exportRunnable,
-                                                                             InspectionsBundle.message(exportToHTML
-                                                                                                       ? "inspection.generating.html.progress.title"
-                                                                                                       : "inspection.generating.xml.progress.title"), true,
-                                                                             myView.getProject())) {
+          if (exportToHTML) {
+            new InspectionTreeHtmlWriter(myView, outputDir);
+          }
+          else {
+            dumpToXml(outputDir, myView);
+          }
+          return null;
+        });
+        return null;
+      };
+
+      try {
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(exportRunnable,
+                                                                          InspectionsBundle.message(exportToHTML
+                                                                                                    ? "inspection.generating.html.progress.title"
+                                                                                                    : "inspection.generating.xml.progress.title"),
+                                                                          true,
+                                                                          myView.getProject());
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
+      }
+      catch (Exception e) {
+        LOG.error(e);
+        ApplicationManager.getApplication().invokeLater(() -> Messages.showErrorDialog(myView, e.getMessage()));
         return;
       }
 
       if (exportToHTML && exportToHTMLSettings.OPEN_IN_BROWSER) {
-        BrowserUtil.browse(new File(exportToHTMLSettings.OUTPUT_DIRECTORY, "index.html"));
+        BrowserUtil.browse(outputDir.resolve("index.html").toFile());
       }
-    });
+    }, myView.getProject().getDisposed());
   }
 
-  private void dump2xml(final String outputDirectoryName) {
-    try {
-      final File outputDir = new File(outputDirectoryName);
-      if (!outputDir.exists() && !outputDir.mkdirs()) {
-        throw new IOException("Cannot create \'" + outputDir + "\'");
-      }
-      final InspectionTreeNode root = myView.getTree().getRoot();
-      final IOException[] ex = new IOException[1];
-
-      final Set<InspectionToolWrapper> visitedWrappers = new THashSet<>();
-      TreeUtil.treeNodeTraverser(root).traverse().processEach(node -> {
-        if (node instanceof InspectionNode) {
-          InspectionNode toolNode = (InspectionNode)node;
-          Element problems = new Element(PROBLEMS);
-          InspectionToolWrapper toolWrapper = toolNode.getToolWrapper();
-          if (!visitedWrappers.add(toolWrapper)) return true;
-
-          final Set<InspectionToolWrapper> toolWrappers = getWorkedTools(toolNode);
-          for (InspectionToolWrapper wrapper : toolWrappers) {
-            InspectionToolPresentation presentation = myView.getGlobalInspectionContext().getPresentation(wrapper);
-            if (!toolNode.isExcluded()) {
-              presentation.exportResults(problems, presentation::isExcluded, presentation::isExcluded);
-            }
-          }
-          PathMacroManager.getInstance(myView.getProject()).collapsePaths(problems);
-          try {
-            if (problems.getContentSize() != 0) {
-              JDOMUtil.writeDocument(new Document(problems),
-                                     outputDirectoryName + File.separator + toolWrapper.getShortName() + InspectionApplication.XML_EXTENSION,
-                                     CodeStyle.getDefaultSettings().getLineSeparator());
-            }
-          }
-          catch (IOException e) {
-            ex[0] = e;
-          }
-        }
-        return true;
-      });
-      if (ex[0] != null) {
-        throw ex[0];
-      }
-      final Element element = new Element(InspectionApplication.INSPECTIONS_NODE);
-      final String profileName = myView.getCurrentProfileName();
-      if (profileName != null) {
-        element.setAttribute(InspectionApplication.PROFILE, profileName);
-      }
-      JDOMUtil.write(element,
-                     new File(outputDirectoryName, InspectionApplication.DESCRIPTIONS + InspectionApplication.XML_EXTENSION),
-                     CodeStyle.getDefaultSettings().getLineSeparator());
-    }
-    catch (IOException e) {
-      ApplicationManager.getApplication().invokeLater(() -> Messages.showErrorDialog(myView, e.getMessage()));
-    }
+  /**
+   * @deprecated Use {@link #dumpToXml}
+   */
+  @Deprecated
+  public static void dump2xml(@NotNull Path outputDirectory, @NotNull InspectionResultsView view) throws IOException {
+    dumpToXml(outputDirectory, view);
   }
+
+  public static void dumpToXml(@NotNull Path outputDirectory, @NotNull InspectionResultsView view) throws IOException {
+    InspectionProfileImpl profile = view.getCurrentProfile();
+    String singleTool = profile.getSingleTool();
+    MultiMap<String, InspectionToolWrapper<?, ?>> shortName2Wrapper = new MultiMap<>();
+    if (singleTool != null) {
+      shortName2Wrapper.put(singleTool, getWrappersForAllScopes(singleTool, view));
+    }
+    else {
+      InspectionTreeModel model = view.getTree().getInspectionTreeModel();
+      model
+        .traverse(model.getRoot())
+        .filter(InspectionNode.class)
+        .filter(n -> !n.isExcluded())
+        .map(InspectionNode::getToolWrapper)
+        .forEach(w -> shortName2Wrapper.putValue(w.getShortName(), w));
+    }
+
+    for (Map.Entry<String, Collection<InspectionToolWrapper<?, ?>>> entry : shortName2Wrapper.entrySet()) {
+      String shortName = entry.getKey();
+      Collection<InspectionToolWrapper<?, ?>> wrappers = entry.getValue();
+      InspectionsResultUtil.writeInspectionResult(view.getProject(), shortName, wrappers, outputDirectory, (wrapper -> view.getGlobalInspectionContext().getPresentation(wrapper)));
+    }
+
+    InspectionsResultUtil.writeProfileName(outputDirectory, profile.getName());
+  }
+
 
   @NotNull
-  private Set<InspectionToolWrapper> getWorkedTools(@NotNull InspectionNode node) {
-    final Set<InspectionToolWrapper> result = new HashSet<>();
-    final InspectionToolWrapper wrapper = node.getToolWrapper();
-    if (myView.getCurrentProfileName() == null){
-      result.add(wrapper);
-      return result;
+  private static Collection<InspectionToolWrapper<?, ?>> getWrappersForAllScopes(@NotNull String shortName,
+                                                                           @NotNull InspectionResultsView view) {
+    GlobalInspectionContextImpl context = view.getGlobalInspectionContext();
+    Tools tools = context.getTools().get(shortName);
+    if (tools != null) {
+      return ContainerUtil.map(tools.getTools(), ScopeToolState::getTool);
     }
-    final String shortName = wrapper.getShortName();
-    final GlobalInspectionContextImpl context = myView.getGlobalInspectionContext();
-    final Tools tools = context.getTools().get(shortName);
-    if (tools != null) {   //dummy entry points tool
-      for (ScopeToolState state : tools.getTools()) {
-        InspectionToolWrapper toolWrapper = state.getTool();
-        result.add(toolWrapper);
-      }
+    else {
+      //dummy entry points tool
+      return Collections.emptyList();
     }
-    return result;
   }
 }

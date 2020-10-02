@@ -22,12 +22,16 @@ import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 6/13/13 7:37 PM
  */
-public abstract class ExternalSystemSettingsListenerAdapter<S extends ExternalProjectSettings> implements ExternalSystemSettingsListener<S> {
+public abstract class ExternalSystemSettingsListenerAdapter<S extends ExternalProjectSettings>
+  implements ExternalSystemSettingsListener<S> {
 
   @Override
   public void onProjectRenamed(@NotNull String oldName, @NotNull String newName) {
+  }
+
+  @Override
+  public void onProjectsLoaded(@NotNull Collection<S> settings) {
   }
 
   @Override
@@ -36,10 +40,6 @@ public abstract class ExternalSystemSettingsListenerAdapter<S extends ExternalPr
 
   @Override
   public void onProjectsUnlinked(@NotNull Set<String> linkedProjectPaths) {
-  }
-
-  @Override
-  public void onUseAutoImportChange(boolean currentValue, @NotNull String linkedProjectPath) {
   }
 
   @Override

@@ -54,7 +54,7 @@ public class ControlFlowSubRange implements ControlFlow {
         }
         if (instruction instanceof ReturnInstruction) {
           final ReturnInstruction returnInstruction = (ReturnInstruction)instruction;
-          CallInstruction callInstruction = new CallInstruction(patchOffset(returnInstruction.getProcBegin()), patchOffset(returnInstruction.getProcEnd()), returnInstruction.getStack());
+          CallInstruction callInstruction = new CallInstruction(patchOffset(returnInstruction.getProcBegin()), patchOffset(returnInstruction.getProcEnd()));
           returnInstruction.setCallInstruction(callInstruction);
         }
         list.add(instruction);
@@ -110,10 +110,7 @@ public class ControlFlowSubRange implements ControlFlow {
     final List<Instruction> instructions = getInstructions();
     for(int i = 0; i < instructions.size(); i++){
       Instruction instruction = instructions.get(i);
-      buffer.append(Integer.toString(i));
-      buffer.append(": ");
-      buffer.append(instruction.toString());
-      buffer.append("\n");
+      buffer.append(i).append(": ").append(instruction.toString()).append("\n");
     }
     return buffer.toString();
   }

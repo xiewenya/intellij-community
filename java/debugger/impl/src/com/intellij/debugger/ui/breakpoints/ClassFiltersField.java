@@ -1,19 +1,17 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.classFilter.ClassFilter;
 import one.util.streamex.StreamEx;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 
-/**
- * @author egor
- */
 public class ClassFiltersField extends TextFieldWithBrowseButton {
   private ClassFilter[] myClassFilters = ClassFilter.EMPTY_ARRAY;
   private ClassFilter[] myClassExclusionFilters = ClassFilter.EMPTY_ARRAY;
@@ -22,7 +20,7 @@ public class ClassFiltersField extends TextFieldWithBrowseButton {
     super(null, parent);
     addActionListener(e -> {
                         reloadFilters();
-                        EditClassFiltersDialog dialog = new EditClassFiltersDialog(project);
+                        EditClassFiltersDialog dialog = createEditDialog(project);
                         dialog.setFilters(myClassFilters, myClassExclusionFilters);
                         dialog.show();
                         if (dialog.getExitCode() == DialogWrapper.OK_EXIT_CODE) {
@@ -32,6 +30,10 @@ public class ClassFiltersField extends TextFieldWithBrowseButton {
                         }
                       }
     );
+  }
+
+  protected EditClassFiltersDialog createEditDialog(Project project) {
+    return new EditClassFiltersDialog(project);
   }
 
   public void setClassFilters(ClassFilter[] includeFilters, ClassFilter[] excludeFilters) {
@@ -82,11 +84,12 @@ public class ClassFiltersField extends TextFieldWithBrowseButton {
   }
 
   private void updateEditor() {
-    String enabledStr = StreamEx.of(myClassFilters).filter(ClassFilter::isEnabled).map(ClassFilter::getPattern).joining(" ");
-    String disabledStr = StreamEx.of(myClassExclusionFilters).filter(ClassFilter::isEnabled).map(f -> "-" + f.getPattern()).joining(" ");
-    if (!enabledStr.isEmpty() && !disabledStr.isEmpty()) {
-      enabledStr += " ";
-    }
-    setText(enabledStr + disabledStr);
+    setText(getFiltersPresentation());
+  }
+
+  private @NlsSafe String getFiltersPresentation() {
+    return StreamEx.of(myClassExclusionFilters).filter(ClassFilter::isEnabled).map(f -> "-" + f.getPattern())
+      .prepend(StreamEx.of(myClassFilters).filter(ClassFilter::isEnabled).map(ClassFilter::getPattern))
+      .joining(" ");
   }
 }

@@ -1,32 +1,32 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.LafManager;
+import com.intellij.ide.ui.UITheme;
 import com.intellij.ide.ui.laf.LafManagerImpl;
+import com.intellij.ide.ui.laf.UIThemeBasedLookAndFeelInfo;
 import com.intellij.ide.ui.laf.darcula.DarculaInstaller;
 import com.intellij.ide.ui.laf.darcula.DarculaLookAndFeelInfo;
-import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.options.SchemeManager;
+import com.intellij.openapi.options.Scheme;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.ColorUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-/**
- * @author max
- */
 public class QuickChangeColorSchemeAction extends QuickSwitchSchemeAction {
   @Override
   protected void fillActions(Project project, @NotNull DefaultActionGroup group, @NotNull DataContext dataContext) {
@@ -40,62 +40,71 @@ public class QuickChangeColorSchemeAction extends QuickSwitchSchemeAction {
                                 final EditorColorsScheme current,
                                 final EditorColorsScheme scheme,
                                 final boolean addScheme) {
-    group.add(new DumbAwareAction(SchemeManager.getDisplayName(scheme), "", scheme == current ? ourCurrentAction : ourNotCurrentAction) {
+    group.add(new DumbAwareAction(scheme.getDisplayName(), "", scheme == current ? AllIcons.Actions.Forward : ourNotCurrentAction) {
       @Override
-      public void actionPerformed(@Nullable AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         if (addScheme) {
           EditorColorsManager.getInstance().addColorsScheme(scheme);
         }
         EditorColorsManager.getInstance().setGlobalScheme(scheme);
-        changeLafIfNecessary(ColorUtil.isDark(scheme.getDefaultBackground()));
+        changeLafIfNecessary(scheme);
       }
     });
   }
 
-  public static void changeLafIfNecessary(boolean isDarkEditorTheme) {
-    String propKey = "change.laf.on.editor.theme.change";
-    String value = PropertiesComponent.getInstance().getValue(propKey);
-    if ("false".equals(value)) return;
-    boolean applyAlways = "true".equals(value);
-    DialogWrapper.DoNotAskOption doNotAskOption = new DialogWrapper.DoNotAskOption.Adapter() {
-      @Override
-      public void rememberChoice(boolean isSelected, int exitCode) {
-        if (isSelected) {
-          PropertiesComponent.getInstance().setValue(propKey, Boolean.toString(exitCode == Messages.YES));
-        }
-      }
+  public static void changeLafIfNecessary(EditorColorsScheme scheme) {
+    changeLafIfNecessary(scheme, null);
+  }
 
-      @Override
-      public boolean shouldSaveOptionsOnCancel() {
-        return true;
-      }
-    };
-
+  public static void changeLafIfNecessary(EditorColorsScheme scheme, @Nullable Runnable onDone) {
     final String productName = ApplicationNamesInfo.getInstance().getFullProductName();
     final LafManager lafManager = LafManager.getInstance();
-    if (isDarkEditorTheme && !UIUtil.isUnderDarcula()) {
-      if (applyAlways || Messages.showYesNoDialog(
-        "Looks like you have set a dark editor theme. Would you like to set dark theme for entire " + productName,
-        "Change " + productName + " theme", Messages.YES_BUTTON, Messages.NO_BUTTON,
-        Messages.getQuestionIcon(), doNotAskOption) == Messages.YES) {
-        lafManager.setCurrentLookAndFeel(new DarculaLookAndFeelInfo());
+    boolean isDarkEditorTheme = ColorUtil.isDark(scheme.getDefaultBackground());
+
+    UIManager.LookAndFeelInfo suitableLaf = null;
+    String schemeName = Scheme.getBaseName(scheme.getName());
+    for (UIManager.LookAndFeelInfo laf : lafManager.getInstalledLookAndFeels()) {
+      if (laf instanceof UIThemeBasedLookAndFeelInfo &&
+               schemeName.equals(((UIThemeBasedLookAndFeelInfo)laf).getTheme().getEditorSchemeName())) {
+        suitableLaf = laf;
+        break;
+      }
+    }
+
+    UIManager.LookAndFeelInfo currentLafInfo = lafManager.getCurrentLookAndFeel();
+    UITheme theme = currentLafInfo instanceof UIThemeBasedLookAndFeelInfo ?
+                      ((UIThemeBasedLookAndFeelInfo)currentLafInfo).getTheme() : null;
+
+    if (isDarkEditorTheme &&
+        (UIUtil.isUnderIntelliJLaF() || theme != null && !theme.isDark())) {
+      if (/*applyAlways ||*/ Messages.showYesNoDialog(
+        ApplicationBundle.message("color.scheme.theme.change.confirmation", "dark", productName),
+        ApplicationBundle.message("color.scheme.theme.change.confirmation.title", productName),
+        Messages.getYesButton(), Messages.getNoButton(),
+        Messages.getQuestionIcon()/*, doNotAskOption*/) == Messages.YES) {
+
+        lafManager.setCurrentLookAndFeel(suitableLaf != null ? suitableLaf : new DarculaLookAndFeelInfo(), true);
         lafManager.updateUI();
-        //noinspection SSBasedInspection
         SwingUtilities.invokeLater(DarculaInstaller::install);
       }
-    } else if (!isDarkEditorTheme && UIUtil.isUnderDarcula()) {
-
+    } else if (!isDarkEditorTheme &&
+               (StartupUiUtil.isUnderDarcula() || theme != null && theme.isDark())) {
       if (lafManager instanceof LafManagerImpl
           &&
-          (applyAlways || Messages.showYesNoDialog(
-            "Looks like you have set a bright editor theme. Would you like to set bright theme for entire " + productName,
-            "Change " + productName + " theme", Messages.YES_BUTTON, Messages.NO_BUTTON,
-            Messages.getQuestionIcon(), doNotAskOption) == Messages.YES)) {
-        lafManager.setCurrentLookAndFeel(((LafManagerImpl)lafManager).getDefaultLaf());
+          (/*applyAlways ||*/ Messages.showYesNoDialog(
+            ApplicationBundle.message("color.scheme.theme.change.confirmation", "bright", productName),
+            ApplicationBundle.message("color.scheme.theme.change.confirmation.title", productName),
+            Messages.getYesButton(), Messages.getNoButton(),
+            Messages.getQuestionIcon()/*, doNotAskOption*/) == Messages.YES)) {
+
+        lafManager.setCurrentLookAndFeel(suitableLaf != null ? suitableLaf : ((LafManagerImpl)lafManager).getDefaultLaf(), true);
         lafManager.updateUI();
-        //noinspection SSBasedInspection
         SwingUtilities.invokeLater(DarculaInstaller::uninstall);
       }
+    }
+
+    if (onDone != null) {
+      SwingUtilities.invokeLater(onDone);
     }
   }
 

@@ -1,11 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.command.impl;
 
-import com.intellij.CommonBundle;
+import com.intellij.diagnostic.Dumpable;
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.undo.DocumentReference;
@@ -18,14 +17,14 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-class UndoableGroup {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.command.impl.UndoableGroup");
+final class UndoableGroup implements Dumpable {
+  private static final Logger LOG = Logger.getInstance(UndoableGroup.class);
+  private static final int BULK_MODE_ACTION_THRESHOLD = 50;
 
   private final String myCommandName;
   private final boolean myGlobal;
@@ -40,7 +39,7 @@ class UndoableGroup {
 
   private boolean myValid;
 
-  public UndoableGroup(String commandName,
+  UndoableGroup(String commandName,
                        boolean isGlobal,
                        UndoManagerImpl manager,
                        EditorAndState stateBefore,
@@ -101,9 +100,12 @@ class UndoableGroup {
   }
 
   private void undoOrRedo(boolean isUndo) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Performing " + (isUndo ? "undo" : "redo") + " for " + dumpState());
+    }
     LocalHistoryAction action;
     if (myProject != null && isGlobal()) {
-      String actionName = CommonBundle.message(isUndo ? "local.vcs.action.name.undo.command" : "local.vcs.action.name.redo.command", myCommandName);
+      String actionName = IdeBundle.message(isUndo ? "undo.command" : "redo.command", myCommandName);
       action = LocalHistory.getInstance().startAction(actionName);
     }
     else {
@@ -119,45 +121,80 @@ class UndoableGroup {
   }
 
   private void doUndoOrRedo(final boolean isUndo) {
-    final boolean wrapInBulkUpdate = myActions.size() > 50;
     // perform undo action by action, setting bulk update flag if possible
     // if multiple consecutive actions share a document, then set the bulk flag only once
     final UnexpectedUndoException[] exception = {null};
     ApplicationManager.getApplication().runWriteAction(() -> {
-      final Set<DocumentEx> bulkDocuments = new THashSet<>();
       try {
-        for (final UndoableAction action : isUndo ? ContainerUtil.iterateBackward(myActions) : myActions) {
-          if (wrapInBulkUpdate) {
-            DocumentEx newDocument = getDocumentToSetBulkMode(action);
-            if (newDocument == null) {
-              for (DocumentEx document : bulkDocuments) {
-                document.setInBulkUpdate(false);
-              }
-              bulkDocuments.clear();
+        List<UndoableAction> actionsList = isUndo ? ContainerUtil.reverse(myActions) : myActions;
+        int toProcess = 0; // index of first action not yet performed
+        int toProcessInBulk = 0; // index of first action that can be executed in bulk mode
+        int actionCount = actionsList.size();
+        for (int i = 0; i < actionCount; i++) {
+          UndoableAction action = actionsList.get(i);
+          DocumentEx newDocument = getDocumentToSetBulkMode(action);
+          if (newDocument == null) {
+            if (i - toProcessInBulk > BULK_MODE_ACTION_THRESHOLD) {
+              performActions(actionsList.subList(toProcess, toProcessInBulk), isUndo, false);
+              performActions(actionsList.subList(toProcessInBulk, i), isUndo, true);
+              toProcess = i;
             }
-            else if (bulkDocuments.add(newDocument)) {
-              newDocument.setInBulkUpdate(true);
-            }
+            toProcessInBulk = i + 1;
           }
-
-          if (isUndo) {
-            action.undo();
-          }
-          else {
-            action.redo();
-          }
+        }
+        if (actionCount - toProcessInBulk > BULK_MODE_ACTION_THRESHOLD) {
+          performActions(actionsList.subList(toProcess, toProcessInBulk), isUndo, false);
+          performActions(actionsList.subList(toProcessInBulk, actionCount), isUndo, true);
+        }
+        else {
+          performActions(actionsList.subList(toProcess, actionCount), isUndo, false);
         }
       }
       catch (UnexpectedUndoException e) {
         exception[0] = e;
       }
-      finally {
-        for (DocumentEx bulkDocument : bulkDocuments) {
-          bulkDocument.setInBulkUpdate(false);
-        }
-      }
     });
     if (exception[0] != null) reportUndoProblem(exception[0], isUndo);
+  }
+
+  private static void performActions(@NotNull Collection<? extends UndoableAction> actions, boolean isUndo, boolean useBulkMode)
+    throws UnexpectedUndoException {
+    Set<DocumentEx> bulkDocuments = new HashSet<>();
+    try {
+      for (UndoableAction action : actions) {
+        if (useBulkMode) {
+          DocumentEx newDocument = getDocumentToSetBulkMode(action);
+          if (newDocument == null) {
+            for (DocumentEx document : bulkDocuments) {
+              document.setInBulkUpdate(false);
+            }
+            bulkDocuments.clear();
+          }
+          else if (bulkDocuments.add(newDocument)) {
+            newDocument.setInBulkUpdate(true);
+          }
+        }
+        if (isUndo) {
+          action.undo();
+        }
+        else {
+          action.redo();
+        }
+      }
+    }
+    finally {
+      for (DocumentEx bulkDocument : bulkDocuments) {
+        bulkDocument.setInBulkUpdate(false);
+      }
+    }
+  }
+
+  @NotNull
+  @Override
+  public String dumpState() {
+    return "UndoableGroup[project=" + myProject + ", name=" + myCommandName + ", global=" + myGlobal + ", transparent=" + myTransparent +
+           ", stamp=" + myCommandTimestamp + ", policy=" + myConfirmationPolicy + ", temporary=" + myTemporary + ", valid=" + myValid +
+           ", actions=" + myActions + ", documents=" + getAffectedDocuments() + "]";
   }
 
   private static DocumentEx getDocumentToSetBulkMode(UndoableAction action) {
@@ -250,12 +287,12 @@ class UndoableGroup {
     String message;
 
     if (isUndo) {
-      title = CommonBundle.message("cannot.undo.dialog.title");
-      message = CommonBundle.message("cannot.undo.message");
+      title = IdeBundle.message("cannot.undo.title");
+      message = IdeBundle.message("cannot.undo.message");
     }
     else {
-      title = CommonBundle.message("cannot.redo.dialog.title");
-      message = CommonBundle.message("cannot.redo.message");
+      title = IdeBundle.message("cannot.redo.title");
+      message = IdeBundle.message("cannot.redo.message");
     }
 
     if (!ApplicationManager.getApplication().isUnitTestMode()) {
@@ -275,7 +312,7 @@ class UndoableGroup {
 
   @NotNull
   public Collection<DocumentReference> getAffectedDocuments() {
-    Set<DocumentReference> result = new THashSet<>();
+    Set<DocumentReference> result = new HashSet<>();
     for (UndoableAction action : myActions) {
       DocumentReference[] refs = action.getAffectedDocuments();
       if (refs != null) Collections.addAll(result, refs);
@@ -323,7 +360,7 @@ class UndoableGroup {
     }
     return null;
   }
-  
+
   @Nullable
   public FinishMarkAction getFinishMark() {
     for (UndoableAction action : myActions) {
@@ -348,6 +385,7 @@ class UndoableGroup {
     return myValid;
   }
 
+  @Override
   public String toString() {
     StringBuilder result = new StringBuilder("UndoableGroup[");
     final boolean multiline = myActions.size() > 1;

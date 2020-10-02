@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.java19api;
 
 import com.intellij.codeInsight.daemon.impl.analysis.JavaModuleGraphUtil;
@@ -6,13 +6,14 @@ import com.intellij.codeInspection.AbstractDependencyVisitor;
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.lang.java.lexer.JavaLexer;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.impl.ApplicationImpl;
+import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.compiler.CompileScope;
 import com.intellij.openapi.compiler.CompilerManager;
@@ -32,6 +33,7 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
@@ -40,7 +42,6 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.impl.java.stubs.index.JavaModuleNameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScope;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.util.text.UniqueNameGenerator;
 import gnu.trove.THashMap;
@@ -62,11 +63,8 @@ import static com.intellij.psi.PsiJavaModule.*;
 public class Java9GenerateModuleDescriptorsAction extends AnAction {
   private static final Logger LOG = Logger.getInstance(Java9GenerateModuleDescriptorsAction.class);
 
-  private static final String TITLE = RefactoringBundle.message("generate.module.descriptors.title");
-  private static final String COMMAND_TITLE = RefactoringBundle.message("generate.module.descriptors.command.title");
-
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     e.getPresentation().setEnabled(project != null && !DumbService.isDumb(project) && isModularJdkAvailable());
   }
@@ -77,14 +75,14 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     if (project == null) return;
     CompilerManager compilerManager = CompilerManager.getInstance(project);
     CompileScope scope = compilerManager.createProjectCompileScope(project);
     if (!compilerManager.isUpToDate(scope)) {
       int result = Messages.showYesNoCancelDialog(
-        project, RefactoringBundle.message("generate.module.descriptors.rebuild.message"), TITLE, null);
+        project, JavaRefactoringBundle.message("generate.module.descriptors.rebuild.message"), getTitle(), null);
       if (result == Messages.CANCEL) {
         return;
       }
@@ -107,7 +105,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
 
   private static void generateWhenSmart(@NotNull Project project, @NotNull UniqueModuleNames uniqueModuleNames) {
     ProgressManager.getInstance().run(
-      new Task.Backgroundable(project, TITLE, true) {
+      new Task.Backgroundable(project, getTitle(), true) {
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
           THashMap<Module, List<File>> classFiles = new THashMap<>();
@@ -122,14 +120,14 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
   private static int collectClassFiles(@NotNull Project project, @NotNull Map<Module, List<File>> classFiles) {
     ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
     indicator.setIndeterminate(true);
-    indicator.setText(RefactoringBundle.message("generate.module.descriptors.scanning.message"));
+    indicator.setText(JavaRefactoringBundle.message("generate.module.descriptors.scanning.message"));
 
     Module[] modules = StreamEx.of(ModuleManager.getInstance(project).getModules())
                                .filter(module -> mayContainModuleInfo(module))
                                .toArray(Module.EMPTY_ARRAY);
     if (modules.length == 0) {
       CommonRefactoringUtil.showErrorHint(
-        project, null, RefactoringBundle.message("generate.module.descriptors.no.suitable.modules.message"), TITLE, null);
+        project, null, JavaRefactoringBundle.message("generate.module.descriptors.no.suitable.modules.message"), getTitle(), null);
       return 0;
     }
 
@@ -147,7 +145,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     }
     if (totalFiles == 0) {
       CommonRefactoringUtil.showErrorHint(
-        project, null, RefactoringBundle.message("generate.module.descriptors.build.required.message"), TITLE, null);
+        project, null, JavaRefactoringBundle.message("generate.module.descriptors.build.required.message"), getTitle(), null);
     }
     return totalFiles;
   }
@@ -158,7 +156,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     );
   }
 
-  private static void collectClassFiles(@NotNull File file, @NotNull List<File> files) {
+  private static void collectClassFiles(@NotNull File file, @NotNull List<? super File> files) {
     final File[] children = file.listFiles();
     if (children != null) { // is Directory
       for (File child : children) {
@@ -170,6 +168,14 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     }
   }
 
+  private static @NlsContexts.DialogTitle String getTitle() {
+    return JavaRefactoringBundle.message("generate.module.descriptors.title");
+  }
+
+  private static @NlsContexts.Command String getCommandTitle() {
+    return JavaRefactoringBundle.message("generate.module.descriptors.command.title");
+  }
+
   private static class ProgressTracker {
     ProgressIndicator myIndicator;
 
@@ -179,11 +185,11 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     double myUpToNow;
     private final double[] myPhases;
 
-    public ProgressTracker(double... phases) {
+    ProgressTracker(double... phases) {
       myPhases = phases;
     }
 
-    void startPhase(String text, int size) {
+    void startPhase(@NlsContexts.ProgressText String text, int size) {
       myIndicator.setText(text);
       myCount = 0;
       mySize = Math.min(size, 1);
@@ -217,7 +223,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
 
     private final ProgressTracker myProgressTracker = new ProgressTracker(0.5, 0.3, 0.2);
 
-    public DescriptorsGenerator(@NotNull Project project, @NotNull UniqueModuleNames uniqueModuleNames) {
+    DescriptorsGenerator(@NotNull Project project, @NotNull UniqueModuleNames uniqueModuleNames) {
       myProject = project;
       myUniqueModuleNames = uniqueModuleNames;
     }
@@ -226,15 +232,15 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
       myProgressTracker.init(indicator);
       List<ModuleInfo> moduleInfos;
       try {
-        myProgressTracker.startPhase(RefactoringBundle.message("generate.module.descriptors.collecting.message"), totalFiles);
+        myProgressTracker.startPhase(JavaRefactoringBundle.message("generate.module.descriptors.collecting.message"), totalFiles);
         Map<String, Set<ModuleNode>> packagesDeclaredInModules = collectDependencies(classFiles);
         myProgressTracker.nextPhase();
 
-        myProgressTracker.startPhase(RefactoringBundle.message("generate.module.descriptors.analysing.message"), myModuleNodes.size());
+        myProgressTracker.startPhase(JavaRefactoringBundle.message("generate.module.descriptors.analysing.message"), myModuleNodes.size());
         analyseDependencies(packagesDeclaredInModules);
         myProgressTracker.nextPhase();
 
-        myProgressTracker.startPhase(RefactoringBundle.message("generate.module.descriptors.preparing.message"), myModuleNodes.size());
+        myProgressTracker.startPhase(JavaRefactoringBundle.message("generate.module.descriptors.preparing.message"), myModuleNodes.size());
         moduleInfos = prepareModuleInfos();
         myProgressTracker.nextPhase();
       }
@@ -248,9 +254,9 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
       ApplicationManager.getApplication().invokeLater(() -> {
         if (!myProject.isDisposed()) {
           CommandProcessor.getInstance().executeCommand(myProject, () ->
-            ((ApplicationImpl)ApplicationManager.getApplication()).runWriteActionWithCancellableProgressInDispatchThread(
-              COMMAND_TITLE, myProject, null,
-              indicator -> createFiles(myProject, moduleInfos, indicator)), COMMAND_TITLE, null);
+            ((ApplicationEx)ApplicationManager.getApplication()).runWriteActionWithCancellableProgressInDispatchThread(
+              getCommandTitle(), myProject, null,
+              indicator -> createFiles(myProject, moduleInfos, indicator)), getCommandTitle(), null);
         }
       });
     }
@@ -408,7 +414,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     private final PsiJavaModule myDescriptor;
     private final String myName;
 
-    public ModuleNode(@NotNull Module module,
+    ModuleNode(@NotNull Module module,
                       @NotNull Set<String> declaredPackages,
                       @NotNull Set<String> requiredPackages,
                       @NotNull UniqueModuleNames uniqueModuleNames) {
@@ -428,7 +434,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
       return JavaModuleGraphUtil.findDescriptorByFile(root, module.getProject());
     }
 
-    public ModuleNode(@NotNull PsiJavaModule descriptor) {
+    ModuleNode(@NotNull PsiJavaModule descriptor) {
       myModule = ReadAction.compute(() -> ModuleUtilCore.findModuleForPsiElement(descriptor));
       myDeclaredPackages = Collections.emptySet();
       myRequiredPackages = Collections.emptySet();
@@ -519,7 +525,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     }
   }
 
-  public static class NameConverter { // "public" is for tests
+  public static final class NameConverter { // "public" is for tests
     private static final Pattern NON_NAME = Pattern.compile("[^A-Za-z0-9]");
     private static final Pattern DOT_SEQUENCE = Pattern.compile("\\.{2,}");
     private static final Pattern SINGLE_DOT = Pattern.compile("\\.");
@@ -561,8 +567,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
       return builder.toString();
     }
 
-    @NotNull
-    static String[] splitByDots(@NotNull String text) {
+    static String @NotNull [] splitByDots(@NotNull String text) {
       return SINGLE_DOT.split(text);
     }
   }
@@ -570,7 +575,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
   private static class UniqueModuleNames {
     private final UniqueNameGenerator myNameGenerator;
 
-    public UniqueModuleNames(@NotNull Project project) {
+    UniqueModuleNames(@NotNull Project project) {
       LOG.assertTrue(!DumbService.isDumb(project), "Module name index should be ready");
 
       JavaModuleNameIndex index = JavaModuleNameIndex.getInstance();
@@ -594,7 +599,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     private final Map<String, Boolean> myPackages = new THashMap<>();
     private final JavaPsiFacade myPsiFacade;
 
-    public PackageNamesCache(Project project) {
+    PackageNamesCache(Project project) {
       myPsiFacade = JavaPsiFacade.getInstance(project);
     }
 
@@ -620,7 +625,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     private final Set<String> myDeclaredPackages = new THashSet<>();
     private final PackageNamesCache myPackageNamesCache;
 
-    public ModuleVisitor(PackageNamesCache packageNamesCache) {
+    ModuleVisitor(PackageNamesCache packageNamesCache) {
       myPackageNamesCache = packageNamesCache;
     }
 
@@ -651,7 +656,7 @@ public class Java9GenerateModuleDescriptorsAction extends AnAction {
     }
   }
 
-  private static class ModuleInfo {
+  private static final class ModuleInfo {
     final PsiDirectory myRootDir;
     final String myName;
     final List<String> myRequires;

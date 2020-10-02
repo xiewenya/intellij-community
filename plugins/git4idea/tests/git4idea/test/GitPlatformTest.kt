@@ -1,74 +1,82 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.test
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.invokeAndWaitIfNeeded
+import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.Document
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vcs.AbstractVcsHelper
 import com.intellij.openapi.vcs.Executor
 import com.intellij.openapi.vcs.Executor.cd
 import com.intellij.openapi.vcs.VcsConfiguration
 import com.intellij.openapi.vcs.VcsShowConfirmationOption
+import com.intellij.openapi.vcs.changes.Change
+import com.intellij.openapi.vcs.changes.CommitContext
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager
+import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker
+import com.intellij.openapi.vcs.impl.LineStatusTrackerManager
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.RunAll
+import com.intellij.testFramework.replaceService
 import com.intellij.testFramework.vcs.AbstractVcsTestCase
 import com.intellij.util.ThrowableRunnable
+import com.intellij.util.ui.UIUtil
 import com.intellij.vcs.log.VcsFullCommitDetails
 import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcs.test.VcsPlatformTest
-import com.intellij.vcs.test.overrideService
 import git4idea.DialogManager
 import git4idea.GitUtil
 import git4idea.GitVcs
 import git4idea.commands.Git
 import git4idea.commands.GitHandler
 import git4idea.config.GitExecutableManager
+import git4idea.config.GitSaveChangesPolicy
+import git4idea.config.GitVcsApplicationSettings
 import git4idea.config.GitVcsSettings
 import git4idea.log.GitLogProvider
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import git4idea.test.GitPlatformTest.ConfigScope.GLOBAL
 import git4idea.test.GitPlatformTest.ConfigScope.SYSTEM
-import java.io.File
+import java.nio.file.Path
 
 abstract class GitPlatformTest : VcsPlatformTest() {
-
   protected lateinit var repositoryManager: GitRepositoryManager
   protected lateinit var settings: GitVcsSettings
+  protected lateinit var appSettings: GitVcsApplicationSettings
   protected lateinit var git: TestGitImpl
   protected lateinit var vcs: GitVcs
+  protected lateinit var commitContext: CommitContext
   protected lateinit var dialogManager: TestDialogManager
   protected lateinit var vcsHelper: MockVcsHelper
   protected lateinit var logProvider: GitLogProvider
 
   private lateinit var credentialHelpers: Map<ConfigScope, List<String>>
+  private var globalSslVerify: Boolean? = null
 
   @Throws(Exception::class)
   override fun setUp() {
     super.setUp()
 
     dialogManager = service<DialogManager>() as TestDialogManager
-    vcsHelper = overrideService<AbstractVcsHelper, MockVcsHelper>(project)
+    vcsHelper = MockVcsHelper(myProject)
+    project.replaceService(AbstractVcsHelper::class.java, vcsHelper, testRootDisposable)
 
     repositoryManager = GitUtil.getRepositoryManager(project)
-    git = overrideService<Git, TestGitImpl>()
+    git = TestGitImpl()
+    ApplicationManager.getApplication().replaceService(Git::class.java, git, testRootDisposable)
     vcs = GitVcs.getInstance(project)
     vcs.doActivate()
+    commitContext = CommitContext()
 
     settings = GitVcsSettings.getInstance(project)
-    settings.appSettings.setPathToGit(gitExecutable())
+    appSettings = GitVcsApplicationSettings.getInstance()
+    appSettings.setPathToGit(gitExecutable())
     GitExecutableManager.getInstance().testGitExecutableVersionValid(project)
 
     logProvider = findGitLogProvider(project)
@@ -76,17 +84,19 @@ abstract class GitPlatformTest : VcsPlatformTest() {
     assumeSupportedGitVersion(vcs)
     addSilently()
     removeSilently()
+    overrideDefaultSaveChangesPolicy()
 
     credentialHelpers = if (hasRemoteGitOperation()) readAndResetCredentialHelpers() else emptyMap()
+    globalSslVerify = if (hasRemoteGitOperation()) readAndDisableSslVerifyGlobally() else null
   }
 
-  @Throws(Exception::class)
   override fun tearDown() {
     RunAll()
       .append(ThrowableRunnable { restoreCredentialHelpers() })
-      .append(ThrowableRunnable { if (wasInit { dialogManager }) dialogManager.cleanup() })
-      .append(ThrowableRunnable { if (wasInit { git }) git.reset() })
-      .append(ThrowableRunnable { if (wasInit { settings }) settings.appSettings.setPathToGit(null) })
+      .append(ThrowableRunnable { restoreGlobalSslVerify() })
+      .append(ThrowableRunnable { if (::dialogManager.isInitialized) dialogManager.cleanup() })
+      .append(ThrowableRunnable { if (::git.isInitialized) git.reset() })
+      .append(ThrowableRunnable { if (::settings.isInitialized) settings.appSettings.setPathToGit(null) })
       .append(ThrowableRunnable { super.tearDown() })
       .run()
   }
@@ -103,14 +113,20 @@ abstract class GitPlatformTest : VcsPlatformTest() {
     return createRepository(project, rootDir)
   }
 
+  protected open fun getDefaultSaveChangesPolicy() : GitSaveChangesPolicy = GitSaveChangesPolicy.SHELVE
+
+  private fun overrideDefaultSaveChangesPolicy() {
+    settings.saveChangesPolicy = getDefaultSaveChangesPolicy()
+  }
+
   /**
    * Clones the given source repository into a bare parent.git and adds the remote origin.
    */
-  protected fun prepareRemoteRepo(source: GitRepository, target: File = File(testRoot, "parent.git")): File {
-    cd(testRoot)
-    git("clone --bare '${source.root.path}' ${target.path}")
+  protected fun prepareRemoteRepo(source: GitRepository, target: Path = testNioRoot.resolve("parent.git"), remoteName: String = "origin"): Path {
+    cd(testNioRoot)
+    git("clone --bare '${source.root.path}' $target")
     cd(source)
-    git("remote add origin '${target.path}'")
+    git("remote add $remoteName '$target'")
     return target
   }
 
@@ -129,27 +145,27 @@ abstract class GitPlatformTest : VcsPlatformTest() {
 
     val repository = createRepository(project, repoRoot)
     cd(repository)
-    git("remote add origin " + parentRepo.path)
+    git("remote add origin $parentRepo")
     git("push --set-upstream origin master:master")
 
-    Executor.cd(broRepo.path)
+    cd(broRepo)
     git("pull")
 
     return ReposTrinity(repository, parentRepo, broRepo)
   }
 
-  private fun createParentRepo(parentName: String): File {
-    Executor.cd(testRoot)
+  private fun createParentRepo(parentName: String): Path {
+    cd(testNioRoot)
     git("init --bare $parentName.git")
-    return File(testRoot, parentName + ".git")
+    return testNioRoot.resolve("$parentName.git")
   }
 
-  protected fun createBroRepo(broName: String, parentRepo: File): File {
-    Executor.cd(testRoot)
-    git("clone " + parentRepo.name + " " + broName)
+  protected fun createBroRepo(broName: String, parentRepo: Path): Path {
+    cd(testNioRoot)
+    git("clone ${parentRepo.fileName} $broName")
     cd(broName)
     setupDefaultUsername(project)
-    return File(testRoot, broName)
+    return testNioRoot.resolve(broName)
   }
 
   private fun doActionSilently(op: VcsConfiguration.StandardConfirmation) {
@@ -164,8 +180,8 @@ abstract class GitPlatformTest : VcsPlatformTest() {
     doActionSilently(VcsConfiguration.StandardConfirmation.REMOVE)
   }
 
-  protected fun installHook(gitDir: File, hookName: String, hookContent: String) {
-    val hookFile = File(gitDir, "hooks/$hookName")
+  protected fun installHook(gitDir: Path, hookName: String, hookContent: String) {
+    val hookFile = gitDir.resolve("hooks/$hookName").toFile()
     FileUtil.writeToFile(hookFile, hookContent)
     hookFile.setExecutable(true, false)
   }
@@ -177,14 +193,32 @@ abstract class GitPlatformTest : VcsPlatformTest() {
   }
 
   private fun readAndResetCredentialHelper(scope: ConfigScope): List<String> {
-    val values = git("config ${scope.param()} --get-all -z credential.helper", true).split("\u0000").filter{it.isNotBlank()}
+    val values = git("config ${scope.param()} --get-all -z credential.helper", true).split("\u0000").filter { it.isNotBlank() }
     git("config ${scope.param()} --unset-all credential.helper", true)
     return values
   }
 
   private fun restoreCredentialHelpers() {
-    credentialHelpers.forEach { scope, values ->
+    credentialHelpers.forEach { (scope, values) ->
       values.forEach { git("config --add ${scope.param()} credential.helper ${it}", true) }
+    }
+  }
+
+  private fun readAndDisableSslVerifyGlobally(): Boolean? {
+    val value = git("config --global --get-all -z http.sslVerify", true)
+        .split("\u0000")
+        .singleOrNull { it.isNotBlank() }
+        ?.toBoolean()
+    git("config --global http.sslVerify false", true)
+    return value
+  }
+
+  private fun restoreGlobalSslVerify() {
+    if (globalSslVerify != null) {
+      git("config --global http.sslVerify ${globalSslVerify}", true)
+    }
+    else {
+      git("config --global --unset http.sslVerify", true)
     }
   }
 
@@ -192,8 +226,14 @@ abstract class GitPlatformTest : VcsPlatformTest() {
 
   protected fun readDetails(hash: String) = readDetails(listOf(hash)).first()
 
+  protected fun commit(changes: Collection<Change>) {
+    val exceptions = vcs.checkinEnvironment!!.commit(changes.toList(), "comment", commitContext, mutableSetOf())
+    exceptions?.forEach { fail("Exception during executing the commit: " + it.message) }
+    updateChangeListManager()
+  }
+
   protected fun `do nothing on merge`() {
-    vcsHelper.onMerge{}
+    vcsHelper.onMerge {}
   }
 
   protected fun `mark as resolved on merge`() {
@@ -208,13 +248,54 @@ abstract class GitPlatformTest : VcsPlatformTest() {
     assertTrue("Commit dialog was not shown", vcsHelper.commitDialogWasShown())
   }
 
-  protected data class ReposTrinity(val projectRepo: GitRepository, val parent: File, val bro: File)
+  protected fun assertNoChanges() {
+    changeListManager.assertNoChanges()
+  }
 
+  protected fun assertChanges(changes: ChangesBuilder.() -> Unit): List<Change> {
+    return changeListManager.assertChanges(changes)
+  }
+
+  protected fun assertChangesWithRefresh(changes: ChangesBuilder.() -> Unit): List<Change> {
+    VcsDirtyScopeManager.getInstance(project).markEverythingDirty()
+    changeListManager.ensureUpToDate()
+    return changeListManager.assertChanges(changes)
+  }
+
+  protected data class ReposTrinity(val projectRepo: GitRepository, val parent: Path, val bro: Path)
 
   private enum class ConfigScope {
     SYSTEM,
     GLOBAL;
 
     fun param() = "--${name.toLowerCase()}"
+  }
+
+  protected fun withPartialTracker(file: VirtualFile, newContent: String? = null, task: (Document, PartialLocalLineStatusTracker) -> Unit) {
+    invokeAndWaitIfNeeded {
+      val lstm = LineStatusTrackerManager.getInstance(project) as LineStatusTrackerManager
+
+      val document = runReadAction { FileDocumentManager.getInstance().getDocument(file)!! }
+
+      if (newContent != null) {
+        runWriteAction {
+          FileDocumentManager.getInstance().getDocument(file)!!.setText(newContent)
+        }
+
+        changeListManager.waitUntilRefreshed()
+        UIUtil.dispatchAllInvocationEvents() // ensure `fileStatusesChanged` events are fired
+      }
+
+      lstm.requestTrackerFor(document, this)
+      try {
+        val tracker = lstm.getLineStatusTracker(file) as PartialLocalLineStatusTracker
+        lstm.waitUntilBaseContentsLoaded()
+
+        task(document, tracker)
+      }
+      finally {
+        lstm.releaseTrackerFor(document, this)
+      }
+    }
   }
 }

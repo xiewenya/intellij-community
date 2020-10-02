@@ -4,6 +4,7 @@ import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutio
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType;
 import com.intellij.openapi.externalSystem.service.RemoteExternalSystemFacade;
+import com.intellij.openapi.externalSystem.service.remote.RawExternalSystemProjectResolver;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProgressNotificationManager;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProjectResolver;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemTaskManager;
@@ -19,9 +20,8 @@ import java.util.Set;
  * Check service wrapper contracts for more details.
  * <p/>
  * Thread-safe.
- * 
+ *
  * @author Denis Zhdanov
- * @since 2/8/12 7:21 PM
  */
 public class ExternalSystemFacadeWrapper<S extends ExternalSystemExecutionSettings> implements RemoteExternalSystemFacade<S> {
 
@@ -60,6 +60,12 @@ public class ExternalSystemFacadeWrapper<S extends ExternalSystemExecutionSettin
   @Override
   public void applyProgressManager(@NotNull RemoteExternalSystemProgressNotificationManager progressManager) throws RemoteException {
     myDelegate.applyProgressManager(progressManager);
+  }
+
+  @NotNull
+  @Override
+  public RawExternalSystemProjectResolver<S> getRawProjectResolver() throws RemoteException {
+    return myDelegate.getRawProjectResolver();
   }
 
   @Override

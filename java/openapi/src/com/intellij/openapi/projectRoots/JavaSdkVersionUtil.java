@@ -1,19 +1,24 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class JavaSdkVersionUtil {
-  public static boolean isAtLeast(@NotNull PsiElement element, @NotNull JavaSdkVersion minVersion) {
+public final class JavaSdkVersionUtil {
+  public static boolean isAtLeast(@NotNull PsiElement element, @NotNull JavaSdkVersion expected) {
     JavaSdkVersion version = getJavaSdkVersion(element);
-    return version == null || version.isAtLeast(minVersion);
+    return version == null || version.isAtLeast(expected);
+  }
+
+  @Contract("null, _ -> false")
+  public static boolean isAtLeast(@Nullable Sdk jdk, @NotNull JavaSdkVersion expected) {
+    JavaSdkVersion actual = getJavaSdkVersion(jdk);
+    return actual != null && actual.isAtLeast(expected);
   }
 
   public static JavaSdkVersion getJavaSdkVersion(@NotNull PsiElement element) {
@@ -27,7 +32,6 @@ public class JavaSdkVersionUtil {
       if (!(sdkType instanceof JavaSdk) && sdkType instanceof SdkType) {
         sdkType = ((SdkType)sdkType).getDependencyType();
       }
-
       if (sdkType instanceof JavaSdk) {
         return ((JavaSdk)sdkType).getVersion(sdk);
       }
@@ -40,6 +44,7 @@ public class JavaSdkVersionUtil {
     JavaSdk javaSdk = JavaSdk.getInstance();
     Sdk candidate = null;
     for (Sdk sdk : ProjectJdkTable.getInstance().getSdksOfType(javaSdk)) {
+      if (!javaSdk.isValidSdkHome(sdk.getHomePath())) continue;
       JavaSdkVersion v = javaSdk.getVersion(sdk);
       if (v == version) {
         return sdk;  // exact match

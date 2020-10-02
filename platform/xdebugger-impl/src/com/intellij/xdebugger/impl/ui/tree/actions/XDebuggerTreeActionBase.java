@@ -29,12 +29,9 @@ import javax.swing.tree.TreePath;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class XDebuggerTreeActionBase extends AnAction {
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     XValueNodeImpl node = getSelectedNode(e.getDataContext());
     if (node != null) {
       String nodeName = node.getName();
@@ -47,7 +44,7 @@ public abstract class XDebuggerTreeActionBase extends AnAction {
   protected abstract void perform(final XValueNodeImpl node, @NotNull String nodeName, final AnActionEvent e);
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     XValueNodeImpl node = getSelectedNode(e.getDataContext());
     e.getPresentation().setEnabled(node != null && isEnabled(node, e));
   }

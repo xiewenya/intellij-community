@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.scopeChooser;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -6,10 +6,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentWithBrowseButton;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.packageDependencies.DependencyValidationManager;
-import com.intellij.psi.search.scope.ProblemsScope;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.PackageSet;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.components.editors.JBComboBoxTableCellEditorComponent;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,7 +50,6 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
             scope = (NamedScope)((JBComboBoxTableCellEditorComponent)component).getEditorValue();
           }
           if (scope instanceof NamedScope.UnnamedScope) {
-            @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
             final Map<String, PackageSet> unnamedScopes = DependencyValidationManager.getInstance(myProject).getUnnamedScopes();
             final EditUnnamedScopesDialog dlg = new EditUnnamedScopesDialog(scope);
             if (dlg.showAndGet()) {
@@ -69,12 +67,12 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
             }
           }
           else {
-            final EditScopesDialog dlg = EditScopesDialog.showDialog(myProject, scope.getName(), true);
+            final EditScopesDialog dlg = EditScopesDialog.showDialog(myProject, scope.getScopeId(), true);
             if (dlg.isOK()) {
               rebuild();
               final NamedScope namedScope = dlg.getSelectedScope();
               if (namedScope != null) {
-                selectScope(namedScope.getName());
+                selectScope(namedScope.getScopeId());
               }
             }
           }
@@ -85,15 +83,10 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
     }
 
     if (component instanceof JComboBox) {
-      ((JComboBox)component).setRenderer(new ListCellRendererWrapper<NamedScope>() {
-        @Override
-        public void customize(JList list, NamedScope value, int index, boolean selected, boolean hasFocus) {
-          setText(value == null ? "" : value.getName());
-        }
-      });
+      ((JComboBox<NamedScope>)component).setRenderer(SimpleListCellRenderer.create("", NamedScope::getPresentableName));
     }
     else {
-      ((JBComboBoxTableCellEditorComponent)component).setToString(o -> o == null ? "" : ((NamedScope)o).getName());
+      ((JBComboBoxTableCellEditorComponent)component).setToString(o -> o == null ? "" : ((NamedScope)o).getPresentableName());
     }
 
     rebuild();
@@ -108,7 +101,7 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
         final DefaultComboBoxModel model = (DefaultComboBoxModel)((JComboBox)component).getModel();
         for (int i = 0; i < model.getSize(); i++) {
           final NamedScope descriptor = (NamedScope)model.getElementAt(i);
-          if (preselect.equals(descriptor.getName())) {
+          if (preselect.equals(descriptor.getScopeId())) {
             ((JComboBox)component).setSelectedIndex(i);
             break;
           }
@@ -118,7 +111,7 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
         final Object[] options = ((JBComboBoxTableCellEditorComponent)component).getOptions();
         for (Object option : options) {
           final NamedScope descriptor = (NamedScope)option;
-          if (preselect.equals(descriptor.getName())) {
+          if (preselect.equals(descriptor.getScopeId())) {
             ((JBComboBoxTableCellEditorComponent)component).setDefaultValue(descriptor);
             break;
           }
@@ -144,8 +137,7 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
     for (PackageSet unnamedScope : manager.getUnnamedScopes().values()) {
       model.add(new NamedScope.UnnamedScope(unnamedScope));
     }
-    model.remove(ProblemsScope.INSTANCE);
-    return model.toArray(new NamedScope[0]);
+    return model.toArray(NamedScope.EMPTY_ARRAY);
   }
 
   @Nullable
@@ -165,7 +157,7 @@ public class PackageSetChooserCombo extends ComponentWithBrowseButton<JComponent
     private PackageSet myScope;
     private final ScopeEditorPanel myPanel;
 
-    public EditUnnamedScopesDialog(final NamedScope scope) {
+    EditUnnamedScopesDialog(final NamedScope scope) {
       super(PackageSetChooserCombo.this, false);
       myScope = scope.getValue();
       myPanel = new ScopeEditorPanel(myProject, DependencyValidationManager.getInstance(myProject));

@@ -15,13 +15,18 @@
  */
 package com.siyeh.ig.style;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
-import com.intellij.codeInspection.dataFlow.Nullness;
-import com.intellij.codeInspection.dataFlow.NullnessUtil;
+import com.intellij.codeInspection.dataFlow.NullabilityUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.resolve.graphInference.PsiPolyExpressionUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -32,15 +37,18 @@ import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.Objects;
 
 import static com.intellij.psi.CommonClassNames.*;
 import static com.siyeh.ig.callMatcher.CallMatcher.staticCall;
 
 public class UnnecessaryCallToStringValueOfInspection extends BaseInspection implements CleanupLocalInspectionTool{
-  private static final CallMatcher STATIC_TO_STRING_CONVERTERS = CallMatcher.anyOf(
+  private static final @NonNls CallMatcher STATIC_TO_STRING_CONVERTERS = CallMatcher.anyOf(
     staticCall(JAVA_LANG_STRING, "valueOf").parameterTypes("boolean"),
     staticCall(JAVA_LANG_STRING, "valueOf").parameterTypes("char"),
     staticCall(JAVA_LANG_STRING, "valueOf").parameterTypes("double"),
@@ -58,13 +66,6 @@ public class UnnecessaryCallToStringValueOfInspection extends BaseInspection imp
     staticCall(JAVA_LANG_DOUBLE, "toString").parameterTypes("double"),
     staticCall(JAVA_UTIL_OBJECTS, "toString").parameterTypes(JAVA_LANG_OBJECT)
   );
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessary.conversion.to.string.display.name");
-  }
 
   @Override
   @NotNull
@@ -102,18 +103,19 @@ public class UnnecessaryCallToStringValueOfInspection extends BaseInspection imp
     @Override
     @NotNull
     public String getName() {
-      return InspectionGadgetsBundle.message("unnecessary.call.to.string.valueof.quickfix", replacementText);
+      return CommonQuickFixBundle.message("fix.replace.with.x", replacementText);
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiMethodCallExpression call = (PsiMethodCallExpression)descriptor.getPsiElement();
+      final PsiMethodCallExpression call = ObjectUtils.tryCast(descriptor.getPsiElement(), PsiMethodCallExpression.class);
+      if (call == null) return;
       PsiExpression arg = tryUnwrapRedundantConversion(call);
       if (arg == null) return;
       CommentTracker tracker = new CommentTracker();
@@ -140,16 +142,39 @@ public class UnnecessaryCallToStringValueOfInspection extends BaseInspection imp
   @Nullable
   private static PsiExpression tryUnwrapRedundantConversion(PsiMethodCallExpression call) {
     if (!STATIC_TO_STRING_CONVERTERS.test(call)) return null;
-    final PsiExpression argument = ParenthesesUtils.stripParentheses(call.getArgumentList().getExpressions()[0]);
+    final PsiExpression argument = PsiUtil.skipParenthesizedExprDown(call.getArgumentList().getExpressions()[0]);
     if (argument == null) return null;
     PsiType argumentType = argument.getType();
-    final boolean throwable = TypeUtils.expressionHasTypeOrSubtype(argument, "java.lang.Throwable");
-    if (ExpressionUtils.isConversionToStringNecessary(call, throwable)) {
-      if (!TypeUtils.isJavaLangString(argumentType) ||
-          NullnessUtil.getExpressionNullness(argument, true) != Nullness.NOT_NULL) {
+    if (argumentType instanceof PsiPrimitiveType) {
+      PsiMethod method = call.resolveMethod();
+      assert method != null; // otherwise the matcher above won't match
+      if (!Objects.requireNonNull(method.getParameterList().getParameter(0)).getType().equals(argumentType)) {
         return null;
       }
     }
+    final boolean throwable = TypeUtils.expressionHasTypeOrSubtype(argument, "java.lang.Throwable");
+    if (ExpressionUtils.isConversionToStringNecessary(call, throwable)) {
+      if (!TypeUtils.isJavaLangString(argumentType) ||
+          NullabilityUtil.getExpressionNullability(argument, true) != Nullability.NOT_NULL) {
+        return null;
+      }
+    }
+    if (isReplacementAmbiguous(call, argument)) return null;
     return argument;
+  }
+
+  private static boolean isReplacementAmbiguous(PsiMethodCallExpression call, PsiExpression argument) {
+    if (!PsiPolyExpressionUtil.isPolyExpression(argument)) return false;
+    PsiExpressionList exprList = ObjectUtils.tryCast(ParenthesesUtils.getParentSkipParentheses(call), PsiExpressionList.class);
+    if (exprList == null) return false;
+    PsiCallExpression parentCall = ObjectUtils.tryCast(exprList.getParent(), PsiCallExpression.class);
+    if (parentCall == null) return false;
+    PsiCallExpression copy = (PsiCallExpression)parentCall.copy();
+    int argIndex = ContainerUtil.indexOf(Arrays.asList(exprList.getExpressions()), expr -> PsiUtil.skipParenthesizedExprDown(expr) == call);
+    assert argIndex >= -1;
+    PsiExpression argCopy = Objects.requireNonNull(copy.getArgumentList()).getExpressions()[argIndex];
+    argCopy.replace(argument);
+    JavaResolveResult result = copy.resolveMethodGenerics();
+    return !result.isValidResult();
   }
 }

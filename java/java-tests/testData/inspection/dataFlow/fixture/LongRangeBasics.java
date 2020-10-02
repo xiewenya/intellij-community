@@ -160,7 +160,7 @@ public class LongRangeBasics {
   public void testBitwiseAnd() {
     int state = getState() & 0xF;
     switch (state) {
-      <warning descr="Switch label 'case 24:' is unreachable">case 24:</warning>
+      case <warning descr="Switch label '24' is unreachable">24</warning>:
         System.out.println("Impossible");
     }
   }
@@ -179,5 +179,54 @@ public class LongRangeBasics {
 
   private int getState() {
     return (int)(Math.random() * 100);
+  }
+
+  String extract(String line) {
+    int i = line.lastIndexOf(' ');
+    int j = line.lastIndexOf(' ', i - 1);
+    i = (j >= 0) ? j : 0;
+    if (<warning descr="Condition 'i < 0' is always 'false'">i < 0</warning> || i == line.length() - 1){
+      throw new RuntimeException();
+    }
+    return line.substring(i + 1);
+  }
+
+  void testNPE(String s1, String s2) {
+    int code = (s1 == null ? 0 : 1) + (s2 == null ? 0 : 1);
+    if(code == 2) {
+      System.out.println(s1.trim());
+      System.out.println(s2.trim());
+    }
+    if(code == 0) {
+      System.out.println(s1.<warning descr="Method invocation 'trim' will produce 'NullPointerException'">trim</warning>());
+      System.out.println(s2.<warning descr="Method invocation 'trim' will produce 'NullPointerException'">trim</warning>());
+    }
+  }
+
+  void testLoopInitializer(List l) {
+    int count = l != null ? l.size() : 0;
+    for (int i = count - 1; i >= 0; i--) {
+      try {
+        Object o = l.get(i);
+      }
+      catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  void testLoopLong() {
+    // IDEA-196624
+    long maxCount = 3_000_000_000L;
+    for ( long xx = 0; xx < maxCount; xx += 1 ) {
+      System.out.println();
+    }
+  }
+
+  void testLoopInt() {
+    long maxCount = 3_000_000_000L;
+    for ( int xx = 0; <warning descr="Condition 'xx < maxCount' is always 'true'">xx < maxCount</warning>; xx += 1 ) {
+      System.out.println();
+    }
   }
 }

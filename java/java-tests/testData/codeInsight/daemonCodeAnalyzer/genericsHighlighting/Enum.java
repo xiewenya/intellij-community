@@ -38,6 +38,12 @@ enum Operation {
   <error descr="'valueOf(String)' is already defined in 'Operation'">void valueOf(String s)</error> {}
 }
 
+enum enumWithTypeParameterInValueOf {
+  ;
+
+  <error descr="'valueOf(String)' clashes with 'valueOf(String)'; both methods have same erasure"><error descr="'valueOf(String)' is already defined in 'enumWithTypeParameterInValueOf'">static <T> void valueOf(String s)</error></error> {}
+}
+
 <error descr="There is no default constructor available in 'Operation'">class exte extends <error descr="Cannot inherit from enum 'Operation'">Operation</error></error> {
 }
 
@@ -117,6 +123,8 @@ class X extends <error descr="Classes cannot directly extend 'java.lang.Enum'">E
     public X(String name, int ordinal) {
         super(name, ordinal);
     }
+
+    Enum e = new <error descr="Classes cannot directly extend 'java.lang.Enum'">Enum</error>("", 0) {};
 }
 
 enum StaticInEnumConstantInitializer {
@@ -137,7 +145,7 @@ interface Barz {
 ///////////////////////
 class sss {
  void f() {
-   <error descr="Enum must not be local">enum EEEE</error> { EE, YY };
+   <error descr="Local enums are not supported at language level '5'">enum</error> EEEE { EE, YY };
  }
 }
 
@@ -208,4 +216,11 @@ class NestedEnums {
       <error descr="Inner classes cannot have static declarations">enum E2</error> { }
     };
   }
+}
+
+enum EnumWithoutExpectedArguments {
+  <error descr="'EnumWithoutExpectedArguments(int)' in 'EnumWithoutExpectedArguments' cannot be applied to '()'">ONE</error>, //comment
+  <error descr="'EnumWithoutExpectedArguments(int)' in 'EnumWithoutExpectedArguments' cannot be applied to '()'">TWO</error>
+  ;
+  EnumWithoutExpectedArguments(int a) {}
 }

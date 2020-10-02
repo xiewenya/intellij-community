@@ -16,13 +16,15 @@
 package com.siyeh.ig.performance;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class ObjectInstantiationInEqualsHashCodeInspectionTest extends LightInspectionTestCase {
+public class ObjectInstantiationInEqualsHashCodeInspectionTest extends LightJavaInspectionTestCase {
 
   public void testObjectInstantiationInEqualsHashCode() {
     doTest();
@@ -32,5 +34,11 @@ public class ObjectInstantiationInEqualsHashCodeInspectionTest extends LightInsp
   @Override
   protected InspectionProfileEntry getInspection() {
     return new ObjectInstantiationInEqualsHashCodeInspection();
+  }
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_9;
   }
 }

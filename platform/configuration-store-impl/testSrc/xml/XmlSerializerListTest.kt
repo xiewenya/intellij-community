@@ -1,10 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore.xml
 
+import com.intellij.openapi.components.BaseState
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.util.xmlb.annotations.XCollection
 import org.junit.Test
+import java.util.*
 
 class XmlSerializerListTest {
   @Test
@@ -19,6 +21,46 @@ class XmlSerializerListTest {
     check(bean) {
       bean.values = it
     }
+  }
+
+  @Test
+  fun `empty list`() {
+    @Tag("bean")
+    class Bean {
+      @JvmField
+      var values = emptyList<String>()
+    }
+
+    val data = Bean()
+    data.values = listOf("foo")
+    testSerializer("""
+    <bean>
+      <option name="values">
+        <list>
+          <option value="foo" />
+        </list>
+      </option>
+    </bean>""", data)
+  }
+
+  @Test
+  fun `empty java list`() {
+    @Tag("bean")
+    class Bean {
+      @JvmField
+      var values = Collections.emptyList<String>()
+    }
+
+    val data = Bean()
+    data.values = listOf("foo")
+    testSerializer("""
+    <bean>
+      <option name="values">
+        <list>
+          <option value="foo" />
+        </list>
+      </option>
+    </bean>""", data)
   }
 
   @Test
@@ -64,6 +106,36 @@ class XmlSerializerListTest {
     }
   }
 
+  private data class SpecSource(var pathOrUrl: String? = null)
+
+  @Test
+  fun `final property and style v2`() {
+    @Tag("bean")
+    class Bean : BaseState() {
+      @get:XCollection(style = XCollection.Style.v2)
+      val specSources by list<SpecSource>()
+    }
+
+    val bean = Bean()
+
+    testSerializer("""<bean />""", bean)
+
+    bean.specSources.clear()
+    bean.specSources.addAll(listOf(SpecSource("foo"), SpecSource("bar")))
+
+    testSerializer("""
+      <bean>
+        <specSources>
+          <SpecSource>
+            <option name="pathOrUrl" value="foo" />
+          </SpecSource>
+          <SpecSource>
+            <option name="pathOrUrl" value="bar" />
+          </SpecSource>
+        </specSources>
+      </bean>""", bean)
+  }
+
   @Test
   fun finalPropertyWithoutWrapping() {
     @Tag("bean")
@@ -83,7 +155,7 @@ class XmlSerializerListTest {
     </bean>""", bean)
 
     bean.values.clear()
-    bean.values.addAll(arrayListOf("1", "2", "3"))
+    bean.values.addAll(listOf("1", "2", "3"))
 
     testSerializer("""
     <bean>

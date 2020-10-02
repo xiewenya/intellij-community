@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.jps.incremental.artifacts.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
@@ -33,8 +18,10 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.builders.BuildOutputConsumer;
+import org.jetbrains.jps.builders.JpsBuildBundle;
 import org.jetbrains.jps.builders.logging.ProjectBuilderLogger;
 import org.jetbrains.jps.incremental.CompileContext;
+import org.jetbrains.jps.incremental.FSOperations;
 import org.jetbrains.jps.incremental.ProjectBuildException;
 import org.jetbrains.jps.incremental.artifacts.ArtifactOutputToSourceMapping;
 import org.jetbrains.jps.incremental.artifacts.IncArtifactBuilder;
@@ -45,17 +32,15 @@ import org.jetbrains.jps.incremental.messages.ProgressMessage;
 
 import java.io.*;
 import java.util.*;
+import java.util.jar.Attributes;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/**
- * @author nik
- */
 public class JarsBuilder {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.impl.packagingCompiler.JarsBuilder");
+  private static final Logger LOG = Logger.getInstance(JarsBuilder.class);
   private final Set<JarInfo> myJarsToBuild;
   private final CompileContext myContext;
   private Map<JarInfo, File> myBuiltJars;
@@ -75,7 +60,7 @@ public class JarsBuilder {
   }
 
   public boolean buildJars() throws IOException, ProjectBuildException {
-    myContext.processMessage(new ProgressMessage("Building archives..."));
+    myContext.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.building.archives")));
 
     final JarInfo[] sortedJars = sortJars();
     if (sortedJars == null) {
@@ -89,7 +74,7 @@ public class JarsBuilder {
         buildJar(jar);
       }
 
-      myContext.processMessage(new ProgressMessage("Copying archives..."));
+      myContext.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.copying.archives")));
       copyJars();
     }
     finally {
@@ -118,14 +103,13 @@ public class JarsBuilder {
     }
   }
 
-  @Nullable
-  private JarInfo[] sortJars() {
+  private JarInfo @Nullable [] sortJars() {
     final DFSTBuilder<JarInfo> builder = new DFSTBuilder<>(GraphGenerator.generate(CachingSemiGraph.cache(new JarsGraph())));
     if (!builder.isAcyclic()) {
       final Pair<JarInfo, JarInfo> dependency = builder.getCircularDependency();
-      String message = "Cannot build: circular dependency found between '" + dependency.getFirst().getPresentableDestination() +
-                       "' and '" + dependency.getSecond().getPresentableDestination() + "'";
-      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.BUILDER_NAME, BuildMessage.Kind.ERROR, message));
+      String message = JpsBuildBundle.message("build.message.cannot.build.circular.dependency.found.between.0.and.1", dependency.getFirst().getPresentableDestination(),
+                                              dependency.getSecond().getPresentableDestination());
+      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.ERROR, message));
       return null;
     }
 
@@ -136,20 +120,28 @@ public class JarsBuilder {
   }
 
   private void buildJar(final JarInfo jar) throws IOException {
-    final String emptyArchiveMessage = "Archive '" + jar.getPresentableDestination() + "' doesn't contain files so it won't be created";
+    final String emptyArchiveMessage =
+      JpsBuildBundle.message("build.message.archive.0.doesn.t.contain.files.so.it.won.t.be.created", jar.getPresentableDestination());
     if (jar.getContent().isEmpty()) {
-      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.BUILDER_NAME, BuildMessage.Kind.WARNING, emptyArchiveMessage));
+      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.WARNING, emptyArchiveMessage));
       return;
     }
 
-    myContext.processMessage(new ProgressMessage("Building " + jar.getPresentableDestination() + "..."));
+    myContext.processMessage(new ProgressMessage(JpsBuildBundle.message("progress.message.building.jar.0", jar.getPresentableDestination())));
     File jarFile = FileUtil.createTempFile("artifactCompiler", "tmp");
     myBuiltJars.put(jar, jarFile);
 
     FileUtil.createParentDirs(jarFile);
     final String targetJarPath = jar.getDestination().getOutputFilePath();
     List<String> packedFilePaths = new ArrayList<>();
-    Manifest manifest = loadManifest(jar, packedFilePaths);
+    Pair<Manifest, File> manifestData = loadManifest(jar, packedFilePaths);
+    Manifest manifest = manifestData != null ? manifestData.first : null;
+    if (manifest != null && manifest.getMainAttributes().getValue(Attributes.Name.MANIFEST_VERSION) == null &&
+        manifest.getMainAttributes().getValue(Attributes.Name.SIGNATURE_VERSION) == null && !manifest.getMainAttributes().isEmpty()) {
+      String messageText = JpsBuildBundle.message("build.message.manifest.file.0.included.into.archive.does.not.contain.required.attribute", manifestData.second,
+                                                  jar.getPresentableDestination(), Attributes.Name.MANIFEST_VERSION);
+      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.WARNING, messageText));
+    }
     final JarOutputStream jarOutputStream = createJarOutputStream(jarFile, manifest);
 
     final THashSet<String> writtenPaths = new THashSet<>();
@@ -188,13 +180,13 @@ public class JarsBuilder {
       }
 
       if (writtenPaths.isEmpty()) {
-        myContext.processMessage(new CompilerMessage(IncArtifactBuilder.BUILDER_NAME, BuildMessage.Kind.WARNING, emptyArchiveMessage));
+        myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.WARNING, emptyArchiveMessage));
         return;
       }
 
       final ProjectBuilderLogger logger = myContext.getLoggingManager().getProjectBuilderLogger();
       if (logger.isEnabled()) {
-        logger.logCompiledPaths(packedFilePaths, IncArtifactBuilder.BUILDER_NAME, "Packing files:");
+        logger.logCompiledPaths(packedFilePaths, IncArtifactBuilder.BUILDER_ID, "Packing files:");
       }
       myOutputConsumer.registerOutputFile(new File(targetJarPath), packedFilePaths);
 
@@ -210,7 +202,14 @@ public class JarsBuilder {
         myBuiltJars.remove(jar);
       }
       else {
-        jarOutputStream.close();
+        try {
+          jarOutputStream.close();
+        }
+        catch (IOException e) {
+          String messageText = JpsBuildBundle.message("build.message.cannot.create.0.1", jar.getPresentableDestination(), e.getMessage());
+          myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.ERROR, messageText));
+          LOG.debug(e);
+        }
       }
     }
   }
@@ -224,7 +223,7 @@ public class JarsBuilder {
   }
 
   @Nullable
-  private Manifest loadManifest(JarInfo jar, List<String> packedFilePaths) throws IOException {
+  private Pair<Manifest, File> loadManifest(JarInfo jar, List<? super String> packedFilePaths) throws IOException {
     for (Pair<String, Object> pair : jar.getContent()) {
       if (pair.getSecond() instanceof ArtifactRootDescriptor) {
         final String rootPath = pair.getFirst();
@@ -238,8 +237,9 @@ public class JarsBuilder {
           if (manifestFile.exists()) {
             final String fullManifestPath = FileUtil.toSystemIndependentName(manifestFile.getAbsolutePath());
             packedFilePaths.add(fullManifestPath);
-            //noinspection IOResourceOpenedButNotSafelyClosed
-            return createManifest(new FileInputStream(manifestFile), manifestFile);
+            try (FileInputStream stream = new FileInputStream(manifestFile)) {
+              return new Pair<>(createManifest(stream, manifestFile), manifestFile);
+            }
           }
         }
         else {
@@ -248,12 +248,14 @@ public class JarsBuilder {
             @Override
             public void process(@Nullable InputStream inputStream, @NotNull String relativePath, ZipEntry entry) throws IOException {
               if (manifestRef.isNull() && relativePath.equals(manifestPath) && inputStream != null) {
-                manifestRef.set(createManifest(inputStream, descriptor.getRootFile()));
+                try (InputStream stream = inputStream) {
+                  manifestRef.set(createManifest(stream, descriptor.getRootFile()));
+                }
               }
             }
           });
           if (!manifestRef.isNull()) {
-            return manifestRef.get();
+            return new Pair<>(manifestRef.get(), descriptor.getRootFile());
           }
         }
       }
@@ -264,25 +266,21 @@ public class JarsBuilder {
   @Nullable
   private Manifest createManifest(InputStream manifestStream, File manifestFile) {
     try {
-      try {
-        return new Manifest(manifestStream);
-      }
-      finally {
-        manifestStream.close();
-      }
+      return new Manifest(manifestStream);
     }
     catch (IOException e) {
-      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.BUILDER_NAME, BuildMessage.Kind.ERROR,
-                                                   "Cannot create MANIFEST.MF from " + manifestFile.getAbsolutePath() + ":" + e.getMessage()));
+      myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.ERROR,
+                                                   JpsBuildBundle.message("build.message.cannot.create.manifest.mf.from.0.1",
+                                                                          manifestFile.getAbsolutePath(), e.getMessage())));
       LOG.debug(e);
       return null;
     }
   }
 
-  private static void extractFileAndAddToJar(final JarOutputStream jarOutputStream, final JarBasedArtifactRootDescriptor root,
-                                             final String relativeOutputPath, final Set<String> writtenPaths)
+  private void extractFileAndAddToJar(final JarOutputStream jarOutputStream, final JarBasedArtifactRootDescriptor root,
+                                      final String relativeOutputPath, final Set<? super String> writtenPaths)
     throws IOException {
-    final long timestamp = FileSystemUtil.lastModified(root.getRootFile());
+    final long timestamp = FSOperations.lastModified(root.getRootFile());
     root.processEntries(new JarBasedArtifactRootDescriptor.EntryProcessor() {
       @Override
       public void process(@Nullable InputStream inputStream, @NotNull String relativePath, ZipEntry entry) throws IOException {
@@ -304,7 +302,16 @@ public class JarsBuilder {
           }
           jarOutputStream.putNextEntry(newEntry);
           FileUtil.copy(inputStream, jarOutputStream);
-          jarOutputStream.closeEntry();
+          try {
+            jarOutputStream.closeEntry();
+          }
+          catch (IOException e) {
+            String messageText = JpsBuildBundle.message("build.message.cannot.extract.0.from.1.while.building.2.artifact.3", pathInJar,
+                                                        root.getRootFile().getAbsolutePath(),
+                                                        root.getTarget().getArtifact().getName(), e.getMessage());
+            myContext.processMessage(new CompilerMessage(IncArtifactBuilder.getBuilderName(), BuildMessage.Kind.ERROR, messageText));
+            LOG.debug(e);
+          }
         }
       }
     });
@@ -313,7 +320,7 @@ public class JarsBuilder {
 
   private void addFileToJar(final @NotNull JarOutputStream jarOutputStream, final @NotNull File jarFile, @NotNull File file,
                             SourceFileFilter filter, @NotNull String relativePath, String targetJarPath,
-                            final @NotNull Set<String> writtenPaths, List<String> packedFilePaths, final int rootIndex) throws IOException {
+                            final @NotNull Set<? super String> writtenPaths, List<? super String> packedFilePaths, final int rootIndex) throws IOException {
     if (!file.exists() || FileUtil.isAncestor(file, jarFile, false)) {
       return;
     }
@@ -327,8 +334,8 @@ public class JarsBuilder {
                                        SourceFileFilter filter,
                                        @NotNull String relativePath,
                                        String targetJarPath,
-                                       @NotNull Set<String> writtenItemRelativePaths,
-                                       List<String> packedFilePaths,
+                                       @NotNull Set<? super String> writtenItemRelativePaths,
+                                       List<? super String> packedFilePaths,
                                        int rootIndex) throws IOException {
     final String filePath = FileUtil.toSystemIndependentName(file.getAbsolutePath());
     if (!filter.accept(filePath) || !filter.shouldBeCopied(filePath, myContext.getProjectDescriptor())) {
@@ -360,7 +367,7 @@ public class JarsBuilder {
   }
 
 
-  private static String addParentDirectories(JarOutputStream jarOutputStream, Set<String> writtenPaths, String relativePath) throws IOException {
+  private static String addParentDirectories(JarOutputStream jarOutputStream, Set<? super String> writtenPaths, String relativePath) throws IOException {
     while (StringUtil.startsWithChar(relativePath, '/')) {
       relativePath = relativePath.substring(1);
     }
@@ -375,7 +382,7 @@ public class JarsBuilder {
     return relativePath;
   }
 
-  private static void addDirectoryEntry(final ZipOutputStream output, @NonNls final String relativePath, Set<String> writtenPaths) throws IOException {
+  private static void addDirectoryEntry(final ZipOutputStream output, @NonNls final String relativePath, Set<? super String> writtenPaths) throws IOException {
     if (!writtenPaths.add(relativePath)) return;
 
     ZipEntry e = new ZipEntry(relativePath);
@@ -387,10 +394,14 @@ public class JarsBuilder {
   }
 
   private class JarsGraph implements InboundSemiGraph<JarInfo> {
+    @Override
+    @NotNull
     public Collection<JarInfo> getNodes() {
       return myJarsToBuild;
     }
 
+    @NotNull
+    @Override
     public Iterator<JarInfo> getIn(final JarInfo n) {
       Set<JarInfo> ins = new HashSet<>();
       final DestinationInfo destination = n.getDestination();

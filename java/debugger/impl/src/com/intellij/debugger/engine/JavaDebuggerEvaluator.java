@@ -1,7 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.codeInsight.CodeInsightUtil;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.UnsupportedExpressionException;
@@ -18,6 +19,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
@@ -35,9 +37,6 @@ import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author egor
- */
 public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebuggerPsiEvaluator {
   private final DebugProcessImpl myDebugProcess;
   private final JavaStackFrame myStackFrame;
@@ -74,7 +73,7 @@ public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebugg
 
           JavaDebugProcess process = myDebugProcess.getXdebugProcess();
           if (process == null) {
-            callback.errorOccurred("No debug process");
+            callback.errorOccurred(JavaDebuggerBundle.message("error.no.debug.process"));
             return;
           }
           TextWithImports text = TextWithImportsImpl.fromXExpression(expression);
@@ -82,11 +81,10 @@ public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebugg
           WatchItemDescriptor descriptor = nodeManager.getWatchItemDescriptor(null, text, null);
           EvaluationContextImpl evalContext = myStackFrame.getFrameDebuggerContext(getDebuggerContext()).createEvaluationContext();
           if (evalContext == null) {
-            callback.errorOccurred("Context is not available");
+            callback.errorOccurred(JavaDebuggerBundle.message("error.context.not.available"));
             return;
           }
           descriptor.setContext(evalContext);
-          @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
           EvaluateException exception = descriptor.getEvaluateException();
           if (exception != null && descriptor.getValue() == null) {
             callback.errorOccurred(exception.getMessage());
@@ -95,7 +93,7 @@ public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebugg
           callback.evaluated(JavaValue.create(null, descriptor, evalContext, nodeManager, true));
         }
         catch (Throwable e) {
-          callback.errorOccurred("Internal error");
+          callback.errorOccurred(JavaDebuggerBundle.message("error.internal"));
           throw e;
         }
       }
@@ -119,28 +117,30 @@ public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebugg
 
         JavaDebugProcess process = myDebugProcess.getXdebugProcess();
         if (process == null) {
-          callback.errorOccurred("No debug process");
+          callback.errorOccurred(JavaDebuggerBundle.message("error.no.debug.process"));
           return;
         }
 
         DebuggerContextImpl debuggerContext = myStackFrame.getFrameDebuggerContext(getDebuggerContext());
         EvaluationContextImpl evalContext = debuggerContext.createEvaluationContext();
         if (evalContext == null) {
-          callback.errorOccurred("Context is not available");
+          callback.errorOccurred(JavaDebuggerBundle.message("error.context.not.available"));
           return;
         }
 
         try {
           Project project = myDebugProcess.getProject();
+          Ref<TextWithImportsImpl> text = new Ref<>();
           ExpressionEvaluator evaluator = ReadAction.compute(() -> {
+            text.set(new TextWithImportsImpl(element));
             CodeFragmentFactory factory = DebuggerUtilsEx.getCodeFragmentFactory(element, null);
             try {
-              return factory.getEvaluatorBuilder().build(element, debuggerContext.getSourcePosition());
+              return factory.getEvaluatorBuilder().build(element, ContextUtil.getSourcePosition(evalContext));
             }
             catch (UnsupportedExpressionException ex) {
               PsiElement context = PositionUtil.getContextElement(debuggerContext);
               ExpressionEvaluator eval = CompilingEvaluatorImpl.create(project, context, e ->
-                factory.createCodeFragment(new TextWithImportsImpl(element), context, project));
+                factory.createCodeFragment(text.get(), context, project));
               if (eval != null) {
                 return eval;
               }
@@ -148,8 +148,7 @@ public class JavaDebuggerEvaluator extends XDebuggerEvaluator implements XDebugg
             }
           });
           Value value = evaluator.evaluate(evalContext);
-          TextWithImportsImpl text = new TextWithImportsImpl(CodeFragmentKind.EXPRESSION, "");
-          WatchItemDescriptor descriptor = new WatchItemDescriptor(project, text, value, evalContext);
+          WatchItemDescriptor descriptor = new WatchItemDescriptor(project, text.get(), value, evalContext);
           callback.evaluated(JavaValue.create(null, descriptor, evalContext, process.getNodeManager(), true));
         }
         catch (EvaluateException e) {

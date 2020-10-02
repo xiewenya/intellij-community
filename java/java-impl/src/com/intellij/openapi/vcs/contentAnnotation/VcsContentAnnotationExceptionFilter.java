@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.contentAnnotation;
 
 import com.intellij.execution.filters.ExceptionInfoCache;
@@ -29,6 +15,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.localVcs.UpToDateLineNumberProvider;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.Trinity;
@@ -46,21 +33,20 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin {
+class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin {
   private final Project myProject;
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.contentAnnotation.VcsContentAnnotationExceptionFilter");
+  private static final Logger LOG = Logger.getInstance(VcsContentAnnotationExceptionFilter.class);
   private final VcsContentAnnotationSettings mySettings;
-  private final Map<VirtualFile,VcsRevisionNumber> myRevNumbersCache;
+  private final Map<VirtualFile,VcsRevisionNumber> myRevNumbersCache = new HashMap<>();
   private final ExceptionInfoCache myCache;
 
-  public VcsContentAnnotationExceptionFilter(@NotNull GlobalSearchScope scope) {
+  VcsContentAnnotationExceptionFilter(@NotNull GlobalSearchScope scope) {
     myProject = scope.getProject();
     mySettings = VcsContentAnnotationSettings.getInstance(myProject);
-    myRevNumbersCache = new HashMap<>();
     myCache = new ExceptionInfoCache(scope);
   }
 
-  private static class MyAdditionalHighlight extends AdditionalHighlight {
+  private static final class MyAdditionalHighlight extends AdditionalHighlight {
     private MyAdditionalHighlight(int start, int end) {
       super(start, end);
     }
@@ -91,7 +77,7 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
   public void applyHeavyFilter(@NotNull final Document copiedFragment,
                                int startOffset,
                                int startLineNumber,
-                               @NotNull Consumer<AdditionalHighlight> consumer) {
+                               @NotNull Consumer<? super AdditionalHighlight> consumer) {
     VcsContentAnnotation vcsContentAnnotation = VcsContentAnnotationImpl.getInstance(myProject);
     final LocalChangesCorrector localChangesCorrector = new LocalChangesCorrector(myProject);
     Trinity<PsiClass, PsiFile, String> previousLineResult = null;
@@ -101,7 +87,7 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
       final int lineEndOffset = copiedFragment.getLineEndOffset(i);
       final ExceptionWorker worker = new ExceptionWorker(myCache);
       final String lineText = copiedFragment.getText(new TextRange(lineStartOffset, lineEndOffset));
-      if (ReadAction.compute(() -> worker.execute(lineText, lineEndOffset)) != null) {
+      if (ReadAction.compute(() -> DumbService.isDumb(myProject) ? null : worker.execute(lineText, lineEndOffset)) != null) {
         VirtualFile vf = worker.getFile().getVirtualFile();
         if (vf.getFileSystem().isReadOnly()) continue;
 
@@ -110,7 +96,8 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
           recentChangeRevision = vcsContentAnnotation.fileRecentlyChanged(vf);
           if (recentChangeRevision == null) {
             myRevNumbersCache.put(vf, VcsRevisionNumber.NULL);
-          } else {
+          }
+          else {
             myRevNumbersCache.put(vf, recentChangeRevision);
           }
         }
@@ -127,9 +114,9 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
           final Document document = getDocumentForFile(worker);
           if (document == null) return;
 
-          int startFileOffset = worker.getInfo().getThird().getStartOffset();
+          int startFileOffset = worker.getInfo().fileLineRange.getStartOffset();
           int idx = lineText.indexOf(':', startFileOffset);
-          int endIdx = idx == -1 ? worker.getInfo().getThird().getEndOffset() : idx;
+          int endIdx = idx == -1 ? worker.getInfo().fileLineRange.getEndOffset() : idx;
           consumer.consume(new MyAdditionalHighlight(startOffset + lineStartOffset + startFileOffset + 1, startOffset + lineStartOffset + endIdx));
 
           if (worker.getPsiClass() != null) {
@@ -149,8 +136,8 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
                 }
               }
               if (methodChanged) {
-                consumer.consume(new MyAdditionalHighlight(startOffset + lineStartOffset + worker.getInfo().getSecond().getStartOffset(),
-                                                           startOffset + lineStartOffset + worker.getInfo().getSecond().getEndOffset()));
+                consumer.consume(new MyAdditionalHighlight(startOffset + lineStartOffset + worker.getInfo().methodNameRange.getStartOffset(),
+                                                           startOffset + lineStartOffset + worker.getInfo().methodNameRange.getEndOffset()));
               }
             }
           }
@@ -167,7 +154,7 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
     return "Checking recent changes...";
   }
 
-  private static class LocalChangesCorrector {
+  private static final class LocalChangesCorrector {
     private final Map<VirtualFile, UpToDateLineNumberProvider> myRecentlyChanged;
     private final Project myProject;
 
@@ -176,23 +163,22 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
       myRecentlyChanged = new HashMap<>();
     }
 
-    public boolean isFileAlreadyIdentifiedAsChanged(final VirtualFile vf) {
+    boolean isFileAlreadyIdentifiedAsChanged(final VirtualFile vf) {
       return myRecentlyChanged.containsKey(vf);
     }
-    
-    public boolean isRangeChangedLocally(final VirtualFile vf, final Document document, final TextRange range) {
+
+    boolean isRangeChangedLocally(@NotNull VirtualFile vf, @NotNull Document document, @NotNull TextRange range) {
       final UpToDateLineNumberProvider provider = getProvider(vf, document);
       return ReadAction.compute(() -> provider.isRangeChanged(range.getStartOffset(), range.getEndOffset()));
     }
-    
-    public TextRange getCorrectedRange(final VirtualFile vf, final Document document, final TextRange range) {
+
+    TextRange getCorrectedRange(@NotNull VirtualFile vf, @NotNull Document document, @NotNull TextRange range) {
       final UpToDateLineNumberProvider provider = getProvider(vf, document);
-      if (provider == null) return range;
-      return ReadAction
-        .compute(() -> new TextRange(provider.getLineNumber(range.getStartOffset()), provider.getLineNumber(range.getEndOffset())));
+      return ReadAction.compute(() -> new TextRange(provider.getLineNumber(range.getStartOffset()), provider.getLineNumber(range.getEndOffset())));
     }
 
-    private UpToDateLineNumberProvider getProvider(VirtualFile vf, Document document) {
+    @NotNull
+    private UpToDateLineNumberProvider getProvider(@NotNull VirtualFile vf, @NotNull Document document) {
       UpToDateLineNumberProvider provider = myRecentlyChanged.get(vf);
       if (provider == null) {
         provider = new UpToDateLineNumberProviderImpl(document, myProject);
@@ -202,7 +188,7 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
     }
   }
 
-  private static Document getDocumentForFile(final ExceptionWorker worker) {
+  private static Document getDocumentForFile(@NotNull ExceptionWorker worker) {
     return ReadAction.compute(() -> {
       final Document document = FileDocumentManager.getInstance().getDocument(worker.getFile().getVirtualFile());
       if (document == null) {
@@ -283,7 +269,7 @@ public class VcsContentAnnotationExceptionFilter implements Filter, FilterMixin 
   }
 
   @Override
-  public Result applyFilter(String line, int entireLength) {
+  public Result applyFilter(@NotNull String line, int entireLength) {
     return null;
   }
 }

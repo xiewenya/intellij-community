@@ -1,28 +1,16 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing.unittestLegacy;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.ParamsGroup;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.target.TargetEnvironmentRequest;
 import com.intellij.execution.testframework.sm.runner.SMTestLocator;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PythonHelper;
+import com.jetbrains.python.run.PythonScriptExecution;
 import com.jetbrains.python.testing.AbstractPythonLegacyTestRunConfiguration;
 import com.jetbrains.python.testing.PythonTestCommandLineStateBase;
 import com.jetbrains.python.testing.PythonUnitTestTestIdUrlProvider;
@@ -51,6 +39,7 @@ public class PythonUnitTestCommandLineState extends PythonTestCommandLineStateBa
     return PythonHelper.UT_OLD;
   }
 
+  @Override
   @NotNull
   protected List<String> getTestSpecs() {
     List<String> specs = new ArrayList<>();
@@ -101,5 +90,18 @@ public class PythonUnitTestCommandLineState extends PythonTestCommandLineStateBa
     if (myConfig.getTestType() != AbstractPythonLegacyTestRunConfiguration.TestType.TEST_SCRIPT ||
         !myConfig.getScriptName().endsWith(PyNames.SETUP_DOT_PY))
       script_params.addParameter(String.valueOf(myConfig.isPureUnittest()));
+  }
+
+  @Override
+  protected void addAfterParameters(@NotNull TargetEnvironmentRequest targetEnvironmentRequest,
+                                    @NotNull PythonScriptExecution testScriptExecution) {
+    if (myConfig.useParam() && !StringUtil.isEmptyOrSpaces(myConfig.getParams())) {
+      testScriptExecution.addParameter(myConfig.getParams());
+    }
+
+    if (myConfig.getTestType() != AbstractPythonLegacyTestRunConfiguration.TestType.TEST_SCRIPT ||
+        !myConfig.getScriptName().endsWith(PyNames.SETUP_DOT_PY)) {
+      testScriptExecution.addParameter(String.valueOf(myConfig.isPureUnittest()));
+    }
   }
 }

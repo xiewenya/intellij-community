@@ -15,32 +15,27 @@
  */
 package com.intellij.vcs.log.ui.highlighters;
 
-import com.intellij.util.NotNullFunction;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.VcsLogData;
-import com.intellij.vcs.log.impl.VcsLogUserFilterImpl;
 import com.intellij.vcs.log.util.VcsUserUtil;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
+import gnu.trove.THashSet;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Set;
 
 public class MyCommitsHighlighter implements VcsLogHighlighter {
   @NotNull private final VcsLogData myLogData;
-  @NotNull private final VcsLogUi myLogUi;
   private boolean myShouldHighlightUser = false;
 
-  public MyCommitsHighlighter(@NotNull VcsLogData logData, @NotNull VcsLogUi logUi) {
+  public MyCommitsHighlighter(@NotNull VcsLogData logData) {
     myLogData = logData;
-    myLogUi = logUi;
   }
 
   @NotNull
   @Override
-  public VcsCommitStyle getStyle(@NotNull VcsShortCommitDetails details, boolean isSelected) {
-    if (!myLogUi.isHighlighterEnabled(Factory.ID)) return VcsCommitStyle.DEFAULT;
+  public VcsCommitStyle getStyle(int commitId, @NotNull VcsShortCommitDetails details, boolean isSelected) {
     if (myShouldHighlightUser) {
       VcsUser currentUser = myLogData.getCurrentUser().get(details.getRoot());
       if (currentUser != null && VcsUserUtil.isSamePerson(currentUser, details.getAuthor())) {
@@ -57,28 +52,25 @@ public class MyCommitsHighlighter implements VcsLogHighlighter {
 
   // returns true if only one user commits to this repository
   private boolean isSingleUser() {
-    NotNullFunction<VcsUser, String> nameToString = user -> VcsUserUtil.getNameInStandardForm(VcsUserUtil.getShortPresentation(user));
-    Set<String> allUserNames = ContainerUtil.newHashSet(ContainerUtil.map(myLogData.getAllUsers(), nameToString));
-    Set<String> currentUserNames = ContainerUtil.newHashSet(ContainerUtil.map(myLogData.getCurrentUser().values(), nameToString));
-    return allUserNames.size() == currentUserNames.size() && currentUserNames.containsAll(allUserNames);
+    THashSet<VcsUser> users = new THashSet<>(myLogData.getCurrentUser().values(), new VcsUserUtil.VcsUserHashingStrategy());
+    return myLogData.getUserRegistry().all(user -> users.contains(user));
   }
 
   // returns true if filtered by "me"
   private static boolean isFilteredByCurrentUser(@NotNull VcsLogFilterCollection filters) {
     VcsLogUserFilter userFilter = filters.get(VcsLogFilterCollection.USER_FILTER);
     if (userFilter == null) return false;
-    Collection<String> filterByName = ((VcsLogUserFilterImpl)userFilter).getUserNamesForPresentation();
-    if (Collections.singleton(VcsLogUserFilterImpl.ME).containsAll(filterByName)) return true;
+    if (Collections.singleton(VcsLogFilterObject.ME).containsAll(userFilter.getValuesAsText())) return true;
     return false;
   }
 
   public static class Factory implements VcsLogHighlighterFactory {
-    @NotNull public static final String ID = "MY_COMMITS";
+    @NotNull @NonNls public static final String ID = "MY_COMMITS";
 
     @NotNull
     @Override
     public VcsLogHighlighter createHighlighter(@NotNull VcsLogData logData, @NotNull VcsLogUi logUi) {
-      return new MyCommitsHighlighter(logData, logUi);
+      return new MyCommitsHighlighter(logData);
     }
 
     @NotNull
@@ -90,7 +82,7 @@ public class MyCommitsHighlighter implements VcsLogHighlighter {
     @NotNull
     @Override
     public String getTitle() {
-      return "My Commits";
+      return VcsLogBundle.message("vcs.log.action.highlight.my.commits");
     }
 
     @Override

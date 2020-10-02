@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,19 @@ package com.intellij.execution.testframework.ui;
 
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.testframework.TestIconMapper;
+import com.intellij.execution.testframework.TestRunnerBundle;
 import com.intellij.execution.testframework.sm.runner.states.TestStateInfo;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.progress.util.ColorProgressBar;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.components.panels.NonOpaquePanel;
+import com.intellij.util.ui.EdtInvocationManager;
 import com.intellij.util.ui.JBDimension;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,6 +44,7 @@ public class TestStatusLine extends NonOpaquePanel {
   protected final JProgressBar myProgressBar = new JProgressBar();
   protected final SimpleColoredComponent myState = new SimpleColoredComponent();
   private final JPanel myProgressPanel;
+  private final JLabel myWarning = new JLabel();
 
   public TestStatusLine() {
     super(new BorderLayout());
@@ -48,22 +54,46 @@ public class TestStatusLine extends NonOpaquePanel {
     myProgressBar.putClientProperty("ProgressBar.stripeWidth", 3);
     myProgressBar.putClientProperty("ProgressBar.flatEnds", Boolean.TRUE);
     setStatusColor(ColorProgressBar.GREEN);
-    JPanel stateWrapper = new NonOpaquePanel(new BorderLayout());
+
+    JPanel stateWrapper = new NonOpaquePanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     myState.setOpaque(false);
-    stateWrapper.add(myState, BorderLayout.NORTH);
+    stateWrapper.add(myState);
+
+    myWarning.setOpaque(false);
+    myWarning.setVisible(false);
+    myWarning.setIcon(AllIcons.General.Warning);
+    myWarning.setBorder(JBUI.Borders.emptyLeft(10));
+    stateWrapper.add(myWarning);
+
     add(stateWrapper, BorderLayout.CENTER);
     myState.append(ExecutionBundle.message("junit.runing.info.starting.label"));
   }
 
-  public void formatTestMessage(int testsTotal,
+  public void formatTestMessage(final int testsTotal,
                                 final int finishedTestsCount,
                                 final int failuresCount,
                                 final int ignoredTestsCount,
                                 final Long duration,
                                 final long endTime) {
+    UIUtil.invokeLaterIfNeeded(() -> {
+      doFormatTestMessage(testsTotal, finishedTestsCount, failuresCount, ignoredTestsCount, duration, endTime);
+      updateWarningVisibility();
+    });
+  }
+
+  private void updateWarningVisibility() {
+    myWarning.setVisible(myState.getCharSequence(false).length() > 0 && StringUtil.isNotEmpty(myWarning.getText()));
+  }
+
+  private void doFormatTestMessage(int testsTotal,
+                                   int finishedTestsCount,
+                                   int failuresCount,
+                                   int ignoredTestsCount,
+                                   Long duration,
+                                   long endTime) {
     myState.clear();
     if (testsTotal == 0) {
-      testsTotal = finishedTestsCount + failuresCount + ignoredTestsCount;
+      testsTotal = finishedTestsCount;
       if (testsTotal == 0) return;
     }
     int passedCount = finishedTestsCount - failuresCount - ignoredTestsCount;
@@ -76,7 +106,7 @@ public class TestStatusLine extends NonOpaquePanel {
     //finished tests
     boolean stopped = finishedTestsCount != testsTotal;
     if (stopped) {
-      myState.append("Stopped. ");
+      myState.append(TestRunnerBundle.message("test.stopped") + " ");
     }
 
     formatCounts(failuresCount, ignoredTestsCount, passedCount, testsTotal);
@@ -87,11 +117,12 @@ public class TestStatusLine extends NonOpaquePanel {
   private void formatCounts(int failuresCount, int ignoredTestsCount, int passedCount, int testsTotal) {
     boolean something = false;
     if (failuresCount > 0) {
-      myState.append("Tests failed: " + failuresCount, ERROR_ATTRIBUTES);
+      myState.append(TestRunnerBundle.message("tests.result.prefix") + " ", ERROR_ATTRIBUTES);
+      myState.append(TestRunnerBundle.message("tests.result.failed.count", failuresCount), ERROR_ATTRIBUTES);
       something = true;
     }
     else {
-      myState.append("Tests ");
+      myState.append(TestRunnerBundle.message("tests.result.prefix")+" ");
     }
 
     if (passedCount > 0 || ignoredTestsCount + failuresCount == 0) {
@@ -99,18 +130,18 @@ public class TestStatusLine extends NonOpaquePanel {
         myState.append(", ");
       }
       something = true;
-      myState.append("passed: " + passedCount);
+      myState.append(TestRunnerBundle.message("tests.result.passed.count", passedCount));
     }
 
     if (ignoredTestsCount > 0) {
       if (something) {
         myState.append(", ");
       }
-      myState.append("ignored: " + ignoredTestsCount, IGNORE_ATTRIBUTES);
+      myState.append(TestRunnerBundle.message("tests.result.ignored.count", ignoredTestsCount), IGNORE_ATTRIBUTES);
     }
 
     if (testsTotal > 0) {
-      myState.append(" of " + getTestsTotalMessage(testsTotal), SimpleTextAttributes.GRAYED_ATTRIBUTES);
+      myState.append(TestRunnerBundle.message("tests.result.total.count", testsTotal), SimpleTextAttributes.GRAYED_ATTRIBUTES);
     }
   }
 
@@ -120,14 +151,13 @@ public class TestStatusLine extends NonOpaquePanel {
   }
 
   public void onTestsDone(@Nullable TestStateInfo.Magnitude info) {
-    myProgressPanel.remove(myProgressBar);
-    if (info != null) {
-      myState.setIcon(TestIconMapper.getIcon(info));
-    }
-  }
-
-  private static String getTestsTotalMessage(int testsTotal) {
-    return testsTotal + " test" + (testsTotal > 1 ? "s" : "");
+    EdtInvocationManager.getInstance().invokeLater(() -> {
+      myProgressPanel.remove(myProgressBar);
+      if (info != null) {
+        myState.setIcon(TestIconMapper.getToolbarIcon(info));
+      }
+    });
+    
   }
 
   public void setStatusColor(Color color) {
@@ -144,7 +174,7 @@ public class TestStatusLine extends NonOpaquePanel {
   }
 
   /**
-   * Usages should be deleted as progress is now incorporated into console
+   * @deprecated Usages should be deleted as progress is now incorporated into console
    */
   @Deprecated
   public void setPreferredSize(boolean orientation) {
@@ -153,9 +183,24 @@ public class TestStatusLine extends NonOpaquePanel {
     myProgressPanel.setMinimumSize(size);
     myProgressPanel.setPreferredSize(size);
   }
-  
-  public void setText(String progressStatus_text) {
-    myState.clear();
-    myState.append(progressStatus_text);
+
+  public void setText(@Nls String progressStatus_text) {
+    UIUtil.invokeLaterIfNeeded(() -> {
+      myState.clear();
+      myState.append(progressStatus_text);
+      myWarning.setVisible(!progressStatus_text.isEmpty());
+    });
+  }
+
+  @TestOnly
+  @NotNull
+  public String getStateText() {
+    return myState.toString();
+  }
+
+  @ApiStatus.Internal
+  public void setWarning(@Nls @NotNull String suffix) {
+    myWarning.setText(suffix);
+    updateWarningVisibility();
   }
 }

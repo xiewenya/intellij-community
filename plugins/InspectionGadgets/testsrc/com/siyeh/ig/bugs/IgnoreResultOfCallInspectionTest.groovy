@@ -1,28 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.bugs
 
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.testFramework.LightProjectDescriptor
-import com.siyeh.ig.LightInspectionTestCase
+import com.siyeh.ig.LightJavaInspectionTestCase
 import org.jetbrains.annotations.NotNull
 
 @SuppressWarnings(["ResultOfMethodCallIgnored", "UnusedReturnValue"])
-class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
+class IgnoreResultOfCallInspectionTest extends LightJavaInspectionTestCase {
 
   @Override
   protected LocalInspectionTool getInspection() {
@@ -32,49 +18,92 @@ class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return JAVA_8
+    return JAVA_14
   }
 
   @Override
   protected String[] getEnvironmentClasses() {
     return [
-      "package java.util.regex; public class Pattern {" +
-      "  public static Pattern compile(String regex) {return null;}" +
-      "  public Matcher matcher(CharSequence input) {return null;}" +
-      "}",
-      "package java.util.regex; public class Matcher {" +
-      "  public boolean find() {return true;}" +
-      "}",
+      """package java.util.regex;
 
-      "package javax.annotation;\n" +
-      "\n" +
-      "import java.lang.annotation.Documented;\n" +
-      "import java.lang.annotation.ElementType;\n" +
-      "import java.lang.annotation.Retention;\n" +
-      "import java.lang.annotation.RetentionPolicy;\n" +
-      "import java.lang.annotation.Target;\n" +
-      "\n" +
-      "import javax.annotation.meta.When;\n" +
-      "\n" +
-      "@Documented\n" +
-      "@Target( { ElementType.METHOD, ElementType.CONSTRUCTOR, ElementType.TYPE,\n" +
-      "        ElementType.PACKAGE })\n" +
-      "@Retention(RetentionPolicy.RUNTIME)\n" +
-      "public @interface CheckReturnValue {\n" +
-      "    When when() default When.ALWAYS;\n" +
-      "}",
+public class Pattern {
+  public static Pattern compile(String regex) {return null;}
 
-      "package a;\n" +
-      " public @interface CheckReturnValue {}",
+  public Matcher matcher(CharSequence input) {return null;}
+}""",
 
-      "package com.google.errorprone.annotations;" +
-      "import java.lang.annotation.ElementType;\n" +
-      "import java.lang.annotation.Retention;\n" +
-      "import java.lang.annotation.RetentionPolicy;\n" +
-      "import java.lang.annotation.Target;\n" +
-      "@Target(value={ElementType.METHOD, ElementType.TYPE})\n" +
-      "@Retention(value=RetentionPolicy.CLASS)\n" +
-      "public @interface CanIgnoreReturnValue {}"
+      """package java.util.regex;
+
+public class Matcher {
+  public boolean find() {return true;}
+}""",
+
+      """package javax.annotation;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+import javax.annotation.meta.When;
+
+@Documented
+@Target( { ElementType.METHOD, ElementType.CONSTRUCTOR, ElementType.TYPE,
+        ElementType.PACKAGE })
+@Retention(RetentionPolicy.RUNTIME)
+public @interface CheckReturnValue {
+    When when() default When.ALWAYS;
+}""",
+
+      """package com.google.errorprone.annotations;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+@Documented
+ @Target(value={METHOD,CONSTRUCTOR,TYPE,PACKAGE})
+ @Retention(value=RUNTIME)
+public @interface CheckReturnValue {}
+""",
+
+      """package org.assertj.core.util;
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+@Target(value={CONSTRUCTOR,METHOD,PACKAGE,TYPE})
+@Retention(value=CLASS)
+public @interface CheckReturnValue {}
+""",
+
+      """package a;
+ public @interface CheckReturnValue {}""",
+
+      """package com.google.errorprone.annotations;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+@Target(value={ElementType.METHOD, ElementType.TYPE})
+@Retention(value=RetentionPolicy.CLASS)
+public @interface CanIgnoreReturnValue {}""",
+
+      """package org.assertj.core.util;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+@Target(value={CONSTRUCTOR,METHOD,PACKAGE,TYPE})
+@Retention(value=CLASS)
+public @interface CanIgnoreReturnValue{} """,
+      
+      """package org.apache.commons.lang3;
+public class Validate {
+  public native static <T> T notNull(T object);
+}"""
     ] as String[]
   }
 
@@ -94,6 +123,98 @@ class IgnoreResultOfCallInspectionTest extends LightInspectionTestCase {
            "    ignoreMe(); // OK.  This line should *not* produce a warning.\n" +
            "  }\n" +
            "}")
+  }
+
+  void testCanIgnoreReturnValue2() {
+    doTest("""
+class TestClass {
+
+    public void m() {
+        var javax = new Javax();
+        javax./*Result of 'Javax.unannotated()' is ignored*/unannotated/**/();
+        javax.assertJ();
+        javax.errorProne();
+
+        var errorProne = new ErrorProne();
+        errorProne./*Result of 'ErrorProne.unannotated()' is ignored*/unannotated/**/();
+        errorProne.assertJ();
+        errorProne.errorProne();
+
+        var assertJ = new AssertJ();
+        assertJ./*Result of 'AssertJ.unannotated()' is ignored*/unannotated/**/();
+        assertJ.assertJ();
+        assertJ.errorProne();
+
+    }
+
+    @javax.annotation.CheckReturnValue
+    public static class Javax {
+        int unannotated() {
+            return 3;
+        }
+
+        @org.assertj.core.util.CanIgnoreReturnValue
+        int assertJ() {
+            return 3;
+        }
+
+        @com.google.errorprone.annotations.CanIgnoreReturnValue
+        int errorProne() {
+            return 3;
+        }
+    }
+
+    @com.google.errorprone.annotations.CheckReturnValue
+    public static class ErrorProne {
+        int unannotated() {
+            return 3;
+        }
+
+        @org.assertj.core.util.CanIgnoreReturnValue
+        int assertJ() {
+            return 3;
+        }
+
+        @com.google.errorprone.annotations.CanIgnoreReturnValue
+        int errorProne() {
+            return 3;
+        }
+    }
+
+    @org.assertj.core.util.CheckReturnValue
+    public static class AssertJ {
+        int unannotated() {
+            return 3;
+        }
+
+        @org.assertj.core.util.CanIgnoreReturnValue
+        int assertJ() {
+            return 3;
+        }
+
+        @com.google.errorprone.annotations.CanIgnoreReturnValue
+        int errorProne() {
+            return 3;
+        }
+    }
+}
+""")
+  }
+
+  void testCanIgnoreReturnValue3() {
+    doTest("""
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.errorprone.annotations.CheckReturnValue;
+@CheckReturnValue
+class Test {
+    static int lookAtMe() { return 1; }
+    @CanIgnoreReturnValue
+    static int ignoreMe() { return 2; }
+    void run() {
+        /*Result of 'Test.lookAtMe()' is ignored*/lookAtMe/**/(); // <- inspection 
+        ignoreMe(); // <- also inspection
+    }
+}""")
   }
 
   void testCustomCheckReturnValue() {
@@ -231,6 +352,27 @@ class C {
 """
   }
 
+  void testPureMethodReturningThis() {
+    doTest """
+import org.jetbrains.annotations.Contract;
+
+class Test {
+  boolean closed;
+  
+  @Contract(pure=true, value="->this")
+  Test validate() {
+    if(closed) throw new IllegalStateException();
+    return this;
+  }
+  
+  void test() {
+    validate();
+    System.out.println("ok");
+  }
+}
+"""
+  }
+
   void testPureMethodInVoidFunctionalExpression() {
     doTest """
 import org.jetbrains.annotations.Contract;
@@ -308,5 +450,93 @@ class Test {
     opt.orElseThrow(RuntimeException::new);
   }
 }"""
+  }
+
+  void testParamContract() {
+    doTest """class X{
+public static int atLeast(int min, int actual, String varName) {
+    if (actual < min) throw new IllegalArgumentException('\\'' + varName + " must be at least " + min + ": " + actual);
+    return actual;
+  }
+
+  public byte[] getMemory(int address, int length) {
+    atLeast(0, address, "address");
+    atLeast(1, length, "length");
+
+    return new byte[length];
+  }
+}"""
+  }
+  
+  void testInForExpressionList() {
+    //noinspection StatementWithEmptyBody
+    doTest """class X {
+  void test(String s) {
+    for(int i=0; i<10; i++, s./*Result of 'String.trim()' is ignored*/trim/**/()) {}
+  }
+}"""
+  }
+
+  void testInSwitchExpression() {
+    //noinspection SwitchStatementWithTooFewBranches
+    doTest """class X {
+  String test(String s) {
+    return switch(s) {
+      default -> s.trim();
+    };
+  }
+}"""
+  }
+  
+  void testOptionalGet() {
+    //noinspection ALL
+    doTest """class X {
+  void test(java.util.Optional<String> opt) {
+    opt.get();
+    if (opt.isPresent()) opt./*Result of 'Optional.get()' is ignored*/get/**/();
+  }
+}"""
+  }
+  
+  void testCommonsLang3NotNull() {
+    doTest """import org.apache.commons.lang3.Validate;
+class X{
+  void test(String foo) {
+    if (foo == null) return;
+    Validate.notNull(foo);
+  }
+}"""
+  }
+  
+  void testVoidType() {
+    doTest """class X {
+  void a() {
+    b();
+  }
+  
+  static Void b() {
+    return null;
+  }
+}"""
+  }
+
+  void testIgnoreMethodDefinedInSubclasses() {
+    doTest("""
+import java.util.stream.Stream;
+import java.util.*;
+abstract class StreamEx<T> implements Stream<T> {
+  public <C extends Collection<? super T>> C into(C collection) {
+    return null;
+  }
+  
+  public static<T> StreamEx<T> of(T... values) {
+    return null; 
+  }
+  
+  public static void main(String[] args) {
+    List<Integer> list = new ArrayList<>();
+    StreamEx.of(1, 2, 3).into(list);
+  }
+}""")
   }
 }

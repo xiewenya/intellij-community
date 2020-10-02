@@ -19,7 +19,7 @@ package com.intellij.history.core.changes;
 import com.intellij.history.core.Content;
 import com.intellij.history.core.StreamUtil;
 import com.intellij.history.utils.LocalHistoryLog;
-import com.intellij.util.Producer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.DataInputOutputUtil;
@@ -32,10 +32,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class ChangeSet {
   private final long myId;
-  @Nullable private String myName;
+  @Nullable private @NlsContexts.Label String myName;
   private final long myTimestamp;
   private final List<Change> myChanges;
 
@@ -49,7 +50,7 @@ public class ChangeSet {
 
   public ChangeSet(DataInput in) throws IOException {
     myId = DataInputOutputUtil.readLONG(in);
-    myName = StreamUtil.readStringOrNull(in);
+    myName = StreamUtil.readStringOrNull(in); //NON-NLS
     myTimestamp = DataInputOutputUtil.readTIME(in);
 
     int count = DataInputOutputUtil.readINT(in);
@@ -73,10 +74,11 @@ public class ChangeSet {
     }
   }
 
-  public void setName(@Nullable String name) {
+  public void setName(@Nullable @NlsContexts.Label String name) {
     myName = name;
   }
 
+  @NlsContexts.Label
   @Nullable
   public String getName() {
     return myName;
@@ -90,9 +92,11 @@ public class ChangeSet {
     isLocked = true;
   }
 
+  @NlsContexts.Label
   @Nullable
   public String getLabel() {
-    return accessChanges(() -> {
+    //noinspection RedundantTypeArguments
+    return this.<@NlsContexts.Label @Nullable String>accessChanges(() -> {
       for (Change each : myChanges) {
         if (each instanceof PutLabelChange) {
           return ((PutLabelChange)each).getName();
@@ -229,15 +233,13 @@ public class ChangeSet {
     v.end(this);
   }
 
-  private <T> T accessChanges(@NotNull Producer<T> func) {
+  private <T> T accessChanges(@NotNull Supplier<T> func) {
     if (isLocked) {
-      //noinspection ConstantConditions
-      return func.produce();
+      return func.get();
     }
 
     synchronized (myChanges) {
-      //noinspection ConstantConditions
-      return func.produce();
+      return func.get();
     }
   }
 

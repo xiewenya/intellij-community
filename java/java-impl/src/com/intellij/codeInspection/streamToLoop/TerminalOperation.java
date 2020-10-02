@@ -16,7 +16,6 @@
 package com.intellij.codeInspection.streamToLoop;
 
 import com.intellij.codeInspection.streamToLoop.StreamToLoopInspection.ResultKind;
-import com.intellij.codeInspection.streamToLoop.StreamToLoopInspection.StreamToLoopReplacementContext;
 import com.intellij.codeInspection.util.OptionalUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -26,6 +25,7 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.TypeUtils;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -38,12 +38,11 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/**
- * @author Tagir Valeev
- */
+import static com.intellij.util.ObjectUtils.tryCast;
+
 abstract class TerminalOperation extends Operation {
   @Override
-  final String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+  final String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
     return generate(inVar, context);
   }
 
@@ -61,10 +60,10 @@ abstract class TerminalOperation extends Operation {
     return null;
   }
 
-  abstract String generate(StreamVariable inVar, StreamToLoopReplacementContext context);
+  abstract String generate(ChainVariable inVar, StreamToLoopReplacementContext context);
 
   @Nullable
-  static TerminalOperation createTerminal(@NotNull String name, @NotNull PsiExpression[] args,
+  static TerminalOperation createTerminal(@NotNull String name, PsiExpression @NotNull [] args,
                                           @NotNull PsiType elementType, @NotNull PsiType resultType, boolean isVoid) {
     if(isVoid) {
       if ((name.equals("forEach") || name.equals("forEachOrdered")) && args.length == 1) {
@@ -101,10 +100,10 @@ abstract class TerminalOperation extends Operation {
       return ToCollectionTerminalOperation.toSet(resultType);
     }
     if(name.equals("toImmutableList") && args.length == 0) {
-      return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toList(resultType), "unmodifiableList");
+      return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toList(resultType), "unmodifiableList", resultType);
     }
     if(name.equals("toImmutableSet") && args.length == 0) {
-      return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toSet(resultType), "unmodifiableSet");
+      return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toSet(resultType), "unmodifiableSet", resultType);
     }
     if((name.equals("anyMatch") || name.equals("allMatch") || name.equals("noneMatch")) && args.length == 1) {
       FunctionHelper fn = FunctionHelper.create(args[0], 1);
@@ -148,7 +147,7 @@ abstract class TerminalOperation extends Operation {
         return new ExplicitCollectTerminalOperation(supplier, accumulator);
       }
       if (args.length == 1) {
-        return fromCollector(elementType, resultType, args[0]);
+        return fromCollector(elementType, resultType, PsiUtil.skipParenthesizedExprDown(args[0]));
       }
     }
     return null;
@@ -157,6 +156,7 @@ abstract class TerminalOperation extends Operation {
   @Contract("_, _, null -> null")
   @Nullable
   private static TerminalOperation fromCollector(@NotNull PsiType elementType, @NotNull PsiType resultType, PsiExpression expr) {
+    expr = PsiUtil.skipParenthesizedExprDown(expr);
     if (!(expr instanceof PsiMethodCallExpression)) return null;
     PsiMethodCallExpression collectorCall = (PsiMethodCallExpression)expr;
     PsiExpression[] collectorArgs = collectorCall.getArgumentList().getExpressions();
@@ -182,17 +182,28 @@ abstract class TerminalOperation extends Operation {
         return ToCollectionTerminalOperation.toList(resultType);
       case "toUnmodifiableList":
         if (collectorArgs.length != 0) return null;
-        return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toList(resultType), "unmodifiableList");
+        return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toList(resultType), "unmodifiableList", resultType);
       case "toSet":
         if (collectorArgs.length != 0) return null;
         return ToCollectionTerminalOperation.toSet(resultType);
       case "toUnmodifiableSet":
         if (collectorArgs.length != 0) return null;
-        return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toSet(resultType), "unmodifiableSet");
+        return new WrappedCollectionTerminalOperation(ToCollectionTerminalOperation.toSet(resultType), "unmodifiableSet", resultType);
       case "toCollection":
         if (collectorArgs.length != 1) return null;
         fn = FunctionHelper.create(collectorArgs[0], 0);
         return fn == null ? null : new ToCollectionTerminalOperation(resultType, fn, null);
+      case "collectingAndThen": {
+        if (collectorArgs.length != 2) return null;
+        PsiExpression collectorCall = collectorArgs[0];
+        PsiType downstreamResultType = PsiUtil.substituteTypeParameter(collectorCall.getType(), "java.util.stream.Collector", 2, false);
+        if (downstreamResultType == null) return null;
+        CollectorBasedTerminalOperation downstream =
+          tryCast(fromCollector(elementType, downstreamResultType, collectorCall), CollectorBasedTerminalOperation.class);
+        if (downstream == null) return null;
+        FunctionHelper andThen = FunctionHelper.create(collectorArgs[1], 1);
+        return andThen != null ? new WrappedCollectionTerminalOperation(downstream, andThen) : null;
+      }
       case "toUnmodifiableMap":
       case "toMap": {
         if (collectorArgs.length < 2 || collectorArgs.length > 4) return null;
@@ -206,7 +217,7 @@ abstract class TerminalOperation extends Operation {
         if(supplier == null) return null;
         CollectorBasedTerminalOperation operation = new ToMapTerminalOperation(key, value, merger, supplier, resultType);
         return collectorName.equals("toUnmodifiableMap")
-               ? new WrappedCollectionTerminalOperation(operation, "unmodifiableMap")
+               ? new WrappedCollectionTerminalOperation(operation, "unmodifiableMap", resultType)
                : operation;
       }
       case "reducing":
@@ -329,7 +340,7 @@ abstract class TerminalOperation extends Operation {
     Project project = resultClass.getProject();
     PsiClass superClass = JavaPsiFacade.getInstance(project).findClass(superClassName, resultClass.getResolveScope());
     if(superClass == null) return resultType;
-    PsiSubstitutor superClassSubstitutor = TypeConversionUtil.getMaybeSuperClassSubstitutor(superClass, resultClass, PsiSubstitutor.EMPTY, null);
+    PsiSubstitutor superClassSubstitutor = TypeConversionUtil.getMaybeSuperClassSubstitutor(superClass, resultClass, PsiSubstitutor.EMPTY);
     if(superClassSubstitutor == null) {
       // inconsistent class hierarchy: probably something is not resolved
       return resultType;
@@ -350,10 +361,12 @@ abstract class TerminalOperation extends Operation {
   }
 
   abstract static class AccumulatedOperation extends TerminalOperation {
-    abstract String initAccumulator(StreamVariable inVar, StreamToLoopReplacementContext context);
-    abstract String getAccumulatorUpdater(StreamVariable inVar, String acc);
+    abstract String initAccumulator(ChainVariable inVar, StreamToLoopReplacementContext context);
 
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    abstract String getAccumulatorUpdater(ChainVariable inVar, String acc);
+
+    @Override
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String acc = initAccumulator(inVar, context);
       return getAccumulatorUpdater(inVar, acc);
     }
@@ -364,20 +377,20 @@ abstract class TerminalOperation extends Operation {
     private final PsiType myType;
     private final FunctionHelper myUpdater;
 
-    public ReduceTerminalOperation(PsiExpression identity, FunctionHelper updater, PsiType type) {
+    ReduceTerminalOperation(PsiExpression identity, FunctionHelper updater, PsiType type) {
       myIdentity = identity;
       myType = type;
       myUpdater = updater;
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myIdentity);
       myUpdater.registerReusedElements(consumer);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String accumulator = context.declareResult("acc", myType, myIdentity.getText(), ResultKind.NON_FINAL);
       myUpdater.transform(context, accumulator, inVar.getName());
       return accumulator + "=" + myUpdater.getText() + ";";
@@ -388,18 +401,18 @@ abstract class TerminalOperation extends Operation {
     private final PsiType myType;
     private final FunctionHelper myUpdater;
 
-    public ReduceToOptionalTerminalOperation(FunctionHelper updater, PsiType type) {
+    ReduceToOptionalTerminalOperation(FunctionHelper updater, PsiType type) {
       myType = type;
       myUpdater = updater;
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myUpdater.registerReusedElements(consumer);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String seen = context.declare("seen", "boolean", "false");
       String accumulator = context.declareResult("acc", myType, myType instanceof PsiPrimitiveType ? "0" : "null", ResultKind.UNKNOWN);
       myUpdater.transform(context, accumulator, inVar.getName());
@@ -429,24 +442,24 @@ abstract class TerminalOperation extends Operation {
     private final FunctionHelper mySupplier;
     private final FunctionHelper myAccumulator;
 
-    public ExplicitCollectTerminalOperation(FunctionHelper supplier, FunctionHelper accumulator) {
+    ExplicitCollectTerminalOperation(FunctionHelper supplier, FunctionHelper accumulator) {
       mySupplier = supplier;
       myAccumulator = accumulator;
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       mySupplier.registerReusedElements(consumer);
       myAccumulator.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myAccumulator.preprocessVariable(context, inVar, 1);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       mySupplier.transform(context);
       String candidate = mySupplier.suggestFinalOutputNames(context, myAccumulator.getParameterName(0), "acc").get(0);
       String acc = context.declareResult(candidate, mySupplier.getResultType(), mySupplier.getText(), ResultKind.FINAL);
@@ -459,13 +472,13 @@ abstract class TerminalOperation extends Operation {
     private final boolean myDoubleAccumulator;
     private final boolean myUseOptional;
 
-    public AverageTerminalOperation(boolean doubleAccumulator, boolean useOptional) {
+    AverageTerminalOperation(boolean doubleAccumulator, boolean useOptional) {
       myDoubleAccumulator = doubleAccumulator;
       myUseOptional = useOptional;
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String sum = context.declareResult("sum", myDoubleAccumulator ? PsiType.DOUBLE : PsiType.LONG, "0", ResultKind.UNKNOWN);
       String count = context.declare("count", "long", "0");
       String seenCheck = count + ">0";
@@ -486,7 +499,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String arr =
         context.declareResult("arr", myType.createArrayType(), "new " + myType.getCanonicalText() + "[10]", ResultKind.NON_FINAL);
       String count = context.declare("count", "int", "0");
@@ -500,13 +513,13 @@ abstract class TerminalOperation extends Operation {
     private final PsiType myType;
     private final FunctionHelper mySupplier;
 
-    public ToArrayTerminalOperation(PsiType type, FunctionHelper supplier) {
+    ToArrayTerminalOperation(PsiType type, FunctionHelper supplier) {
       myType = type;
       mySupplier = supplier;
     }
 
     @Override
-    String initAccumulator(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String initAccumulator(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String list =
         context.declareResult("list", context.createType(CommonClassNames.JAVA_UTIL_LIST + "<" + myType.getCanonicalText() + ">"),
                                           "new " + CommonClassNames.JAVA_UTIL_ARRAY_LIST + "<>()", ResultKind.UNKNOWN);
@@ -520,7 +533,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String getAccumulatorUpdater(StreamVariable inVar, String list) {
+    String getAccumulatorUpdater(ChainVariable inVar, String list) {
       return list+".add("+inVar+");\n";
     }
   }
@@ -528,12 +541,12 @@ abstract class TerminalOperation extends Operation {
   static class FindTerminalOperation extends TerminalOperation {
     private final PsiType myType;
 
-    public FindTerminalOperation(PsiType type) {
+    FindTerminalOperation(PsiType type) {
       myType = type;
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       return context.assignAndBreak(new ConditionalExpression.Optional(myType, "found", inVar.getName()));
     }
   }
@@ -542,7 +555,7 @@ abstract class TerminalOperation extends Operation {
     private final FunctionHelper myFn;
     private final boolean myDefaultValue, myNegatePredicate;
 
-    public MatchTerminalOperation(FunctionHelper fn, String name) {
+    MatchTerminalOperation(FunctionHelper fn, String name) {
       myFn = fn;
       switch(name) {
         case "anyMatch":
@@ -563,17 +576,17 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myFn.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myFn.preprocessVariable(context, inVar, 0);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       myFn.transform(context, inVar.getName());
       String expression;
       if (myNegatePredicate) {
@@ -591,12 +604,14 @@ abstract class TerminalOperation extends Operation {
   interface CollectorOperation {
     // Non-trivial finishers are not supported
     default void transform(StreamToLoopReplacementContext context, String item) {}
-    default void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {}
-    default void registerReusedElements(Consumer<PsiElement> consumer) {}
-    String getSupplier();
-    String getAccumulatorUpdater(StreamVariable inVar, String acc);
 
-    default String getMerger(StreamVariable inVar, String map, String key) {
+    default void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {}
+    default void registerReusedElements(Consumer<? super PsiElement> consumer) {}
+    String getSupplier();
+
+    String getAccumulatorUpdater(ChainVariable inVar, String acc);
+
+    default String getMerger(ChainVariable inVar, String map, String key) {
       return null;
     }
 
@@ -620,11 +635,11 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String initAccumulator(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String initAccumulator(ChainVariable inVar, StreamToLoopReplacementContext context) {
       return initAccumulator(inVar, context, true);
     }
 
-    String initAccumulator(StreamVariable inVar, StreamToLoopReplacementContext context, boolean canBeFinal) {
+    String initAccumulator(ChainVariable inVar, StreamToLoopReplacementContext context, boolean canBeFinal) {
       transform(context, inVar.getName());
       PsiType resultType = correctReturnType(myType);
       return context.declareResult(myAccNameSupplier.apply(context), resultType, myMostAbstractAllowedType, getSupplier(),
@@ -637,7 +652,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       mySupplier.registerReusedElements(consumer);
     }
 
@@ -681,7 +696,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String initAccumulator(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String initAccumulator(ChainVariable inVar, StreamToLoopReplacementContext context) {
       ResultKind kind = myFinisherTemplate.equals("{acc}") ?
                         myAccType instanceof PsiPrimitiveType ? ResultKind.NON_FINAL : ResultKind.FINAL : ResultKind.UNKNOWN;
       String varName = context.declareResult(myAccName, myAccType, myAccInitializer, kind);
@@ -700,12 +715,12 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String acc) {
+    public String getAccumulatorUpdater(ChainVariable inVar, String acc) {
       return myUpdateTemplate.replace("{acc}", acc).replace("{item}", inVar.getName());
     }
 
     @Override
-    public String getMerger(StreamVariable inVar, String map, String key) {
+    public String getMerger(ChainVariable inVar, String map, String key) {
       if(!(myAccType instanceof PsiPrimitiveType)) return null;
       String boxedType = PsiTypesUtil.boxIfPossible(myAccType.getCanonicalText());
       String val = myUpdateTemplate.equals("{acc}++;") ? "1L" : "(" + myAccType.getCanonicalText() + ")" + inVar;
@@ -715,7 +730,7 @@ abstract class TerminalOperation extends Operation {
 
     @NotNull
     static TemplateBasedOperation summing(PsiType type) {
-      String defValue = type.equals(PsiType.DOUBLE) ? "0.0" : type.equals(PsiType.LONG) ? "0L" : "0";
+      String defValue = TypeUtils.getDefaultValue(type);
       return new TemplateBasedOperation("sum", type, defValue, "{acc}+={item};");
     }
 
@@ -733,27 +748,34 @@ abstract class TerminalOperation extends Operation {
 
   static class WrappedCollectionTerminalOperation extends TerminalOperation {
     private final CollectorBasedTerminalOperation myDelegate;
-    private final String myWrapper;
+    private final FunctionHelper myWrapper;
 
-    public WrappedCollectionTerminalOperation(CollectorBasedTerminalOperation delegate, String wrapper) {
+    WrappedCollectionTerminalOperation(CollectorBasedTerminalOperation delegate, String wrapper, PsiType resultType) {
+      this(delegate,
+           new FunctionHelper.InlinedFunctionHelper(resultType, 1, CommonClassNames.JAVA_UTIL_COLLECTIONS + "." + wrapper + "({0})"));
+    }
+
+    WrappedCollectionTerminalOperation(CollectorBasedTerminalOperation delegate, FunctionHelper wrapper) {
       myDelegate = delegate;
       myWrapper = wrapper;
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myDelegate.registerReusedElements(consumer);
+      myWrapper.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myDelegate.preprocessVariables(context, inVar, outVar);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String acc = myDelegate.initAccumulator(inVar, context, false);
-      context.setFinisher(CommonClassNames.JAVA_UTIL_COLLECTIONS + "." + myWrapper + "(" + acc + ")");
+      myWrapper.transform(context, acc);
+      context.setFinisher(myWrapper.getText());
       return myDelegate.getAccumulatorUpdater(inVar, acc);
     }
   }
@@ -761,14 +783,14 @@ abstract class TerminalOperation extends Operation {
   static class ToCollectionTerminalOperation extends CollectorBasedTerminalOperation {
     private final boolean myList;
 
-    public ToCollectionTerminalOperation(PsiType resultType, FunctionHelper fn, String desiredName) {
+    ToCollectionTerminalOperation(PsiType resultType, FunctionHelper fn, String desiredName) {
       super(resultType, CommonClassNames.JAVA_UTIL_COLLECTION,
             context -> fn.suggestFinalOutputNames(context, desiredName, "collection").get(0), fn);
       myList = InheritanceUtil.isInheritor(resultType, CommonClassNames.JAVA_UTIL_LIST);
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String acc) {
+    public String getAccumulatorUpdater(ChainVariable inVar, String acc) {
       return acc + ".add(" + inVar + ");\n";
     }
 
@@ -800,7 +822,7 @@ abstract class TerminalOperation extends Operation {
     private @Nullable final FunctionHelper myComparator;
     private final boolean myMax;
 
-    public MinMaxTerminalOperation(PsiType type, String template, @Nullable FunctionHelper comparator, boolean max) {
+    MinMaxTerminalOperation(PsiType type, String template, @Nullable FunctionHelper comparator, boolean max) {
       myType = type;
       myTemplate = template;
       myComparator = comparator;
@@ -808,7 +830,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       if(myComparator != null) {
         myComparator.registerReusedElements(consumer);
       }
@@ -835,7 +857,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       if (getExtremeValue() != null && context.tryUnwrapOrElse(getExtremeValue())) {
         String best = context.declareResult("best", myType, getExtremeValueExpression(), ResultKind.NON_FINAL);
         String comparePredicate = myTemplate.replace("{best}", best).replace("{item}", inVar.getName());
@@ -901,7 +923,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       super.registerReusedElements(consumer);
       myKeyExtractor.registerReusedElements(consumer);
       myValueExtractor.registerReusedElements(consumer);
@@ -909,7 +931,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myKeyExtractor.preprocessVariable(context, inVar, 0);
       myValueExtractor.preprocessVariable(context, inVar, 0);
     }
@@ -922,7 +944,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String map) {
+    public String getAccumulatorUpdater(ChainVariable inVar, String map) {
       if(myMerger == null) {
         return "if("+map+".put("+myKeyExtractor.getText()+","+myValueExtractor.getText()+")!=null) {\n"+
                "throw new java.lang.IllegalStateException(\"Duplicate key\");\n}\n";
@@ -957,7 +979,7 @@ abstract class TerminalOperation extends Operation {
     private final FunctionHelper myKeyExtractor;
     private String myKeyVar;
 
-    public GroupByTerminalOperation(FunctionHelper keyExtractor, FunctionHelper supplier, PsiType resultType, CollectorOperation collector) {
+    GroupByTerminalOperation(FunctionHelper keyExtractor, FunctionHelper supplier, PsiType resultType, CollectorOperation collector) {
       super(resultType, CommonClassNames.JAVA_UTIL_MAP, context -> "map", supplier);
       myKeyExtractor = keyExtractor;
       myCollector = collector;
@@ -969,14 +991,14 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       super.registerReusedElements(consumer);
       myKeyExtractor.registerReusedElements(consumer);
       myCollector.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myKeyExtractor.preprocessVariable(context, inVar, 0);
       myCollector.preprocessVariables(context, inVar, outVar);
     }
@@ -990,7 +1012,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String map) {
+    public String getAccumulatorUpdater(ChainVariable inVar, String map) {
       String key = myKeyExtractor.getText();
       String merger = myCollector.getMerger(inVar, map, key);
       if (merger != null) return merger;
@@ -1004,26 +1026,26 @@ abstract class TerminalOperation extends Operation {
     private final CollectorOperation myCollector;
     private final FunctionHelper myPredicate;
 
-    public PartitionByTerminalOperation(FunctionHelper predicate, PsiType resultType, CollectorOperation collector) {
+    PartitionByTerminalOperation(FunctionHelper predicate, PsiType resultType, CollectorOperation collector) {
       myPredicate = predicate;
       myResultType = resultType.getCanonicalText();
       myCollector = collector;
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myPredicate.registerReusedElements(consumer);
       myCollector.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myPredicate.preprocessVariable(context, inVar, 0);
       myCollector.preprocessVariables(context, inVar, outVar);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       PsiType resultType = context.createType(myResultType);
       resultType = correctTypeParameters(resultType, CommonClassNames.JAVA_UTIL_MAP,
                                          Collections.singletonMap("V", myCollector::correctReturnType));
@@ -1051,13 +1073,13 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myMapper.registerReusedElements(consumer);
       myDownstream.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myMapper.preprocessVariable(context, inVar, 0);
     }
 
@@ -1078,22 +1100,22 @@ abstract class TerminalOperation extends Operation {
   }
 
   static class MappingTerminalOperation extends AbstractMappingTerminalOperation {
-    private StreamVariable myVariable;
+    private ChainVariable myVariable;
 
     MappingTerminalOperation(FunctionHelper mapper, TerminalOperation downstream) {
       super(mapper, downstream);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       createVariable(context, inVar.getName());
       return myVariable.getDeclaration(myMapper.getText()) + myDownstream.generate(myVariable, context);
     }
 
     private void createVariable(StreamToLoopReplacementContext context, String item) {
       myMapper.transform(context, item);
-      myVariable = new StreamVariable(myMapper.getResultType());
-      myDownstream.preprocessVariables(context, myVariable, StreamVariable.STUB);
+      myVariable = new ChainVariable(myMapper.getResultType());
+      myDownstream.preprocessVariables(context, myVariable, ChainVariable.STUB);
       myMapper.suggestOutputNames(context, myVariable);
       myVariable.register(context);
     }
@@ -1105,12 +1127,12 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String acc) {
+    public String getAccumulatorUpdater(ChainVariable inVar, String acc) {
       return myVariable.getDeclaration(myMapper.getText()) + myDownstreamCollector.getAccumulatorUpdater(myVariable, acc);
     }
 
     @Override
-    public String getMerger(StreamVariable inVar, String map, String key) {
+    public String getMerger(ChainVariable inVar, String map, String key) {
       String merger = myDownstreamCollector.getMerger(myVariable, map, key);
       return merger == null ? null : myVariable.getDeclaration(myMapper.getText()) + merger;
     }
@@ -1122,9 +1144,9 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       myMapper.transform(context, inVar.getName());
-      StreamVariable updatedVar = new StreamVariable(myMapper.getResultType(), myMapper.getText());
+      ChainVariable updatedVar = new ChainVariable(myMapper.getResultType(), myMapper.getText());
       return myDownstream.generate(updatedVar, context);
     }
 
@@ -1135,37 +1157,79 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public String getAccumulatorUpdater(StreamVariable inVar, String acc) {
-      return myDownstreamCollector.getAccumulatorUpdater(new StreamVariable(myMapper.getResultType(), myMapper.getText()), acc);
+    public String getAccumulatorUpdater(ChainVariable inVar, String acc) {
+      return myDownstreamCollector.getAccumulatorUpdater(new ChainVariable(myMapper.getResultType(), myMapper.getText()), acc);
     }
 
     @Override
-    public String getMerger(StreamVariable inVar, String map, String key) {
-      return myDownstreamCollector.getMerger(new StreamVariable(myMapper.getResultType(), myMapper.getText()), map, key);
+    public String getMerger(ChainVariable inVar, String map, String key) {
+      return myDownstreamCollector.getMerger(new ChainVariable(myMapper.getResultType(), myMapper.getText()), map, key);
     }
   }
 
   static class ForEachTerminalOperation extends TerminalOperation {
     private final FunctionHelper myFn;
 
-    public ForEachTerminalOperation(FunctionHelper fn) {
+    ForEachTerminalOperation(FunctionHelper fn) {
       myFn = fn;
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myFn.preprocessVariable(context, inVar, 0);
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myFn.registerReusedElements(consumer);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       myFn.transform(context, inVar.getName());
       return myFn.getStatementText();
+    }
+  }
+
+  static class MapForEachTerminalOperation extends TerminalOperation {
+    private final FunctionHelper myFn;
+    private final PsiType myKeyType;
+    private final PsiType myValueType;
+
+    MapForEachTerminalOperation(FunctionHelper fn, PsiType keyType, PsiType valueType) {
+      myFn = fn;
+      myKeyType = keyType;
+      myValueType = valueType;
+    }
+
+    @Override
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
+      inVar.addBestNameCandidate("entry");
+      inVar.addBestNameCandidate("e");
+      inVar.addBestNameCandidate("mapEntry");
+    }
+
+    @Override
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
+      myFn.registerReusedElements(consumer);
+    }
+
+    @Override
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
+      ChainVariable keyVar = new ChainVariable(myKeyType);
+      myFn.preprocessVariable(context, keyVar, 0);
+      keyVar.addBestNameCandidate("key");
+      keyVar.addBestNameCandidate("k");
+      ChainVariable valueVar = new ChainVariable(myValueType);
+      myFn.preprocessVariable(context, valueVar, 1);
+      valueVar.addBestNameCandidate("value");
+      valueVar.addBestNameCandidate("v");
+      keyVar.register(context);
+      valueVar.register(context);
+      myFn.transform(context, keyVar.getName(), valueVar.getName());
+      return keyVar.getDeclaration(inVar.getName() + ".getKey()") +
+             valueVar.getDeclaration(inVar.getName() + ".getValue()") +
+             myFn.getStatementText();
     }
   }
 
@@ -1179,7 +1243,7 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myOrigin.registerReusedElements(consumer);
       if(myComparator != null) {
         consumer.accept(myComparator);
@@ -1187,12 +1251,12 @@ abstract class TerminalOperation extends Operation {
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myOrigin.preprocessVariables(context, inVar, outVar);
     }
 
     @Override
-    String generate(StreamVariable inVar, StreamToLoopReplacementContext context) {
+    String generate(ChainVariable inVar, StreamToLoopReplacementContext context) {
       String acc = myOrigin.initAccumulator(inVar, context);
       context.addAfterStep(acc + ".sort(" + (myComparator == null ? "null" : myComparator.getText()) + ");\n");
       return myOrigin.getAccumulatorUpdater(inVar, acc);

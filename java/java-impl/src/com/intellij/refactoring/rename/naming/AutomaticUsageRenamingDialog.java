@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.rename.naming;
 
 import com.intellij.ide.IdeBundle;
@@ -20,12 +6,16 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.refactoring.RefactoringBundle;
+import com.intellij.refactoring.rename.AutomaticRenamingDialog;
 import com.intellij.ui.*;
 import com.intellij.ui.components.panels.ValidatingComponent;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -40,7 +30,7 @@ import java.util.List;
  * @author dsl
  */
 public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.rename.AutomaticRenamingDialog");
+  private static final Logger LOG = Logger.getInstance(AutomaticRenamingDialog.class);
   private static final int CHECK_COLUMN = 0;
   private static final int OLD_NAME_COLUMN = 1;
   private static final int NEW_NAME_COLUMN = 2;
@@ -116,7 +106,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
   }
 
   @Nullable
-  private String getErrorText(T element) {
+  private @NlsContexts.Tooltip String getErrorText(T element) {
     return isChecked(element) ? myRenamer.getErrorText(element) : null;
   }
 
@@ -151,7 +141,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
         return ScrollPaneFactory.createScrollPane(myTable);
       }
     };
-    
+
     myValidatingComponent.doInitialize();
 
     box.add(myValidatingComponent);
@@ -199,10 +189,11 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
   private void setupNewNameColumn() {
     myTable.getColumnModel().getColumn(NEW_NAME_COLUMN).setCellRenderer(new ColoredTableCellRenderer() {
       @Override
-      protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
+      protected void customizeCellRenderer(@NotNull JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
         T element = getElements().get(row);
         String errorText = getErrorText(element);
         setToolTipText(errorText);
+        //noinspection HardCodedStringLiteral
         append(String.valueOf(value), highlightIfNeeded(SimpleTextAttributes.REGULAR_ATTRIBUTES, errorText));
       }
     });
@@ -223,7 +214,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
 
         myCellEditorListener = new DocumentAdapter() {
           @Override
-          protected void textChanged(DocumentEvent e) {
+          protected void textChanged(@NotNull DocumentEvent e) {
             myTableModel.setValueAt(getCellEditorValue(), row, column);
             setChecked(row, true);
             String errorText = myRenamer.getErrorText(getElements().get(row));
@@ -255,7 +246,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
   private void setupOldNameColumn() {
     myTable.getColumnModel().getColumn(OLD_NAME_COLUMN).setCellRenderer(new ColoredTableCellRenderer() {
       @Override
-      protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
+      protected void customizeCellRenderer(@NotNull JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
         //noinspection unchecked
         T element = (T) value;
         setToolTipText(getErrorText(element));
@@ -314,7 +305,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
   }
 
   private class MyTableModel extends AbstractTableModel {
-    public MyTableModel() {
+    MyTableModel() {
       InputMap inputMap = myTable.getInputMap();
       inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "enable_disable");
       myTable.getActionMap().put("enable_disable", new MySpaceAction());
@@ -383,7 +374,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
     public String getColumnName(int column) {
       switch(column) {
         case OLD_NAME_COLUMN:
-          return RefactoringBundle.message("automatic.renamer.enity.name.column", myRenamer.getEntityName());
+          return RefactoringBundle.message("automatic.renamer.entity.name.column", myRenamer.getEntityName());
         case NEW_NAME_COLUMN:
           return RefactoringBundle.message("automatic.renamer.rename.to.column");
         default:
@@ -401,9 +392,7 @@ public class AutomaticUsageRenamingDialog<T> extends DialogWrapper {
           myShouldRename[row] = !myShouldRename[row];
           fireTableDataChanged();
           repaintTable();
-          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-            IdeFocusManager.getGlobalInstance().requestFocus(myTable, true);
-          });
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTable, true));
         }
       }
     }

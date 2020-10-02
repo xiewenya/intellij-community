@@ -20,13 +20,10 @@ import com.intellij.framework.detection.DetectionExcludesConfiguration;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 class FrameworkTypeNode extends DetectedFrameworkTreeNodeBase {
   private final FrameworkType myFrameworkType;
 
-  public FrameworkTypeNode(@NotNull FrameworkType frameworkType) {
+  FrameworkTypeNode(@NotNull FrameworkType frameworkType) {
     super(frameworkType);
     myFrameworkType = frameworkType;
   }

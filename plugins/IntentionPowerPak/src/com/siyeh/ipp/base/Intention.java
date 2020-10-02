@@ -19,24 +19,20 @@ import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.AtomicNotNullLazyValue;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.psiutils.BoolUtils;
 import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract class Intention extends BaseElementAtCaretIntentionAction {
-
-  private final PsiElementPredicate predicate;
-
-  /**
-   * @noinspection AbstractMethodCallInConstructor, OverridableMethodCallInConstructor
-   */
-  protected Intention() {
-    predicate = getElementPredicate();
-  }
+  @SafeFieldForPreview
+  private final NotNullLazyValue<PsiElementPredicate> myPredicate = AtomicNotNullLazyValue.createValue(() -> getElementPredicate());
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element){
@@ -48,7 +44,7 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
   }
 
   protected abstract void processIntention(@NotNull PsiElement element);
-  
+
   protected void processIntention(Editor editor, @NotNull PsiElement element) {
     processIntention(element);
   }
@@ -74,15 +70,27 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
       }
       expString = "!(" + newExpression + ')';
     }
-    final PsiExpression newCall = factory.createExpressionFromText(expString, expression);
     assert expressionToReplace != null;
-    final PsiElement insertedElement = tracker.replaceAndRestoreComments(expressionToReplace, newCall);
-    final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
-    codeStyleManager.reformat(insertedElement);
+    PsiExpression newCall = factory.createExpressionFromText(expString, expression);
+    if (newCall instanceof PsiPolyadicExpression) {
+      PsiElement insertedElement = ExpressionUtils.replacePolyadicWithParent(expressionToReplace, newCall);
+      if (insertedElement != null) {
+        CodeStyleManager.getInstance(project).reformat(insertedElement);
+        return;
+      }
+    }
+
+    PsiElement insertedElement = tracker.replaceAndRestoreComments(expressionToReplace, newCall);
+    CodeStyleManager.getInstance(project).reformat(insertedElement);
   }
+
 
   @Nullable
   PsiElement findMatchingElement(@Nullable PsiElement element, Editor editor) {
+    if (element == null || !JavaLanguage.INSTANCE.equals(element.getLanguage())) return null;
+
+    PsiElementPredicate predicate = myPredicate.getValue();
+
     while (element != null) {
       if (!JavaLanguage.INSTANCE.equals(element.getLanguage())) {
         break;
@@ -129,13 +137,12 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
   @Override
   @NotNull
   public String getText() {
-    //noinspection UnresolvedPropertyKey
     return IntentionPowerPackBundle.message(getPrefix() + ".name");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
-    //noinspection UnresolvedPropertyKey
-    return IntentionPowerPackBundle.defaultableMessage(getPrefix() + ".family.name");
+    return IntentionPowerPackBundle.message(getPrefix() + ".family.name");
   }
 }

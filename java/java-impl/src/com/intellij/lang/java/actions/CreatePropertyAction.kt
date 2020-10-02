@@ -29,7 +29,7 @@ internal class CreatePropertyAction(target: PsiClass, request: CreateMethodReque
     val counterPart = when (propertyKind) {
       GETTER, BOOLEAN_GETTER -> SETTER
       SETTER -> {
-        val expectedType = request.parameters.single().second.singleOrNull()
+        val expectedType = request.expectedParameters.single().expectedTypes.singleOrNull()
         if (expectedType != null && PsiType.BOOLEAN == JvmPsiConversionHelper.getInstance(project).convertType(expectedType.theType)) {
           BOOLEAN_GETTER
         }
@@ -41,7 +41,7 @@ internal class CreatePropertyAction(target: PsiClass, request: CreateMethodReque
     return target.findMethodsByName(getAccessorName(propertyName, counterPart), false).isEmpty()
   }
 
-  override fun getText(): String = message("create.property.from.usage.full.text", propertyInfo.first, getNameForClass(target, false))
+  override fun getText(): String = message("create.property.from.usage.full.text", getPropertyName(), getNameForClass(target, false))
 
   override fun createRenderer(project: Project): PropertyRenderer = object : PropertyRenderer(project, target, request, propertyInfo) {
 

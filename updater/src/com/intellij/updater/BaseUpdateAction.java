@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import com.intellij.updater.Utils.OpenByteArrayOutputStream;
@@ -20,6 +6,7 @@ import ie.wombat.jbdiff.JBDiff;
 import ie.wombat.jbdiff.JBPatch;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.Objects;
 import java.util.zip.ZipOutputStream;
 
@@ -66,6 +53,11 @@ public abstract class BaseUpdateAction extends PatchAction {
   }
 
   @Override
+  protected String getReportPath() {
+    return mySource;
+  }
+
+  @Override
   public void write(DataOutputStream out) throws IOException {
     super.write(out);
     out.writeUTF(mySource);
@@ -81,11 +73,7 @@ public abstract class BaseUpdateAction extends PatchAction {
     return new File(toDir, mySource);
   }
 
-  public String getSourcePath() {
-    return mySource;
-  }
-
-  public boolean isMove() {
+  protected boolean isMove() {
     return myIsMove;
   }
 
@@ -109,28 +97,43 @@ public abstract class BaseUpdateAction extends PatchAction {
       result = doValidateAccess(getFile(toDir), ValidationResult.Action.UPDATE, true);
       if (result != null) return result;
     }
-    return doValidateNotChanged(fromFile, ValidationResult.Kind.ERROR, ValidationResult.Action.UPDATE);
+    return doValidateNotChanged(fromFile, ValidationResult.Action.UPDATE);
   }
 
   @Override
-  protected void doBackup(File toFile, File backupFile) throws IOException {
+  public boolean mandatoryBackup() {
+    return !myInPlace;
+  }
+
+  @Override
+  public void backup(File toDir, File backupDir) throws IOException {
     if (myInPlace) {
-      Utils.copy(toFile, backupFile);
+      Utils.copy(getFile(toDir), getFile(backupDir), false);
+    }
+    else {
+      File moveBackup = getSource(backupDir);
+      if (!moveBackup.exists()) {
+        Utils.copy(getSource(toDir), moveBackup, false);
+      }
     }
   }
 
   protected void replaceUpdated(File from, File dest) throws IOException {
-    // on macOS, code signing caches seem to be associated with specific file ids, so we need to remove the original file
-    Utils.delete(dest);
-    Utils.copy(from, dest);
+    if (Utils.IS_MAC) {
+      // on macOS, code signing caches seem to be associated with specific file IDs, so we need to remove the original file
+      Utils.delete(dest);
+      Utils.copy(from, dest, false);
+    }
+    else {
+      Utils.copy(from, dest, true);
+    }
   }
 
   @Override
   protected void doRevert(File toFile, File backupFile) throws IOException {
     if (myInPlace) {
-      if (!toFile.exists() || isModified(toFile)) {
-        Utils.delete(toFile);
-        Utils.copy(backupFile, toFile);
+      if (!Files.exists(toFile.toPath()) || isModified(toFile)) {
+        Utils.copy(backupFile, toFile, true);
       }
     }
     else {
@@ -138,20 +141,22 @@ public abstract class BaseUpdateAction extends PatchAction {
     }
   }
 
-  protected void writeDiff(File olderFile, File newerFile, OutputStream patchOutput) throws IOException {
-    try (BufferedInputStream olderFileIn = new BufferedInputStream(Utils.newFileInputStream(olderFile, myPatch.isNormalized()));
-         BufferedInputStream newerFileIn = new BufferedInputStream(new FileInputStream(newerFile))) {
-      writeDiff(olderFileIn, newerFileIn, patchOutput);
-    }
-  }
-
   protected void writeDiff(InputStream olderFileIn, InputStream newerFileIn, OutputStream patchOutput) throws IOException {
+    if (isCritical()) {
+      Runner.logger().info("critical file, writing raw");
+
+      patchOutput.write(RAW);
+      Utils.copyStream(newerFileIn, patchOutput);
+
+      return;
+    }
+
     Runner.logger().info("writing diff");
     ByteArrayOutputStream diffOutput = new OpenByteArrayOutputStream();
     byte[] newerFileBuffer = JBDiff.bsdiff(olderFileIn, newerFileIn, diffOutput);
     diffOutput.close();
 
-    if (!isCritical() && diffOutput.size() < newerFileBuffer.length) {
+    if (diffOutput.size() < newerFileBuffer.length) {
       patchOutput.write(COMPRESSED);
       diffOutput.writeTo(patchOutput);
     }

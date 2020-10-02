@@ -18,25 +18,17 @@ package com.siyeh.ig.threading;
 import com.intellij.codeInspection.concurrencyAnnotations.JCiPUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Bas Leijdekkers
  */
 public class WaitNotifyNotInSynchronizedContextInspection extends BaseInspection {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("wait.notify.not.in.synchronized.context.display.name");
-  }
 
   @Override
   @NotNull
@@ -60,7 +52,7 @@ public class WaitNotifyNotInSynchronizedContextInspection extends BaseInspection
         return;
       }
       final PsiReferenceExpression methodExpression = expression.getMethodExpression();
-      final PsiExpression qualifier = ParenthesesUtils.stripParentheses(methodExpression.getQualifierExpression());
+      final PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(methodExpression.getQualifierExpression());
       if (qualifier == null || qualifier instanceof PsiThisExpression || qualifier instanceof PsiSuperExpression) {
         if (isSynchronizedOnThis(expression) || isCoveredByGuardedByAnnotation(expression, "this")) {
           return;
@@ -88,12 +80,11 @@ public class WaitNotifyNotInSynchronizedContextInspection extends BaseInspection
     }
 
     private static boolean isSynchronizedOn(@NotNull PsiElement element, @NotNull PsiExpression target) {
-      final PsiElement context = PsiTreeUtil.getParentOfType(element, PsiSynchronizedStatement.class);
-      if (context == null) {
+      final PsiSynchronizedStatement synchronizedStatement = PsiTreeUtil.getParentOfType(element, PsiSynchronizedStatement.class);
+      if (synchronizedStatement == null) {
         return false;
       }
-      final PsiSynchronizedStatement synchronizedStatement = (PsiSynchronizedStatement)context;
-      final PsiExpression lockExpression = ParenthesesUtils.stripParentheses(synchronizedStatement.getLockExpression());
+      final PsiExpression lockExpression = PsiUtil.skipParenthesizedExprDown(synchronizedStatement.getLockExpression());
       final EquivalenceChecker checker = EquivalenceChecker.getCanonicalPsiEquivalence();
       return checker.expressionsAreEquivalent(lockExpression, target) || isSynchronizedOn(synchronizedStatement, target);
     }
@@ -102,7 +93,7 @@ public class WaitNotifyNotInSynchronizedContextInspection extends BaseInspection
       final PsiElement context = PsiTreeUtil.getParentOfType(element, PsiMethod.class, PsiSynchronizedStatement.class);
       if (context instanceof PsiSynchronizedStatement) {
         final PsiSynchronizedStatement synchronizedStatement = (PsiSynchronizedStatement)context;
-        final PsiExpression lockExpression = ParenthesesUtils.stripParentheses(synchronizedStatement.getLockExpression());
+        final PsiExpression lockExpression = PsiUtil.skipParenthesizedExprDown(synchronizedStatement.getLockExpression());
         return lockExpression instanceof PsiThisExpression || isSynchronizedOnThis(synchronizedStatement);
       }
       else if (context instanceof PsiMethod) {

@@ -17,18 +17,23 @@ package com.intellij.java.codeInsight.intention;
 
 import com.intellij.codeInsight.intention.impl.CreateSubclassAction;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiDirectory;
-import com.intellij.psi.search.ProjectScope;
-import com.intellij.refactoring.MultiFileTestCase;
+import com.intellij.refactoring.LightMultiFileTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
-public class CreateSubclassTest extends MultiFileTestCase {
+public class CreateSubclassTest extends LightMultiFileTestCase {
+  @Override
+  protected @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_15;
+  }
+
   public void testGenerics() {
     doTest();
   }
@@ -45,36 +50,45 @@ public class CreateSubclassTest extends MultiFileTestCase {
     doTestInner();
   }
 
+  public void testSealed() {
+    doTest();
+  }
+
+  public void testSealedWithSameFileInheritors() {
+    doTestSameFileClass();
+  }
+
   private void doTestInner() {
-    doTest(new PerformAction() {
-      @Override
-      public void performAction(final VirtualFile rootDir, final VirtualFile rootAfter) {
-        PsiClass superClass = myJavaFacade.findClass("Test", ProjectScope.getAllScope(myProject));
-        assertNotNull(superClass);
-        final PsiClass inner = superClass.findInnerClassByName("Inner", false);
-        assertNotNull(inner);
-        CreateSubclassAction.createInnerClass(inner);
-        UIUtil.dispatchAllInvocationEvents();
-      }
+    doTest(() -> {
+      PsiClass superClass = myFixture.findClass("Test");
+      final PsiClass inner = superClass.findInnerClassByName("Inner", false);
+      assertNotNull(inner);
+      CreateSubclassAction.createInnerClass(inner);
+      UIUtil.dispatchAllInvocationEvents();
+    });
+  }
+
+  private void doTestSameFileClass() {
+    doTest(() -> {
+      PsiClass superClass = myFixture.findClass("Superclass");
+      ApplicationManager.getApplication().invokeLater(
+        () -> CreateSubclassAction.createSameFileClass("Subclass", superClass));
+      UIUtil.dispatchAllInvocationEvents();
     });
   }
 
   private void doTest() {
-    doTest(new PerformAction() {
-      @Override
-      public void performAction(final VirtualFile rootDir, final VirtualFile rootAfter) {
-        PsiDirectory root = myPsiManager.findDirectory(rootDir);
-        PsiClass superClass = myJavaFacade.findClass("Superclass", ProjectScope.getAllScope(myProject));
-        ApplicationManager.getApplication().invokeLater(
-          () -> CreateSubclassAction.createSubclass(superClass, root, "Subclass"));
-        UIUtil.dispatchAllInvocationEvents();
-      }
+    doTest(() -> {
+      PsiDirectory root = getPsiManager().findDirectory(myFixture.getTempDirFixture().findOrCreateDir(""));
+      PsiClass superClass = myFixture.findClass("Superclass");
+      ApplicationManager.getApplication().invokeLater(
+        () -> CreateSubclassAction.createSubclass(superClass, root, "Subclass"));
+      UIUtil.dispatchAllInvocationEvents();
     });
   }
 
-  @NotNull
   @Override
-  protected String getTestRoot() {
-    return "/codeInsight/createSubclass/";
+  protected String getTestDataPath() {
+    return PathManagerEx.getTestDataPath() + "/codeInsight/createSubclass/";
   }
 }

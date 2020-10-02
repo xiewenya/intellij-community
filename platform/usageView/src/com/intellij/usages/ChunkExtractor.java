@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages;
 
 import com.intellij.injected.editor.DocumentWindow;
@@ -57,11 +43,11 @@ import java.util.Map;
 /**
  * @author peter
  */
-public class ChunkExtractor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.usages.ChunkExtractor");
-  public static final int MAX_LINE_LENGTH_TO_SHOW = 200;
-  public static final int OFFSET_BEFORE_TO_SHOW_WHEN_LONG_LINE = 1;
-  public static final int OFFSET_AFTER_TO_SHOW_WHEN_LONG_LINE = 1;
+public final class ChunkExtractor {
+  private static final Logger LOG = Logger.getInstance(ChunkExtractor.class);
+  static final int MAX_LINE_LENGTH_TO_SHOW = 200;
+  static final int OFFSET_BEFORE_TO_SHOW_WHEN_LONG_LINE = 1;
+  static final int OFFSET_AFTER_TO_SHOW_WHEN_LONG_LINE = 1;
 
   private final EditorColorsScheme myColorsScheme;
 
@@ -85,21 +71,16 @@ public class ChunkExtractor {
     }
   }
 
-  private static final ThreadLocal<WeakFactory<Map<PsiFile, ChunkExtractor>>> ourExtractors = new ThreadLocal<WeakFactory<Map<PsiFile, ChunkExtractor>>>() {
+  private static final ThreadLocal<WeakFactory<Map<PsiFile, ChunkExtractor>>> ourExtractors = ThreadLocal.withInitial(
+    () -> new WeakFactory<Map<PsiFile, ChunkExtractor>>() {
+    @NotNull
     @Override
-    protected WeakFactory<Map<PsiFile, ChunkExtractor>> initialValue() {
-      return new WeakFactory<Map<PsiFile, ChunkExtractor>>() {
-        @NotNull
-        @Override
-        protected Map<PsiFile, ChunkExtractor> create() {
-          return FactoryMap.create(psiFile -> new ChunkExtractor(psiFile));
-        }
-      };
+    protected Map<PsiFile, ChunkExtractor> create() {
+      return FactoryMap.create(psiFile -> new ChunkExtractor(psiFile));
     }
-  };
+  });
 
-  @NotNull 
-  public static TextChunk[] extractChunks(@NotNull PsiFile file, @NotNull UsageInfo2UsageAdapter usageAdapter) {
+  static TextChunk @NotNull [] extractChunks(@NotNull PsiFile file, @NotNull UsageInfo2UsageAdapter usageAdapter) {
     return getExtractor(file).extractChunks(usageAdapter, file);
   }
 
@@ -121,7 +102,7 @@ public class ChunkExtractor {
     myDocumentStamp = -1;
   }
 
-  public static int getStartOffset(final List<RangeMarker> rangeMarkers) {
+  public static int getStartOffset(final List<? extends RangeMarker> rangeMarkers) {
     LOG.assertTrue(!rangeMarkers.isEmpty());
     int minStart = Integer.MAX_VALUE;
     for (RangeMarker rangeMarker : rangeMarkers) {
@@ -132,8 +113,7 @@ public class ChunkExtractor {
     return minStart == Integer.MAX_VALUE ? -1 : minStart;
   }
 
-  @NotNull 
-  private TextChunk[] extractChunks(@NotNull UsageInfo2UsageAdapter usageInfo2UsageAdapter, @NotNull PsiFile file) {
+  private TextChunk @NotNull [] extractChunks(@NotNull UsageInfo2UsageAdapter usageInfo2UsageAdapter, @NotNull PsiFile file) {
     int absoluteStartOffset = usageInfo2UsageAdapter.getNavigationOffset();
     if (absoluteStartOffset == -1) return TextChunk.EMPTY_ARRAY;
 
@@ -181,13 +161,12 @@ public class ChunkExtractor {
     return createTextChunks(usageInfo2UsageAdapter, chars, fragmentToShowStart, fragmentToShowEnd, true, result);
   }
 
-  @NotNull
-  public TextChunk[] createTextChunks(@NotNull UsageInfo2UsageAdapter usageInfo2UsageAdapter,
-                                      @NotNull CharSequence chars,
-                                      int start,
-                                      int end,
-                                      boolean selectUsageWithBold,
-                                      @NotNull List<TextChunk> result) {
+  public TextChunk @NotNull [] createTextChunks(@NotNull UsageInfo2UsageAdapter usageInfo2UsageAdapter,
+                                                @NotNull CharSequence chars,
+                                                int start,
+                                                int end,
+                                                boolean selectUsageWithBold,
+                                                @NotNull List<? super TextChunk> result) {
     final Lexer lexer = myHighlighter.getHighlightingLexer();
     final SyntaxHighlighterOverEditorHighlighter highlighter = myHighlighter;
 
@@ -233,9 +212,9 @@ public class ChunkExtractor {
                                         @NotNull final CharSequence chars,
                                         int hiStart,
                                         final int hiEnd,
-                                        @NotNull final TextAttributesKey[] tokenHighlights,
+                                        final TextAttributesKey @NotNull [] tokenHighlights,
                                         final boolean selectUsageWithBold,
-                                        @NotNull final List<TextChunk> result) {
+                                        @NotNull final List<? super TextChunk> result) {
     final TextAttributes originalAttrs = convertAttributes(tokenHighlights);
     if (selectUsageWithBold) {
       originalAttrs.setFontType(Font.PLAIN);
@@ -301,7 +280,7 @@ public class ChunkExtractor {
                                @NotNull TextAttributes originalAttrs,
                                boolean bold,
                                @Nullable UsageType usageType,
-                               @NotNull List<TextChunk> result) {
+                               @NotNull List<? super TextChunk> result) {
     if (start >= end) return;
 
     TextAttributes attrs = bold
@@ -317,7 +296,7 @@ public class ChunkExtractor {
   }
 
   @NotNull
-  private TextAttributes convertAttributes(@NotNull TextAttributesKey[] keys) {
+  private TextAttributes convertAttributes(TextAttributesKey @NotNull [] keys) {
     TextAttributes attrs = myColorsScheme.getAttributes(HighlighterColors.TEXT);
 
     for (TextAttributesKey key : keys) {
@@ -331,7 +310,7 @@ public class ChunkExtractor {
     return attrs;
   }
 
-  private void appendPrefix(@NotNull List<TextChunk> result, int lineNumber) {
+  private void appendPrefix(@NotNull List<? super TextChunk> result, int lineNumber) {
     result.add(new TextChunk(myColorsScheme.getAttributes(UsageTreeColors.USAGE_LOCATION), String.valueOf(lineNumber + 1)));
   }
 }

@@ -15,12 +15,17 @@
  */
 package org.intellij.images.editor.impl;
 
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileEditor.*;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.Alarm;
 import org.intellij.images.fileTypes.ImageFileTypeManager;
+import org.intellij.images.vfs.IfsUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -32,23 +37,27 @@ import org.jetbrains.annotations.NotNull;
 final class ImageFileEditorProvider implements FileEditorProvider, DumbAware {
   @NonNls private static final String EDITOR_TYPE_ID = "images";
 
-  private final ImageFileTypeManager typeManager;
-
-  ImageFileEditorProvider(ImageFileTypeManager typeManager) {
-    this.typeManager = typeManager;
-  }
-
   @Override
   public boolean accept(@NotNull Project project, @NotNull VirtualFile file) {
-    return typeManager.isImage(file);
+    return ImageFileTypeManager.getInstance().isImage(file);
   }
 
   @Override
   @NotNull
   public FileEditor createEditor(@NotNull Project project, @NotNull VirtualFile file) {
     ImageFileEditorImpl viewer = new ImageFileEditorImpl(project, file);
-    if ("svg".equalsIgnoreCase(file.getExtension())) {
-      return new TextEditorWithPreview((TextEditor)TextEditorProvider.getInstance().createEditor(project, file), viewer, "SvgEditor");
+    if (IfsUtil.isSVG(file)) {
+      TextEditor editor = (TextEditor)TextEditorProvider.getInstance().createEditor(project, file);
+      editor.getEditor().getDocument().addDocumentListener(new DocumentListener() {
+        final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, editor);
+        @Override
+        public void documentChanged(@NotNull DocumentEvent event) {
+          myAlarm.cancelAllRequests();
+          myAlarm.addRequest(() -> ((ImageEditorImpl)viewer.getImageEditor()).setValue(new LightVirtualFile("preview.svg", file.getFileType(), event.getDocument().getText())),
+                             500);
+        }
+      }, editor);
+      return new TextEditorWithPreview(editor, viewer, "SvgEditor");
     }
     return viewer;
   }

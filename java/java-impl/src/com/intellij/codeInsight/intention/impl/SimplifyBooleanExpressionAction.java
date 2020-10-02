@@ -18,6 +18,7 @@ package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.daemon.impl.quickfix.SimplifyBooleanExpressionFix;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -28,7 +29,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class SimplifyBooleanExpressionAction implements IntentionAction{
-  private String myText = getFamilyName();
+  private @IntentionName String myText = getFamilyName();
 
   @Override
   @NotNull
@@ -39,7 +40,7 @@ public class SimplifyBooleanExpressionAction implements IntentionAction{
   @Override
   @NotNull
   public String getFamilyName() {
-    return SimplifyBooleanExpressionFix.FAMILY_NAME;
+    return SimplifyBooleanExpressionFix.getFamilyNameText();
   }
 
   @Override
@@ -60,7 +61,9 @@ public class SimplifyBooleanExpressionAction implements IntentionAction{
     if (element == null) return null;
     PsiExpression expression = PsiTreeUtil.getParentOfType(element, PsiExpression.class);
     PsiElement parent = expression;
-    while (parent instanceof PsiExpression && (PsiType.BOOLEAN.equals(((PsiExpression)parent).getType()) || parent instanceof PsiConditionalExpression)) {
+    while (parent instanceof PsiExpression &&
+           !(parent instanceof PsiAssignmentExpression) &&
+           (PsiType.BOOLEAN.equals(((PsiExpression)parent).getType()) || parent instanceof PsiConditionalExpression)) {
       expression = (PsiExpression)parent;
       parent = parent.getParent();
     }

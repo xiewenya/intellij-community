@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.util.duplicates;
 
 import com.intellij.codeInsight.JavaPsiEquivalenceUtil;
@@ -28,7 +14,7 @@ import java.util.List;
 /**
  * @author Pavel.Dolgov
  */
-public class ExtractableExpressionPart {
+public final class ExtractableExpressionPart {
   final PsiExpression myUsage;
   final PsiVariable myVariable;
   final Object myValue;
@@ -62,27 +48,21 @@ public class ExtractableExpressionPart {
     return new ExtractableExpressionPart(myUsage, myVariable, myValue, myType);
   }
 
-  @NotNull
-  ExtractableExpressionPart deepCopy() {
-    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myUsage.getProject());
-    PsiExpression usageCopy = factory.createExpressionFromText(myUsage.getText(), myUsage);
-    return new ExtractableExpressionPart(usageCopy, myVariable, myValue, myType);
-  }
-
-  boolean isEquivalent(@NotNull ExtractableExpressionPart part) {
+  public boolean isEquivalent(@NotNull ExtractableExpressionPart part) {
     if (myVariable != null && myVariable.equals(part.myVariable)) {
       return true;
     }
     if (myValue != null && myValue.equals(part.myValue)) {
       return true;
     }
-    return JavaPsiEquivalenceUtil.areExpressionsEquivalent(PsiUtil.skipParenthesizedExprDown(myUsage),
-                                                           PsiUtil.skipParenthesizedExprDown(part.myUsage));
+    PsiExpression usage1 = PsiUtil.skipParenthesizedExprDown(myUsage);
+    PsiExpression usage2 = PsiUtil.skipParenthesizedExprDown(part.myUsage);
+    return usage1 != null && usage2 != null && JavaPsiEquivalenceUtil.areExpressionsEquivalent(usage1, usage2);
   }
 
   @Nullable
   static ExtractableExpressionPart match(@NotNull PsiExpression expression,
-                                         @NotNull List<PsiElement> scope,
+                                         @NotNull List<? extends PsiElement> scope,
                                          @Nullable ComplexityHolder complexityHolder) {
     if (expression instanceof PsiReferenceExpression) {
       return matchVariable((PsiReferenceExpression)expression, scope);
@@ -120,7 +100,7 @@ public class ExtractableExpressionPart {
   }
 
   @Nullable
-  static ExtractableExpressionPart matchVariable(@NotNull PsiReferenceExpression expression, @Nullable List<PsiElement> scope) {
+  static ExtractableExpressionPart matchVariable(@NotNull PsiReferenceExpression expression, @Nullable List<? extends PsiElement> scope) {
     PsiElement resolved = expression.resolve();
     if (resolved instanceof PsiField && isModification(expression)) {
       return null;
@@ -163,5 +143,19 @@ public class ExtractableExpressionPart {
   @NotNull
   public PsiExpression getUsage() {
     return myUsage;
+  }
+
+  @NotNull
+  public static ExtractableExpressionPart fromUsage(@NotNull PsiExpression usage, @NotNull PsiType type) {
+    PsiType usageType;
+    //noinspection AssertWithSideEffects
+    assert (usageType = usage.getType()) == null || type.isAssignableFrom(usageType)
+      : "expected " + type.getCanonicalText() + ", got " + usageType.getCanonicalText();
+    return new ExtractableExpressionPart(usage, null, null, type);
+  }
+
+  @Override
+  public String toString() {
+    return myUsage.getText();
   }
 }

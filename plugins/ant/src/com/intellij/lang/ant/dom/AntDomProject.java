@@ -25,6 +25,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -47,10 +48,9 @@ import java.util.*;
 /**
  * @author Eugene Zhuravlev
  */
-@SuppressWarnings({"AbstractClassNeverImplemented"})
 @DefinesXml
 public abstract class AntDomProject extends AntDomNamedElement implements PropertiesProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.dom.AntDomProject");
+  private static final Logger LOG = Logger.getInstance(AntDomProject.class);
 
   @NonNls public static final String DEFAULT_ENVIRONMENT_PREFIX = "env.";
 
@@ -85,7 +85,7 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
   }
 
   @Nullable
-  public final String getProjectBasedirPath() {
+  public final @NlsSafe String getProjectBasedirPath() {
     final String basedir = getBasedir().getStringValue();
     if (basedir != null) {
       final File file = new File(basedir);
@@ -114,13 +114,13 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
   }
 
   @Nullable
-  public final String getContainingFileDir() {
+  public final @NlsSafe String getContainingFileDir() {
     final VirtualFile containingFile = getXmlTag().getContainingFile().getOriginalFile().getVirtualFile();
     if (containingFile == null) {
       return null;
     }
     final VirtualFile parent = containingFile.getParent();
-    return parent != null? parent.getPath() : null;
+    return parent != null ? parent.getPath() : null;
   }
 
   @SubTagList("target")
@@ -162,7 +162,7 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
   }
 
   public AntInstallation getAntInstallation() {
-    final AntConfigurationBase configuration = AntConfigurationBase.getInstance(getXmlTag().getProject());
+    final AntConfigurationBase configuration = AntConfigurationBase.getInstance(getManager().getProject());
     AntInstallation antInstallation = null;
     if (configuration != null) {
       antInstallation = configuration.getProjectDefaultAnt();
@@ -191,16 +191,19 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
     return ProjectRootManager.getInstance(tag.getProject()).getProjectSdk();
   }
 
+  @Override
   @NotNull
   public Iterator<String> getNamesIterator() {
     return getProperties().keySet().iterator();
   }
 
+  @Override
   @Nullable
   public String getPropertyValue(String propertyName) {
     return getProperties().get(propertyName);
   }
 
+  @Override
   @Nullable
   public PsiElement getNavigationElement(String propertyName) {
     final DomTarget target = DomTarget.getTarget(this);
@@ -283,7 +286,7 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
     final Sdk jdkToRunWith = getTargetJdk();
     final String version = jdkToRunWith != null? jdkToRunWith.getVersionString() : null;
     appendProperty(destination, "ant.java.version", version != null? version : SystemInfo.JAVA_VERSION);
-    
+
     final VirtualFile containingFile = getXmlTag().getContainingFile().getOriginalFile().getVirtualFile();
     if (containingFile != null) {
       final String antFilePath = containingFile.getPath();

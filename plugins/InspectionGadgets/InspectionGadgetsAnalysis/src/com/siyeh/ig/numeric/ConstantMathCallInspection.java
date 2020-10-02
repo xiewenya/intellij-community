@@ -34,7 +34,6 @@ import java.util.Set;
 
 public class ConstantMathCallInspection extends BaseInspection {
 
-  @SuppressWarnings("StaticCollection")
   @NonNls static final Set<String> constantMathCall =
     new HashSet<>(23);
 
@@ -62,13 +61,6 @@ public class ConstantMathCallInspection extends BaseInspection {
     constantMathCall.add("tanh");
     constantMathCall.add("toDegrees");
     constantMathCall.add("toRadians");
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "constant.math.call.display.name");
   }
 
   @Override

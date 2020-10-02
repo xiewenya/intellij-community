@@ -24,13 +24,14 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.IntroduceParameterRefactoring;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashMap;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,7 +39,7 @@ import java.util.Set;
  * @author Maxim.Medvedev
  */
 public class OldReferenceResolver {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.introduceParameter.OldReferenceResolver");
+  private static final Logger LOG = Logger.getInstance(OldReferenceResolver.class);
 
   private final PsiCall myContext;
   private final PsiExpression myExpr;
@@ -66,7 +67,7 @@ public class OldReferenceResolver {
     myProject = myContext.getProject();
     myManager = myContext.getManager();
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
     PsiExpression instanceRef;
     if (myContext instanceof PsiMethodCallExpression) {
       final PsiMethodCallExpression methodCall = (PsiMethodCallExpression)myContext;
@@ -88,12 +89,12 @@ public class OldReferenceResolver {
     myInstanceRef = instanceRef;
   }
 
-  public void resolve() throws IncorrectOperationException {
-    resolveOldReferences(myExpr, myParameterInitializer);
+  public void resolve(boolean varargs) throws IncorrectOperationException {
+    resolveOldReferences(myExpr, myParameterInitializer, varargs);
 
     Set<Map.Entry<PsiExpression, String>> mappingsSet = myTempVars.entrySet();
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
 
     replaceOldRefWithNew(mappingsSet, factory);
   }
@@ -107,9 +108,9 @@ public class OldReferenceResolver {
   }
 
 
-  private void resolveOldReferences(PsiElement expr, PsiElement oldExpr) throws IncorrectOperationException {
+  private void resolveOldReferences(PsiElement expr, PsiElement oldExpr, boolean varargs) throws IncorrectOperationException {
     if (expr == null || !expr.isValid() || oldExpr == null) return;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
     PsiElement newExpr = expr;  // references continue being resolved in the children of newExpr
 
     if (oldExpr instanceof PsiReferenceExpression) {
@@ -138,8 +139,14 @@ public class OldReferenceResolver {
             if (parameter.isVarArgs() && parameterType instanceof PsiEllipsisType) {
               final String varargsJoin = StringUtil.join(ContainerUtil.map2Array(myActualArgs, String.class,
                                                                                  expression -> expression != null ? expression.getText() : "null"), index + 1, myActualArgs.length, ",");
-              String newArrayInitializer = "new " + ((PsiEllipsisType)parameterType).toArrayType().getCanonicalText() + " {" + varargsJoin + "}";
-              final String tempVar = getTempVar((PsiExpression)JavaCodeStyleManager.getInstance(myProject).shortenClassReferences(factory.createExpressionFromText(newArrayInitializer, myContext)));
+              final String tempVar;
+              if (varargs) {
+                String newArrayInitializer = "new " + ((PsiEllipsisType)parameterType).toArrayType().getCanonicalText() + " {" + varargsJoin + "}";
+                tempVar = getTempVar((PsiExpression)JavaCodeStyleManager.getInstance(myProject).shortenClassReferences(factory.createExpressionFromText(newArrayInitializer, myContext)));
+              }
+              else {
+                tempVar = myActualArgs[myActualArgs.length - 1].getText();
+              }
               final Map<PsiExpression, String> map = new HashMap<>();
               if (initializer instanceof PsiReferenceExpression && Comparing.strEqual(parameter.getName(), initializer.getText())) {
                 newExpr.replace(factory.createExpressionFromText(tempVar, myContext));
@@ -221,7 +228,7 @@ public class OldReferenceResolver {
 
     if (oldChildren.length == newChildren.length) {
       for (int i = 0; i < oldChildren.length; i++) {
-        resolveOldReferences(newChildren[i], oldChildren[i]);
+        resolveOldReferences(newChildren[i], oldChildren[i], varargs);
       }
     }
   }
@@ -263,7 +270,7 @@ public class OldReferenceResolver {
     if (getter != null) {
 
       if (JavaPsiFacade.getInstance(psiField.getProject()).getResolveHelper().isAccessible(getter, newExpr, null)) {
-        PsiElementFactory factory = JavaPsiFacade.getInstance(newExpr.getProject()).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(newExpr.getProject());
         String id = getter.getName();
         String qualifier = null;
         if (newExpr instanceof PsiReferenceExpression) {
@@ -299,7 +306,7 @@ public class OldReferenceResolver {
   private static PsiElement getClassContainingResolve(final JavaResolveResult result) {
     final PsiElement elem = result.getElement();
     if (elem != null) {
-      if (elem instanceof PsiLocalVariable || elem instanceof PsiParameter) {
+      if (PsiUtil.isJvmLocalVariable(elem)) {
         return PsiTreeUtil.getParentOfType(elem, PsiClass.class);
       }
       else {

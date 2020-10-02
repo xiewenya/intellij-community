@@ -13,7 +13,8 @@
 package org.zmlx.hg4idea.execution;
 
 import com.intellij.execution.process.ProcessOutput;
-import com.intellij.util.ArrayUtil;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -25,39 +26,40 @@ public final class HgCommandResult {
   public static final HgCommandResult CANCELLED = new HgCommandResult(new ProcessOutput(1));
 
   @NotNull private final ProcessOutput myProcessOutput;
-  @NotNull private final byte[] myByteArrayOutput;
+  private final byte @NotNull [] myByteArrayOutput;
 
   public HgCommandResult(@NotNull ProcessOutput processOutput) {
-    this(processOutput, ArrayUtil.EMPTY_BYTE_ARRAY);
+    this(processOutput, ArrayUtilRt.EMPTY_BYTE_ARRAY);
   }
 
-  public HgCommandResult(@NotNull ProcessOutput processOutput, @NotNull byte[] byteArrayOutput) {
+  public HgCommandResult(@NotNull ProcessOutput processOutput, byte @NotNull [] byteArrayOutput) {
     myProcessOutput = processOutput;
     myByteArrayOutput = byteArrayOutput;
   }
 
   @NotNull
-  public List<String> getOutputLines() {
+  public List<@NlsSafe String> getOutputLines() {
     return myProcessOutput.getStdoutLines();
   }
 
   @NotNull
-  public List<String> getErrorLines() {
+  public List<@NlsSafe String> getErrorLines() {
     return myProcessOutput.getStderrLines();
   }
 
+  @NlsSafe
   @NotNull
   public String getRawOutput() {
     return myProcessOutput.getStdout();
   }
 
+  @NlsSafe
   @NotNull
   public String getRawError() {
     return myProcessOutput.getStderr();
   }
 
-  @NotNull
-  public byte[] getBytesOutput() {
+  public byte @NotNull [] getBytesOutput() {
     return myByteArrayOutput;
   }
 

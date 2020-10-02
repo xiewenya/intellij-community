@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve;
 
 import com.intellij.openapi.util.Key;
@@ -21,7 +19,7 @@ import org.jetbrains.annotations.NotNull;
 public class VariableResolverProcessor extends ConflictFilterProcessor implements ElementClassHint {
   private static final ElementFilter ourFilter = ElementClassFilter.VARIABLE;
 
-  private boolean myStaticScopeFlag;
+  private @NotNull StaticScope myStaticScopeFlag = StaticScope.NON_STATIC;
   private final PsiClass myAccessClass;
   private PsiElement myCurrentFileContext;
 
@@ -34,7 +32,7 @@ public class VariableResolverProcessor extends ConflictFilterProcessor implement
       final JavaResolveResult accessClass = PsiUtil.getAccessObjectClass((PsiExpression)qualifier);
       final PsiElement element = accessClass.getElement();
       if (element instanceof PsiTypeParameter) {
-        PsiElementFactory factory = JavaPsiFacade.getInstance(placeFile.getProject()).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(placeFile.getProject());
         final PsiClassType type = factory.createType((PsiTypeParameter)element);
         final PsiType accessType = accessClass.getSubstitutor().substitute(type);
         if (accessType instanceof PsiArrayType) {
@@ -53,7 +51,7 @@ public class VariableResolverProcessor extends ConflictFilterProcessor implement
   }
 
   @Override
-  protected boolean stopAtFoundResult(JavaResolveResult cachedResult) {
+  protected boolean stopAtFoundResult(@NotNull JavaResolveResult cachedResult) {
     if (super.stopAtFoundResult(cachedResult)) {
       if (myPlaceFile instanceof JavaCodeFragment) {
         JavaCodeFragment.VisibilityChecker visibilityChecker = ((JavaCodeFragment)myPlaceFile).getVisibilityChecker();
@@ -74,8 +72,11 @@ public class VariableResolverProcessor extends ConflictFilterProcessor implement
   @Override
   public final void handleEvent(@NotNull PsiScopeProcessor.Event event, Object associated) {
     super.handleEvent(event, associated);
-    if(event == JavaScopeProcessorEvent.START_STATIC){
-      myStaticScopeFlag = true;
+    if (JavaScopeProcessorEvent.isEnteringStaticScope(event, associated)) {
+      if (myStaticScopeFlag != StaticScope.STATIC_NO_CONSTANTS) {
+        myStaticScopeFlag = associated instanceof PsiClass && ((PsiClass)associated).getParent() instanceof PsiDeclarationStatement ?
+                            StaticScope.STATIC_NO_CONSTANTS : StaticScope.STATIC;
+      }
     }
     else if (JavaScopeProcessorEvent.SET_CURRENT_FILE_CONTEXT.equals(event)) {
       myCurrentFileContext = (PsiElement)associated;
@@ -84,15 +85,22 @@ public class VariableResolverProcessor extends ConflictFilterProcessor implement
 
   @Override
   public void add(@NotNull PsiElement element, @NotNull PsiSubstitutor substitutor) {
-    final boolean staticProblem = myStaticScopeFlag && 
-                                  !((PsiModifierListOwner)element).hasModifierProperty(PsiModifier.STATIC) &&
-                                  (element instanceof PsiField || !(element instanceof PsiVariable && PsiUtil.isCompileTimeConstant((PsiVariable)element)));
+    final boolean staticProblem = isStaticProblem(element);
     add(new CandidateInfo(element, substitutor, myPlace, myAccessClass, staticProblem, myCurrentFileContext));
+  }
+
+  private boolean isStaticProblem(@NotNull PsiElement element) {
+    if (myStaticScopeFlag == StaticScope.NON_STATIC || ((PsiModifierListOwner)element).hasModifierProperty(PsiModifier.STATIC)) {
+      return false;
+    }
+    if (element instanceof PsiField) return true;
+    return !(myStaticScopeFlag == StaticScope.STATIC && element instanceof PsiVariable &&
+             PsiUtil.isCompileTimeConstant((PsiVariable)element));
   }
 
 
   @Override
-  public boolean shouldProcess(DeclarationKind kind) {
+  public boolean shouldProcess(@NotNull DeclarationKind kind) {
     return kind == DeclarationKind.VARIABLE || kind == DeclarationKind.FIELD || kind == DeclarationKind.ENUM_CONST;
   }
 
@@ -114,5 +122,9 @@ public class VariableResolverProcessor extends ConflictFilterProcessor implement
     }
 
     return super.getHint(hintKey);
+  }
+
+  private enum StaticScope {
+    NON_STATIC, STATIC, STATIC_NO_CONSTANTS
   }
 }

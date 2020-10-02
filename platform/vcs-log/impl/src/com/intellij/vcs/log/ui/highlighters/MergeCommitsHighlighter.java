@@ -19,20 +19,19 @@ import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.VcsLogData;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-public class MergeCommitsHighlighter implements VcsLogHighlighter {
-  public static final JBColor MERGE_COMMIT_FOREGROUND = new JBColor(Gray._128, Gray._96);
-  @NotNull private final VcsLogUi myLogUi;
+import static com.intellij.ui.JBColor.namedColor;
 
-  public MergeCommitsHighlighter(@NotNull VcsLogUi logUi) {
-    myLogUi = logUi;
-  }
+public class MergeCommitsHighlighter implements VcsLogHighlighter {
+  public static final JBColor MERGE_COMMIT_FOREGROUND = namedColor("VersionControl.Log.Commit.unmatchedForeground",
+                                                                   new JBColor(Gray._128, Gray._96));
 
   @NotNull
   @Override
-  public VcsCommitStyle getStyle(@NotNull VcsShortCommitDetails details, boolean isSelected) {
-    if (isSelected || !myLogUi.isHighlighterEnabled(Factory.ID)) return VcsCommitStyle.DEFAULT;
+  public VcsCommitStyle getStyle(int commitId, @NotNull VcsShortCommitDetails details, boolean isSelected) {
+    if (isSelected) return VcsCommitStyle.DEFAULT;
     if (details.getParents().size() >= 2) return VcsCommitStyleFactory.foreground(MERGE_COMMIT_FOREGROUND);
     return VcsCommitStyle.DEFAULT;
   }
@@ -42,12 +41,12 @@ public class MergeCommitsHighlighter implements VcsLogHighlighter {
   }
 
   public static class Factory implements VcsLogHighlighterFactory {
-    @NotNull private static final String ID = "MERGE_COMMITS";
+    @NotNull @NonNls public static final String ID = "MERGE_COMMITS";
 
     @NotNull
     @Override
     public VcsLogHighlighter createHighlighter(@NotNull VcsLogData logData, @NotNull VcsLogUi logUi) {
-      return new MergeCommitsHighlighter(logUi);
+      return new MergeCommitsHighlighter();
     }
 
     @NotNull
@@ -59,7 +58,7 @@ public class MergeCommitsHighlighter implements VcsLogHighlighter {
     @NotNull
     @Override
     public String getTitle() {
-      return "Merge Commits";
+      return VcsLogBundle.message("vcs.log.action.highlight.merge.commits");
     }
 
     @Override

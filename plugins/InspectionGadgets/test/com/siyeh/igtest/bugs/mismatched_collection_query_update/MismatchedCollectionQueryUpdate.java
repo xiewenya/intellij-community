@@ -16,6 +16,7 @@
 package com.siyeh.igtest.bugs.mismatched_collection_query_update;
 
 import java.util.*;
+import java.util.stream.IntStream;
 import java.io.FileInputStream;
 import java.util.concurrent.BlockingQueue;
 
@@ -552,5 +553,83 @@ class UnmodifiableTernaryTest {
 
   List<String> get(boolean b) {
     return Collections.unmodifiableList(b ? myList : myList2);
+  }
+}
+
+class InLambdaTest {
+  void test() {
+    List<String> <warning descr="Contents of collection 'listForLambda' are updated, but never queried">listForLambda</warning> = new ArrayList<>();
+    IntStream.range(0, 100).mapToObj(String::valueOf).forEach(e -> listForLambda.add(e));
+  }
+}
+
+class AssertTest {
+  void test() {
+    List<String> <warning descr="Contents of collection 'list' are queried, but never updated">list</warning> = new ArrayList<>();
+    assert list.isEmpty() : list;
+  }
+}
+
+class SynchronizedTest {
+  void test() {
+    List<String> <warning descr="Contents of collection 'list' are updated, but never queried">list</warning> = new ArrayList<>();
+    list.add("foo");
+    synchronized (list) {
+      System.out.println("hello");
+    }
+  }
+}
+class VarArgTest {
+  static class MyList extends ArrayList<String> {
+    MyList(String... data) {
+      super(Arrays.asList(data));
+    }
+
+    MyList(int foo, String... data) {
+      super(Arrays.asList(data));
+    }
+  }
+  
+  void test(String[] data) {
+    List<String> <warning descr="Contents of collection 'list' are queried, but never updated">list</warning> = new MyList();
+    for(String s : list) System.out.println(s);
+    List<String> <warning descr="Contents of collection 'list2' are queried, but never updated">list2</warning> = new MyList(1);
+    for(String s : list2) System.out.println(s);
+    List<String> list3 = new MyList("foo");
+    for(String s : list3) System.out.println(s);
+    List<String> list4 = new MyList("foo", "bar");
+    for(String s : list4) System.out.println(s);
+    List<String> list5 = new MyList(1, "foo", "bar");
+    for(String s : list5) System.out.println(s);
+    List<String> list6 = new MyList(data);
+    for(String s : list6) System.out.println(s);
+  }
+}
+class Idea229050 {
+  private final Collection<String> collection = new ArrayList<>();
+  private final Collection<String> <warning descr="Contents of collection 'collection2' are updated, but never queried">collection2</warning> = new ArrayList<>();
+  private final Collection<String> <warning descr="Contents of collection 'collection3' are updated, but never queried">collection3</warning> = new ArrayList<>();
+  public void add(String value) {
+    collection.add(value);
+    collection2.add(value);
+    collection3.add(value);
+  }
+  public void printAndRemoveLongStrings() {
+    collection.removeIf(s -> {
+      if (s.length() > 10) {
+        System.out.println(s);
+        return true;
+      } else {
+        return false;
+      }
+    });
+    collection2.removeIf(s -> {
+      if (s.length() > 10) {
+        return true;
+      } else {
+        return false;
+      }
+    });
+    collection3.removeIf(Objects::isNull);
   }
 }

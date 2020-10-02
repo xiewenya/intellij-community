@@ -15,7 +15,7 @@
  */
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
@@ -34,23 +34,24 @@ public class AssignmentEvaluator implements Evaluator{
     myRightEvaluator = DisableGC.create(rightEvaluator);
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     myLeftEvaluator.evaluate(context);
     final Modifier modifier = myLeftEvaluator.getModifier();
 
     final Object right = myRightEvaluator.evaluate(context);
     if(right != null && !(right instanceof Value)) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.not.rvalue"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.not.rvalue"));
     }
 
     assign(modifier, right, context);
-    
+
     return right;
   }
 
   static void assign(Modifier modifier, Object right, EvaluationContextImpl context) throws EvaluateException {
     if(modifier == null) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.not.lvalue"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.not.lvalue"));
     }
     try {
       modifier.setValue(((Value)right));
@@ -71,6 +72,7 @@ public class AssignmentEvaluator implements Evaluator{
     }
   }
 
+  @Override
   public Modifier getModifier() {
     return myLeftEvaluator.getModifier();
   }

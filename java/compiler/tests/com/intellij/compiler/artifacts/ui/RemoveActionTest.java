@@ -4,9 +4,6 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.Artifact;
 
-/**
- * @author nik
- */
 public class RemoveActionTest extends ArtifactEditorTestCase {
 
   public void testSimple() {
@@ -45,10 +42,11 @@ public class RemoveActionTest extends ArtifactEditorTestCase {
   }
 
   public void testJarFileInLibrary() {
-    final Library library = addProjectLibrary(null, "jdom", getJDomJar());
+    VirtualFile jDomJar = getJDomJar();
+    final Library library = addProjectLibrary(null, "jdom", jDomJar);
     createEditor(addArtifact(root().lib(library)), true);
 
-    selectNode("jdom.jar");
+    selectNode(jDomJar.getName());
     removeSelected(true);
 
     assertLayout("<root>");

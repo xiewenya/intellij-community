@@ -1,41 +1,27 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.todo.configurable;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.todo.TodoConfiguration;
 import com.intellij.ide.todo.TodoFilter;
-import com.intellij.openapi.options.BaseConfigurable;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.psi.search.TodoAttributesUtil;
 import com.intellij.psi.search.TodoPattern;
 import com.intellij.ui.*;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.FormBuilder;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.table.IconTableCellRenderer;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
 import java.awt.*;
@@ -46,11 +32,13 @@ import java.util.List;
 /**
  * @author Vladimir Kondratyev
  */
-public class TodoConfigurable extends BaseConfigurable implements SearchableConfigurable, Configurable.NoScroll {
+public class TodoConfigurable implements SearchableConfigurable, Configurable.NoScroll {
+  private static final int HEADER_GAP = JBUIScale.scale(20);
   /*
    * UI resources
    */
   private JPanel myPanel;
+  private JCheckBox myMultiLineCheckBox;
   private JBTable myPatternsTable;
   private JBTable myFiltersTable;
   protected final List<TodoPattern> myPatterns;
@@ -101,12 +89,14 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
     // This method is always invoked before close configuration dialog or leave "ToDo" page.
     // So it's a good place to commit all changes.
     stopEditing();
-    return arePatternsModified() || areFiltersModified();
+    return TodoConfiguration.getInstance().isMultiLine() != myMultiLineCheckBox.isSelected() ||
+           arePatternsModified() || areFiltersModified();
   }
 
   @Override
-  public void apply() throws ConfigurationException {
+  public void apply() {
     stopEditing();
+    TodoConfiguration.getInstance().setMultiLine(myMultiLineCheckBox.isSelected());
     if (arePatternsModified()) {
       TodoPattern[] patterns = myPatterns.toArray(new TodoPattern[0]);
       TodoConfiguration.getInstance().setTodoPatterns(patterns);
@@ -129,15 +119,19 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
 
   @Override
   public JComponent createComponent() {
+    myMultiLineCheckBox = new JCheckBox(IdeBundle.message("label.todo.multiline"));
+
     myPatternsTable = new JBTable(myPatternsModel);
+    myPatternsTable.setShowGrid(false);
     myPatternsTable.getEmptyText().setText(IdeBundle.message("text.todo.no.patterns"));
     TableColumn typeColumn = myPatternsTable.getColumnModel().getColumn(0);
-    int width = myPatternsTable.getFontMetrics(myPatternsTable.getFont()).stringWidth(myPatternsTable.getColumnName(0)) + 10;
-    typeColumn.setPreferredWidth(width);
-    typeColumn.setMaxWidth(width);
-    typeColumn.setMinWidth(width);
+    JTableHeader tableHeader = myPatternsTable.getTableHeader();
+    FontMetrics headerFontMetrics = tableHeader.getFontMetrics(tableHeader.getFont());
+    int typeColumnWidth = headerFontMetrics.stringWidth(myPatternsTable.getColumnName(0) + HEADER_GAP);
+    typeColumn.setPreferredWidth(typeColumnWidth);
+    typeColumn.setMinWidth(typeColumnWidth);
     typeColumn.setCellRenderer(new IconTableCellRenderer<Icon>() {
-      @Nullable
+      @NotNull
       @Override
       protected Icon getIcon(@NotNull Icon value, JTable table, int row) {
         return value;
@@ -158,10 +152,9 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
 
     // Column "Case Sensitive"
     TableColumn todoCaseSensitiveColumn = myPatternsTable.getColumnModel().getColumn(1);
-    width = myPatternsTable.getFontMetrics(myPatternsTable.getFont()).stringWidth(myPatternsTable.getColumnName(1)) + 10;
-    todoCaseSensitiveColumn.setPreferredWidth(width);
-    todoCaseSensitiveColumn.setMaxWidth(width);
-    todoCaseSensitiveColumn.setMinWidth(width);
+    int caseSensitiveColumnWidth = headerFontMetrics.stringWidth(myPatternsTable.getColumnName(1)) + HEADER_GAP;
+    todoCaseSensitiveColumn.setPreferredWidth(caseSensitiveColumnWidth);
+    todoCaseSensitiveColumn.setMinWidth(caseSensitiveColumnWidth);
     todoCaseSensitiveColumn.setCellRenderer(new BooleanTableCellRenderer());
     todoCaseSensitiveColumn.setCellEditor(new BooleanTableCellEditor());
 
@@ -169,9 +162,10 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
     TodoPatternTableCellRenderer todoPatternRenderer = new TodoPatternTableCellRenderer(myPatterns);
     TableColumn patternColumn = myPatternsTable.getColumnModel().getColumn(2);
     patternColumn.setCellRenderer(todoPatternRenderer);
+    patternColumn.setPreferredWidth(patternColumn.getMaxWidth());
 
     JPanel patternsPanel = new JPanel(new BorderLayout());
-    patternsPanel.setBorder(IdeBorderFactory.createTitledBorder(IdeBundle.message("label.todo.patterns"), false));
+    patternsPanel.setBorder(IdeBorderFactory.createTitledBorder(IdeBundle.message("label.todo.patterns"), false, JBUI.insetsTop(8)).setShowLine(false));
     patternsPanel.add(ToolbarDecorator.createDecorator(myPatternsTable)
                         .setAddAction(new AnActionButtonRunnable() {
                           @Override
@@ -219,7 +213,7 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
     // double click in "Patterns" table should also start editing of selected pattern
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         editSelectedPattern();
         return true;
       }
@@ -227,19 +221,22 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
 
     // Panel with filters
     myFiltersTable = new JBTable(myFiltersModel);
+    myFiltersTable.setShowGrid(false);
     myFiltersTable.getEmptyText().setText(IdeBundle.message("text.todo.no.filters"));
 
     // Column "Name"
     TableColumn nameColumn = myFiltersTable.getColumnModel().getColumn(0);
-    width = myPatternsTable.getColumnModel().getColumn(0).getPreferredWidth()/*typeColumn*/ +
-            myPatternsTable.getColumnModel().getColumn(1).getPreferredWidth()/*todoCaseSensitiveColumn*/;
-    nameColumn.setPreferredWidth(width);
-    nameColumn.setMaxWidth(width);
-    nameColumn.setMinWidth(width);
+    int nameColumnWidth = caseSensitiveColumnWidth + typeColumnWidth;
+    nameColumn.setPreferredWidth(nameColumnWidth);
+    nameColumn.setMinWidth(nameColumnWidth);
     nameColumn.setCellRenderer(new MyFilterNameTableCellRenderer());
 
+    TableColumn patternsColumn = myFiltersTable.getColumnModel().getColumn(1);
+    patternsColumn.setPreferredWidth(patternsColumn.getMaxWidth());
+
     JPanel filtersPanel = new JPanel(new BorderLayout());
-    filtersPanel.setBorder(IdeBorderFactory.createTitledBorder(IdeBundle.message("label.todo.filters"), false));
+    filtersPanel.setBorder(IdeBorderFactory.createTitledBorder(IdeBundle.message("label.todo.filters"), false, JBUI.insetsTop(13))
+                             .setShowLine(false));
     filtersPanel.add(ToolbarDecorator.createDecorator(myFiltersTable)
                         .setAddAction(new AnActionButtonRunnable() {
                           @Override
@@ -272,14 +269,17 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
 
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         editSelectedFilter();
         return true;
       }
     }.installOn(myFiltersTable);
 
-    myPanel = FormBuilder.createFormBuilder().addComponentFillVertically(patternsPanel, 0)
-      .addComponentFillVertically(filtersPanel, 0).getPanel();
+    myPanel = FormBuilder.createFormBuilder()
+                         .addComponent(myMultiLineCheckBox)
+                         .addComponentFillVertically(patternsPanel, 0)
+                         .addComponentFillVertically(filtersPanel, 0)
+                         .getPanel();
     return myPanel;
   }
 
@@ -357,6 +357,7 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
 
   @Override
   public void reset() {
+    myMultiLineCheckBox.setSelected(TodoConfiguration.getInstance().isMultiLine());
     // Patterns
     myPatterns.clear();
     TodoConfiguration todoConfiguration = TodoConfiguration.getInstance();
@@ -374,8 +375,7 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
     myFiltersModel.fireTableDataChanged();
   }
 
-  @NotNull
-  protected TodoPattern[] getTodoPatternsToDisplay(TodoConfiguration todoConfiguration) {
+  protected TodoPattern @NotNull [] getTodoPatternsToDisplay(TodoConfiguration todoConfiguration) {
     return todoConfiguration.getTodoPatterns();
   }
 
@@ -385,7 +385,7 @@ public class TodoConfigurable extends BaseConfigurable implements SearchableConf
       super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
       TodoFilter filter = myFilters.get(row);
       if (isSelected) {
-        setForeground(UIUtil.getTableSelectionForeground());
+        setForeground(UIUtil.getTableSelectionForeground(true));
       }
       else {
         if (filter.isEmpty()) {

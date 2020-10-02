@@ -21,9 +21,8 @@ import java.util.List;
  * @author Mikhail Golubev
  */
 public class JsonFoldingBuilder implements FoldingBuilder, DumbAware {
-  @NotNull
   @Override
-  public FoldingDescriptor[] buildFoldRegions(@NotNull ASTNode node, @NotNull Document document) {
+  public FoldingDescriptor @NotNull [] buildFoldRegions(@NotNull ASTNode node, @NotNull Document document) {
     final List<FoldingDescriptor> descriptors = new ArrayList<>();
     collectDescriptorsRecursively(node, document, descriptors);
     return descriptors.toArray(FoldingDescriptor.EMPTY);
@@ -75,7 +74,6 @@ public class JsonFoldingBuilder implements FoldingBuilder, DumbAware {
         }
       }
       if (candidate != null) {
-        //noinspection ConstantConditions
         return "{\"" + candidate.getName() + "\": " + candidate.getValue().getText() + "...}";
       }
       return "{...}";
@@ -104,6 +102,8 @@ public class JsonFoldingBuilder implements FoldingBuilder, DumbAware {
 
   private static boolean spanMultipleLines(@NotNull ASTNode node, @NotNull Document document) {
     final TextRange range = node.getTextRange();
-    return document.getLineNumber(range.getStartOffset()) < document.getLineNumber(range.getEndOffset());
+    int endOffset = range.getEndOffset();
+    return document.getLineNumber(range.getStartOffset())
+           < (endOffset < document.getTextLength() ? document.getLineNumber(endOffset) : document.getLineCount() - 1);
   }
 }

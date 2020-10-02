@@ -1,25 +1,28 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow.inference;
 
-import com.intellij.codeInspection.dataFlow.MethodContract.ValueConstraint;
+import com.intellij.codeInspection.dataFlow.ContractReturnValue;
 import com.intellij.codeInspection.dataFlow.StandardMethodContract;
+import com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint;
 import com.intellij.lang.LighterAST;
 import com.intellij.lang.LighterASTNode;
 import com.intellij.psi.JavaTokenType;
-import com.intellij.psi.impl.source.JavaLightTreeUtil;
 import com.intellij.psi.impl.source.tree.ElementType;
+import com.intellij.psi.impl.source.tree.RecursiveLighterASTNodeWalkingVisitor;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.TokenSet;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 
-import static com.intellij.codeInspection.dataFlow.MethodContract.ValueConstraint.*;
-import static com.intellij.psi.impl.source.JavaLightTreeUtil.findExpressionChild;
-import static com.intellij.psi.impl.source.JavaLightTreeUtil.getExpressionChildren;
+import static com.intellij.codeInspection.dataFlow.ContractReturnValue.*;
+import static com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint.*;
+import static com.intellij.psi.impl.source.JavaLightTreeUtil.*;
 import static com.intellij.psi.impl.source.tree.JavaElementType.*;
 import static com.intellij.psi.impl.source.tree.LightTreeUtil.firstChildOfType;
 import static com.intellij.psi.impl.source.tree.LightTreeUtil.getChildrenOfType;
@@ -27,18 +30,19 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 
 class ContractInferenceInterpreter {
+  private static final TokenSet UNARY_INCREMENT_DECREMENT = TokenSet.create(JavaTokenType.PLUSPLUS, JavaTokenType.MINUSMINUS);
   private final LighterAST myTree;
   private final LighterASTNode myMethod;
   private final LighterASTNode myBody;
 
-  public ContractInferenceInterpreter(LighterAST tree, LighterASTNode method, LighterASTNode body) {
+  ContractInferenceInterpreter(LighterAST tree, LighterASTNode method, LighterASTNode body) {
     myTree = tree;
     myMethod = method;
     myBody = body;
   }
 
   @NotNull
-  private List<LighterASTNode> getParameters() {
+  List<LighterASTNode> getParameters() {
     LighterASTNode paramList = firstChildOfType(myTree, myMethod, PARAMETER_LIST);
     return paramList != null ? getChildrenOfType(myTree, paramList, PARAMETER) : emptyList();
   }
@@ -52,7 +56,16 @@ class ContractInferenceInterpreter {
       if (result != null) return result;
     }
 
-    return visitStatements(singletonList(StandardMethodContract.createConstraintArray(getParameters().size())), statements);
+    List<PreContract> contracts =
+      visitStatements(singletonList(StandardMethodContract.createConstraintArray(getParameters().size())), statements);
+    if (contracts.isEmpty()) {
+      ContractReturnValue value = getDefaultReturnValue(statements);
+      if (!value.isFail() && !value.equals(returnAny())) {
+        contracts = singletonList(
+          new KnownContract(StandardMethodContract.trivialContract(getParameters().size(), value)));
+      }
+    }
+    return contracts;
   }
 
   @Nullable
@@ -100,6 +113,77 @@ class ContractInferenceInterpreter {
     return expression != null && expression.getTokenType() == PREFIX_EXPRESSION && firstChildOfType(myTree, expression, JavaTokenType.EXCL) != null;
   }
 
+  private ContractReturnValue getDefaultReturnValue(List<LighterASTNode> statements) {
+    class ReturnValueVisitor extends RecursiveLighterASTNodeWalkingVisitor {
+      public ContractReturnValue returnValue = fail();
+
+      private BitSet assignedParameters;
+
+      ReturnValueVisitor() {
+        super(myTree);
+      }
+
+      @Override
+      public void visitNode(@NotNull LighterASTNode element) {
+        IElementType type = element.getTokenType();
+        if (type == CLASS || type == LAMBDA_EXPRESSION) return;
+        if (returnValue.equals(returnAny())) {
+          return;
+        }
+        if (type == ASSIGNMENT_EXPRESSION || type == POSTFIX_EXPRESSION ||
+            (type == PREFIX_EXPRESSION && firstChildOfType(myTree, element, UNARY_INCREMENT_DECREMENT) != null)) {
+          LighterASTNode expression = skipParenthesesCastsDown(myTree, findExpressionChild(myTree, element));
+          int paramIndex = resolveParameter(expression);
+          if (paramIndex >= 0) {
+            if (assignedParameters == null) {
+              assignedParameters = new BitSet();
+            }
+            assignedParameters.set(paramIndex);
+            if (returnValue.equals(returnParameter(paramIndex))) {
+              returnValue = returnAny();
+            }
+          }
+        }
+        if (type == RETURN_STATEMENT) {
+          LighterASTNode expression = findExpressionChild(myTree, element);
+          ContractReturnValue newReturnValue = expressionToReturnValue(expression);
+          if (returnValue.isFail()) {
+            returnValue = newReturnValue;
+          }
+          else if (!returnValue.equals(newReturnValue)) {
+            returnValue = returnAny();
+          }
+        }
+        super.visitNode(element);
+      }
+
+      @NotNull
+      private ContractReturnValue expressionToReturnValue(LighterASTNode expression) {
+        expression = skipParenthesesDown(myTree, expression);
+        if (expression == null) return returnAny();
+        IElementType type = expression.getTokenType();
+        if (type == NEW_EXPRESSION) {
+          return returnNew();
+        }
+        if (type == THIS_EXPRESSION) {
+          return returnThis();
+        }
+        if (type == REFERENCE_EXPRESSION) {
+          int paramIndex = resolveParameter(expression);
+          if (paramIndex >= 0 && (assignedParameters == null || !assignedParameters.get(paramIndex))) {
+            return returnParameter(paramIndex);
+          }
+        }
+        return returnAny();
+      }
+    }
+    ReturnValueVisitor visitor = new ReturnValueVisitor();
+    for (LighterASTNode statement : statements) {
+      visitor.visitNode(statement);
+    }
+    return visitor.returnValue;
+  }
+
   @NotNull
   private List<PreContract> visitExpression(final List<ValueConstraint[]> states, @Nullable LighterASTNode expr) {
     if (expr == null) return emptyList();
@@ -117,15 +201,15 @@ class ContractInferenceInterpreter {
 
       List<PreContract> conditionResults = visitExpression(states, children.get(0));
       return ContainerUtil.concat(
-        visitExpression(antecedentsReturning(conditionResults, TRUE_VALUE), children.get(1)),
-        visitExpression(antecedentsReturning(conditionResults, FALSE_VALUE), children.get(2)));
+        visitExpression(antecedentsReturning(conditionResults, returnTrue()), children.get(1)),
+        visitExpression(antecedentsReturning(conditionResults, returnFalse()), children.get(2)));
     }
 
 
     if (type == PARENTH_EXPRESSION) {
       return visitExpression(states, findExpressionChild(myTree, expr));
     }
-    if (type == TYPE_CAST_EXPRESSION) {
+    if (type == TYPE_CAST_EXPRESSION && !isPrimitiveCast(myTree, expr)) {
       return visitExpression(states, findExpressionChild(myTree, expr));
     }
 
@@ -136,12 +220,15 @@ class ContractInferenceInterpreter {
     if (type == INSTANCE_OF_EXPRESSION) {
       final int parameter = resolveParameter(findExpressionChild(myTree, expr));
       if (parameter >= 0) {
-        return asPreContracts(ContainerUtil.mapNotNull(states, state -> contractWithConstraint(state, parameter, NULL_VALUE, FALSE_VALUE)));
+        return asPreContracts(ContainerUtil.mapNotNull(states, state -> contractWithConstraint(state, parameter, NULL_VALUE, returnFalse())));
       }
     }
 
-    if (type == NEW_EXPRESSION || type == THIS_EXPRESSION) {
-      return asPreContracts(toContracts(states, NOT_NULL_VALUE));
+    if (type == NEW_EXPRESSION) {
+      return asPreContracts(toContracts(states, returnNew()));
+    }
+    if (type == THIS_EXPRESSION) {
+      return asPreContracts(toContracts(states, returnThis()));
     }
     if (type == METHOD_CALL_EXPRESSION) {
       return singletonList(new MethodCallContract(ExpressionRange.create(expr, myBody.getStartOffset()),
@@ -150,20 +237,22 @@ class ContractInferenceInterpreter {
 
     final ValueConstraint constraint = getLiteralConstraint(expr);
     if (constraint != null) {
-      return asPreContracts(toContracts(states, constraint));
+      return asPreContracts(toContracts(states, constraint.asReturnValue()));
     }
 
     int paramIndex = resolveParameter(expr);
     if (paramIndex >= 0) {
-      List<StandardMethodContract> result = ContainerUtil.newArrayList();
+      List<StandardMethodContract> result = new ArrayList<>();
       for (ValueConstraint[] state : states) {
-        if (state[paramIndex] != ANY_VALUE) {
-          // the second 'o' reference in cases like: if (o != null) return o;
-          result.add(new StandardMethodContract(state, state[paramIndex]));
+        if (state[paramIndex] == TRUE_VALUE || state[paramIndex] == FALSE_VALUE || state[paramIndex] == NULL_VALUE) {
+          // like "if(x == null) return x": no need to refer to parameter
+          result.add(new StandardMethodContract(state, state[paramIndex].asReturnValue()));
         } else if (JavaTokenType.BOOLEAN_KEYWORD == getPrimitiveParameterType(paramIndex)) {
           // if (boolValue) ...
-          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, paramIndex, TRUE_VALUE, TRUE_VALUE));
-          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, paramIndex, FALSE_VALUE, FALSE_VALUE));
+          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, paramIndex, TRUE_VALUE, returnTrue()));
+          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, paramIndex, FALSE_VALUE, returnFalse()));
+        } else {
+          result.add(new StandardMethodContract(state, returnParameter(paramIndex)));
         }
       }
       return asPreContracts(result);
@@ -175,7 +264,7 @@ class ContractInferenceInterpreter {
   @NotNull
   private List<PreContract> visitPolyadic(List<ValueConstraint[]> states, @NotNull LighterASTNode expr) {
     if (firstChildOfType(myTree, expr, JavaTokenType.PLUS) != null) {
-      return asPreContracts(ContainerUtil.map(states, s -> new StandardMethodContract(s, NOT_NULL_VALUE)));
+      return asPreContracts(ContainerUtil.map(states, s -> new StandardMethodContract(s, returnNotNull())));
     }
 
     List<LighterASTNode> operands = getExpressionChildren(myTree, expr);
@@ -200,7 +289,7 @@ class ContractInferenceInterpreter {
   @Nullable
   private static StandardMethodContract contractWithConstraint(ValueConstraint[] state,
                                                                int parameter, ValueConstraint paramConstraint,
-                                                               ValueConstraint returnValue) {
+                                                               ContractReturnValue returnValue) {
     ValueConstraint[] newState = withConstraint(state, parameter, paramConstraint);
     return newState == null ? null : new StandardMethodContract(newState, returnValue);
   }
@@ -216,16 +305,15 @@ class ContractInferenceInterpreter {
       constraint = getLiteralConstraint(op1);
     }
     if (parameter >= 0 && constraint != null) {
-      List<StandardMethodContract> result = ContainerUtil.newArrayList();
+      List<StandardMethodContract> result = new ArrayList<>();
       for (ValueConstraint[] state : states) {
         if (constraint == NOT_NULL_VALUE) {
           if (getPrimitiveParameterType(parameter) == null) {
-            ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, NULL_VALUE, equality ? FALSE_VALUE : TRUE_VALUE));
+            ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, NULL_VALUE, returnBoolean(!equality)));
           }
         } else {
-          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, constraint, equality ? TRUE_VALUE : FALSE_VALUE));
-          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, constraint.negate(),
-                                                                    equality ? FALSE_VALUE : TRUE_VALUE));
+          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, constraint, returnBoolean(equality)));
+          ContainerUtil.addIfNotNull(result, contractWithConstraint(state, parameter, constraint.negate(), returnBoolean(!equality)));
         }
       }
       return result;
@@ -240,16 +328,16 @@ class ContractInferenceInterpreter {
     return primitive == null ? null : primitive.getTokenType();
   }
 
-  static List<StandardMethodContract> toContracts(List<ValueConstraint[]> states, ValueConstraint constraint) {
+  static List<StandardMethodContract> toContracts(List<ValueConstraint[]> states, ContractReturnValue constraint) {
     return ContainerUtil.map(states, state -> new StandardMethodContract(state, constraint));
   }
 
   private List<StandardMethodContract> visitLogicalOperation(List<LighterASTNode> operands, boolean conjunction, List<ValueConstraint[]> states) {
-    ValueConstraint breakValue = conjunction ? FALSE_VALUE : TRUE_VALUE;
-    List<StandardMethodContract> finalStates = ContainerUtil.newArrayList();
+    BooleanReturnValue breakValue = returnBoolean(!conjunction);
+    List<StandardMethodContract> finalStates = new ArrayList<>();
     for (LighterASTNode operand : operands) {
       List<PreContract> opResults = visitExpression(states, operand);
-      finalStates.addAll(ContainerUtil.filter(knownContracts(opResults), contract -> contract.returnValue == breakValue));
+      finalStates.addAll(ContainerUtil.filter(knownContracts(opResults), contract -> contract.getReturnValue() == breakValue));
       states = antecedentsReturning(opResults, breakValue.negate());
     }
     finalStates.addAll(toContracts(states, breakValue.negate()));
@@ -260,13 +348,15 @@ class ContractInferenceInterpreter {
     return ContainerUtil.mapNotNull(values, pc -> pc instanceof KnownContract ? ((KnownContract)pc).getContract() : null);
   }
 
-  private static List<ValueConstraint[]> antecedentsReturning(List<PreContract> values, ValueConstraint result) {
-    return ContainerUtil.mapNotNull(knownContracts(values), contract -> contract.returnValue == result ? contract.arguments : null);
+  private static List<ValueConstraint[]> antecedentsReturning(List<PreContract> values, ContractReturnValue result) {
+    return ContainerUtil.mapNotNull(knownContracts(values),
+                                    contract -> contract.getReturnValue().equals(result) ?
+                                                contract.getConstraints().toArray(new ValueConstraint[0]) : null);
   }
 
   private static class CodeBlockContracts {
-    List<PreContract> accumulated = new ArrayList<>();
-    List<ExpressionRange> varInitializers = new ArrayList<>();
+    final List<PreContract> accumulated = new ArrayList<>();
+    final List<ExpressionRange> varInitializers = new ArrayList<>();
 
     void addAll(List<PreContract> contracts) {
       if (contracts.isEmpty()) return;
@@ -301,10 +391,10 @@ class ContractInferenceInterpreter {
 
         List<LighterASTNode> thenElse = getStatements(statement, myTree);
         if (thenElse.size() > 0) {
-          result.addAll(visitStatements(antecedentsReturning(conditionResults, TRUE_VALUE), singletonList(thenElse.get(0))));
+          result.addAll(visitStatements(antecedentsReturning(conditionResults, returnTrue()), singletonList(thenElse.get(0))));
         }
 
-        List<ValueConstraint[]> falseStates = antecedentsReturning(conditionResults, FALSE_VALUE);
+        List<ValueConstraint[]> falseStates = antecedentsReturning(conditionResults, returnFalse());
         if (thenElse.size() > 1) {
           result.addAll(visitStatements(falseStates, singletonList(thenElse.get(1))));
         } else {
@@ -313,18 +403,18 @@ class ContractInferenceInterpreter {
         }
       }
       else if (type == WHILE_STATEMENT) {
-        states = antecedentsReturning(visitExpression(states, findExpressionChild(myTree, statement)), FALSE_VALUE);
+        states = antecedentsReturning(visitExpression(states, findExpressionChild(myTree, statement)), returnFalse());
         continue;
       }
       else if (type == THROW_STATEMENT) {
-        result.addAll(asPreContracts(toContracts(states, THROW_EXCEPTION)));
+        result.addAll(asPreContracts(toContracts(states, fail())));
       }
       else if (type == RETURN_STATEMENT) {
         result.addAll(visitExpression(states, findExpressionChild(myTree, statement)));
       }
       else if (type == ASSERT_STATEMENT) {
         List<PreContract> conditionResults = visitExpression(states, findExpressionChild(myTree, statement));
-        result.addAll(asPreContracts(toContracts(antecedentsReturning(conditionResults, FALSE_VALUE), THROW_EXCEPTION)));
+        result.addAll(asPreContracts(toContracts(antecedentsReturning(conditionResults, returnFalse()), fail())));
       }
       else if (type == DECLARATION_STATEMENT) {
         result.registerDeclaration(statement, myTree, myBody.getStartOffset());
@@ -357,12 +447,12 @@ class ContractInferenceInterpreter {
 
   private int resolveParameter(@Nullable LighterASTNode expr) {
     if (expr != null && expr.getTokenType() == REFERENCE_EXPRESSION && findExpressionChild(myTree, expr) == null) {
-      String name = JavaLightTreeUtil.getNameIdentifierText(myTree, expr);
+      String name = getNameIdentifierText(myTree, expr);
       if (name == null) return -1;
 
       List<LighterASTNode> parameters = getParameters();
       for (int i = 0; i < parameters.size(); i++) {
-        if (name.equals(JavaLightTreeUtil.getNameIdentifierText(myTree, parameters.get(i)))) {
+        if (name.equals(getNameIdentifierText(myTree, parameters.get(i)))) {
           return i;
         }
       }
@@ -370,8 +460,7 @@ class ContractInferenceInterpreter {
     return -1;
   }
 
-  @Nullable
-  static ValueConstraint[] withConstraint(ValueConstraint[] constraints, int index, ValueConstraint constraint) {
+  static ValueConstraint @Nullable [] withConstraint(ValueConstraint[] constraints, int index, ValueConstraint constraint) {
     if (constraints[index] == constraint) return constraints;
 
     ValueConstraint negated = constraint.negate();

@@ -1,10 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.descriptors;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.daemon.Validator;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -12,7 +12,6 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
@@ -21,6 +20,7 @@ import com.intellij.xml.XmlNSDescriptor;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.javaFX.JavaFXBundle;
 import org.jetbrains.plugins.javaFX.fxml.FxmlConstants;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxCommonNames;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
@@ -92,20 +92,20 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
     return null;
   }
 
-  static void collectStaticAttributesDescriptors(@Nullable XmlTag context, List<XmlAttributeDescriptor> simpleAttrs) {
+  static void collectStaticAttributesDescriptors(@Nullable XmlTag context, List<? super XmlAttributeDescriptor> simpleAttrs) {
     if (context == null) return;
     collectParentStaticProperties(context.getParentTag(), simpleAttrs,
                                   method -> new JavaFxSetterAttributeDescriptor(method, method.getContainingClass()));
   }
 
-  protected static void collectStaticElementDescriptors(XmlTag context, List<XmlElementDescriptor> children) {
+  protected static void collectStaticElementDescriptors(XmlTag context, List<? super XmlElementDescriptor> children) {
     collectParentStaticProperties(context, children, method -> {
       final PsiClass aClass = method.getContainingClass();
       return new JavaFxPropertyTagDescriptor(aClass, PropertyUtilBase.getPropertyName(method.getName()), true);
     });
   }
 
-  private static <T> void collectParentStaticProperties(XmlTag context, List<T> children, Function<PsiMethod, T> factory) {
+  private static <T> void collectParentStaticProperties(XmlTag context, List<T> children, Function<? super PsiMethod, ? extends T> factory) {
     XmlTag tag = context;
     while (tag != null) {
       final XmlElementDescriptor descr = tag.getDescriptor();
@@ -123,7 +123,7 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
                 }
               }
             }
-            return CachedValueProvider.Result.create(meths, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+            return CachedValueProvider.Result.create(meths, PsiModificationTracker.MODIFICATION_COUNT);
           });
           for (PsiMethod setter : setters) {
             children.add(factory.fun(setter));
@@ -194,7 +194,7 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
   public XmlAttributeDescriptor[] getAttributesDescriptors(@Nullable XmlTag context) {
     if (context != null) {
       final String name = context.getName();
-      if (Comparing.equal(name, getName())) {
+      if (Objects.equals(name, getName())) {
         final PsiClass psiClass = getPsiClass();
         if (psiClass != null) {
           final List<XmlAttributeDescriptor> descriptors = new ArrayList<>();
@@ -300,28 +300,23 @@ public abstract class JavaFxClassTagDescriptorBase implements XmlElementDescript
   public void init(PsiElement element) {
   }
 
-  @NotNull
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
   @Override
   public void validate(@NotNull XmlTag context, @NotNull ValidationHost host) {
     final XmlTag parentTag = context.getParentTag();
     if (parentTag != null) {
       final XmlAttribute attribute = context.getAttribute(FxmlConstants.FX_CONTROLLER);
       if (attribute != null) {
-        host.addMessage(attribute.getNameElement(), "fx:controller can only be applied to root element", ValidationHost.ErrorType.ERROR); //todo add delete/move to upper tag fix
+        host.addMessage(attribute.getNameElement(),
+                        JavaFXBundle.message("inspection.message.fx.controller.can.only.be.applied.to.root.element"), ValidationHost.ErrorType.ERROR); //todo add delete/move to upper tag fix
       }
     }
     final Pair<PsiClass, Boolean> tagValueClassInfo = JavaFxPsiUtil.getTagValueClass(context, getPsiClass());
     final PsiClass aClass = tagValueClassInfo.getFirst();
-    JavaFxPsiUtil.isClassAcceptable(parentTag, aClass, (errorMessage, errorType) ->
+    JavaFxPsiUtil.isClassAcceptable(parentTag, aClass, (@InspectionMessage var errorMessage, var errorType) ->
       host.addMessage(context.getNavigationElement(), errorMessage, errorType));
     boolean needInstantiate = !tagValueClassInfo.getSecond();
     if (needInstantiate && aClass != null && aClass.isValid()) {
-      JavaFxPsiUtil.isAbleToInstantiate(aClass, errorMessage ->
+      JavaFxPsiUtil.isAbleToInstantiate(aClass, (@InspectionMessage var errorMessage) ->
         host.addMessage(context, errorMessage, ValidationHost.ErrorType.ERROR));
     }
   }

@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts.sourceItems;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.presentation.VirtualFilePresentation;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.openapi.roots.OrderRootType;
@@ -37,9 +38,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class LibrarySourceItem extends PackagingSourceItem {
   private final Library myLibrary;
 
@@ -47,6 +45,7 @@ public class LibrarySourceItem extends PackagingSourceItem {
     myLibrary = library;
   }
 
+  @NotNull
   @Override
   public SourceItemPresentation createPresentation(@NotNull ArtifactEditorContext context) {
     return new LibrarySourceItemPresentation(myLibrary, context);
@@ -81,7 +80,7 @@ public class LibrarySourceItem extends PackagingSourceItem {
     private final Library myLibrary;
     private final ArtifactEditorContext myContext;
 
-    public LibrarySourceItemPresentation(Library library, ArtifactEditorContext context) {
+    LibrarySourceItemPresentation(Library library, ArtifactEditorContext context) {
       myLibrary = library;
       myContext = context;
     }
@@ -113,7 +112,7 @@ public class LibrarySourceItem extends PackagingSourceItem {
       else {
         if (((LibraryEx)myLibrary).isDisposed()) {
           //todo[nik] disposed library should not be shown in the tree
-          presentationData.addText("Invalid Library", SimpleTextAttributes.ERROR_ATTRIBUTES);
+          presentationData.addText(JavaUiBundle.message("library.source.item.label.invalid.library"), SimpleTextAttributes.ERROR_ATTRIBUTES);
           return;
         }
         final VirtualFile[] files = myLibrary.getFiles(OrderRootType.CLASSES);
@@ -123,7 +122,7 @@ public class LibrarySourceItem extends PackagingSourceItem {
           presentationData.addText(file.getName(), mainAttributes);
         }
         else {
-          presentationData.addText("Empty Library", SimpleTextAttributes.ERROR_ATTRIBUTES);
+          presentationData.addText(JavaUiBundle.message("library.source.item.label.empty.library"), SimpleTextAttributes.ERROR_ATTRIBUTES);
         }
       }
     }

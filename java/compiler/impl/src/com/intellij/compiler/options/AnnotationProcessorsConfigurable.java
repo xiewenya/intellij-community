@@ -18,6 +18,7 @@ package com.intellij.compiler.options;
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
 import com.intellij.compiler.server.BuildManager;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
@@ -26,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 
 import javax.swing.*;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -41,8 +43,9 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     myProject = project;
   }
 
+  @Override
   public String getDisplayName() {
-    return "Annotation Processors";
+    return JavaCompilerBundle.message("configurable.AnnotationProcessorsConfigurable.display.name");
   }
 
   @Override
@@ -50,16 +53,19 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     return "reference.projectsettings.compiler.annotationProcessors";
   }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();
   }
 
+  @Override
   public JComponent createComponent() {
     myMainPanel = new AnnotationProcessorsPanel(myProject);
     return myMainPanel;
   }
 
+  @Override
   public boolean isModified() {
     final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
 
@@ -67,7 +73,7 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
       return true;
     }
 
-    final Map<String, ProcessorConfigProfile> configProfiles = new java.util.HashMap<>();
+    final Map<String, ProcessorConfigProfile> configProfiles = new HashMap<>();
     for (ProcessorConfigProfile profile : config.getModuleProcessorProfiles()) {
       configProfiles.put(profile.getName(), profile);
     }
@@ -85,6 +91,7 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     return false;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     try {
       final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
@@ -96,11 +103,13 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     }
   }
 
+  @Override
   public void reset() {
     final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
     myMainPanel.initProfiles(config.getDefaultProcessorProfile(), config.getModuleProcessorProfiles());
   }
 
+  @Override
   public void disposeUIResources() {
     myMainPanel = null;
   }

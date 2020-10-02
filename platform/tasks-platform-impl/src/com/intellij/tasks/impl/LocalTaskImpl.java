@@ -1,28 +1,17 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.impl;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.tasks.*;
 import com.intellij.tasks.timeTracking.model.WorkItem;
 import com.intellij.util.xmlb.annotations.*;
 import icons.TasksIcons;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,20 +25,20 @@ import java.util.List;
  * @author Dmitry Avdeev
 */
 @Tag("task")
-@SuppressWarnings({"UnusedDeclaration"})
+@SuppressWarnings("UnusedDeclaration")
 public class LocalTaskImpl extends LocalTask {
 
   @NonNls public static final String DEFAULT_TASK_ID = "Default";
 
   private String myId = "";
-  private String mySummary = "";
-  private String myDescription = null;
+  private @Nls String mySummary = "";
+  private @Nls String myDescription = null;
   private Comment[] myComments = Comment.EMPTY_ARRAY;
   private boolean myClosed = false;
   private Date myCreated;
   private Date myUpdated;
   private TaskType myType = TaskType.OTHER;
-  private String myPresentableName;
+  private @NlsContexts.Label String myPresentableName;
   private String myCustomIcon = null;
 
   private String myProject = null;
@@ -69,10 +58,10 @@ public class LocalTaskImpl extends LocalTask {
   private List<BranchInfo> myBranches = new ArrayList<>();
 
   /** for serialization */
-  public LocalTaskImpl() {    
+  public LocalTaskImpl() {
   }
 
-  public LocalTaskImpl(@NotNull String id, @NotNull String summary) {
+  public LocalTaskImpl(@NotNull String id, @NotNull @Nls String summary) {
     myId = id;
     mySummary = summary;
   }
@@ -92,15 +81,18 @@ public class LocalTaskImpl extends LocalTask {
       myWorkItems = ((LocalTaskImpl)origin).getWorkItems();
       myRunning = ((LocalTaskImpl)origin).isRunning();
       myLastPost = ((LocalTaskImpl)origin).getLastPost();
+      myPresentableName = ((LocalTaskImpl)origin).myPresentableName;
     }
   }
 
+  @Override
   @Attribute("id")
   @NotNull
   public String getId() {
     return myId;
   }
 
+  @Override
   @Attribute("summary")
   @NotNull
   public String getSummary() {
@@ -112,17 +104,18 @@ public class LocalTaskImpl extends LocalTask {
     return myDescription;
   }
 
-  @NotNull
   @Override
-  public Comment[] getComments() {
+  public Comment @NotNull [] getComments() {
     return myComments;
   }
 
+  @Override
   @Tag("updated")
   public Date getUpdated() {
     return myUpdated == null ? getCreated() : myUpdated;
   }
 
+  @Override
   @Tag("created")
   public Date getCreated() {
     if (myCreated == null) {
@@ -131,6 +124,7 @@ public class LocalTaskImpl extends LocalTask {
     return myCreated;
   }
 
+  @Override
   @Attribute("active")
   public boolean isActive() {
     return myActive;
@@ -166,10 +160,11 @@ public class LocalTaskImpl extends LocalTask {
     myId = id;
   }
 
-  public void setSummary(String summary) {
+  public void setSummary(@Nls String summary) {
     mySummary = summary;
   }
 
+  @Override
   public void setActive(boolean active) {
     myActive = active;
   }
@@ -207,10 +202,12 @@ public class LocalTaskImpl extends LocalTask {
     myCreated = created;
   }
 
+  @Override
   public void setUpdated(Date updated) {
     myUpdated = updated;
   }
 
+  @Override
   @NotNull
   @Property(surroundWithTag = false)
   @XCollection(elementName="changelist")
@@ -268,6 +265,7 @@ public class LocalTaskImpl extends LocalTask {
     myShelfName = shelfName;
   }
 
+  @Override
   public boolean isClosed() {
     return myClosed;
   }
@@ -295,10 +293,10 @@ public class LocalTaskImpl extends LocalTask {
       case EXCEPTION:
         return TasksIcons.Exception;
       case FEATURE:
-        return TasksIcons.Feature;
+        return AllIcons.Nodes.Favorite;
       default:
       case OTHER:
-        return issue ? TasksIcons.Other : TasksIcons.Unknown;
+        return issue ? AllIcons.FileTypes.Any_type : AllIcons.FileTypes.Unknown;
     }
   }
 
@@ -322,10 +320,12 @@ public class LocalTaskImpl extends LocalTask {
     return myPresentableName != null ? myPresentableName : toString();
   }
 
+  @Override
   public String getCustomIcon() {
     return myCustomIcon;
   }
 
+  @Override
   public long getTotalTimeSpent() {
     long timeSpent = 0;
     for (WorkItem item : myWorkItems) {
@@ -340,6 +340,7 @@ public class LocalTaskImpl extends LocalTask {
     return myRunning;
   }
 
+  @Override
   public void setRunning(final boolean running) {
     myRunning = running;
   }
@@ -371,6 +372,7 @@ public class LocalTaskImpl extends LocalTask {
   @Override
   public void setLastPost(final Date date) {
     myLastPost = date;
+    addWorkItem(new WorkItem(date)); // the last item may have pauses in its duration
   }
 
   @Override

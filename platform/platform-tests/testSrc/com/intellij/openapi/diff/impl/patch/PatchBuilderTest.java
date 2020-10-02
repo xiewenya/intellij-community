@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.diff.impl.patch;
 
@@ -24,11 +10,12 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.LightPlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.testFramework.TestDataFile;
+import com.intellij.testFramework.TestDataPath;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.HashMap;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,12 +23,13 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
 
-public class PatchBuilderTest extends PlatformTestCase {
+@TestDataPath("$CONTENT_ROOT/testData/diff/patch/")
+public class PatchBuilderTest extends LightPlatformTestCase {
   public void testAddFile() throws Exception {
     doTest();
   }
@@ -79,7 +67,7 @@ public class PatchBuilderTest extends PlatformTestCase {
   }
 
   public void testModifyWithCRLF() throws Exception {
-    doTest(myProject, false, LineSeparator.CRLF.getSeparatorString());
+    doTest(getProject(), false, LineSeparator.CRLF.getSeparatorString());
   }
 
   public void testModifyLine() throws Exception {
@@ -111,7 +99,7 @@ public class PatchBuilderTest extends PlatformTestCase {
   }
 
   public void testMultipleFiles() throws Exception {
-    doTest(myProject, true);
+    doTest(getProject(), true);
   }
 
   public void testOverlappingContext() throws Exception {
@@ -135,11 +123,11 @@ public class PatchBuilderTest extends PlatformTestCase {
   }
 
   public void testUnchangedFile() throws Exception {
-    doTest(myProject, true);
+    doTest(getProject(), true);
   }
 
   private void doTest() throws IOException, VcsException {
-    doTest(myProject, false);
+    doTest(getProject(), false);
   }
 
   private void doTest(@Nullable Project project, boolean relativePaths) throws IOException, VcsException {
@@ -147,21 +135,21 @@ public class PatchBuilderTest extends PlatformTestCase {
   }
 
   private void doTest(@Nullable Project project, boolean relativePaths, @Nullable String forceLSeparator) throws IOException, VcsException {
-    String testDataPath = PlatformTestUtil.getPlatformTestDataPath() + "diff/patch/" + getTestName(true);
-    assertTrue(new File(testDataPath).isDirectory());
-    String beforePath = testDataPath + "/before";
-    String afterPath = testDataPath + "/after";
+    Path testDataPath = Paths.get(getTestDir(getTestName(true)));
+    assertTrue(Files.isDirectory(testDataPath));
+    Path beforePath = testDataPath.resolve("before");
+    Path afterPath = testDataPath.resolve("after");
 
     List<Change> changes = new ArrayList<>();
 
     Map<String, File> beforeFileMap = new HashMap<>();
     Map<String, File> afterFileMap = new HashMap<>();
 
-    File[] beforeFiles = FileUtil.notNullize(new File(beforePath).listFiles());
+    File[] beforeFiles = FileUtil.notNullize(beforePath.toFile().listFiles());
     for (File file : beforeFiles) {
       beforeFileMap.put(file.getName(), file);
     }
-    File[] afterFiles = FileUtil.notNullize(new File(afterPath).listFiles());
+    File[] afterFiles = FileUtil.notNullize(afterPath.toFile().listFiles());
     for (File file : afterFiles) {
       afterFileMap.put(file.getName(), file);
     }
@@ -177,7 +165,7 @@ public class PatchBuilderTest extends PlatformTestCase {
       changes.add(new Change(beforeRevision, afterRevision));
     }
 
-    String expected = FileUtil.loadFile(new File(testDataPath, "expected.patch"));
+    String expected = FileUtil.loadFile(testDataPath.resolve("expected.patch").toFile());
 
     StringWriter writer = new StringWriter();
     List<FilePatch> patches = IdeaTextPatchBuilder.buildPatch(project, changes, testDataPath, false);
@@ -188,6 +176,11 @@ public class PatchBuilderTest extends PlatformTestCase {
       result = StringUtil.convertLineSeparators(result);
     }
     assertEquals(expected, result);
+  }
+
+  @NotNull
+  private static String getTestDir(@TestDataFile String dirName) {
+    return PlatformTestUtil.getPlatformTestDataPath() + "diff/patch/" + dirName;
   }
 
   @Nullable
@@ -208,7 +201,7 @@ public class PatchBuilderTest extends PlatformTestCase {
     private final FilePath myFilePath;
     private final String myRevisionName;
 
-    public MockContentRevision(@NotNull File file, @NotNull FilePath path, @NotNull String revisionName) {
+    MockContentRevision(@NotNull File file, @NotNull FilePath path, @NotNull String revisionName) {
       myFile = file;
       myFilePath = path;
       myRevisionName = revisionName;
@@ -237,6 +230,7 @@ public class PatchBuilderTest extends PlatformTestCase {
       return this;
     }
 
+    @NotNull
     @Override
     public String asString() {
       return myRevisionName;

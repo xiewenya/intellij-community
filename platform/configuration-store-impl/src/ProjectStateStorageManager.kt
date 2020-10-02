@@ -1,54 +1,67 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.openapi.components.PathMacroSubstitutor
 import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.StateStorageOperation
 import com.intellij.openapi.components.StoragePathMacros
-import com.intellij.openapi.components.TrackingPathMacroSubstitutor
-import com.intellij.openapi.project.impl.ProjectImpl
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.isExternalStorageEnabled
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.serviceContainer.isWorkspaceComponent
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
+import java.nio.file.Path
 
 // extended in upsource
-open class ProjectStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor,
-                                      private val project: ProjectImpl,
+open class ProjectStateStorageManager(macroSubstitutor: PathMacroSubstitutor,
+                                      private val project: Project,
                                       useVirtualFileTracker: Boolean = true) : StateStorageManagerImpl(ROOT_TAG_NAME, macroSubstitutor, if (useVirtualFileTracker) project else null) {
   companion object {
     internal const val VERSION_OPTION = "version"
     const val ROOT_TAG_NAME = "project"
   }
 
-  override fun normalizeFileSpec(fileSpec: String) = removeMacroIfStartsWith(super.normalizeFileSpec(fileSpec), PROJECT_CONFIG_DIR)
+  private val fileBasedStorageConfiguration = object : FileBasedStorageConfiguration {
+    override val isUseVfsForWrite: Boolean
+      get() = true
 
-  override fun expandMacros(path: String): String {
-    if (path[0] == '$') {
-      return super.expandMacros(path)
-    }
-    else {
-      return "${expandMacro(PROJECT_CONFIG_DIR)}/$path"
+    override val isUseVfsForRead: Boolean
+      get() = project is VirtualFileResolver
+
+    override fun resolveVirtualFile(path: String, reasonOperation: StateStorageOperation): VirtualFile? {
+      return when (project) {
+        is VirtualFileResolver -> project.resolveVirtualFile(path, reasonOperation)
+        else -> super.resolveVirtualFile(path, reasonOperation)
+      }
     }
   }
 
-  override fun beforeElementSaved(element: Element) {
-    element.setAttribute(VERSION_OPTION, "4")
+  override fun getFileBasedStorageConfiguration(fileSpec: String): FileBasedStorageConfiguration {
+    return when {
+      isSpecialStorage(fileSpec) -> appFileBasedStorageConfiguration
+      else -> fileBasedStorageConfiguration
+    }
+  }
+
+  override fun normalizeFileSpec(fileSpec: String) = removeMacroIfStartsWith(super.normalizeFileSpec(fileSpec), PROJECT_CONFIG_DIR)
+
+  override fun expandMacro(collapsedPath: String): Path {
+    if (collapsedPath[0] == '$') {
+      return super.expandMacro(collapsedPath)
+    }
+    else {
+      // PROJECT_CONFIG_DIR is the first macro
+      return macros.get(0).value.resolve(collapsedPath)
+    }
+  }
+
+  override fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
+    rootAttributes.put(VERSION_OPTION, "4")
   }
 
   override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation): String? {
-    val workspace = project.isWorkspaceComponent(component.javaClass)
+    val workspace = isWorkspaceComponent(project.picoContainer, component.javaClass)
     if (workspace && (operation != StateStorageOperation.READ || getOrCreateStorage(StoragePathMacros.WORKSPACE_FILE, RoamingType.DISABLED).hasState(componentName, false))) {
       return StoragePathMacros.WORKSPACE_FILE
     }
@@ -57,4 +70,11 @@ open class ProjectStateStorageManager(macroSubstitutor: TrackingPathMacroSubstit
 
   override val isExternalSystemStorageEnabled: Boolean
     get() = project.isExternalStorageEnabled
+}
+
+// for upsource
+@ApiStatus.Experimental
+interface VirtualFileResolver {
+  @JvmDefault
+  fun resolveVirtualFile(path: String, reasonOperation: StateStorageOperation) = doResolveVirtualFile(path, reasonOperation)
 }

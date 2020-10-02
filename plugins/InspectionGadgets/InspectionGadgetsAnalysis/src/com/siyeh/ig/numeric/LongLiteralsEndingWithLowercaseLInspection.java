@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.numeric;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiExpression;
@@ -34,13 +35,6 @@ public class LongLiteralsEndingWithLowercaseLInspection
   @NotNull
   public String getID() {
     return "LongLiteralEndingWithLowercaseL";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "long.literals.ending.with.lowercase.l.display.name");
   }
 
   @Override
@@ -65,8 +59,7 @@ public class LongLiteralsEndingWithLowercaseLInspection
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message(
-        "long.literals.ending.with.lowercase.l.replace.quickfix");
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", "l", "L");
     }
 
     @Override

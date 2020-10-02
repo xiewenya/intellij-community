@@ -25,20 +25,20 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import org.jetbrains.annotations.NotNull;
 
 public class InvokeQuickFixAction extends AnAction {
   private final InspectionResultsView myView;
 
   public InvokeQuickFixAction(final InspectionResultsView view) {
-    super(InspectionsBundle.message("inspection.action.apply.quickfix"), InspectionsBundle.message("inspection.action.apply.quickfix.description"),
-          AllIcons.Actions.CreateFromUsage);
+    super(InspectionsBundle.message("inspection.action.apply.quickfix"), InspectionsBundle.message("inspection.action.apply.quickfix.description"), AllIcons.Actions.IntentionBulb);
     myView = view;
     registerCustomShortcutSet(ActionManager.getInstance().getAction(IdeActions.ACTION_SHOW_INTENTION_ACTIONS).getShortcutSet(),
                               myView.getTree());
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     InspectionToolWrapper toolWrapper = myView.getTree().getSelectedToolWrapper(true);
     final InspectionRVContentProvider provider = myView.getProvider();
@@ -50,10 +50,11 @@ public class InvokeQuickFixAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final ActionGroup fixes = (ActionGroup)ActionManager.getInstance().getAction("QuickFixes");
     if (fixes.getChildren(e).length == 0) {
-      Messages.showInfoMessage(myView, "There are no applicable quick fixes", "Nothing Found to Fix");
+      Messages.showInfoMessage(myView, InspectionsBundle.message("there.are.no.applicable.quick.fixes.message"),
+                               InspectionsBundle.message("nothing.found.to.fix.title"));
       return;
     }
     DataContext dataContext = e.getDataContext();
@@ -66,6 +67,6 @@ public class InvokeQuickFixAction extends AnAction {
   }
 
   static boolean cantApplyFixes(InspectionResultsView view) {
-    return view.isUpdating() && !view.getTree().areDescriptorNodesSelected();
+    return !view.getTree().areDescriptorNodesSelected();
   }
 }

@@ -8,17 +8,20 @@ import com.intellij.execution.BeforeRunTask;
 import com.intellij.execution.ExecutionTarget;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ProgramRunner;
+import com.intellij.execution.ui.FragmentedSettings;
+import com.intellij.openapi.components.BaseState;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.JDOMExternalizerUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.UserDataHolderBase;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.ReflectionUtil;
-import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,31 +29,32 @@ import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Standard base class for run configuration implementations.
  */
-public abstract class RunConfigurationBase extends UserDataHolderBase implements RunConfiguration, TargetAwareRunProfile {
-  private static final String PREDEFINED_LOG_FILE_ELEMENT = "predefined_log_file";
+public abstract class RunConfigurationBase<T> extends UserDataHolderBase implements RunConfiguration, TargetAwareRunProfile,
+                                                                                    ConfigurationCreationListener, FragmentedSettings {
   private static final String SHOW_CONSOLE_ON_STD_OUT = "show_console_on_std_out";
   private static final String SHOW_CONSOLE_ON_STD_ERR = "show_console_on_std_err";
 
+  @Nullable
   private final ConfigurationFactory myFactory;
   private final Project myProject;
   private String myName;
-  private final Icon myIcon;
 
-  private RunConfigurationOptions myOptions = createOptions();
+  private RunConfigurationOptions myOptions;
 
-  private List<PredefinedLogFile> myPredefinedLogFiles = new SmartList<>();
+  @NotNull
+  private List<BeforeRunTask<?>> myBeforeRunTasks = Collections.emptyList();
 
-  private List<BeforeRunTask> myBeforeRunTasks = Collections.emptyList();
-
-  protected RunConfigurationBase(@NotNull Project project, @NotNull ConfigurationFactory factory, String name) {
+  protected RunConfigurationBase(@NotNull Project project, @Nullable ConfigurationFactory factory, @Nullable String name) {
     myProject = project;
     myFactory = factory;
     myName = name;
-    myIcon = factory.getIcon();
+    // must be after factory because factory is used to get options class
+    myOptions = createOptions();
   }
 
   @NotNull
@@ -58,6 +62,7 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
     return ReflectionUtil.newInstance(getOptionsClass());
   }
 
+  @NotNull
   protected RunConfigurationOptions getOptions() {
     return myOptions;
   }
@@ -65,22 +70,23 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   @Override
   @NotNull
   @Transient
-  public List<BeforeRunTask> getBeforeRunTasks() {
+  public List<BeforeRunTask<?>> getBeforeRunTasks() {
     return myBeforeRunTasks;
   }
 
   @Override
-  public void setBeforeRunTasks(@NotNull List<BeforeRunTask> value) {
+  public void setBeforeRunTasks(@NotNull List<BeforeRunTask<?>> value) {
     myBeforeRunTasks = value;
   }
 
+  @Nullable
   @Override
   public final ConfigurationFactory getFactory() {
     return myFactory;
   }
 
   @Override
-  public final void setName(final String name) {
+  public final void setName(String name) {
     myName = name;
   }
 
@@ -91,16 +97,21 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   }
 
   @Override
+  @Nullable
   public Icon getIcon() {
-    return myIcon;
+    return myFactory == null ? null : myFactory.getIcon();
   }
 
+  @NotNull
   @Override
   @Transient
   public final String getName() {
-    return myName;
+    // a lot of clients not ready that name can be null and in most cases it is not convenient - just add more work to handle null value
+    // in any case for run configuration empty name it is the same as null, we don't need to bother clients and use null
+    return StringUtilRt.notNullize(myName);
   }
 
+  @Override
   public final int hashCode() {
     return super.hashCode();
   }
@@ -118,21 +129,25 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
     return true;
   }
 
+  @Override
   public final boolean equals(final Object obj) {
     return super.equals(obj);
   }
 
   @Override
   public RunConfiguration clone() {
-    final RunConfigurationBase runConfiguration = (RunConfigurationBase)super.clone();
-    runConfiguration.myPredefinedLogFiles = new ArrayList<>(myPredefinedLogFiles);
+    //noinspection unchecked
+    RunConfigurationBase<T> result = (RunConfigurationBase<T>)super.clone();
+    result.myOptions = createOptions();
+    result.doCopyOptionsFrom(this);
+    return result;
+  }
 
-    runConfiguration.myOptions = createOptions();
-    runConfiguration.myOptions.copyFrom(myOptions);
-    copyCopyableDataTo(runConfiguration);
-
-    myBeforeRunTasks = myBeforeRunTasks.isEmpty() ? Collections.emptyList() : new SmartList<>(myBeforeRunTasks);
-    return runConfiguration;
+  void doCopyOptionsFrom(@NotNull RunConfigurationBase<T> template) {
+    myOptions.copyFrom(template.myOptions);
+    myOptions.resetModificationCount();
+    myOptions.setAllowRunningInParallel(template.isAllowRunningInParallel());
+    myBeforeRunTasks = ContainerUtil.copyList(template.myBeforeRunTasks);
   }
 
   @Nullable
@@ -141,22 +156,22 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   }
 
   public void removeAllPredefinedLogFiles() {
-    myPredefinedLogFiles.clear();
+    getOptions().getPredefinedLogFiles().clear();
   }
 
   public void addPredefinedLogFile(@NotNull PredefinedLogFile predefinedLogFile) {
-    myPredefinedLogFiles.add(predefinedLogFile);
+    getOptions().getPredefinedLogFiles().add(predefinedLogFile);
   }
 
   @NotNull
   public List<PredefinedLogFile> getPredefinedLogFiles() {
-    return myPredefinedLogFiles;
+    return getOptions().getPredefinedLogFiles();
   }
 
   @NotNull
   public ArrayList<LogFileOptions> getAllLogFiles() {
     ArrayList<LogFileOptions> list = new ArrayList<>(getLogFiles());
-    for (PredefinedLogFile predefinedLogFile : myPredefinedLogFiles) {
+    for (PredefinedLogFile predefinedLogFile : getOptions().getPredefinedLogFiles()) {
       final LogFileOptions options = getOptionsForPredefinedLogFile(predefinedLogFile);
       if (options != null) {
         list.add(options);
@@ -191,34 +206,75 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   public void customizeLogConsole(LogConsole console) {
   }
 
-  public void loadState(@NotNull Element element) {
-    readExternal(element);
+  @Nullable
+  public T getState() {
+    //noinspection unchecked
+    return (T)getOptions();
+  }
+
+  public void loadState(@NotNull T state) {
+    if (state instanceof Element) {
+      myOptions = XmlSerializer.deserialize((Element)state, getOptionsClass());
+    }
+    else {
+      myOptions = (RunConfigurationOptions)state;
+    }
   }
 
   @Override
   public void readExternal(@NotNull Element element) throws InvalidDataException {
-    myPredefinedLogFiles.clear();
-    for (Element fileElement : element.getChildren(PREDEFINED_LOG_FILE_ELEMENT)) {
-      final PredefinedLogFile logFile = new PredefinedLogFile();
-      logFile.readExternal(fileElement);
-      myPredefinedLogFiles.add(logFile);
-    }
-
-    myOptions = XmlSerializer.deserialize(element, getOptionsClass());
-  }
-
-  protected Class<? extends RunConfigurationOptions> getOptionsClass() {
-    if (this instanceof PersistentStateComponent) {
-      PersistentStateComponent instance = (PersistentStateComponent)this;
-      return ComponentSerializationUtil.getStateClass(instance.getClass());
-    }
-    return RunConfigurationOptions.class;
+    boolean isAllowRunningInParallel = myOptions.isAllowRunningInParallel();
+    //noinspection unchecked
+    loadState((T)element);
+    // load state sets myOptions but we need to preserve transient isAllowRunningInParallel
+    myOptions.setAllowRunningInParallel(isAllowRunningInParallel);
   }
 
   @Override
-  public void writeExternal(@NotNull Element element) throws WriteExternalException {
-    JDOMExternalizerUtil.addChildren(element, PREDEFINED_LOG_FILE_ELEMENT, myPredefinedLogFiles);
+  public void writeExternal(@NotNull Element element) {
     XmlSerializer.serializeObjectInto(myOptions, element);
+  }
+
+  @Override
+  public @NotNull Set<String> getSelectedOptions() {
+    return myOptions.getSelectedOptions();
+  }
+
+  @Override
+  public void setSelectedOptions(@NotNull Set<String> fragmentIds) {
+    myOptions.setSelectedOptions(fragmentIds);
+  }
+
+  @ApiStatus.Experimental
+  public void setOptionsFromConfigurationFile(@NotNull BaseState state) {
+    myOptions.copyFrom(state, /* isMustBeTheSameType= */false);
+  }
+
+  // we can break compatibility and make this method final (API is new and used only by our plugins), but let's avoid any inconvenience and mark as "final" after/prior to 2018.3 release.
+  /**
+   * Do not override this method, use {@link ConfigurationFactory#getOptionsClass()}.
+   */
+  protected Class<? extends RunConfigurationOptions> getOptionsClass() {
+    Class<? extends BaseState> result = myFactory == null ? null : myFactory.getOptionsClass();
+    if (result != null) {
+      //noinspection unchecked
+      return (Class<? extends RunConfigurationOptions>)result;
+    }
+    else if (this instanceof PersistentStateComponent) {
+      PersistentStateComponent instance = (PersistentStateComponent)this;
+      return ComponentSerializationUtil.getStateClass(instance.getClass());
+    }
+    else {
+      return getDefaultOptionsClass();
+    }
+  }
+
+  /**
+   * Do not override this method, it is intended to support old (not migrated to options class) run configurations.
+   */
+  @NotNull
+  protected Class<? extends RunConfigurationOptions> getDefaultOptionsClass() {
+    return RunConfigurationOptions.class;
   }
 
   @Transient
@@ -249,11 +305,11 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   }
 
   @Transient
-  public String getOutputFilePath() {
+  public @NlsSafe String getOutputFilePath() {
     return myOptions.getFileOutput().getFileOutputPath();
   }
 
-  public void setFileOutputPath(String fileOutputPath) {
+  public void setFileOutputPath(@NlsSafe String fileOutputPath) {
     myOptions.getFileOutput().setFileOutputPath(fileOutputPath);
   }
 
@@ -261,15 +317,12 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
     return true;
   }
 
+  /**
+   * @deprecated Use {@link RunProfileWithCompileBeforeLaunchOption#isExcludeCompileBeforeLaunchOption()}
+   */
+  @Deprecated
   public boolean excludeCompileBeforeLaunchOption() {
     return false;
-  }
-
-  /**
-   * @deprecated use {@link RunProfileWithCompileBeforeLaunchOption#isBuildBeforeLaunchAddedByDefault()} instead
-   */
-  public boolean isCompileBeforeLaunchAddedByDefault() {
-    return true;
   }
 
   @Override
@@ -283,5 +336,27 @@ public abstract class RunConfigurationBase extends UserDataHolderBase implements
   @Deprecated
   protected boolean isNewSerializationUsed() {
     return false;
+  }
+
+  @Override
+  public final boolean isAllowRunningInParallel() {
+    return getOptions().isAllowRunningInParallel();
+  }
+
+  @Override
+  public final void setAllowRunningInParallel(boolean value) {
+    getOptions().setAllowRunningInParallel(value);
+  }
+
+  /**
+   * Called when configuration created via UI (Add Configuration).
+   * Suitable to perform some initialization tasks (in most cases it is indicator that you do something wrong, so, please override this method with care and only if really need).
+   */
+  @Override
+  public void onNewConfigurationCreated() {
+  }
+
+  @Override
+  public void onConfigurationCopied() {
   }
 }

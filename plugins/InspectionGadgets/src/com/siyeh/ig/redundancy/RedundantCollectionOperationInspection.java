@@ -1,9 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.redundancy;
 
 import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.util.InspectionMessage;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -13,8 +16,11 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.callMatcher.CallMapper;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.*;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 import static com.siyeh.ig.callMatcher.CallMatcher.*;
@@ -33,6 +39,11 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       staticCall(CommonClassNames.JAVA_UTIL_COLLECTIONS, "singleton", "singletonList").parameterCount(1),
       staticCall(CommonClassNames.JAVA_UTIL_LIST, "of").parameterTypes("E"),
       staticCall(CommonClassNames.JAVA_UTIL_SET, "of").parameterTypes("E"));
+  private static final CallMatcher EMPTY_COLLECTION =
+    anyOf(
+      staticCall(CommonClassNames.JAVA_UTIL_COLLECTIONS, "emptyList", "emptySet").parameterCount(0),
+      staticCall(CommonClassNames.JAVA_UTIL_LIST, "of").parameterCount(0),
+      staticCall(CommonClassNames.JAVA_UTIL_SET, "of").parameterCount(0));
   private static final CallMatcher CONTAINS_ALL =
     instanceCall(CommonClassNames.JAVA_UTIL_COLLECTION, "containsAll").parameterTypes(CommonClassNames.JAVA_UTIL_COLLECTION);
   private static final CallMatcher CONTAINS =
@@ -52,16 +63,21 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   private static final CallMatcher COLLECTIONS_SORT = staticCall(CommonClassNames.JAVA_UTIL_COLLECTIONS, "sort");
   private static final CallMatcher LIST_SORT = instanceCall(CommonClassNames.JAVA_UTIL_LIST, "sort").parameterTypes(
     CommonClassNames.JAVA_UTIL_COMPARATOR);
+  private static final CallMatcher ITERABLE_ITERATOR = instanceCall(CommonClassNames.JAVA_LANG_ITERABLE, "iterator").parameterCount(0);
+  private static final CallMatcher MAP_KEY_SET = instanceCall(CommonClassNames.JAVA_UTIL_MAP, "keySet").parameterCount(0);
+  private static final CallMatcher MAP_VALUES = instanceCall(CommonClassNames.JAVA_UTIL_MAP, "values").parameterCount(0);
 
   private static final CallMapper<RedundantCollectionOperationHandler> HANDLERS =
     new CallMapper<RedundantCollectionOperationHandler>()
       .register(TO_ARRAY, AsListToArrayHandler::handler)
       .register(CONTAINS_ALL, ContainsAllSingletonHandler::handler)
       .register(CONTAINS, SingletonContainsHandler::handler)
+      .register(CONTAINS, MapKeySetContainsHandler::handler)
       .register(anyOf(CONTAINS, CONTAINS_KEY), ContainsBeforeAddRemoveHandler::handler)
       .register(REMOVE_BY_INDEX, RedundantIndexOfHandler::handler)
       .register(AS_LIST, RedundantAsListForIterationHandler::handler)
-      .register(AS_LIST, RedundantSortAsListHandler::handler);
+      .register(AS_LIST, RedundantSortAsListHandler::handler)
+      .register(ITERABLE_ITERATOR, RedundantEmptyIteratorHandler::handler);
 
   @NotNull
   @Override
@@ -82,11 +98,15 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   }
 
   interface RedundantCollectionOperationHandler {
-    default String getProblemName() {
+    default @InspectionMessage String getProblemName() {
       return InspectionGadgetsBundle.message("expression.can.be.replaced.problem.descriptor", getReplacement());
     }
 
     void performFix(@NotNull Project project, @NotNull PsiMethodCallExpression call);
+
+    default boolean canPreview() {
+      return true;
+    }
 
     @NotNull
     default String getReplacement() {
@@ -94,8 +114,8 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
     }
 
     @NotNull
-    default String getFixName() {
-      return InspectionGadgetsBundle.message("replace.with", getReplacement());
+    default @IntentionName String getFixName() {
+      return CommonQuickFixBundle.message("fix.replace.with.x", getReplacement());
     }
   }
 
@@ -122,6 +142,9 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       if (indexOfArg == null) return;
       CommentTracker ct = new CommentTracker();
       String text = ct.text(indexOfArg);
+      if (PsiType.INT.equals(indexOfArg.getType())) {
+        text = "(" + CommonClassNames.JAVA_LANG_INTEGER + ")" + text;
+      }
       if (!PsiTreeUtil.isAncestor(call, removeArg, false)) {
         PsiDeclarationStatement declaration = PsiTreeUtil.getParentOfType(removeArg, PsiDeclarationStatement.class);
         if (declaration == null) return;
@@ -151,7 +174,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   private static class ContainsBeforeAddRemoveHandler implements RedundantCollectionOperationHandler {
     private final String myName;
 
-    public ContainsBeforeAddRemoveHandler(String name) {
+    ContainsBeforeAddRemoveHandler(String name) {
       myName = name;
     }
 
@@ -175,7 +198,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
         PsiPolyadicExpression conjunction = (PsiPolyadicExpression)parent;
         PsiExpression[] conjuncts = conjunction.getOperands();
         if (conjuncts.length == 2) {
-          ct.replaceAndRestoreComments(parent, ct.markUnchanged(conjuncts[0]));
+          ct.replaceAndRestoreComments(parent, conjuncts[0]);
         } else {
           PsiExpression lastConjunct = conjuncts[conjuncts.length-1];
           PsiJavaToken token = conjunction.getTokenBeforeOperand(lastConjunct);
@@ -189,7 +212,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
         PsiIfStatement ifStatement = (PsiIfStatement)parent;
         PsiExpressionStatement thenBody = tryCast(ControlFlowUtils.stripBraces(ifStatement.getThenBranch()), PsiExpressionStatement.class);
         if (thenBody == null) return;
-        ct.replaceAndRestoreComments(ifStatement, ct.markUnchanged(thenBody));
+        ct.replaceAndRestoreComments(ifStatement, thenBody);
       }
     }
 
@@ -220,13 +243,13 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
     }
   }
 
-  private static class AsListToArrayHandler implements RedundantCollectionOperationHandler {
-    private final String myReplacementMethod;
+  private static final class AsListToArrayHandler implements RedundantCollectionOperationHandler {
+    @NonNls private final String myReplacementMethod;
     @NotNull private final SmartPsiElementPointer<PsiExpression> myArrayPtr;
     private final SmartPsiElementPointer<PsiExpression> myFromPtr;
     private final SmartPsiElementPointer<PsiExpression> myToPtr;
     @NotNull private final String mySourceComponentType;
-    @NotNull private final String myTargetComponentType;
+    @NotNull @NonNls private final String myTargetComponentType;
 
     private AsListToArrayHandler(PsiExpression from,
                                  PsiExpression to,
@@ -243,11 +266,16 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
         myReplacementMethod = "clone()";
       }
       else if (ExpressionUtils.isZero(from)) {
-        myReplacementMethod = "Arrays.copyOf";
+        myReplacementMethod = "Arrays.copyOf()";
       }
       else {
-        myReplacementMethod = "Arrays.copyOfRange";
+        myReplacementMethod = "Arrays.copyOfRange()";
       }
+    }
+
+    @Override
+    public boolean canPreview() {
+      return false; // stores smart pointers
     }
 
     @Override
@@ -269,7 +297,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       PsiExpression to = myToPtr == null ? null : myToPtr.getElement();
       if ((from == null) != (to == null)) return;
       CommentTracker ct = new CommentTracker();
-      String replacement;
+      @NonNls String replacement;
       String suffix = "";
       if (!mySourceComponentType.equals(myTargetComponentType)) {
         suffix = "," + myTargetComponentType + "[].class";
@@ -337,10 +365,9 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   }
 
   private static class ContainsAllSingletonHandler implements RedundantCollectionOperationHandler {
-    @NotNull
     @Override
-    public String getReplacement() {
-      return "contains";
+    public @NotNull @NlsSafe String getReplacement() {
+      return "contains()";
     }
 
     @Override
@@ -352,8 +379,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       PsiExpression singletonArg = ArrayUtil.getFirstElement(singleton.getArgumentList().getExpressions());
       if (singletonArg == null) return;
       ExpressionUtils.bindCallTo(call, "contains");
-      CommentTracker ct = new CommentTracker();
-      ct.replaceAndRestoreComments(arg, ct.markUnchanged(singletonArg));
+      new CommentTracker().replaceAndRestoreComments(arg, singletonArg);
     }
 
     public static RedundantCollectionOperationHandler handler(PsiMethodCallExpression call) {
@@ -365,10 +391,10 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   }
 
   private static class SingletonContainsHandler implements RedundantCollectionOperationHandler {
-    @NotNull
+
     @Override
-    public String getReplacement() {
-      return "Objects.equals";
+    public @NonNls @NotNull String getReplacement() {
+      return "Objects.equals()";
     }
 
     @Override
@@ -392,16 +418,57 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
     }
   }
 
+  private static final class MapKeySetContainsHandler implements RedundantCollectionOperationHandler {
+    private final String myReplacementMethod;
+
+    private MapKeySetContainsHandler(@NonNls String method) {
+      myReplacementMethod = method;
+    }
+
+    @Override
+    public @NonNls @NotNull String getReplacement() {
+      return "Map." + myReplacementMethod + "()";
+    }
+
+    @Override
+    public void performFix(@NotNull Project project, @NotNull PsiMethodCallExpression call) {
+      PsiMethodCallExpression qualifierCall = MethodCallUtils.getQualifierMethodCall(call);
+      if (qualifierCall == null) return;
+      PsiExpression mapExpression = qualifierCall.getMethodExpression().getQualifierExpression();
+      if (mapExpression == null) return;
+      CommentTracker ct = new CommentTracker();
+      ct.replaceAndRestoreComments(qualifierCall, mapExpression);
+      ExpressionUtils.bindCallTo(call, myReplacementMethod);
+    }
+
+    static RedundantCollectionOperationHandler handler(PsiMethodCallExpression call) {
+      PsiMethodCallExpression qualifierCall = MethodCallUtils.getQualifierMethodCall(call);
+      String replacementMethod;
+      if (MAP_KEY_SET.test(qualifierCall)) {
+        replacementMethod = "containsKey";
+      }
+      else if (MAP_VALUES.test(qualifierCall)) {
+        replacementMethod = "containsValue";
+      }
+      else {
+        return null;
+      }
+      PsiExpression mapExpression = qualifierCall.getMethodExpression().getQualifierExpression();
+      if (mapExpression == null) return null;
+      return new MapKeySetContainsHandler(replacementMethod);
+    }
+  }
+
   private static class RedundantAsListForIterationHandler implements RedundantCollectionOperationHandler {
     @Override
     public String getProblemName() {
-      return "Unnecessary 'Arrays.asList' call";
+      return InspectionGadgetsBundle.message("redundant.as.list.for.iteration.problem");
     }
 
     @NotNull
     @Override
     public String getFixName() {
-      return "Unwrap";
+      return InspectionGadgetsBundle.message("redundant.as.list.for.iteration.fix.name");
     }
 
     @Override
@@ -426,7 +493,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
           typeElement.replace(JavaPsiFacade.getElementFactory(project).createTypeElement(elementType.createArrayType()));
         }
       }
-      ct.replaceAndRestoreComments(call, ct.markUnchanged(args[0]));
+      ct.replaceAndRestoreComments(call, args[0]);
     }
 
     static RedundantAsListForIterationHandler handler(PsiMethodCallExpression call) {
@@ -444,13 +511,8 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
           return null;
         }
         PsiCodeBlock block = PsiTreeUtil.getParentOfType(localVariable, PsiCodeBlock.class);
-        if (block != null && VariableAccessUtils.variableIsUsed(localVariable, block) &&
-            PsiTreeUtil.processElements(block, element -> {
-          if (!(element instanceof PsiReferenceExpression)) return true;
-          PsiReferenceExpression ref = (PsiReferenceExpression)element;
-          if (!(ref.isReferenceTo(localVariable))) return true;
-          return isAllowedContext(ref);
-        })) {
+        List<PsiReferenceExpression> references = VariableAccessUtils.getVariableReferences(localVariable, block);
+        if (!references.isEmpty() && references.stream().allMatch(RedundantAsListForIterationHandler::isAllowedContext)) {
           return new RedundantAsListForIterationHandler();
         }
       }
@@ -467,7 +529,7 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
   private static class RedundantSortAsListHandler implements RedundantCollectionOperationHandler {
     private final boolean myCollectionsSort;
 
-    public RedundantSortAsListHandler(boolean collectionsSort) {
+    RedundantSortAsListHandler(boolean collectionsSort) {
       myCollectionsSort = collectionsSort;
     }
 
@@ -480,9 +542,8 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       if (myCollectionsSort) {
         PsiMethodCallExpression outerCall = PsiTreeUtil.getParentOfType(call, PsiMethodCallExpression.class);
         if (outerCall == null) return;
+        new CommentTracker().replaceAndRestoreComments(call, array);
         CommentTracker ct = new CommentTracker();
-        ct.replaceAndRestoreComments(call, ct.markUnchanged(array));
-        ct = new CommentTracker();
         ct.replaceAndRestoreComments(outerCall, sortMethod + ct.text(outerCall.getArgumentList()));
       }
       else {
@@ -496,9 +557,9 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
       }
     }
 
-    @NotNull
+
     @Override
-    public String getReplacement() {
+    public @NotNull @NlsSafe String getReplacement() {
       return "Arrays.sort()";
     }
 
@@ -522,25 +583,54 @@ public class RedundantCollectionOperationInspection extends AbstractBaseJavaLoca
     }
   }
 
+  private static class RedundantEmptyIteratorHandler implements RedundantCollectionOperationHandler {
+    @Override
+    public void performFix(@NotNull Project project, @NotNull PsiMethodCallExpression call) {
+      PsiType type = call.getType();
+      PsiType elementType = PsiUtil.substituteTypeParameter(type, CommonClassNames.JAVA_UTIL_ITERATOR, 0, false);
+      elementType = GenericsUtil.getVariableTypeByExpressionType(elementType);
+      String replacement = CommonClassNames.JAVA_UTIL_COLLECTIONS + "."
+                           + (elementType == null ? "" : "<" + elementType.getCanonicalText() + ">") + "emptyIterator()";
+      PsiElement result = new CommentTracker().replaceAndRestoreComments(call, replacement);
+      RemoveRedundantTypeArgumentsUtil.removeRedundantTypeArguments(result);
+      JavaCodeStyleManager.getInstance(project).shortenClassReferences(result);
+    }
+
+    @Override
+    public @NotNull @NlsSafe String getReplacement() {
+      return "Collections.emptyIterator()";
+    }
+
+    static RedundantEmptyIteratorHandler handler(PsiMethodCallExpression call) {
+      if (!PsiUtil.isLanguageLevel7OrHigher(call)) return null;
+      PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(call.getMethodExpression().getQualifierExpression());
+      if (!EMPTY_COLLECTION.matches(qualifier) && !ConstructionUtils.isEmptyCollectionInitializer(qualifier)) return null;
+      return new RedundantEmptyIteratorHandler();
+    }
+  }
+
   private static class RedundantCollectionOperationFix implements LocalQuickFix {
     private final RedundantCollectionOperationHandler myHandler;
 
-    public RedundantCollectionOperationFix(RedundantCollectionOperationHandler handler) {
+    RedundantCollectionOperationFix(RedundantCollectionOperationHandler handler) {
       myHandler = handler;
     }
 
-    @Nls
     @NotNull
     @Override
     public String getName() {
       return myHandler.getFixName();
     }
 
-    @Nls
     @NotNull
     @Override
     public String getFamilyName() {
       return InspectionGadgetsBundle.message("inspection.redundant.collection.operation.fix.family.name");
+    }
+
+    @Override
+    public @Nullable LocalQuickFix getFileModifierForPreview(@NotNull PsiFile target) {
+      return myHandler.canPreview() ? this : null;
     }
 
     @Override

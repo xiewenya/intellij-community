@@ -24,16 +24,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 
 public class ObjectObjectPersistentMultiMapletTest extends UsefulTestCase {
-  private static final CollectionFactory<IntValueStreamable> COLLECTION_FACTORY = new CollectionFactory<IntValueStreamable>() {
-    @Override
-    public Collection<IntValueStreamable> create() {
-      return new ArrayList<>();
-    }
-  };
+  private static final BuilderCollectionFactory<IntValueStreamable> COLLECTION_FACTORY = () -> new ArrayList<>();
 
   public void testReplaceWithEqualButNotSameKey() throws IOException {
     File file = FileUtil.createTempFile(getTestDirectoryName(), null);
@@ -55,7 +49,7 @@ public class ObjectObjectPersistentMultiMapletTest extends UsefulTestCase {
   private static class IntValueStreamable implements Streamable {
     public int value;
 
-    public IntValueStreamable(int value) {
+    IntValueStreamable(int value) {
       this.value = value;
     }
 

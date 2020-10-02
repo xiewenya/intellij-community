@@ -24,14 +24,9 @@ import org.jetbrains.annotations.NotNull;
  * @author Pavel.Dolgov
  */
 public class ReturnSeparatedFromComputationFixTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new ReturnSeparatedFromComputationInspection()};
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   @Override

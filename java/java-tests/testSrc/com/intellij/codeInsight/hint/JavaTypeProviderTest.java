@@ -8,20 +8,19 @@ import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import org.intellij.lang.annotations.Language;
 
-public class JavaTypeProviderTest extends LightCodeInsightTestCase {
+@SuppressWarnings("HtmlDeprecatedAttribute")
+public class JavaTypeProviderTest extends LightJavaCodeInsightTestCase {
   public void testRangeHint() {
     doTest("  void test(int x) {\n" +
            "    x = Math.abs(x);\n" +
            "    <selection>x</selection>\n" +
            "  }", "int",
            "<table>" +
-           "<tr><td align='right' valign='top'><strong>Type:</strong></td>" +
-           "<td>int</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Range:</strong></td>" +
-           "<td>{Integer.MIN_VALUE, 0..Integer.MAX_VALUE}</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>int</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Range:</td><td>Integer.MIN_VALUE or &gt;= 0</td></tr>" +
            "</table>");
   }
 
@@ -32,12 +31,19 @@ public class JavaTypeProviderTest extends LightCodeInsightTestCase {
            "    }\n" +
            "  }", "Optional&lt;String&gt;",
            "<table>" +
-           "<tr><td align='right' valign='top'><strong>Type:</strong></td>" +
-           "<td>Optional&lt;String&gt;</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Nullability:</strong></td>" +
-           "<td>NotNull</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Optional presense:</strong></td>" +
-           "<td>present Optional</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>Optional&lt;String&gt;</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Nullability:</td><td>non-null</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Optional value:</td><td>present Optional</td></tr>" +
+           "</table>");
+  }
+
+  public void testFunctionalType() {
+    doTest("  void test() {\n" +
+           "      Runnable r = <selection>() -> {}</selection>;\n" +
+           "  }", "Runnable", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>Runnable</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Nullability:</td><td>non-null</td></tr>" +
            "</table>");
   }
 
@@ -52,13 +58,11 @@ public class JavaTypeProviderTest extends LightCodeInsightTestCase {
            "    }\n" +
            "  }", "Object",
            "<table>" +
-           "<tr><td align='right' valign='top'><strong>Type:</strong></td>" +
-           "<td>Object</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Nullability:</strong></td>" +
-           "<td>NotNull</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Type constraints:</strong></td>" +
-           "<td>instanceof CharSequence\n" +
-           "not instanceof Number, String</td></tr></table>");
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>Object</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Nullability:</td><td>non-null</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Constraints:</td><td>instanceof CharSequence<br/>" +
+           "not instanceof Number, String</td></tr>" +
+           "</table>");
   }
 
   public void testTypeConstraint2() {
@@ -72,13 +76,85 @@ public class JavaTypeProviderTest extends LightCodeInsightTestCase {
            "    }\n" +
            "  }\n", "Object",
            "<table>" +
-           "<tr><td align='right' valign='top'><strong>Type:</strong></td>" +
-           "<td>Object</td></tr>" +
-           "<tr><td align='right' valign='top'><strong>Type constraints:</strong></td>" +
-           "<td>not instanceof CharSequence, Number</td></tr></table>");
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>Object</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Constraints:</td><td>not instanceof CharSequence, Number</td></tr>" +
+           "</table>");
   }
 
-  private static void doTest(@Language(value = "JAVA", prefix = "@SuppressWarnings(\"all\")class X{", suffix = "}") String method,
+  public void testSpecialField() {
+    doTest("void x(int[] data) {\n" +
+           "  if (data.length == 1) {\n" +
+           "    System.out.println(java.util.Arrays.toString(<selection>data</selection>));\n" +
+           "  }\n" +
+           "}", "int[]",
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>int[]</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Nullability:</td><td>non-null</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Array length:</td><td>1</td></tr>" +
+           "</table>");
+  }
+  
+  public void testBooleanValue() {
+    doTest("void test(int x) {\n" +
+           "  if(x > 5 && <selection>x < 0</selection>) {}\n" +
+           "}", "boolean", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>boolean</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Value:</td><td>false</td></tr>" +
+           "</table>");
+  }
+  
+  public void testStringValue() {
+    doTest("void test(String x) {\n" +
+           "  if(x.equals(\"foo\") || x.equals(\"bar\")) {\n" +
+           "    <selection>x</selection>\n" +
+           "  }\n" +
+           "}", "String", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>String</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Value:</td><td>&quot;bar&quot; or &quot;foo&quot;</td></tr>" +
+           "</table>");
+  }
+  
+  public void testNotValue() {
+    doTest("void test(String x) {\n" +
+           "  if(x.equals(\"foo\") || x.equals(\"bar\")) {} else {\n" +
+           "    <selection>x</selection>\n" +
+           "  }\n" +
+           "}", "String", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>String</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Not equal to:</td><td>&quot;bar&quot;, &quot;foo&quot;</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Nullability:</td><td>non-null</td></tr>" +
+           "</table>");
+  }
+  
+  public void testNotValueEnum() {
+    doTest("enum X {A, B}" +
+           "void test(X x) {\n" +
+           "  if(x == X.A) {} else {\n" +
+           "    <selection>x</selection>\n" +
+           "  }\n" +
+           "}", "X", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>X</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Not equal to:</td><td>X.A</td></tr>" +
+           "</table>");
+  }
+  
+  public void testEscaping() {
+    doTest("public static void main(int i) {\n" +
+           "  if (i < 50) {\n" +
+           "    System.out.println(<selection>i</selection>);\n" +
+           "  }\n" +
+           "}", "int", 
+           "<table>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Type:</td><td>int</td></tr>" +
+           "<tr><td align=\"left\" style=\"color:#909090\" valign=\"top\">Range:</td><td>&lt;= 49</td></tr>" +
+           "</table>");
+  }
+
+  private void doTest(@Language(value = "JAVA", prefix = "@SuppressWarnings(\"all\")class X{", suffix = "}") String method,
                              @Language("HTML") String expectedHint,
                              @Language("HTML") String expectedAdvancedHint) {
     EditorInfo info = new EditorInfo("class X{" + method + "}");

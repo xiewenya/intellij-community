@@ -17,6 +17,7 @@ package org.jetbrains.plugins.gradle.service.resolve.dsl;
 
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
@@ -36,7 +37,6 @@ import static org.jetbrains.plugins.groovy.highlighter.GroovySyntaxHighlighter.M
 
 /**
  * @author Vladislav.Soroka
- * @since 9/25/13
  */
 public class GradleDslAnnotator implements Annotator {
   @Override
@@ -62,7 +62,7 @@ public class GradleDslAnnotator implements Annotator {
 
         PsiElement nameElement = referenceExpression.getReferenceNameElement();
         if (nameElement != null) {
-          holder.createInfoAnnotation(nameElement, null).setTextAttributes(MAP_KEY);
+          holder.newSilentAnnotation(HighlightSeverity.INFORMATION).range(nameElement).textAttributes(MAP_KEY).create();
         }
       }
     }

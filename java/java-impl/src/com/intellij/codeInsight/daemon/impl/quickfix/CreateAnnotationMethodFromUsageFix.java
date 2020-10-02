@@ -21,10 +21,13 @@ import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.analysis.AnnotationsHighlightUtil;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
+import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -58,13 +61,15 @@ public class CreateAnnotationMethodFromUsageFix extends CreateFromUsageBaseFix {
   }
 
   @Override
-  protected void invokeImpl(final PsiClass targetClass) {
-    if (targetClass == null) return;
+  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+    chooseTargetClass(project, editor, this::invokeImpl);
+  }
 
+  private void invokeImpl(@NotNull PsiClass targetClass) {
     PsiNameValuePair nameValuePair = getNameValuePair();
     if (nameValuePair == null || isValidElement(nameValuePair)) return;
 
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(nameValuePair.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(nameValuePair.getProject());
 
     final String methodName = nameValuePair.getName();
     LOG.assertTrue(methodName != null);

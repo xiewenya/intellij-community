@@ -3,9 +3,7 @@ package com.intellij.codeInsight.template.postfix.settings;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.hint.HintUtil;
-import com.intellij.codeInsight.intention.impl.config.ActionUsagePanel;
-import com.intellij.codeInsight.intention.impl.config.PlainTextDescriptor;
-import com.intellij.codeInsight.intention.impl.config.TextDescriptor;
+import com.intellij.codeInsight.intention.impl.config.*;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
@@ -13,9 +11,11 @@ import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeManagerEx;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.HintHint;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.StartupUiUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,20 +25,27 @@ import java.io.IOException;
 import java.io.StringReader;
 
 class PostfixDescriptionPanel implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.config.IntentionDescriptionPanel");
+  private static final Logger LOG = Logger.getInstance(IntentionDescriptionPanel.class);
   private JPanel myPanel;
 
   private JPanel myAfterPanel;
   private JPanel myBeforePanel;
   private JEditorPane myDescriptionBrowser;
+  private JBLabel myDescriptionLabel;
+  private JBLabel myBeforeLabel;
+  private JBLabel myAfterLabel;
 
-  public PostfixDescriptionPanel() {
+  PostfixDescriptionPanel() {
     myDescriptionBrowser.setMargin(JBUI.insets(5));
     initializeExamplePanel(myAfterPanel);
     initializeExamplePanel(myBeforePanel);
+
+    myDescriptionLabel.setBorder(JBUI.Borders.emptyBottom(3));
+    myBeforeLabel.setBorder(JBUI.Borders.empty(7, 0, 3, 0));
+    myAfterLabel.setBorder(JBUI.Borders.empty(7, 0, 3, 0));
   }
 
-  public void reset(@NotNull PostfixTemplateMetaData actionMetaData) {
+  public void reset(@NotNull BeforeAfterMetaData actionMetaData) {
     boolean isEmpty = actionMetaData == PostfixTemplateMetaData.EMPTY_METADATA;
     readHtml(actionMetaData, isEmpty);
     showUsages(myBeforePanel, isEmpty
@@ -51,9 +58,9 @@ class PostfixDescriptionPanel implements Disposable {
                              : ArrayUtil.getFirstElement(actionMetaData.getExampleUsagesAfter()));
   }
 
-  private void readHtml(@NotNull PostfixTemplateMetaData actionMetaData, boolean isEmpty) {
+  private void readHtml(@NotNull BeforeAfterMetaData actionMetaData, boolean isEmpty) {
     final HintHint hintHint = new HintHint(myDescriptionBrowser, new Point(0, 0));
-    hintHint.setFont(UIUtil.getLabelFont());
+    hintHint.setFont(StartupUiUtil.getLabelFont());
     String description = isEmpty ? CodeInsightBundle.message("templates.postfix.settings.category.text")
                                  : getDescription(actionMetaData.getDescription());
     try {
@@ -64,7 +71,7 @@ class PostfixDescriptionPanel implements Disposable {
   }
 
   @NotNull
-  private static String getDescription(TextDescriptor url) {
+  private static @Nls String getDescription(TextDescriptor url) {
     try {
       return url.getText();
     }
@@ -111,7 +118,8 @@ class PostfixDescriptionPanel implements Disposable {
 
   public void resetHeights(int preferredWidth) {
     //adjust vertical dimension to be equal for all three panels
-    double height = (myDescriptionBrowser.getSize().getHeight() + myBeforePanel.getSize().getHeight() + myAfterPanel.getSize().getHeight()) / 3;
+    double height =
+      (myDescriptionBrowser.getSize().getHeight() + myBeforePanel.getSize().getHeight() + myAfterPanel.getSize().getHeight()) / 3;
     if (height == 0) return;
     final Dimension newd = new Dimension(preferredWidth, (int)height);
     myDescriptionBrowser.setSize(newd);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2015 Bas Leijdekkers
+ * Copyright 2008-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.siyeh.ig.dataflow;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -28,18 +29,10 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ConstantValueVariableUseInspection extends BaseInspection implements CleanupLocalInspectionTool {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "constant.value.variable.use.display.name");
-  }
 
   @Override
   @NotNull
@@ -64,15 +57,13 @@ public class ConstantValueVariableUseInspection extends BaseInspection implement
     @Override
     @NotNull
     public String getName() {
-      return InspectionGadgetsBundle.message(
-        "replace.reference.with.expression.quickfix",
-        myText);
+      return CommonQuickFixBundle.message("fix.replace.with.x", myText);
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
@@ -105,16 +96,18 @@ public class ConstantValueVariableUseInspection extends BaseInspection implement
     @Override
     public void visitWhileStatement(PsiWhileStatement statement) {
       super.visitWhileStatement(statement);
-      final PsiExpression condition = statement.getCondition();
-      final PsiStatement body = statement.getBody();
-      checkCondition(condition, body);
+      checkLoop(statement);
     }
 
     @Override
     public void visitForStatement(PsiForStatement statement) {
       super.visitForStatement(statement);
-      final PsiExpression condition = statement.getCondition();
-      final PsiStatement body = statement.getBody();
+      checkLoop(statement);
+    }
+
+    private void checkLoop(PsiConditionalLoopStatement loop) {
+      final PsiExpression condition = loop.getCondition();
+      final PsiStatement body = loop.getBody();
       checkCondition(condition, body);
     }
 
@@ -154,25 +147,24 @@ public class ConstantValueVariableUseInspection extends BaseInspection implement
       return false;
     }
 
-    private boolean checkConstantValueVariableUse(
-      @Nullable PsiExpression expression,
-      @NotNull PsiExpression constantExpression,
-      @NotNull PsiElement body) {
+    private boolean checkConstantValueVariableUse(@Nullable PsiExpression expression,
+                                                  @NotNull PsiExpression constantExpression,
+                                                  @NotNull PsiElement body) {
       final PsiType constantType = constantExpression.getType();
+      if (constantType == null) {
+        return false;
+      }
       if (PsiType.DOUBLE.equals(constantType)) {
-        final Object result = ExpressionUtils.computeConstantExpression(
-          constantExpression, false);
-        if (Double.valueOf(0.0).equals(result) ||
-            Double.valueOf(-0.0).equals(result)) {
+        final Object result = ExpressionUtils.computeConstantExpression(constantExpression, false);
+        if (Double.valueOf(0.0).equals(result) || Double.valueOf(-0.0).equals(result)) {
           return false;
         }
       }
-      expression = ParenthesesUtils.stripParentheses(expression);
+      expression = PsiUtil.skipParenthesizedExprDown(expression);
       if (!(expression instanceof PsiReferenceExpression)) {
         return false;
       }
-      final PsiReferenceExpression referenceExpression =
-        (PsiReferenceExpression)expression;
+      final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)expression;
       final PsiElement target = referenceExpression.resolve();
       if (!(target instanceof PsiVariable)) {
         return false;
@@ -186,7 +178,15 @@ public class ConstantValueVariableUseInspection extends BaseInspection implement
       if (!visitor.isRead()) {
         return false;
       }
-      registerError(visitor.getReference(), constantExpression);
+      final PsiReferenceExpression reference = visitor.getReference();
+      final PsiType referenceType = reference.getType();
+      if (referenceType == null) {
+        return false;
+      }
+      if (!referenceType.isAssignableFrom(constantType)) {
+        return false;
+      }
+      registerError(reference, constantExpression);
       return true;
     }
   }

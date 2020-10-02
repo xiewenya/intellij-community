@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl.nodes;
 
 import com.intellij.ide.projectView.ViewSettings;
@@ -35,13 +21,32 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 
 public class PackageViewProjectNode extends AbstractProjectNode {
-  public PackageViewProjectNode(Project project, ViewSettings viewSettings) {
+  public PackageViewProjectNode(@NotNull Project project, ViewSettings viewSettings) {
     super(project, project, viewSettings);
   }
 
   @Override
+  public boolean canRepresent(Object element) {
+    Project project = getValue();
+    if (project == element) return true;
+    if (element instanceof PsiDirectory) {
+      PsiDirectory directory = (PsiDirectory)element;
+      element = directory.getVirtualFile();
+    }
+    if (element instanceof VirtualFile) {
+      ProjectRootManager manager = project == null || project.isDisposed() ? null : ProjectRootManager.getInstance(project);
+      if (manager != null) {
+        for (VirtualFile root : manager.getContentSourceRoots()) {
+          if (element.equals(root)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  @Override
   @NotNull
-  public Collection<AbstractTreeNode> getChildren() {
+  public Collection<AbstractTreeNode<?>> getChildren() {
     if (getSettings().isShowModules()) {
       List<ModuleDescription> modulesWithSourceRoots = new ArrayList<>();
       for (Module module : ModuleManager.getInstance(getProject()).getModules()) {
@@ -54,7 +59,7 @@ public class PackageViewProjectNode extends AbstractProjectNode {
     else {
       final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(myProject);
       final PsiManager psiManager = PsiManager.getInstance(myProject);
-      final List<AbstractTreeNode> children = new ArrayList<>();
+      final List<AbstractTreeNode<?>> children = new ArrayList<>();
       final Set<PsiPackage> topLevelPackages = new HashSet<>();
 
       for (final VirtualFile root : projectRootManager.getContentSourceRoots()) {
@@ -95,13 +100,15 @@ public class PackageViewProjectNode extends AbstractProjectNode {
 
   }
 
+  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroup(final Module module) {
+  protected AbstractTreeNode createModuleGroup(@NotNull final Module module) {
     return new PackageViewModuleNode(getProject(), module, getSettings());
   }
 
+  @NotNull
   @Override
-  protected AbstractTreeNode createModuleGroupNode(final ModuleGroup moduleGroup) {
+  protected AbstractTreeNode createModuleGroupNode(@NotNull final ModuleGroup moduleGroup) {
     return new PackageViewModuleGroupNode(getProject(),  moduleGroup, getSettings());
   }
 

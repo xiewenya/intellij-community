@@ -1,38 +1,24 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.impl;
 
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.SofterReference;
-import com.intellij.util.containers.ContainerUtil;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
  * @author peter
  */
 public class SofterCache<T,V> {
-  private final NotNullFunction<T,V> myValueProvider;
+  private final NotNullFunction<? super T, ? extends V> myValueProvider;
   private SofterReference<ConcurrentMap<T, V>> myCache;
 
-  public SofterCache(NotNullFunction<T, V> valueProvider) {
+  public SofterCache(NotNullFunction<? super T, ? extends V> valueProvider) {
     myValueProvider = valueProvider;
   }
 
-  public static <T, V> SofterCache<T, V> create(NotNullFunction<T, V> valueProvider) {
+  public static <T, V> SofterCache<T, V> create(NotNullFunction<? super T, ? extends V> valueProvider) {
     return new SofterCache<>(valueProvider);
   }
 
@@ -44,7 +30,7 @@ public class SofterCache<T,V> {
     SofterReference<ConcurrentMap<T, V>> ref = myCache;
     ConcurrentMap<T, V> map = ref == null ? null : ref.get();
     if (map == null) {
-      myCache = new SofterReference<>(map = ContainerUtil.newConcurrentMap());
+      myCache = new SofterReference<>(map = new ConcurrentHashMap<>());
     }
     V value = map.get(key);
     if (value == null) {

@@ -1,8 +1,7 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.api
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.util.containers.ContainerUtil.newHashMap
 import com.intellij.util.text.DateFormatUtil
 import org.jetbrains.idea.svn.SvnUtil
 import java.text.DateFormat
@@ -18,8 +17,8 @@ class Revision private constructor(private val order: Int, val keyword: String? 
     keyword?.let { ourKeywordRevisions[keyword] = this }
   }
 
-  val isValid = this !== UNDEFINED
-  val isLocal = this === BASE || this === WORKING
+  val isValid: Boolean get() = this !== UNDEFINED
+  val isLocal: Boolean get() = this === BASE || this === WORKING
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
@@ -54,23 +53,23 @@ class Revision private constructor(private val order: Int, val keyword: String? 
   private fun throwIllegalState(): Nothing = throw IllegalStateException("no keyword, number or date in revision")
 
   companion object {
-    private val ourKeywordRevisions = newHashMap<String, Revision>()
+    private val ourKeywordRevisions: MutableMap<String, Revision> = HashMap()
 
-    @JvmField val BASE = Revision(2, "BASE")
-    @JvmField val COMMITTED = Revision(3, "COMMITTED")
-    @JvmField val HEAD = Revision(0, "HEAD")
-    @JvmField val PREV = Revision(4, "PREV")
+    @JvmField val BASE: Revision = Revision(2, "BASE")
+    @JvmField val COMMITTED: Revision = Revision(3, "COMMITTED")
+    @JvmField val HEAD: Revision = Revision(0, "HEAD")
+    @JvmField val PREV: Revision = Revision(4, "PREV")
     // TODO: This one should likely be removed - not in the least of svn revision keywords
-    @JvmField val WORKING = Revision(1, "WORKING")
-    @JvmField val UNDEFINED = Revision(30, "UNDEFINED")
+    @JvmField val WORKING: Revision = Revision(1, "WORKING")
+    @JvmField val UNDEFINED: Revision = Revision(30, "UNDEFINED")
 
     @JvmField val GENERAL_ORDER: Comparator<Revision> = compareByDescending { it.order }
 
     @JvmStatic
-    fun of(number: Long) = if (number < 0) UNDEFINED else Revision(10, number = number)
+    fun of(number: Long): Revision = if (number < 0) UNDEFINED else Revision(10, number = number)
 
     @JvmStatic
-    fun of(date: Date) = Revision(20, date = date)
+    fun of(date: Date): Revision = Revision(20, date = date)
 
     @JvmStatic
     fun parse(value: String?): Revision {
@@ -83,9 +82,9 @@ class Revision private constructor(private val order: Int, val keyword: String? 
 
     private fun fromKeyword(value: String) = ourKeywordRevisions[value]
 
-    private fun fromNumber(value: String) = value.toLongOrNull()?.let { Revision.of(it) }
+    private fun fromNumber(value: String) = value.toLongOrNull()?.let { of(it) }
 
-    private fun fromDate(value: String) = parseDate(value.removeSurrounding("{", "}"))?.let { Revision.of(it) }
+    private fun fromDate(value: String) = parseDate(value.removeSurrounding("{", "}"))?.let { of(it) }
 
     private fun parseDate(value: String) = SvnUtil.parseDate(value, false) ?: parseIso8601(value)
 

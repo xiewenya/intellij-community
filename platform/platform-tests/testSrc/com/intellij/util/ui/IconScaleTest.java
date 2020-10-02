@@ -1,102 +1,175 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
+import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.IconLoader.CachedImageIcon;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.registry.RegistryValue;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
+import com.intellij.ui.DeferredIconImpl;
+import com.intellij.ui.LayeredIcon;
+import com.intellij.ui.RestoreScaleRule;
+import com.intellij.ui.RetrievableIcon;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.scale.ScaleContext;
+import com.intellij.ui.scale.ScaleContextAware;
+import com.intellij.ui.scale.UserScaleContext;
 import com.intellij.util.IconUtil;
-import com.intellij.util.ui.JBUI.ScaleContext;
-import junit.framework.TestCase;
-import org.junit.After;
-import org.junit.Before;
+import com.intellij.util.ui.paint.ImageComparator;
+import org.jetbrains.annotations.NotNull;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.ExternalResource;
 
 import javax.swing.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.MalformedURLException;
 
-import static com.intellij.util.ui.JBUI.ScaleType.SYS_SCALE;
-import static com.intellij.util.ui.JBUI.ScaleType.USR_SCALE;
+import static com.intellij.ui.scale.DerivedScaleType.DEV_SCALE;
+import static com.intellij.ui.scale.DerivedScaleType.EFF_USR_SCALE;
+import static com.intellij.ui.scale.ScaleType.*;
+import static com.intellij.util.ui.TestScaleHelper.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assume.assumeTrue;
 
 /**
- * Tests that {@link CachedImageIcon#scale(float)} doesn't break the contract and scales correctly.
+ * Tests that {@link com.intellij.openapi.util.ScalableIcon#scale(float)} works correctly for custom JB icons.
  *
  * @author tav
  */
-public class IconScaleTest extends TestScaleHelper {
+public class IconScaleTest extends BareTestFixtureTestCase {
+  private static final int ICON_BASE_SIZE = 16;
+  private static final float ICON_OBJ_SCALE = 1.75f;
+  private static final float ICON_OVER_USR_SCALE = 1.0f;
 
-  private static boolean initialSvgProp;
+  // 0.75 is impractical system scale factor, however it's used to stress-test the scale subsystem
+  private static final float[] SCALES = {0.75f, 1, 2, 2.5f};
 
-  @Before
-  @Override
-  public void setState() {
-    super.setState();
+  @ClassRule
+  public static final ExternalResource manageState = new RestoreScaleRule();
 
-    RegistryValue rv = Registry.get("ide.svg.icon");
-    initialSvgProp = rv.asBoolean();
-    rv.setValue(true);
-  }
+  @Test
+  public void testJreHiDpi() throws MalformedURLException {
+    assumeTrue(SystemInfoRt.IS_AT_LEAST_JAVA9 || !SystemInfoRt.isLinux);
 
-  @After
-  @Override
-  public void restoreState() {
-    super.restoreState();
-
-    Registry.get("ide.svg.icon").setValue(initialSvgProp);
+    overrideJreHiDPIEnabled(true);
+    try {
+      for (float s : SCALES) {
+        test(1, s);
+      }
+    }
+    finally {
+      overrideJreHiDPIEnabled(false);
+    }
   }
 
   @Test
-  public void test() throws MalformedURLException {
-    final double[] SCALES = {1, 2, 2.5};
+  public void testIdeHiDpi() throws MalformedURLException {
+    for (float s : SCALES) {
+      // the system scale repeats the default user scale in IDE-HiDPI
+      test(s, s);
+    }
+  }
+
+  public void test(float usrScale, float sysScale) throws MalformedURLException {
+    JBUIScale.setUserScaleFactorForTest(usrScale);
+    JBUIScale.setSystemScaleFactor(sysScale);
+
+    ScaleContext context = ScaleContext.create(SYS_SCALE.of(sysScale), USR_SCALE.of(usrScale));
 
     //
-    // 1) JRE-HiDPI
+    // 1. CachedImageIcon
     //
-    overrideJreHiDPIEnabled(true);
-    if (!SystemInfo.isLinux) { // Linux doesn't support JRE-HiDPI yet
-      for (double s : SCALES) test(1, s);
+    test(new CachedImageIcon(new File(getIconPath()).toURI().toURL()), context.copy());
+
+    //
+    // 2. DeferredIcon
+    //
+    CachedImageIcon icon = new CachedImageIcon(new File(getIconPath()).toURI().toURL());
+    test(new DeferredIconImpl<>(icon, new Object(), false, o -> icon), UserScaleContext.create(context));
+
+    //
+    // 3. LayeredIcon
+    //
+    test(new LayeredIcon(new CachedImageIcon(new File(getIconPath()).toURI().toURL())), UserScaleContext.create(context));
+
+    //
+    // 4. RowIcon
+    //
+    test(new com.intellij.ui.RowIcon(new CachedImageIcon(new File(getIconPath()).toURI().toURL())), UserScaleContext.create(context));
+  }
+
+  private static void test(@NotNull Icon icon, @NotNull UserScaleContext iconContext) {
+    ((ScaleContextAware)icon).updateScaleContext(iconContext);
+
+    ScaleContext context = ScaleContext.create(iconContext);
+
+    /*
+     * (A) normal conditions
+     */
+
+    //noinspection UnnecessaryLocalVariable
+    Icon iconA = icon;
+    double usrSize2D = context.apply(ICON_BASE_SIZE, EFF_USR_SCALE);
+    int usrSize = (int)Math.round(usrSize2D);
+    int devSize = (int)Math.round(context.apply(usrSize2D, DEV_SCALE));
+
+    assertIcon(iconA, iconContext, usrSize, devSize);
+
+    /*
+     * (B) override scale
+     */
+    if (!(icon instanceof RetrievableIcon)) { // RetrievableIcon may return a copy of its wrapped icon and we may fail to override scale in the origin.
+      Icon iconB = IconUtil.overrideScale(IconLoader.copy(icon, null, true), USR_SCALE.of(ICON_OVER_USR_SCALE));
+
+      usrSize2D = ICON_BASE_SIZE * ICON_OVER_USR_SCALE * context.getScale(OBJ_SCALE);
+      usrSize = (int)Math.round(usrSize2D);
+      devSize = (int)Math.round(context.apply(usrSize2D, DEV_SCALE));
+
+      assertIcon(iconB, iconContext, usrSize, devSize);
     }
 
-    //
-    // 2) IDE-HiDPI
-    //
-    overrideJreHiDPIEnabled(false);
-    for (double s : SCALES) test(s, 1);
+    /*
+     * (C) scale icon
+     */
+    Icon iconC = IconUtil.scale(icon, null, ICON_OBJ_SCALE);
+
+    assertThat(iconC).isNotSameAs(icon);
+    assertThat(((ScaleContextAware)icon).getScaleContext()).isEqualTo(iconContext);
+
+    usrSize2D = context.apply(ICON_BASE_SIZE, EFF_USR_SCALE);
+    double scaledUsrSize2D = usrSize2D * ICON_OBJ_SCALE;
+    int scaledUsrSize = (int)Math.round(scaledUsrSize2D);
+    int scaledDevSize = (int)Math.round(context.apply(scaledUsrSize2D, DEV_SCALE));
+
+    assertIcon(iconC, iconContext, scaledUsrSize, scaledDevSize);
+
+    // Additionally check that the original image hasn't changed after scaling
+    Pair<BufferedImage, Graphics2D> pair = createImageAndGraphics(context.getScale(DEV_SCALE), icon.getIconWidth(), icon.getIconHeight());
+    BufferedImage iconImage = pair.first;
+    Graphics2D g2d = pair.second;
+
+    icon.paintIcon(null, g2d, 0, 0);
+
+    BufferedImage goldImage = loadImage(getIconPath(), context);
+
+    ImageComparator.compareAndAssert(
+      new ImageComparator.AASmootherComparator(0.1, 0.1, new Color(0, 0, 0, 0)), goldImage, iconImage, null);
   }
 
-  public void test(double usrScale, double sysScale) throws MalformedURLException {
-    JBUI.setUserScaleFactor((float)usrScale);
-    ScaleContext ctx = ScaleContext.create(SYS_SCALE.of(sysScale), USR_SCALE.of(usrScale));
+  private static void assertIcon(@NotNull Icon icon, @NotNull UserScaleContext iconContext, int usrSize, int devSize) {
+    assertThat(icon.getIconWidth()).describedAs("unexpected icon user width (ctx: " + iconContext + ")").isEqualTo(usrSize);
+    assertThat(icon.getIconHeight()).describedAs("unexpected icon user height (ctx: " + iconContext + ")").isEqualTo(usrSize);
 
-    final int ICON_BASE_SIZE = 16;
-    final int ICON_USER_SIZE = (int)Math.round(ICON_BASE_SIZE * ctx.getScale(USR_SCALE));
-    final int ICON_REAL_SIZE = (int)Math.round(ICON_USER_SIZE * ctx.getScale(SYS_SCALE));
-
-    final float ICON_SCALE = 1.75f;
-    final int ICON_SCALED_USER_SIZE = Math.round(ICON_USER_SIZE * ICON_SCALE);
-    final int ICON_SCALED_REAL_SIZE = Math.round(ICON_REAL_SIZE * ICON_SCALE);
-
-    CachedImageIcon icon = new CachedImageIcon(new File(getIconPath()).toURI().toURL());
-    icon.updateScaleContext(ctx);
-
-    TestCase.assertEquals("unexpected icon user width", ICON_USER_SIZE, icon.getIconWidth());
-    TestCase.assertEquals("unexpected icon user height", ICON_USER_SIZE, icon.getIconHeight());
-    TestCase.assertEquals("unexpected icon real width", ICON_REAL_SIZE, ImageUtil.getRealWidth(IconUtil.toImage(icon)));
-    TestCase.assertEquals("unexpected icon real height", ICON_REAL_SIZE, ImageUtil.getRealHeight(IconUtil.toImage(icon)));
-
-    Icon scaledIcon = icon.scale(ICON_SCALE);
-    TestCase.assertNotSame("new instance of the icon is expected", icon, scaledIcon);
-    TestCase.assertEquals("ScaleContext of the original icon changed", ctx, icon.getScaleContext());
-
-    TestCase.assertEquals("unexpected scaled icon user width", ICON_SCALED_USER_SIZE, scaledIcon.getIconWidth());
-    TestCase.assertEquals("unexpected scaled icon user height", ICON_SCALED_USER_SIZE, scaledIcon.getIconHeight());
-    TestCase.assertEquals("unexpected scaled icon real width", ICON_SCALED_REAL_SIZE, ImageUtil.getRealWidth(IconUtil.toImage(scaledIcon)));
-    TestCase.assertEquals("unexpected scaled icon real height", ICON_SCALED_REAL_SIZE, ImageUtil.getRealHeight(IconUtil.toImage(scaledIcon)));
+    ScaleContext context = ScaleContext.create(iconContext);
+    assertThat(ImageUtil.getRealWidth(IconLoader.toImage(icon, context))).describedAs("unexpected icon real width (ctx: " + iconContext + ")").isEqualTo(devSize);
+    assertThat(ImageUtil.getRealHeight(IconLoader.toImage(icon, context))).describedAs("unexpected icon real height (ctx: " + iconContext + ")").isEqualTo(devSize);
   }
 
-  private String getIconPath() {
+  private static String getIconPath() {
     return PlatformTestUtil.getPlatformTestDataPath() + "ui/abstractClass.svg";
   }
 }

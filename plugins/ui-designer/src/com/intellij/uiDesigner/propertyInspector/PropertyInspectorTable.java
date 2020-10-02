@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.propertyInspector;
 
 import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
-import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
@@ -30,6 +17,7 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.psi.JavaPsiFacade;
@@ -39,6 +27,9 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.ui.*;
+import com.intellij.ui.render.RenderingUtil;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.table.JBTable;
 import com.intellij.uiDesigner.ErrorAnalyzer;
 import com.intellij.uiDesigner.ErrorInfo;
 import com.intellij.uiDesigner.Properties;
@@ -49,7 +40,9 @@ import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.palette.Palette;
 import com.intellij.uiDesigner.propertyInspector.properties.*;
 import com.intellij.uiDesigner.radComponents.*;
-import com.intellij.util.ui.*;
+import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.IndentedIcon;
+import com.intellij.util.ui.UIUtil;
 import icons.UIDesignerIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -67,15 +60,15 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
-public final class PropertyInspectorTable extends Table implements DataProvider{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.propertyInspector.PropertyInspectorTable");
+public final class PropertyInspectorTable extends JBTable implements DataProvider {
+  private static final Logger LOG = Logger.getInstance(PropertyInspectorTable.class);
 
   public static final DataKey<PropertyInspectorTable> DATA_KEY = DataKey.create(PropertyInspectorTable.class.getName());
 
@@ -95,6 +88,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   /**
    * Updates UIs of synthetic properties
    */
+  private Disposable myLafManagerDisposable;
   private final MyLafManagerListener myLafManagerListener;
   /**
    * This is property exists in this map then it's expanded.
@@ -143,12 +137,14 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     myCellRenderer = new MyCompositeTableCellRenderer();
     myCellEditor = new MyCellEditor();
 
+    putClientProperty(RenderingUtil.PAINT_HOVERED_BACKGROUND, false);
+
     addMouseListener(new MouseAdapter() {
       @Override
       public void mousePressed(final MouseEvent e){
         final int row = rowAtPoint(e.getPoint());
         final int column = columnAtPoint(e.getPoint());
-        if (row == -1){
+        if (row == -1 || column == -1){
           return;
         }
         final Property property = myProperties.get(row);
@@ -180,7 +176,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
 
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         int row = rowAtPoint(e.getPoint());
         int column = columnAtPoint(e.getPoint());
         if (row >= 0 && column == 0) {
@@ -249,7 +245,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     if (mySelection.size() == 0) return null;
     String className = mySelection.get(0).getComponentClassName();
     for(int i=1; i<mySelection.size(); i++) {
-      if (!Comparing.equal(mySelection.get(i).getComponentClassName(), className)) {
+      if (!Objects.equals(mySelection.get(i).getComponentClassName(), className)) {
         return null;
       }
     }
@@ -259,7 +255,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   }
 
   @Override
-  public Object getData(final String dataId) {
+  public Object getData(@NotNull final String dataId) {
     if(getClass().getName().equals(dataId)){
       return this;
     }
@@ -314,12 +310,21 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   @Override
   public void addNotify() {
     super.addNotify();
-    LafManager.getInstance().addLafManagerListener(myLafManagerListener);
+
+    if (myLafManagerDisposable != null) {
+      Disposer.dispose(myLafManagerDisposable);
+    }
+    myLafManagerDisposable = Disposer.newDisposable();
+    ApplicationManager.getApplication().getMessageBus().connect(myLafManagerDisposable).subscribe(LafManagerListener.TOPIC, myLafManagerListener);
   }
 
   @Override
   public void removeNotify() {
-    LafManager.getInstance().removeLafManagerListener(myLafManagerListener);
+    if (myLafManagerDisposable != null) {
+      Disposer.dispose(myLafManagerDisposable);
+      myLafManagerDisposable = null;
+    }
+
     super.removeNotify();
   }
 
@@ -336,9 +341,9 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     @NonNls final InputMap focusedInputMap=getInputMap(JComponent.WHEN_FOCUSED);
     @NonNls final InputMap ancestorInputMap=getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 
-    actionMap.put("selectPreviousRow",new MySelectPreviousRowAction());
+    actionMap.put(TableActions.Up.ID, new MySelectPreviousRowAction());
 
-    actionMap.put("selectNextRow",new MySelectNextRowAction());
+    actionMap.put(TableActions.Down.ID, new MySelectNextRowAction());
 
     actionMap.put("startEditing",new MyStartEditingAction());
     focusedInputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_F2,0),"startEditing");
@@ -486,7 +491,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
             continue;
           }
           for(int childIndex=0; childIndex<children.length; childIndex++) {
-            if (!Comparing.equal(children [childIndex].getName(), otherChildren [childIndex].getName())) {
+            if (!Objects.equals(children[childIndex].getName(), otherChildren[childIndex].getName())) {
               myProperties.remove(propIndex);
               break;
             }
@@ -607,7 +612,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   }
 
   private static int getPropertyIndentWidth() {
-    return JBUI.scale(11);
+    return JBUIScale.scale(11);
   }
 
   private Property[] getPropChildren(final Property property) {
@@ -895,7 +900,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   private final class MyModel extends AbstractTableModel {
     private final String[] myColumnNames;
 
-    public MyModel(){
+    MyModel(){
       myColumnNames=new String[]{
         UIDesignerBundle.message("column.property"),
         UIDesignerBundle.message("column.value")};
@@ -961,9 +966,9 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
   }
 
-  private final class MyPropertyEditorListener extends PropertyEditorAdapter{
+  private final class MyPropertyEditorListener implements PropertyEditorListener {
     @Override
-    public void valueCommitted(final PropertyEditor source, final boolean continueEditing, final boolean closeEditorOnError){
+    public void valueCommitted(@NotNull final PropertyEditor source, final boolean continueEditing, final boolean closeEditorOnError){
       if(isEditing()){
         final Object value;
         final TableCellEditor tableCellEditor = cellEditor;
@@ -985,7 +990,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
 
     @Override
-    public void editingCanceled(final PropertyEditor source) {
+    public void editingCanceled(@NotNull final PropertyEditor source) {
       if(isEditing()){
         cellEditor.cancelCellEditing();
       }
@@ -1004,11 +1009,11 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     private final Icon myIndentedCollapseIcon;
     private final Icon[] myIndentIcons = new Icon[3];
 
-    public MyCompositeTableCellRenderer(){
+    MyCompositeTableCellRenderer(){
       myPropertyNameRenderer = new ColoredTableCellRenderer() {
         @Override
         protected void customizeCellRenderer(
-          final JTable table,
+          final @NotNull JTable table,
           final Object value,
           final boolean selected,
           final boolean hasFocus,
@@ -1023,13 +1028,13 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
 
       myErrorRenderer = new ColoredTableCellRenderer() {
         @Override
-        protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
+        protected void customizeCellRenderer(@NotNull JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
           setPaintFocusBorder(false);
         }
       };
 
-      myExpandIcon = UIUtil.isUnderDarcula() ? AllIcons.Mac.Tree_white_right_arrow : UIDesignerIcons.ExpandNode;
-      myCollapseIcon = UIUtil.isUnderDarcula() ? AllIcons.Mac.Tree_white_down_arrow : UIDesignerIcons.CollapseNode;
+      myExpandIcon = UIDesignerIcons.ExpandNode;
+      myCollapseIcon = UIDesignerIcons.CollapseNode;
       for (int i = 0; i < myIndentIcons.length; i++) {
         myIndentIcons[i] = EmptyIcon.create(myExpandIcon.getIconWidth() + getPropertyIndentWidth() * i, myExpandIcon.getIconHeight());
       }
@@ -1106,10 +1111,6 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
           }
           else {
             component.setFont(table.getFont());
-          }
-
-          if (component instanceof JCheckBox) {
-            component.putClientProperty( "JComponent.sizeVariant", UIUtil.isUnderAquaLookAndFeel() ? "small" : null);
           }
 
           return component;
@@ -1211,8 +1212,6 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
         final JComponent c = myEditor.getComponent(mySelection.get(0), getSelectionValue(property), null);
         if (c instanceof JComboBox) {
           c.putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
-        } else if (c instanceof JCheckBox) {
-          c.putClientProperty( "JComponent.sizeVariant", UIUtil.isUnderAquaLookAndFeel() ? "small" : null);
         }
 
         return c;
@@ -1324,7 +1323,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
   private class MyExpandCurrentAction extends AbstractAction {
     private final boolean myExpand;
 
-    public MyExpandCurrentAction(final boolean expand) {
+    MyExpandCurrentAction(final boolean expand) {
       myExpand = expand;
     }
 
@@ -1375,7 +1374,7 @@ public final class PropertyInspectorTable extends Table implements DataProvider{
     }
 
     @Override
-    public void lookAndFeelChanged(final LafManager source) {
+    public void lookAndFeelChanged(@NotNull final LafManager source) {
       updateUI(myBorderProperty);
       updateUI(MarginProperty.getInstance(myProject));
       updateUI(HGapProperty.getInstance(myProject));

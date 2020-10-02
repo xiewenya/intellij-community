@@ -14,7 +14,7 @@ class ScopeVariablesGroup(val scope: Scope, parentContext: VariableContext, call
 
   private val callFrame = if (scope.type == ScopeType.LOCAL) callFrame else null
 
-  override fun isAutoExpand() = scope.type == ScopeType.LOCAL || scope.type == ScopeType.CATCH
+  override fun isAutoExpand(): Boolean = scope.type == ScopeType.BLOCK || scope.type == ScopeType.LOCAL || scope.type == ScopeType.CATCH
 
   override fun getComment(): String? {
     val className = scope.description
@@ -54,7 +54,7 @@ class ScopeVariablesGroup(val scope: Scope, parentContext: VariableContext, call
 fun createAndAddScopeList(node: XCompositeNode, scopes: List<Scope>, context: VariableContext, callFrame: CallFrame?) {
   val list = XValueChildrenList(scopes.size)
   for (scope in scopes) {
-    list.addTopGroup(ScopeVariablesGroup(scope, context, callFrame))
+    list.addBottomGroup(ScopeVariablesGroup(scope, context, callFrame))
   }
   node.addChildren(list, true)
 }

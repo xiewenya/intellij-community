@@ -37,7 +37,6 @@ import java.util.Set;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/31/14
  */
 @Order(ExternalSystemConstants.UNORDERED)
 public class ScalaGradleProjectResolverExtension extends AbstractProjectResolverExtension {
@@ -56,7 +55,7 @@ public class ScalaGradleProjectResolverExtension extends AbstractProjectResolver
 
   @NotNull
   @Override
-  public Set<Class> getExtraProjectModelClasses() {
+  public Set<Class<?>> getExtraProjectModelClasses() {
     return Collections.singleton(ScalaModel.class);
   }
 

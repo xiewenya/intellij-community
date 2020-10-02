@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.repo
 
 import com.intellij.openapi.application.PluginPathManager
@@ -91,6 +77,15 @@ class GitConfigTest : GitPlatformTest() {
     assertSameElements("pushurl parsed incorrectly", remote!!.pushUrls, listOf(pushUrl))
   }
 
+  fun `test instead of case insensitive`() {
+    createRepository()
+    addRemote("https://github.com/:foo/bar.git")
+    git("config url.git@github.com:.InsteaDof https://github.com/")
+    val config = readConfig()
+    val remote = config.parseRemotes().first()
+    assertEquals(listOf("git@github.com::foo/bar.git"), remote.urls)
+  }
+
   fun `test config values are case sensitive`() {
     createRepository()
     val url = "git@GITHUB.com:foo/bar.git"
@@ -123,7 +118,7 @@ class GitConfigTest : GitPlatformTest() {
   }
 
   private fun createRepository(): GitRepository {
-    return createRepository(myProject, projectPath, true)
+    return createRepository(myProject, projectNioRoot, true)
   }
 
   private fun readConfig(): GitConfig {
@@ -150,7 +145,8 @@ class GitConfigTest : GitPlatformTest() {
     val localBranches = expectedInfos.map { it.localBranch }
     val remoteBranches = expectedInfos.map { it.remoteBranch }
 
-    VcsTestUtil.assertEqualCollections(testName, GitConfig.read(configFile).parseTrackInfos(localBranches, remoteBranches), expectedInfos)
+    val trackInfos = GitConfig.read(configFile).parseTrackInfos(localBranches, remoteBranches)
+    VcsTestUtil.assertEqualCollections(testName, trackInfos, expectedInfos)
   }
 
   private fun loadRemotes() = loadConfigData(getTestDataFolder("remote"))

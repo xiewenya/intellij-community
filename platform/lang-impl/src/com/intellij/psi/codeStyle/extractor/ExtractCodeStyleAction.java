@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle.extractor;
 
 import com.intellij.application.options.CodeStyle;
+import com.intellij.lang.LangBundle;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageFormatting;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -62,7 +48,7 @@ import java.util.Map;
 public class ExtractCodeStyleAction extends AnAction implements DumbAware {
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
@@ -91,11 +77,11 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
 
     final CodeStyleDeriveProcessor genProcessor = new GenProcessor(extractor);
     final PsiFile finalFile = file;
-    final Task.Backgroundable task = new Task.Backgroundable(project, "Code Style Extractor", true) {
+    final Task.Backgroundable task = new Task.Backgroundable(project, LangBundle.message("progress.title.code.style.extractor"), true) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
-          CodeStyleSettings cloneSettings = settings.clone();
+          CodeStyleSettings cloneSettings = CodeStyleSettingsManager.getInstance().cloneSettings(settings);
           Map<Value, Object> backup = genProcessor.backupValues(cloneSettings, language);
           ValuesExtractionResult res = genProcessor.runWithProgress(project, cloneSettings, finalFile, indicator);
           reportResult(genProcessor.getHTMLReport(), res, project, cloneSettings, finalFile, backup);
@@ -111,7 +97,7 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
     ProgressManager.getInstance().run(task);
   }
 
-  public void reportResult(@NotNull final String htmlReport, 
+  public void reportResult(@NotNull final String htmlReport,
                            @NotNull final ValuesExtractionResult calculatedValues,
                            @NotNull final Project project,
                            @NotNull final CodeStyleSettings cloneSettings,
@@ -121,9 +107,7 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
       final Balloon balloon = JBPopupFactory
         .getInstance()
         .createHtmlTextBalloonBuilder(
-          "<html>Formatting Options were extracted for " + file.getName()  
-          + (!htmlReport.isEmpty() ? ("<br/>" + htmlReport) : "")
-          + "<br/><a href=\"apply\">Apply</a> <a href=\"details\">Details...</a></html>",
+          LangBundle.message("popup.content.formatting.options", file.getName(), !htmlReport.isEmpty() ? ("<br/>" + htmlReport) : ""),
           MessageType.INFO,
           new HyperlinkListener() {
             @Override
@@ -133,11 +117,9 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
                 ExtractedSettingsDialog myDialog = null;
                 if (!apply) {
                   final List<Value> values = calculatedValues.getValues();
-                  final LanguageCodeStyleSettingsProvider[] providers = Extensions.getExtensions(
-                    LanguageCodeStyleSettingsProvider.EP_NAME);
                   Language language = file.getLanguage();
                   CodeStyleSettingsNameProvider nameProvider = new CodeStyleSettingsNameProvider();
-                  for (final LanguageCodeStyleSettingsProvider provider : providers) {
+                  for (final LanguageCodeStyleSettingsProvider provider : LanguageCodeStyleSettingsProvider.EP_NAME.getExtensionList()) {
                     Language target = provider.getLanguage();
                     if (target.equals(language)) {
                       //this is our language
@@ -185,7 +167,7 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
         if (layout != null) {
           balloon.show(new PositionTracker<Balloon>(((IdeFrame)window).getComponent()) {
             @Override
-            public RelativePoint recalculateLocation(Balloon object) {
+            public RelativePoint recalculateLocation(@NotNull Balloon object) {
               Component c = getComponent();
               int y = c.getHeight() - 45;
               return new RelativePoint(c, new Point(c.getWidth() - 150, y));
@@ -197,7 +179,7 @@ public class ExtractCodeStyleAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Presentation presentation = event.getPresentation();
     DataContext dataContext = event.getDataContext();
     Project project = CommonDataKeys.PROJECT.getData(dataContext);

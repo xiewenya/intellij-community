@@ -1,51 +1,42 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.intention.impl;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass;
 import com.intellij.codeInsight.hint.HintManager;
-import com.intellij.codeInsight.intention.*;
+import com.intellij.codeInsight.intention.AbstractEmptyIntentionAction;
+import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.IntentionActionDelegate;
+import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewPopupUpdateProcessor;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.*;
 import com.intellij.openapi.util.Iconable;
-import com.intellij.psi.*;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilBase;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
-* @author cdr
-*/
 public class IntentionListStep implements ListPopupStep<IntentionActionWithTextCaching>, SpeedSearchFilter<IntentionActionWithTextCaching> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.IntentionListStep");
+  private static final Logger LOG = Logger.getInstance(IntentionListStep.class);
 
   private final CachedIntentions myCachedIntentions;
   @Nullable
-  private final IntentionHintComponent myIntentionHintComponent;
+  private final IntentionHintComponent.IntentionPopup myPopup;
 
   private Runnable myFinalRunnable;
   private final Project myProject;
@@ -53,12 +44,12 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
   @Nullable
   private final Editor myEditor;
 
-  public IntentionListStep(@Nullable IntentionHintComponent intentionHintComponent,
-                    @Nullable Editor editor,
-                    @NotNull PsiFile file,
-                    @NotNull Project project,
-                    CachedIntentions intentions) {
-    myIntentionHintComponent = intentionHintComponent;
+  public IntentionListStep(@Nullable IntentionHintComponent.IntentionPopup popup,
+                           @Nullable Editor editor,
+                           @NotNull PsiFile file,
+                           @NotNull Project project,
+                           CachedIntentions intentions) {
+    myPopup = popup;
     myProject = project;
     myFile = file;
     myEditor = editor;
@@ -72,15 +63,12 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
 
   @Override
   public boolean isSelectable(final IntentionActionWithTextCaching action) {
-    return true;
+    return action.isSelectable();
   }
 
   @Override
-  public PopupStep onChosen(IntentionActionWithTextCaching action, final boolean finalChoice) {
-    IntentionAction a = action.getAction();
-    while (a instanceof IntentionActionDelegate) {
-      a = ((IntentionActionDelegate)a).getDelegate();
-    }
+  public PopupStep<?> onChosen(IntentionActionWithTextCaching action, final boolean finalChoice) {
+    IntentionAction a = IntentionActionDelegate.unwrap(action.getAction());
 
     if (finalChoice && !(a instanceof AbstractEmptyIntentionAction)) {
       applyAction(action);
@@ -88,10 +76,20 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
     }
 
     if (hasSubstep(action)) {
+      closeIntentionPreviewPopup();
+
       return getSubStep(action, action.getToolName());
     }
 
     return FINAL_CHOICE;
+  }
+
+  private static void closeIntentionPreviewPopup() {
+    ApplicationManager.getApplication().invokeLater(() ->
+       StackingPopupDispatcher.getInstance().getPopupStream()
+         .filter(popup -> popup.getUserData(IntentionPreviewPopupUpdateProcessor.IntentionPreviewPopupKey.class) != null)
+         .collect(Collectors.toList())
+         .forEach(popup -> popup.cancel()));
   }
 
   @Override
@@ -102,9 +100,12 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
   private void applyAction(@NotNull IntentionActionWithTextCaching cachedAction) {
     myFinalRunnable = () -> {
       HintManager.getInstance().hideAllHints();
-      if (myProject.isDisposed() || myEditor != null && (myEditor.isDisposed() || !myEditor.getComponent().isShowing())) return;
+      if (myProject.isDisposed()) return;
+      if (myEditor != null && (myEditor.isDisposed() || (!myEditor.getComponent().isShowing() && !ApplicationManager.getApplication().isUnitTestMode()))) return;
+
       if (DumbService.isDumb(myProject) && !DumbService.isDumbAware(cachedAction)) {
-        DumbService.getInstance(myProject).showDumbModeNotification(cachedAction.getText() + " is not available during indexing");
+        DumbService.getInstance(myProject).showDumbModeNotification(
+          CodeInsightBundle.message("notification.0.is.not.available.during.indexing", cachedAction.getText()));
         return;
       }
 
@@ -121,7 +122,7 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
 
 
   @NotNull
-  IntentionListStep getSubStep(@NotNull IntentionActionWithTextCaching action, final String title) {
+  IntentionListStep getSubStep(@NotNull IntentionActionWithTextCaching action, final @NlsContexts.PopupTitle String title) {
     ShowIntentionsPass.IntentionsInfo intentions = new ShowIntentionsPass.IntentionsInfo();
     for (final IntentionAction optionIntention : action.getOptionIntentions()) {
       intentions.intentionsToShow.add(new HighlightInfo.IntentionActionDescriptor(optionIntention, getIcon(optionIntention)));
@@ -133,7 +134,7 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
       intentions.inspectionFixesToShow.add(new HighlightInfo.IntentionActionDescriptor(optionFix, getIcon(optionFix)));
     }
 
-    return new IntentionListStep(myIntentionHintComponent, myEditor, myFile, myProject,
+    return new IntentionListStep(myPopup, myEditor, myFile, myProject,
                                  CachedIntentions.create(myProject, myFile, myEditor, intentions)){
       @Override
       public String getTitle() {
@@ -148,11 +149,16 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
 
   @TestOnly
   public Map<IntentionAction, List<IntentionAction>> getActionsWithSubActions() {
-    Map<IntentionAction, List<IntentionAction>> result = ContainerUtil.newLinkedHashMap();
+    Map<IntentionAction, List<IntentionAction>> result = new LinkedHashMap<>();
 
     for (IntentionActionWithTextCaching cached : getValues()) {
       IntentionAction action = cached.getAction();
       if (ShowIntentionActionsHandler.chooseFileForAction(myFile, myEditor, action) == null) continue;
+
+      if (!cached.isShowSubmenu()) {
+        result.put(action, Collections.emptyList());
+        continue;
+      }
 
       List<IntentionActionWithTextCaching> subActions = getSubStep(cached, cached.getToolName()).getValues();
       List<IntentionAction> options = subActions.stream()
@@ -166,6 +172,8 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
 
   @Override
   public boolean hasSubstep(final IntentionActionWithTextCaching action) {
+    if (!action.isShowSubmenu()) return false;
+
     return action.getOptionIntentions().size() + action.getOptionErrorFixes().size() > 0;
   }
 
@@ -178,22 +186,24 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
   @Override
   @NotNull
   public String getTextFor(final IntentionActionWithTextCaching action) {
-    final String text = action.getAction().getText();
+    final String text = action.getText();
     if (LOG.isDebugEnabled() && text.startsWith("<html>")) {
-      LOG.info("IntentionAction.getText() returned HTML: action=" + action + " text=" + text);
+      LOG.info("IntentionAction.getText() returned HTML: action=" + action.getAction().getClass() + " text=" + text);
     }
     return text;
   }
 
   @Override
   public Icon getIconFor(final IntentionActionWithTextCaching value) {
+    if (!value.isShowIcon()) return null;
+
     return myCachedIntentions.getIcon(value);
   }
 
   @Override
   public void canceled() {
-    if (myIntentionHintComponent != null) {
-      myIntentionHintComponent.canceled(this);
+    if (myPopup != null) {
+      myPopup.cancelled(this);
     }
   }
 
@@ -223,8 +233,6 @@ public class IntentionListStep implements ListPopupStep<IntentionActionWithTextC
   public SpeedSearchFilter<IntentionActionWithTextCaching> getSpeedSearchFilter() { return this; }
 
   //speed search filter
-  @Override
-  public boolean canBeHidden(final IntentionActionWithTextCaching value) { return true;}
   @Override
   public String getIndexedString(final IntentionActionWithTextCaching value) { return getTextFor(value);}
 }

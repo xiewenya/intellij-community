@@ -18,14 +18,12 @@ package org.jetbrains.jps.builders.java;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.tools.JavaCompiler;
+import javax.tools.*;
 import java.io.File;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class JavaCompilingTool {
   @NotNull
   public abstract String getId();
@@ -33,6 +31,10 @@ public abstract class JavaCompilingTool {
   @Nullable
   public String getAlternativeId() {
     return null;
+  }
+
+  public boolean isCompilerTreeAPISupported() {
+    return false;
   }
 
   @NotNull
@@ -46,5 +48,11 @@ public abstract class JavaCompilingTool {
 
   public List<String> getDefaultCompilerOptions() {
     return Collections.emptyList();
+  }
+
+  /**
+   * Override this method to modify the options list before they are passed to {@link JavaFileManager#handleOption(String, Iterator)}.
+   */
+  public void preprocessOptions(List<String> options) {
   }
 }

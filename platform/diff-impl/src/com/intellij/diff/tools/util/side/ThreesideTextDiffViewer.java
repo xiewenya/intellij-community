@@ -30,6 +30,7 @@ import com.intellij.diff.tools.util.SyncScrollSupport.ThreesideSyncScrollSupport
 import com.intellij.diff.tools.util.base.InitialScrollPositionSupport;
 import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings;
 import com.intellij.diff.tools.util.base.TextDiffViewerUtil;
+import com.intellij.diff.tools.util.breadcrumbs.SimpleDiffBreadcrumbsPanel;
 import com.intellij.diff.util.*;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.editor.Editor;
@@ -40,8 +41,8 @@ import com.intellij.openapi.editor.event.VisibleAreaListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.util.Pair;
 import com.intellij.pom.Navigatable;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,8 +54,7 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
   @Nullable private List<? extends EditorEx> myEditors;
   @NotNull private final List<? extends EditorEx> myEditableEditors;
 
-  @NotNull private final MyVisibleAreaListener myVisibleAreaListener1 = new MyVisibleAreaListener(Side.LEFT);
-  @NotNull private final MyVisibleAreaListener myVisibleAreaListener2 = new MyVisibleAreaListener(Side.RIGHT);
+  @NotNull private final MyVisibleAreaListener myVisibleAreaListener = new MyVisibleAreaListener();
   @Nullable protected ThreesideSyncScrollSupport mySyncScrollSupport;
 
   @NotNull protected final SetEditorSettingsAction myEditorSettingsAction;
@@ -76,17 +76,23 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
     for (ThreeSide side : ThreeSide.values()) {
       DiffUtil.installLineConvertor(getEditor(side), getContent(side));
     }
+
+    if (getProject() != null) {
+      for (ThreeSide side : ThreeSide.values()) {
+        myContentPanel.setBreadcrumbs(side, new SimpleDiffBreadcrumbsPanel(getEditor(side), this), getTextSettings());
+      }
+    }
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onInit() {
     super.onInit();
     installEditorListeners();
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onDispose() {
     destroyEditorListeners();
     super.onDispose();
@@ -114,24 +120,22 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
   @NotNull
   @Override
   protected List<JComponent> createTitles() {
-    return DiffUtil.createSyncHeightComponents(DiffUtil.createTextTitles(myRequest, getEditors()));
+    return DiffUtil.createTextTitles(myRequest, getEditors());
   }
 
   //
   // Listeners
   //
 
-  @CalledInAwt
+  @RequiresEdt
   protected void installEditorListeners() {
-    new TextDiffViewerUtil.EditorActionsPopup(createEditorPopupActions()).install(getEditors());
+    new TextDiffViewerUtil.EditorActionsPopup(createEditorPopupActions()).install(getEditors(), myPanel);
 
     new TextDiffViewerUtil.EditorFontSizeSynchronizer(getEditors()).install(this);
 
-    getEditor(ThreeSide.LEFT).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener1);
-    getEditor(ThreeSide.BASE).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener1);
-
-    getEditor(ThreeSide.BASE).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener2);
-    getEditor(ThreeSide.RIGHT).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener2);
+    getEditor(ThreeSide.LEFT).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener);
+    getEditor(ThreeSide.BASE).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener);
+    getEditor(ThreeSide.RIGHT).getScrollingModel().addVisibleAreaListener(myVisibleAreaListener);
 
     SyncScrollSupport.SyncScrollable scrollable1 = getSyncScrollable(Side.LEFT);
     SyncScrollSupport.SyncScrollable scrollable2 = getSyncScrollable(Side.RIGHT);
@@ -141,13 +145,11 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
     }
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void destroyEditorListeners() {
-    getEditor(ThreeSide.LEFT).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener1);
-    getEditor(ThreeSide.BASE).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener1);
-
-    getEditor(ThreeSide.BASE).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener2);
-    getEditor(ThreeSide.RIGHT).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener2);
+    getEditor(ThreeSide.LEFT).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener);
+    getEditor(ThreeSide.BASE).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener);
+    getEditor(ThreeSide.RIGHT).getScrollingModel().removeVisibleAreaListener(myVisibleAreaListener);
 
     mySyncScrollSupport = null;
   }
@@ -238,7 +240,7 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
   // Abstract
   //
 
-  @CalledInAwt
+  @RequiresEdt
   protected void scrollToLine(@NotNull ThreeSide side, int line) {
     DiffUtil.scrollEditor(getEditor(side), line, false);
     setCurrentSide(side);
@@ -247,7 +249,7 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
   @Nullable
   protected abstract SyncScrollSupport.SyncScrollable getSyncScrollable(@NotNull Side side);
 
-  @CalledInAwt
+  @RequiresEdt
   @NotNull
   protected LogicalPosition transferPosition(@NotNull ThreeSide baseSide,
                                              @NotNull ThreeSide targetSide,
@@ -323,22 +325,16 @@ public abstract class ThreesideTextDiffViewer extends ThreesideDiffViewer<TextEd
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (DiffDataKeys.CURRENT_EDITOR.is(dataId)) {
       return getCurrentEditor();
     }
     return super.getData(dataId);
   }
-  
+
   private class MyVisibleAreaListener implements VisibleAreaListener {
-    @NotNull Side mySide;
-
-    public MyVisibleAreaListener(@NotNull Side side) {
-      mySide = side;
-    }
-
     @Override
-    public void visibleAreaChanged(VisibleAreaEvent e) {
+    public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
       if (mySyncScrollSupport != null) mySyncScrollSupport.visibleAreaChanged(e);
       myContentPanel.repaint();
     }

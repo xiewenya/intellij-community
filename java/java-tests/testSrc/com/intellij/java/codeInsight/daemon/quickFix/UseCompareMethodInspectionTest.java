@@ -22,15 +22,12 @@ import org.jetbrains.annotations.NotNull;
 
 
 public class UseCompareMethodInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new UseCompareMethodInspection(),
     };
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

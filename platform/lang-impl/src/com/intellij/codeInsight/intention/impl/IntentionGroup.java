@@ -2,10 +2,10 @@
 package com.intellij.codeInsight.intention.impl;
 
 public enum IntentionGroup {
-  ERROR(20),
-  INSPECTION(10),
+  ERROR(30),
+  INSPECTION(20),
   NOTIFICATION(7),
-  GUTTER(5),
+  GUTTER(-5),
   EMPTY_ACTION(-10),
   OTHER(0);
 

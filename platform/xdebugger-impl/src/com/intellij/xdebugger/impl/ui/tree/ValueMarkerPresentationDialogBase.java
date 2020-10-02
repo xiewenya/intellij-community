@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree;
 
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.FixedSizeButton;
 import com.intellij.ui.*;
+import com.intellij.util.text.UniqueNameGenerator;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebuggerBundle;
 import one.util.streamex.StreamEx;
@@ -32,9 +19,6 @@ import java.awt.event.ActionListener;
 import java.util.Collection;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public abstract class ValueMarkerPresentationDialogBase extends DialogWrapper {
   private static final Color DEFAULT_COLOR = JBColor.RED;
   @NotNull private final Set<String> myExistingMarkups;
@@ -48,17 +32,19 @@ public abstract class ValueMarkerPresentationDialogBase extends DialogWrapper {
 
   public ValueMarkerPresentationDialogBase(@Nullable Component parent, @Nullable String defaultText, @NotNull Collection<ValueMarkup> markups) {
     super(parent, true);
-    setTitle("Select Object Label");
+    setTitle(XDebuggerBundle.message("value.marker.dialog.select.object.label"));
     setModal(true);
     myExistingMarkups = StreamEx.of(markups).map(ValueMarkup::getText).toSet();
     myLabelField.getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull final DocumentEvent e) {
         updateLabelSample();
       }
     });
     myChooseColorButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
-        final Color color = ColorChooser.chooseColor(myColorSample, "Choose Label Color", myColor);
+        final Color color = ColorChooser.chooseColor(myColorSample, XDebuggerBundle.message("value.marker.dialog.choose.label.color"), myColor);
         if (color != null) {
           myColor = color;
           updateLabelSample();
@@ -67,11 +53,13 @@ public abstract class ValueMarkerPresentationDialogBase extends DialogWrapper {
     });
     myColor = DEFAULT_COLOR;
     if (defaultText != null) {
+      defaultText = UniqueNameGenerator.generateUniqueName(defaultText, myExistingMarkups);
       myLabelField.setText(defaultText.trim());
       updateLabelSample();
     }
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myLabelField;
   }

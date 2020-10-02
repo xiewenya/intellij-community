@@ -54,9 +54,12 @@ public abstract class FileTemplateManager{
     return ServiceManager.getService(project, FileTemplateManager.class).checkInitialized();
   }
 
+  @NotNull
   protected FileTemplateManager checkInitialized() { return this; }
 
-  /** Use {@link #getInstance(Project)} instead */
+  /**
+   * @deprecated Use {@link #getInstance(Project)} instead
+   */
   @Deprecated
   public static FileTemplateManager getInstance(){
     return getDefaultInstance();
@@ -76,13 +79,12 @@ public abstract class FileTemplateManager{
    */
   public abstract FileTemplatesScheme getProjectScheme();
 
-  public abstract FileTemplate[] getTemplates(String category);
+  public abstract FileTemplate @NotNull [] getTemplates(@NotNull String category);
 
   /**
    *  Returns all templates from "Default" category.
    */
-  @NotNull
-  public abstract FileTemplate[] getAllTemplates();
+  public abstract FileTemplate @NotNull [] getAllTemplates();
 
   public abstract FileTemplate getTemplate(@NotNull @NonNls String templateName);
 
@@ -92,7 +94,9 @@ public abstract class FileTemplateManager{
   @NotNull 
   public abstract Properties getDefaultProperties();
 
-  /** Use {@link #getDefaultProperties()} instead */
+  /**
+   * @deprecated use {@link #getDefaultProperties()} instead
+   */
   @NotNull
   @Deprecated
   public Properties getDefaultProperties(@NotNull Project project) {
@@ -115,30 +119,36 @@ public abstract class FileTemplateManager{
 
   public abstract void addRecentName(@NotNull @NonNls String name);
 
+  @NotNull
   public abstract FileTemplate getInternalTemplate(@NotNull @NonNls String templateName);
   public abstract FileTemplate findInternalTemplate(@NotNull @NonNls String templateName);
 
-  @NotNull 
-  public abstract FileTemplate[] getInternalTemplates();
+  public abstract FileTemplate @NotNull [] getInternalTemplates();
 
+  /**
+   * @param templateName template name
+   * @return a template by name
+   * @throws IllegalStateException if template is not found
+   */
+  @NotNull
   public abstract FileTemplate getJ2eeTemplate(@NotNull @NonNls String templateName);
+
+  /**
+   * @param templateName template name
+   * @return a template by name
+   * @throws IllegalStateException if template is not found
+   */
+  @NotNull
   public abstract FileTemplate getCodeTemplate(@NotNull @NonNls String templateName);
 
-  @NotNull 
-  public abstract FileTemplate[] getAllPatterns();
+  public abstract FileTemplate @NotNull [] getAllPatterns();
 
-  @NotNull 
-  public abstract FileTemplate[] getAllCodeTemplates();
+  public abstract FileTemplate @NotNull [] getAllCodeTemplates();
   
-  @NotNull 
-  public abstract FileTemplate[] getAllJ2eeTemplates();
+  public abstract FileTemplate @NotNull [] getAllJ2eeTemplates();
 
   @NotNull
   public abstract String internalTemplateToSubject(@NotNull @NonNls String templateName);
-
-  @Deprecated
-  @NotNull
-  public abstract String localizeInternalTemplateName(@NotNull FileTemplate template);
 
   public abstract FileTemplate getPattern(@NotNull @NonNls String name);
 
@@ -148,7 +158,7 @@ public abstract class FileTemplateManager{
   @NotNull
   public abstract FileTemplate getDefaultTemplate(@NotNull @NonNls String name);
 
-  public abstract void setTemplates(@NotNull String templatesCategory, @NotNull Collection<FileTemplate> templates);
+  public abstract void setTemplates(@NotNull String templatesCategory, @NotNull Collection<? extends FileTemplate> templates);
 
   public abstract void saveAllTemplates();
 }

@@ -1,13 +1,11 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.artifacts.ui;
 
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.impl.elements.ProductionModuleOutputElementType;
+import com.intellij.packaging.impl.elements.ProductionModuleSourceElementType;
 
-/**
- * @author nik
- */
 public class AddNewElementActionTest extends ArtifactEditorTestCase {
-
   public void testSimple() {
     addModule();
     createEditor(addArtifact(root()));
@@ -24,6 +22,16 @@ public class AddNewElementActionTest extends ArtifactEditorTestCase {
     assertLayout("<root>\n" +
                  " dir/\n" +
                  "  module:mod");
+  }
+
+  public void testAddSourcesToDirectory() {
+    addModule();
+    createEditor(addArtifact(root().dir("dir")));
+    selectNode("dir");
+    myArtifactEditor.addNewPackagingElement(ProductionModuleSourceElementType.ELEMENT_TYPE);
+    assertLayout("<root>\n" +
+                 " dir/\n" +
+                 "  module sources:mod");
   }
 
   public void testAddToDirectoryInIncludedArtifact() {

@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.synthetic;
 
 import com.intellij.openapi.util.TextRange;
@@ -7,17 +7,17 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.impl.light.LightElement;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.CodeReferenceKind;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeArgumentList;
-import org.jetbrains.plugins.groovy.lang.resolve.ElementGroovyResult;
+import org.jetbrains.plugins.groovy.lang.resolve.ElementResolveResult;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -57,24 +57,17 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
   @Override
   public Collection<? extends GroovyResolveResult> resolve(boolean incomplete) {
     PsiClass clazz = JavaPsiFacade.getInstance(getProject()).findClass(myClassName, myContext.getResolveScope());
-    return clazz == null ? Collections.emptyList() : Collections.singletonList(new ElementGroovyResult<>(clazz));
+    return clazz == null ? Collections.emptyList() : Collections.singletonList(new ElementResolveResult<>(clazz));
   }
 
-  @NotNull
   @Override
-  public PsiType[] getTypeArguments() {
+  public PsiType @NotNull [] getTypeArguments() {
     return PsiType.EMPTY_ARRAY;
   }
 
   @Override
   public GrTypeArgumentList getTypeArgumentList() {
     return null;
-  }
-
-  @NotNull
-  @Override
-  public String getClassNameText() {
-    return myClassName;
   }
 
   @Override
@@ -98,12 +91,12 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     //todo ???
   }
 
   @Override
-  public void acceptChildren(GroovyElementVisitor visitor) {
+  public void acceptChildren(@NotNull GroovyElementVisitor visitor) {
   }
 
   @Override
@@ -111,11 +104,13 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
     return "light reference element";
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return new TextRange(0, getTextLength());
@@ -130,7 +125,7 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     throw new UnsupportedOperationException();
   }
 
@@ -140,14 +135,8 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return myManager.areElementsEquivalent(element, resolve());
-  }
-
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
@@ -164,5 +153,10 @@ public class GrLightClassReferenceElement extends LightElement implements GrCode
   @Override
   public CodeReferenceKind getKind() {
     return CodeReferenceKind.REFERENCE;
+  }
+
+  @Override
+  public GrAnnotation @NotNull [] getAnnotations() {
+    return GrAnnotation.EMPTY_ARRAY;
   }
 }

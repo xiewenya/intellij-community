@@ -21,11 +21,13 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.ui.popup.IPopupChooserBuilder;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -33,21 +35,19 @@ public abstract class ChooseOneOrAllRunnable<T extends PsiElement> implements Ru
   private final T[] myClasses;
   private final Editor myEditor;
 
-  private final String myTitle;
+  private final @NlsContexts.PopupTitle String myTitle;
 
-  public ChooseOneOrAllRunnable(final List<T> classes, final Editor editor, final String title, Class<T> type) {
+  public ChooseOneOrAllRunnable(@NotNull List<? extends T> classes, @NotNull Editor editor, @NotNull @NlsContexts.PopupTitle String title, @NotNull Class<T> type) {
     myClasses = ArrayUtil.toObjectArray(classes, type);
     myEditor = editor;
     myTitle = title;
   }
 
-  protected abstract void selected(@NotNull T... classes);
+  protected abstract void selected(T @NotNull ... classes);
 
   @Override
   public void run() {
     if (myClasses.length == 1) {
-      //TODO: cdr this place should produce at least warning
-      // selected(myClasses[0]);
       selected((T[])ArrayUtil.toObjectArray(myClasses[0].getClass(), myClasses[0]));
     }
     else if (myClasses.length > 0) {
@@ -59,21 +59,20 @@ public abstract class ChooseOneOrAllRunnable<T extends PsiElement> implements Ru
         selected(myClasses);
         return;
       }
-      List<Object> model = Arrays.asList(myClasses);
+      List<Object> model = new ArrayList<>(Arrays.asList(myClasses));
       String selectAll = CodeInsightBundle.message("highlight.thrown.exceptions.chooser.all.entry");
       model.add(0, selectAll);
 
-      final IPopupChooserBuilder builder = JBPopupFactory.getInstance()
+      IPopupChooserBuilder<Object> builder = JBPopupFactory.getInstance()
         .createPopupChooserBuilder(model)
+        .setRenderer(renderer) // exploit PsiElementListCellRenderer ability to render strings too
         .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        .setRenderer(renderer)
-        .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        .setItemChosenCallback((selectedValue) -> {
+        .setItemChosenCallback(selectedValue -> {
           if (selectedValue.equals(selectAll)) {
-            selected((T[])ArrayUtil.toObjectArray(selectedValue.getClass(), selectedValue));
+            selected(myClasses);
           }
           else {
-            selected(myClasses);
+            selected((T[])ArrayUtil.toObjectArray(selectedValue.getClass(), selectedValue));
           }
         })
         .setTitle(myTitle);
@@ -85,5 +84,6 @@ public abstract class ChooseOneOrAllRunnable<T extends PsiElement> implements Ru
     }
   }
 
+  @NotNull
   protected abstract PsiElementListCellRenderer<T> createRenderer();
 }

@@ -89,9 +89,8 @@ public class JavaFxFieldIdReferenceProvider extends JavaFxControllerBasedReferen
       return false;
     }
 
-    @NotNull
     @Override
-    public Object[] getVariants() {
+    public Object @NotNull [] getVariants() {
       final PsiClass exactTagClass = JavaFxPsiUtil.getTagClass(myXmlAttributeValue);
       final PsiClass guessedTagClass = exactTagClass == null ? getGuessedTagClass() : null;
 
@@ -120,7 +119,7 @@ public class JavaFxFieldIdReferenceProvider extends JavaFxControllerBasedReferen
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       final String newPropertyName = JavaFxPsiUtil.getPropertyName(newElementName, myFieldOrMethod instanceof PsiMethod);
       return super.handleElementRename(newPropertyName);
     }

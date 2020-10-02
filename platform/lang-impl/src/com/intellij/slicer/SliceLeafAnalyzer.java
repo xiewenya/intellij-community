@@ -1,43 +1,33 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.slicer;
 
+import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.PairProcessor;
+import com.intellij.util.SingletonSet;
 import com.intellij.util.WalkingState;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
+import gnu.trove.TObjectHashingStrategy;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * @author cdr
- */
-public class SliceLeafAnalyzer {
+public final class SliceLeafAnalyzer {
+  private static final Logger LOG = Logger.getInstance(SliceLeafAnalyzer.class);
 
   @NotNull
   private final SliceLeafEquality myLeafEquality;
@@ -50,9 +40,9 @@ public class SliceLeafAnalyzer {
     myProvider = provider;
   }
 
-  static SliceNode filterTree(SliceNode oldRoot,
-                              NullableFunction<SliceNode, SliceNode> filter,
-                              PairProcessor<SliceNode, List<SliceNode>> postProcessor) {
+  public static SliceNode filterTree(SliceNode oldRoot,
+                                     NullableFunction<? super SliceNode, ? extends SliceNode> filter,
+                                     PairProcessor<? super SliceNode, ? super List<SliceNode>> postProcessor) {
     SliceNode filtered = filter.fun(oldRoot);
     if (filtered == null) return null;
 
@@ -71,7 +61,7 @@ public class SliceLeafAnalyzer {
     return filtered;
   }
 
-  private void groupByValues(@NotNull Collection<PsiElement> leaves,
+  private void groupByValues(@NotNull Collection<? extends PsiElement> leaves,
                                     @NotNull SliceRootNode oldRoot,
                                     @NotNull Map<SliceNode, Collection<PsiElement>> map) {
     assert oldRoot.myCachedChildren.size() == 1;
@@ -79,19 +69,19 @@ public class SliceLeafAnalyzer {
 
     SliceNode oldRootStart = oldRoot.myCachedChildren.get(0);
     SliceUsage rootUsage = oldRootStart.getValue();
-    String description = SliceManager.getElementDescription(null, rootUsage.getElement(), " (grouped by value)");
+    String description = SliceManager.getElementDescription(null, rootUsage.getElement(), LangBundle.message("tab.title.grouped.by.value"));
     SliceManager.getInstance(root.getProject()).createToolWindow(true, root, true, description);
   }
 
   @NotNull
-  public SliceRootNode createTreeGroupedByValues(@NotNull Collection<PsiElement> leaves,
+  public SliceRootNode createTreeGroupedByValues(@NotNull Collection<? extends PsiElement> leaves,
                                                         @NotNull SliceRootNode oldRoot,
                                                         @NotNull Map<SliceNode, Collection<PsiElement>> map) {
     SliceNode oldRootStart = oldRoot.myCachedChildren.get(0);
     SliceRootNode root = oldRoot.copy();
     root.setChanged();
     root.targetEqualUsages.clear();
-    root.myCachedChildren = new ArrayList<>(leaves.size());
+    List<SliceNode> leafValueRoots = new ArrayList<>(leaves.size());
 
     for (final PsiElement leafExpression : leaves) {
       SliceNode newNode = filterTree(oldRootStart, oldNode -> {
@@ -110,8 +100,10 @@ public class SliceLeafAnalyzer {
                                                                  root,
                                                                  myProvider.createRootUsage(leafExpression, oldRoot.getValue().params),
                                                                  Collections.singletonList(newNode));
-      root.myCachedChildren.add(lvNode);
+      leafValueRoots.add(lvNode);
     }
+    root.setChildren(leafValueRoots);
+
     return root;
   }
 
@@ -121,7 +113,9 @@ public class SliceLeafAnalyzer {
 
     final Map<SliceNode, Collection<PsiElement>> map = createMap();
 
-    ProgressManager.getInstance().run(new Task.Backgroundable(root.getProject(), "Expanding all nodes... (may very well take the whole day)", true) {
+    String encouragementPiece = " " + LangBundle.message("progress.title.may.very.well.take.whole.day");
+    ProgressManager.getInstance().run(new Task.Backgroundable(
+      root.getProject(), LangBundle.message("progress.title.expanding.all.nodes", encouragementPiece), true) {
       @Override
       public void run(@NotNull final ProgressIndicator indicator) {
         Collection<PsiElement> l = calcLeafExpressions(root, treeStructure, map);
@@ -140,7 +134,8 @@ public class SliceLeafAnalyzer {
           if (leaves == null) return;  //cancelled
 
           if (leaves.isEmpty()) {
-            Messages.showErrorDialog("Unable to find leaf expressions to group by", "Cannot Group");
+            Messages.showErrorDialog(LangBundle.message("dialog.message.unable.to.find.leaf.expressions.to.group.by"),
+                                     LangBundle.message("dialog.title.cannot.group"));
             return;
           }
 
@@ -154,15 +149,28 @@ public class SliceLeafAnalyzer {
   }
 
   public Map<SliceNode, Collection<PsiElement>> createMap() {
-    return ConcurrentFactoryMap.createMap(k -> ConcurrentCollectionFactory.createConcurrentSet(myLeafEquality),
-                                          () -> ConcurrentCollectionFactory.createMap(ContainerUtil.<SliceNode>identityStrategy()));
+    return ConcurrentFactoryMap.create(k -> {
+      return ConcurrentCollectionFactory.createConcurrentSet(new TObjectHashingStrategy<PsiElement>() {
+        @Override
+        public int computeHashCode(PsiElement object) {
+          return myLeafEquality.hashCode(object);
+        }
+
+        @Override
+        public boolean equals(PsiElement o1, PsiElement o2) {
+          return myLeafEquality.equals(o1, o2);
+        }
+      });
+    }, () -> {
+      return ConcurrentCollectionFactory.createMap(ContainerUtil.identityStrategy());
+    });
   }
 
-  static class SliceNodeGuide implements WalkingState.TreeGuide<SliceNode> {
+  public static class SliceNodeGuide implements WalkingState.TreeGuide<SliceNode> {
     private final AbstractTreeStructure myTreeStructure;
     // use tree structure because it's setting 'parent' fields in the process
 
-    SliceNodeGuide(@NotNull AbstractTreeStructure treeStructure) {
+    public SliceNodeGuide(@NotNull AbstractTreeStructure treeStructure) {
       myTreeStructure = treeStructure;
     }
 
@@ -203,7 +211,15 @@ public class SliceLeafAnalyzer {
                                                            @NotNull AbstractTreeStructure treeStructure,
                                                            @NotNull final Map<SliceNode, Collection<PsiElement>> map) {
     final SliceNodeGuide guide = new SliceNodeGuide(treeStructure);
+    AtomicInteger depth = new AtomicInteger();
+    boolean printToLog = LOG.isTraceEnabled();
     WalkingState<SliceNode> walkingState = new WalkingState<SliceNode>(guide) {
+      @Override
+      public void elementStarted(@NotNull SliceNode element) {
+        depth.incrementAndGet();
+        super.elementStarted(element);
+      }
+
       @Override
       public void visit(@NotNull final SliceNode element) {
         element.calculateDupNode();
@@ -217,10 +233,14 @@ public class SliceLeafAnalyzer {
             final SliceUsage sliceUsage = element.getValue();
 
             Collection<SliceNode> children = element.getChildren();
+            if (printToLog) {
+              LOG.trace(StringUtil.repeat("  ", Math.max(depth.get(), 0)) + "analyzing usages of " + sliceUsage +
+                        " (in " + (sliceUsage == null ? "null" : sliceUsage.getFile().getName() + ":" + sliceUsage.getLine()) + ")");
+            }
             if (children.isEmpty() && sliceUsage != null && sliceUsage.canBeLeaf()) {
               PsiElement value = sliceUsage.getElement();
               if (value != null) {
-                node(element, map).addAll(ContainerUtil.singleton(value, myLeafEquality));
+                node(element, map).addAll(SingletonSet.withCustomStrategy(value, myLeafEquality));
               }
             }
           });
@@ -231,6 +251,7 @@ public class SliceLeafAnalyzer {
 
       @Override
       public void elementFinished(@NotNull SliceNode element) {
+        depth.decrementAndGet();
         SliceNode parent = guide.getParent(element);
         if (parent != null) {
           node(parent, map).addAll(node(element, map));

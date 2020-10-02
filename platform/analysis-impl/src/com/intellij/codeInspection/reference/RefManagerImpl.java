@@ -1,11 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.reference;
 
-import com.intellij.ToolExtensionPoints;
+import com.intellij.analysis.AnalysisBundle;
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.codeInspection.GlobalInspectionContext;
-import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.lang.InspectionExtensionsFactory;
 import com.intellij.codeInspection.lang.RefManagerExtension;
 import com.intellij.lang.Language;
@@ -17,8 +16,7 @@ import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.extensions.ExtensionPoint;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -26,7 +24,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtilCore;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NullableFactory;
 import com.intellij.openapi.util.Segment;
@@ -42,7 +39,7 @@ import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.StringInterner;
+import com.intellij.util.containers.Interner;
 import gnu.trove.THashMap;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -50,27 +47,28 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public class RefManagerImpl extends RefManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.reference.RefManager");
+  public static final ExtensionPointName<RefGraphAnnotator> EP_NAME = ExtensionPointName.create("com.intellij.refGraphAnnotator");
+  private static final Logger LOG = Logger.getInstance(RefManager.class);
 
   private long myLastUsedMask = 0x0800_0000; // guarded by this
 
-  @NotNull
-  private final Project myProject;
+  private final @NotNull Project myProject;
   private AnalysisScope myScope;
   private RefProject myRefProject;
 
   private final BitSet myUnprocessedFiles = new BitSet();
   private final boolean processExternalElements = Registry.is("batch.inspections.process.external.elements");
-  private final ConcurrentMap<PsiAnchor, RefElement> myRefTable = ContainerUtil.newConcurrentMap();
+  private final ConcurrentMap<PsiAnchor, RefElement> myRefTable = new ConcurrentHashMap<>();
 
   private volatile List<RefElement> myCachedSortedRefs; // holds cached values from myPsiToRefTable/myRefTable sorted by containing virtual file; benign data race
 
-  private final ConcurrentMap<Module, RefModule> myModules = ContainerUtil.newConcurrentMap();
+  private final ConcurrentMap<Module, RefModule> myModules = new ConcurrentHashMap<>();
   private final ProjectIterator myProjectIterator = new ProjectIterator();
   private final AtomicBoolean myDeclarationsFound = new AtomicBoolean(false);
   private final PsiManager myPsiManager;
@@ -78,12 +76,12 @@ public class RefManagerImpl extends RefManager {
   private volatile boolean myIsInProcess;
   private volatile boolean myOfflineView;
 
-  private final LinkedHashSet<RefGraphAnnotator> myGraphAnnotators = new LinkedHashSet<>();
+  private final List<RefGraphAnnotator> myGraphAnnotators = ContainerUtil.createConcurrentList();
   private GlobalInspectionContext myContext;
 
   private final Map<Key, RefManagerExtension> myExtensions = new THashMap<>();
   private final Map<Language, RefManagerExtension> myLanguageExtensions = new HashMap<>();
-  private final StringInterner myNameInterner = new StringInterner();
+  private final Interner<String> myNameInterner = Interner.createStringInterner();
 
   public RefManagerImpl(@NotNull Project project, @Nullable AnalysisScope scope, @NotNull GlobalInspectionContext context) {
     myProject = project;
@@ -91,11 +89,13 @@ public class RefManagerImpl extends RefManager {
     myContext = context;
     myPsiManager = PsiManager.getInstance(project);
     myRefProject = new RefProjectImpl(this);
-    for (InspectionExtensionsFactory factory : Extensions.getExtensions(InspectionExtensionsFactory.EP_NAME)) {
-      final RefManagerExtension extension = factory.createRefManagerExtension(this);
+    for (InspectionExtensionsFactory factory : InspectionExtensionsFactory.EP_NAME.getExtensionList()) {
+      final RefManagerExtension<?> extension = factory.createRefManagerExtension(this);
       if (extension != null) {
         myExtensions.put(extension.getID(), extension);
-        myLanguageExtensions.put(extension.getLanguage(), extension);
+        for (Language language : extension.getLanguages()) {
+          myLanguageExtensions.put(language, extension);
+        }
       }
     }
     if (scope != null) {
@@ -111,8 +111,7 @@ public class RefManagerImpl extends RefManager {
     }
   }
 
-  @NotNull
-  public GlobalInspectionContext getContext() {
+  public @NotNull GlobalInspectionContext getContext() {
     return myContext;
   }
 
@@ -121,10 +120,8 @@ public class RefManagerImpl extends RefManager {
     for (RefElement refElement : getSortedElements()) {
       refElement.accept(visitor);
     }
-    if (myModules != null) {
-      for (RefModule refModule : myModules.values()) {
-        if (myScope.containsModule(refModule.getModule())) refModule.accept(visitor);
-      }
+    for (RefModule refModule : myModules.values()) {
+      if (myScope.containsModule(refModule.getModule())) refModule.accept(visitor);
     }
     for (RefManagerExtension extension : myExtensions.values()) {
       extension.iterate(visitor);
@@ -147,9 +144,8 @@ public class RefManagerImpl extends RefManager {
     myLanguageExtensions.clear();
   }
 
-  @Nullable
   @Override
-  public AnalysisScope getScope() {
+  public @Nullable AnalysisScope getScope() {
     return myScope;
   }
 
@@ -160,22 +156,22 @@ public class RefManagerImpl extends RefManager {
     }
   }
 
-  void fireNodeMarkedReferenced(RefElement refWhat,
-                                RefElement refFrom,
-                                boolean referencedFromClassInitializer,
-                                final boolean forReading,
-                                final boolean forWriting) {
+  public void fireNodeMarkedReferenced(RefElement refWhat,
+                                       RefElement refFrom,
+                                       boolean referencedFromClassInitializer,
+                                       final boolean forReading,
+                                       final boolean forWriting) {
     for (RefGraphAnnotator annotator : myGraphAnnotators) {
       annotator.onMarkReferenced(refWhat, refFrom, referencedFromClassInitializer, forReading, forWriting);
     }
   }
-  
-  void fireNodeMarkedReferenced(RefElement refWhat,
-                                RefElement refFrom,
-                                boolean referencedFromClassInitializer,
-                                final boolean forReading,
-                                final boolean forWriting,
-                                PsiElement element) {
+
+  public void fireNodeMarkedReferenced(RefElement refWhat,
+                                       RefElement refFrom,
+                                       boolean referencedFromClassInitializer,
+                                       final boolean forReading,
+                                       final boolean forWriting,
+                                       PsiElement element) {
     for (RefGraphAnnotator annotator : myGraphAnnotators) {
       annotator.onMarkReferenced(refWhat, refFrom, referencedFromClassInitializer, forReading, forWriting, element);
     }
@@ -187,16 +183,23 @@ public class RefManagerImpl extends RefManager {
     }
   }
 
-  void fireBuildReferences(RefElement refElement) {
+  public void fireBuildReferences(RefElement refElement) {
     for (RefGraphAnnotator annotator : myGraphAnnotators) {
       annotator.onReferencesBuild(refElement);
     }
   }
 
   public void registerGraphAnnotator(@NotNull RefGraphAnnotator annotator) {
-    if (myGraphAnnotators.add(annotator) && annotator instanceof RefGraphAnnotatorEx) {
-      ((RefGraphAnnotatorEx)annotator).initialize(this);
+    if (!myGraphAnnotators.contains(annotator)) {
+      myGraphAnnotators.add(annotator);
+      if (annotator instanceof RefGraphAnnotatorEx) {
+        ((RefGraphAnnotatorEx)annotator).initialize(this);
+      }
     }
+  }
+
+  public void unregisterAnnotator(RefGraphAnnotator annotator) {
+    myGraphAnnotators.remove(annotator);
   }
 
   @Override
@@ -209,14 +212,13 @@ public class RefManagerImpl extends RefManager {
   }
 
   @Override
-  public <T> T getExtension(@NotNull final Key<T> key) {
+  public <T> T getExtension(final @NotNull Key<T> key) {
     //noinspection unchecked
     return (T)myExtensions.get(key);
   }
 
   @Override
-  @Nullable
-  public String getType(@NotNull final RefEntity ref) {
+  public @Nullable String getType(final @NotNull RefEntity ref) {
     for (RefManagerExtension extension : myExtensions.values()) {
       final String type = extension.getType(ref);
       if (type != null) return type;
@@ -236,9 +238,8 @@ public class RefManagerImpl extends RefManager {
     return null;
   }
 
-  @NotNull
   @Override
-  public RefEntity getRefinedElement(@NotNull RefEntity ref) {
+  public @NotNull RefEntity getRefinedElement(@NotNull RefEntity ref) {
     for (RefManagerExtension extension : myExtensions.values()) {
       ref = extension.getRefinedElement(ref);
     }
@@ -246,14 +247,14 @@ public class RefManagerImpl extends RefManager {
   }
 
   @Override
-  public Element export(@NotNull RefEntity refEntity, @NotNull final Element element, final int actualLine) {
+  public @Nullable Element export(@NotNull RefEntity refEntity, final int actualLine) {
     refEntity = getRefinedElement(refEntity);
 
     Element problem = new Element("problem");
 
     if (refEntity instanceof RefDirectory) {
       Element fileElement = new Element("file");
-      VirtualFile virtualFile = ((PsiDirectory)((RefDirectory)refEntity).getElement()).getVirtualFile();
+      VirtualFile virtualFile = ((PsiDirectory)((RefDirectory)refEntity).getPsiElement()).getVirtualFile();
       fileElement.addContent(virtualFile.getUrl());
       problem.addContent(fileElement);
     }
@@ -298,13 +299,11 @@ public class RefManagerImpl extends RefManager {
     }
 
     new SmartRefElementPointerImpl(refEntity, true).writeExternal(problem);
-    element.addContent(problem);
     return problem;
   }
 
   @Override
-  @Nullable
-  public String getGroupName(@NotNull final RefElement entity) {
+  public @Nullable String getGroupName(final @NotNull RefElement entity) {
     for (RefManagerExtension extension : myExtensions.values()) {
       final String groupName = extension.getGroupName(entity);
       if (groupName != null) return groupName;
@@ -361,28 +360,25 @@ public class RefManagerImpl extends RefManager {
     myOfflineView = true;
   }
 
-  boolean isOfflineView() {
+  public boolean isOfflineView() {
     return myOfflineView;
   }
-  
+
   public boolean isInProcess() {
     return myIsInProcess;
   }
 
-  @NotNull
   @Override
-  public Project getProject() {
+  public @NotNull Project getProject() {
     return myProject;
   }
 
-  @NotNull
   @Override
-  public RefProject getRefProject() {
+  public @NotNull RefProject getRefProject() {
     return myRefProject;
   }
 
-  @NotNull
-  public List<RefElement> getSortedElements() {
+  public @NotNull List<RefElement> getSortedElements() {
     List<RefElement> answer = myCachedSortedRefs;
     if (answer != null) return answer;
 
@@ -397,9 +393,8 @@ public class RefManagerImpl extends RefManager {
     return answer;
   }
 
-  @NotNull
   @Override
-  public PsiManager getPsiManager() {
+  public @NotNull PsiManager getPsiManager() {
     return myPsiManager;
   }
 
@@ -408,18 +403,12 @@ public class RefManagerImpl extends RefManager {
     return !myUnprocessedFiles.get(((VirtualFileWithId)file).getId());
   }
 
-  @Nullable
   @Override
-  public PsiNamedElement getContainerElement(@NotNull PsiElement element) {
+  public @Nullable PsiNamedElement getContainerElement(@NotNull PsiElement element) {
     Language language = element.getLanguage();
-    return myExtensions
-      .values()
-      .stream()
-      .filter(extension -> extension.getLanguage().equals(language))
-      .map(extension -> extension.getElementContainer(element))
-      .filter(Objects::nonNull)
-      .findFirst()
-      .orElse(null);
+    RefManagerExtension extension = myLanguageExtensions.get(language);
+    if (extension == null) return null;
+    return extension.getElementContainer(element);
   }
 
   private synchronized void registerUnprocessed(VirtualFileWithId virtualFile) {
@@ -427,7 +416,7 @@ public class RefManagerImpl extends RefManager {
   }
 
   void removeReference(@NotNull RefElement refElem) {
-    final PsiElement element = refElem.getElement();
+    final PsiElement element = refElem.getPsiElement();
     final RefManagerExtension extension = element != null ? getExtension(element.getLanguage()) : null;
     if (extension != null) {
       extension.removeReference(refElem);
@@ -448,22 +437,19 @@ public class RefManagerImpl extends RefManager {
     myCachedSortedRefs = null;
   }
 
-  @NotNull
-  private static PsiAnchor createAnchor(@NotNull final PsiElement element) {
+  private static @NotNull PsiAnchor createAnchor(final @NotNull PsiElement element) {
     return ReadAction.compute(() -> PsiAnchor.create(element));
   }
 
   public void initializeAnnotators() {
-    ExtensionPoint<RefGraphAnnotator> point = Extensions.getRootArea().getExtensionPoint(ToolExtensionPoints.INSPECTIONS_GRAPH_ANNOTATOR);
-    final RefGraphAnnotator[] graphAnnotators = point.getExtensions();
-    for (RefGraphAnnotator annotator : graphAnnotators) {
+    for (RefGraphAnnotator annotator : EP_NAME.getExtensionList()) {
       registerGraphAnnotator(annotator);
     }
   }
 
   private class ProjectIterator extends PsiElementVisitor {
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       ProgressManager.checkCanceled();
       final RefManagerExtension extension = getExtension(element.getLanguage());
       if (extension != null) {
@@ -472,50 +458,49 @@ public class RefManagerImpl extends RefManager {
       else if (processExternalElements) {
         PsiFile file = element.getContainingFile();
         if (file != null) {
-          boolean referencesProcessed = false;
-          for (RefManagerExtension<?> managerExtension : myExtensions.values()) {
-            if (managerExtension.shouldProcessExternalFile(file)) {
-              RefElement refFile = getReference(file);
-              LOG.assertTrue(refFile != null, file);
-              if (!referencesProcessed) {
-                referencesProcessed = true;
-                for (PsiReference reference : element.getReferences()) {
-                  PsiElement resolve = reference.resolve();
-                  if (resolve != null) {
-                    fireNodeMarkedReferenced(resolve, file);
-                    RefElement refWhat = getReference(resolve);
-                    if (refWhat == null) {
-                      PsiFile targetContainingFile = resolve.getContainingFile();
-                      //no logic to distinguish different elements in the file anyway
-                      if (file == targetContainingFile) continue;
-                      refWhat = getReference(targetContainingFile);
-                    }
+          RefManagerExtension externalFileManagerExtension = myExtensions.values().stream().filter(ex -> ex.shouldProcessExternalFile(file)).findFirst().orElse(null);
+          if (externalFileManagerExtension == null) {
+            if (element instanceof PsiFile) {
+              VirtualFile virtualFile = PsiUtilCore.getVirtualFile(element);
+              if (virtualFile instanceof VirtualFileWithId) {
+                registerUnprocessed((VirtualFileWithId)virtualFile);
+              }
+            }
+          } else {
+            RefElement refFile = getReference(file);
+            LOG.assertTrue(refFile != null, file);
+            for (PsiReference reference : element.getReferences()) {
+              PsiElement resolve = reference.resolve();
+              if (resolve != null) {
+                fireNodeMarkedReferenced(resolve, file);
+                RefElement refWhat = getReference(resolve);
+                if (refWhat == null) {
+                  PsiFile targetContainingFile = resolve.getContainingFile();
+                  //no logic to distinguish different elements in the file anyway
+                  if (file == targetContainingFile) continue;
+                  refWhat = getReference(targetContainingFile);
+                }
 
-                    if (refWhat != null) {
-                      ((RefElementImpl)refWhat).addInReference(refFile);
-                      ((RefElementImpl)refFile).addOutReference(refWhat);
-                    }
-                  }
+                if (refWhat != null) {
+                  ((RefElementImpl)refWhat).addInReference(refFile);
+                  ((RefElementImpl)refFile).addOutReference(refWhat);
                 }
               }
-
-              Stream<? extends PsiElement> implicitRefs = managerExtension.extractExternalFileImplicitReferences(file);
-              implicitRefs.forEach(e -> {
-                RefElement superClassReference = getReference(e);
-                if (superClassReference != null) {
-                  //in case of implicit inheritance, e.g. GroovyObject
-                  //= no explicit reference is provided, dependency on groovy library could be treated as redundant though it is not
-                  //inReference is not important in this case
-                  ((RefElementImpl)refFile).addOutReference(superClassReference);
-                }
-              });
             }
-          }
 
-          if (!referencesProcessed && element instanceof PsiFile) {
-            VirtualFile virtualFile = PsiUtilCore.getVirtualFile(element);
-            if (virtualFile instanceof VirtualFileWithId) {
-              registerUnprocessed((VirtualFileWithId)virtualFile);
+            Stream<? extends PsiElement> implicitRefs = externalFileManagerExtension.extractExternalFileImplicitReferences(file);
+            implicitRefs.forEach(e -> {
+              RefElement superClassReference = getReference(e);
+              if (superClassReference != null) {
+                //in case of implicit inheritance, e.g. GroovyObject
+                //= no explicit reference is provided, dependency on groovy library could be treated as redundant though it is not
+                //inReference is not important in this case
+                ((RefElementImpl)refFile).addOutReference(superClassReference);
+              }
+            });
+
+            if (element instanceof PsiFile) {
+              externalFileManagerExtension.markExternalReferencesProcessed(refFile);
             }
           }
         }
@@ -526,7 +511,7 @@ public class RefManagerImpl extends RefManager {
     }
 
     @Override
-    public void visitFile(PsiFile file) {
+    public void visitFile(@NotNull PsiFile file) {
       final VirtualFile virtualFile = file.getVirtualFile();
       if (virtualFile != null) {
         String relative = ProjectUtilCore.displayUrlRelativeToProject(virtualFile, virtualFile.getPresentableUrl(), myProject, true, false);
@@ -551,13 +536,11 @@ public class RefManagerImpl extends RefManager {
   }
 
   @Override
-  @Nullable
-  public RefElement getReference(@Nullable PsiElement elem) {
+  public @Nullable RefElement getReference(@Nullable PsiElement elem) {
     return getReference(elem, false);
   }
 
-  @Nullable
-  public RefElement getReference(PsiElement elem, final boolean ignoreScope) {
+  public @Nullable RefElement getReference(PsiElement elem, final boolean ignoreScope) {
     if (ReadAction.compute(() -> elem == null || !elem.isValid() ||
                                  elem instanceof LightElement || !(elem instanceof PsiDirectory) && !belongsToScope(elem, ignoreScope))) {
       return null;
@@ -565,23 +548,19 @@ public class RefManagerImpl extends RefManager {
 
     return getFromRefTableOrCache(
       elem,
-      () -> ApplicationManager.getApplication().runReadAction(new Computable<RefElementImpl>() {
-        @Override
-        @Nullable
-        public RefElementImpl compute() {
-          final RefManagerExtension extension = getExtension(elem.getLanguage());
-          if (extension != null) {
-            final RefElement refElement = extension.createRefElement(elem);
-            if (refElement != null) return (RefElementImpl)refElement;
-          }
-          if (elem instanceof PsiFile) {
-            return new RefFileImpl((PsiFile)elem, RefManagerImpl.this);
-          }
-          if (elem instanceof PsiDirectory) {
-            return new RefDirectoryImpl((PsiDirectory)elem, RefManagerImpl.this);
-          }
-          return null;
+      () -> ReadAction.compute(() -> {
+        final RefManagerExtension extension = getExtension(elem.getLanguage());
+        if (extension != null) {
+          final RefElement refElement = extension.createRefElement(elem);
+          if (refElement != null) return (RefElementImpl)refElement;
         }
+        if (elem instanceof PsiFile) {
+          return new RefFileImpl((PsiFile)elem, this);
+        }
+        if (elem instanceof PsiDirectory) {
+          return new RefDirectoryImpl((PsiDirectory)elem, this);
+        }
+        return null;
       }),
       element -> ReadAction.run(() -> {
         element.initialize();
@@ -596,9 +575,8 @@ public class RefManagerImpl extends RefManager {
     return myLanguageExtensions.get(language);
   }
 
-  @Nullable
   @Override
-  public RefEntity getReference(final String type, final String fqName) {
+  public @Nullable RefEntity getReference(final String type, final String fqName) {
     for (RefManagerExtension extension : myExtensions.values()) {
       final RefEntity refEntity = extension.getReference(type, fqName);
       if (refEntity != null) return refEntity;
@@ -623,15 +601,13 @@ public class RefManagerImpl extends RefManager {
     return null;
   }
 
-  @Nullable
-  <T extends RefElement> T getFromRefTableOrCache(final PsiElement element, @NotNull NullableFactory<T> factory) {
-    return getFromRefTableOrCache(element, factory, null); 
+  public @Nullable <T extends RefElement> T getFromRefTableOrCache(final @NotNull PsiElement element, @NotNull NullableFactory<? extends T> factory) {
+    return getFromRefTableOrCache(element, factory, null);
   }
-  
-  @Nullable
-  private <T extends RefElement> T getFromRefTableOrCache(@NotNull PsiElement element,
-                                                          @NotNull NullableFactory<T> factory,
-                                                          @Nullable Consumer<T> whenCached) {
+
+  private @Nullable <T extends RefElement> T getFromRefTableOrCache(@NotNull PsiElement element,
+                                                                    @NotNull NullableFactory<? extends T> factory,
+                                                                    @Nullable Consumer<? super T> whenCached) {
 
     PsiAnchor psiAnchor = createAnchor(element);
     //noinspection unchecked
@@ -694,7 +670,7 @@ public class RefManagerImpl extends RefManager {
   @Override
   public String getQualifiedName(RefEntity refEntity) {
     if (refEntity == null || refEntity instanceof RefElementImpl && !refEntity.isValid()) {
-      return InspectionsBundle.message("inspection.reference.invalid");
+      return AnalysisBundle.message("inspection.reference.invalid");
     }
 
     return refEntity.getQualifiedName();
@@ -718,7 +694,7 @@ public class RefManagerImpl extends RefManager {
     }
   }
 
-  boolean isValidPointForReference() {
+  public boolean isValidPointForReference() {
     return myIsInProcess || myOfflineView || ApplicationManager.getApplication().isUnitTestMode();
   }
 }

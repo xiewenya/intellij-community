@@ -1,208 +1,210 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions.diff.lst;
 
 import com.intellij.diff.DiffContext;
-import com.intellij.diff.comparison.DiffTooBigException;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.tools.simple.SimpleDiffChange;
+import com.intellij.diff.tools.simple.SimpleDiffChangeUi;
 import com.intellij.diff.tools.simple.SimpleDiffViewer;
 import com.intellij.diff.tools.util.DiffNotifications;
+import com.intellij.diff.util.DiffGutterOperation;
 import com.intellij.diff.util.DiffGutterRenderer;
 import com.intellij.diff.util.DiffUtil;
-import com.intellij.diff.util.Range;
 import com.intellij.diff.util.Side;
 import com.intellij.icons.AllIcons;
-import com.intellij.idea.ActionsBundle;
-import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.ex.ActionUtil;
-import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.project.DumbAwareAction;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.LocalChangeList;
-import com.intellij.openapi.vcs.ex.MoveChangesLineStatusAction;
-import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker;
-import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker.LocalRange;
+import com.intellij.openapi.vcs.changes.actions.diff.lst.LocalTrackerDiffUtil.LocalTrackerChange;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.components.BorderLayoutPanel;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.ArrayList;
-import java.util.BitSet;
+import java.util.Arrays;
 import java.util.List;
 
-import static com.intellij.util.ObjectUtils.notNull;
-
 public class SimpleLocalChangeListDiffViewer extends SimpleDiffViewer {
-  @NotNull private final String myChangelistId;
-  @NotNull private final String myChangelistName;
-  @NotNull private final PartialLocalLineStatusTracker myTracker;
+  @NotNull private final LocalChangeListDiffRequest myLocalRequest;
 
   private final boolean myAllowExcludeChangesFromCommit;
+
+  private final LocalTrackerDiffUtil.LocalTrackerActionProvider myTrackerActionProvider;
+  private LocalTrackerDiffUtil.ExcludeAllCheckboxPanel myExcludeAllCheckboxPanel;
+
 
   public SimpleLocalChangeListDiffViewer(@NotNull DiffContext context,
                                          @NotNull LocalChangeListDiffRequest localRequest) {
     super(context, localRequest.getRequest());
-    myChangelistId = localRequest.getChangelistId();
-    myChangelistName = localRequest.getChangelistName();
-    myTracker = (PartialLocalLineStatusTracker)notNull(localRequest.getLineStatusTracker());
+    myLocalRequest = localRequest;
 
-    myTracker.addListener(new MyTrackerListener(), this);
+    myAllowExcludeChangesFromCommit = DiffUtil.isUserDataFlagSet(LocalChangeListDiffTool.ALLOW_EXCLUDE_FROM_COMMIT, context);
+    myTrackerActionProvider = new MyLocalTrackerActionProvider(this, localRequest, myAllowExcludeChangesFromCommit);
+    myExcludeAllCheckboxPanel.init(myLocalRequest, myAllowExcludeChangesFromCommit);
 
-    DiffUtil.registerAction(new MoveSelectedChangesToAnotherChangelistAction(true), myPanel);
-    DiffUtil.registerAction(new ExcludeSelectedChangesFromCommitAction(true), myPanel);
-
-    myAllowExcludeChangesFromCommit = Boolean.TRUE.equals(context.getUserData(LocalChangeListDiffTool.ALLOW_EXCLUDE_FROM_COMMIT));
+    LocalTrackerDiffUtil.installTrackerListener(this, myLocalRequest);
   }
 
   @NotNull
   @Override
-  public Project getProject() {
-    //noinspection ConstantConditions
-    return super.getProject();
-  }
+  protected List<JComponent> createTitles() {
+    List<JComponent> titles = DiffUtil.createTextTitles(myRequest, getEditors());
+    assert titles.size() == 2;
 
-  @NotNull
-  public PartialLocalLineStatusTracker getTracker() {
-    return myTracker;
+    myExcludeAllCheckboxPanel = new LocalTrackerDiffUtil.ExcludeAllCheckboxPanel(this, getEditor2());
+
+    BorderLayoutPanel titleWithCheckbox = JBUI.Panels.simplePanel();
+    if (titles.get(1) != null) titleWithCheckbox.addToCenter(titles.get(1));
+    titleWithCheckbox.addToLeft(myExcludeAllCheckboxPanel);
+
+    return Arrays.asList(titles.get(0), titleWithCheckbox);
   }
 
   @NotNull
   @Override
   protected List<AnAction> createEditorPopupActions() {
     List<AnAction> group = new ArrayList<>(super.createEditorPopupActions());
-
-    group.add(new MoveSelectedChangesToAnotherChangelistAction(false));
-    group.add(new ExcludeSelectedChangesFromCommitAction(false));
-
+    group.addAll(LocalTrackerDiffUtil.createTrackerActions(myTrackerActionProvider));
     return group;
+  }
+
+  @NotNull
+  @Override
+  protected SimpleDiffChangeUi createUi(@NotNull SimpleDiffChange change) {
+    if (change instanceof MySimpleDiffChange) return new MySimpleDiffChangeUi(this, (MySimpleDiffChange)change);
+    return super.createUi(change);
+  }
+
+  @NotNull
+  private Runnable superComputeDifferences(@NotNull ProgressIndicator indicator) {
+    return super.computeDifferences(indicator);
   }
 
   @Override
   @NotNull
-  protected Runnable performRediff(@NotNull final ProgressIndicator indicator) {
-    if (getContent2().getDocument() != myTracker.getDocument()) {
-      return applyNotification(DiffNotifications.createError()); // DiffRequest is out of date
+  protected Runnable computeDifferences(@NotNull ProgressIndicator indicator) {
+    return LocalTrackerDiffUtil.computeDifferences(
+      myLocalRequest.getLineStatusTracker(),
+      getContent1().getDocument(),
+      getContent2().getDocument(),
+      myLocalRequest.getChangelistId(),
+      myTextDiffProvider,
+      indicator,
+      new MyLocalTrackerDiffHandler(indicator)
+    );
+  }
+
+  private final class MyLocalTrackerDiffHandler implements LocalTrackerDiffUtil.LocalTrackerDiffHandler {
+    @NotNull private final ProgressIndicator myIndicator;
+
+    private MyLocalTrackerDiffHandler(@NotNull ProgressIndicator indicator) {
+      myIndicator = indicator;
     }
 
-    try {
-      indicator.checkCanceled();
-
-      TrackerData data = ReadAction.compute(() -> {
-        boolean isReleased = myTracker.isReleased();
-        boolean isOperational = myTracker.isOperational();
-        List<String> affectedChangelistIds = myTracker.getAffectedChangeListsIds();
-
-        List<LocalRange> ranges = null;
-        CharSequence localText = null;
-        CharSequence vcsText = null;
-        CharSequence trackerVcsText = null;
-        if (isOperational) {
-          ranges = myTracker.getRanges();
-
-          localText = getContent2().getDocument().getImmutableCharSequence();
-          vcsText = getContent1().getDocument().getImmutableCharSequence();
-          trackerVcsText = myTracker.getVcsDocument().getImmutableCharSequence();
-        }
-
-        return new TrackerData(isReleased, isOperational, affectedChangelistIds, ranges, localText, vcsText, trackerVcsText);
-      });
-
-
-      if (data.isReleased) {
-        return applyNotification(DiffNotifications.createError()); // DiffRequest is out of date
-      }
-
-      if (!data.isOperational &&
-          data.affectedChangelist.size() == 1 &&
-          data.affectedChangelist.contains(myChangelistId)) {
-        // tracker is waiting for initialisation
-        // there are only one changelist, so it's safe to fallback to default logic
-        Runnable callback = super.performRediff(indicator);
-        return () -> {
-          callback.run();
-          getStatusPanel().setBusy(true);
-        };
-      }
-
-      if (data.ranges == null) {
-        scheduleRediff();
-        throw new ProcessCanceledException();
-      }
-
-
-      assert data.localText != null;
-      assert data.vcsText != null;
-      assert data.trackerVcsText != null;
-
-      if (!StringUtil.equals(data.trackerVcsText, data.vcsText)) {
-        return applyNotification(DiffNotifications.createError()); // DiffRequest is out of date
-      }
-
-      if (myTextDiffProvider.isHighlightingDisabled()) {
-        return apply(new CompareData(null, data.ranges.isEmpty()));
-      }
-
-
-      List<Range> linesRanges = ContainerUtil.map(data.ranges, range -> {
-        return new Range(range.getVcsLine1(), range.getVcsLine2(), range.getLine1(), range.getLine2());
-      });
-
-      List<List<LineFragment>> newFragments = notNull(myTextDiffProvider.compare(data.vcsText, data.localText, linesRanges, indicator));
-
-      boolean isContentsEqual = data.ranges.isEmpty();
+    @NotNull
+    @Override
+    public Runnable done(boolean isContentsEqual,
+                         CharSequence @NotNull [] texts,
+                         @NotNull List<? extends LineFragment> fragments,
+                         @NotNull List<LocalTrackerDiffUtil.LineFragmentData> fragmentsData) {
       List<SimpleDiffChange> changes = new ArrayList<>();
 
-      for (int i = 0; i < data.ranges.size(); i++) {
-        PartialLocalLineStatusTracker.LocalRange localRange = data.ranges.get(i);
-        List<LineFragment> rangeFragments = newFragments.get(i);
+      for (int i = 0; i < fragments.size(); i++) {
+        LineFragment fragment = fragments.get(i);
+        LocalTrackerDiffUtil.LineFragmentData data = fragmentsData.get(i);
 
-        boolean isExcludedFromCommit = localRange.isExcludedFromCommit();
-        boolean isFromActiveChangelist = localRange.getChangelistId().equals(myChangelistId);
-        boolean isSkipped = !isFromActiveChangelist;
-        boolean isExcluded = !isFromActiveChangelist || (myAllowExcludeChangesFromCommit && isExcludedFromCommit);
+        boolean isExcludedFromCommit = data.isExcludedFromCommit();
+        boolean isFromActiveChangelist = data.isFromActiveChangelist();
+        boolean isSkipped = data.isSkipped();
+        boolean isExcluded = data.isExcluded(myAllowExcludeChangesFromCommit);
 
-        changes.addAll(ContainerUtil.map(rangeFragments, fragment -> {
-          return new MySimpleDiffChange(fragment, isExcluded, isSkipped, localRange.getChangelistId(), isExcludedFromCommit);
-        }));
+        changes.add(new MySimpleDiffChange(changes.size(), fragment, isExcluded, isSkipped,
+                                           data.getChangelistId(), isFromActiveChangelist,
+                                           isExcludedFromCommit));
       }
 
-      return apply(new CompareData(changes, isContentsEqual));
+      return apply(changes, isContentsEqual);
     }
-    catch (DiffTooBigException e) {
-      return applyNotification(DiffNotifications.createDiffTooBig());
+
+    @NotNull
+    @Override
+    public Runnable retryLater() {
+      scheduleRediff();
+      throw new ProcessCanceledException();
     }
-    catch (ProcessCanceledException e) {
-      throw e;
+
+    @NotNull
+    @Override
+    public Runnable fallback() {
+      return superComputeDifferences(myIndicator);
     }
-    catch (Throwable e) {
-      LOG.error(e);
+
+    @NotNull
+    @Override
+    public Runnable fallbackWithProgress() {
+      Runnable callback = superComputeDifferences(myIndicator);
+      return () -> {
+        callback.run();
+        getStatusPanel().setBusy(true);
+      };
+    }
+
+    @NotNull
+    @Override
+    public Runnable error() {
       return applyNotification(DiffNotifications.createError());
     }
   }
 
+  @Override
+  protected void onAfterRediff() {
+    super.onAfterRediff();
+    myExcludeAllCheckboxPanel.refresh();
+  }
 
-  private class MySimpleDiffChange extends SimpleDiffChange {
+  private static class MySimpleDiffChange extends SimpleDiffChange {
     @NotNull private final String myChangelistId;
+    private final boolean myIsFromActiveChangelist;
     private final boolean myIsExcludedFromCommit;
 
-    public MySimpleDiffChange(@NotNull LineFragment fragment,
-                              boolean isExcluded,
-                              boolean isSkipped,
-                              @NotNull String changelistId,
-                              boolean isExcludedFromCommit) {
-      super(SimpleLocalChangeListDiffViewer.this, fragment, isExcluded, isSkipped);
+    MySimpleDiffChange(int index,
+                       @NotNull LineFragment fragment,
+                       boolean isExcluded,
+                       boolean isSkipped,
+                       @NotNull String changelistId,
+                       boolean isFromActiveChangelist,
+                       boolean isExcludedFromCommit) {
+      super(index, fragment, isExcluded, isSkipped);
       myChangelistId = changelistId;
+      myIsFromActiveChangelist = isFromActiveChangelist;
       myIsExcludedFromCommit = isExcludedFromCommit;
+    }
+
+    @NotNull
+    public String getChangelistId() {
+      return myChangelistId;
+    }
+
+    public boolean isFromActiveChangelist() {
+      return myIsFromActiveChangelist;
+    }
+
+    public boolean isExcludedFromCommit() {
+      return myIsExcludedFromCommit;
+    }
+  }
+
+  private static final class MySimpleDiffChangeUi extends SimpleDiffChangeUi {
+    private MySimpleDiffChangeUi(@NotNull SimpleLocalChangeListDiffViewer viewer, @NotNull MySimpleDiffChange change) {
+      super(viewer, change);
     }
 
     @NotNull
@@ -210,230 +212,65 @@ public class SimpleLocalChangeListDiffViewer extends SimpleDiffViewer {
       return (SimpleLocalChangeListDiffViewer)myViewer;
     }
 
-    public boolean isFromActiveChangelist() {
-      return myChangelistId.equals(getViewer().myChangelistId);
-    }
-
-    public boolean isExcludedFromCommit() {
-      return myIsExcludedFromCommit;
+    @NotNull
+    private MySimpleDiffChange getChange() {
+      return ((MySimpleDiffChange)myChange);
     }
 
     @Override
     protected void doInstallActionHighlighters() {
       super.doInstallActionHighlighters();
-      if (myAllowExcludeChangesFromCommit && isFromActiveChangelist()) {
-        myOperations.add(new ExcludeGutterOperation());
+      if (getViewer().myAllowExcludeChangesFromCommit) {
+        ContainerUtil.addIfNotNull(myOperations, createExcludeGutterOperation());
       }
     }
 
-    private class ExcludeGutterOperation extends GutterOperation {
-      public ExcludeGutterOperation() {
-        super(Side.RIGHT);
-      }
+    @Nullable
+    private DiffGutterOperation createExcludeGutterOperation() {
+      if (!getChange().isFromActiveChangelist()) return null;
 
-      @Override
-      public GutterIconRenderer createRenderer() {
-        if (!isFromActiveChangelist()) return null;
+      final boolean isExcludedFromCommit = getChange().isExcludedFromCommit();
+      Icon icon = isExcludedFromCommit ? AllIcons.Diff.GutterCheckBox : AllIcons.Diff.GutterCheckBoxSelected;
 
-        Icon icon = myIsExcludedFromCommit ? AllIcons.Diff.GutterCheckBox : AllIcons.Diff.GutterCheckBoxSelected;
-        return new DiffGutterRenderer(icon, "Include into commit") {
+      return createOperation(Side.RIGHT, (ctrlPressed, shiftPressed, altPressed) -> {
+        return new DiffGutterRenderer(icon, DiffBundle.message("action.presentation.diff.include.into.commit.text")) {
           @Override
-          protected void performAction(AnActionEvent e) {
-            if (!isValid()) return;
+          protected void handleMouseClick() {
+            if (!myChange.isValid()) return;
 
-            PartialLocalLineStatusTracker tracker = getViewer().getTracker();
-            LocalRange range = tracker.getRangeForLine(getStartLine(Side.RIGHT));
-            if (range == null) return;
-
-            tracker.setExcludedFromCommit(range, !myIsExcludedFromCommit);
-
-            getViewer().rediff();
+            int line = myChange.getStartLine(Side.RIGHT);
+            LocalTrackerDiffUtil.toggleRangeAtLine(getViewer().myTrackerActionProvider, line, isExcludedFromCommit);
           }
         };
-      }
+      });
     }
   }
 
 
-  private class MyTrackerListener extends PartialLocalLineStatusTracker.ListenerAdapter {
-    @Override
-    public void onBecomingValid(@NotNull PartialLocalLineStatusTracker tracker) {
-      scheduleRediff();
+  private static final class MyLocalTrackerActionProvider extends LocalTrackerDiffUtil.LocalTrackerActionProvider {
+    @NotNull private final SimpleLocalChangeListDiffViewer myViewer;
+
+    private MyLocalTrackerActionProvider(@NotNull SimpleLocalChangeListDiffViewer viewer,
+                                         @NotNull LocalChangeListDiffRequest localRequest,
+                                         boolean allowExcludeChangesFromCommit) {
+      super(viewer, localRequest, allowExcludeChangesFromCommit);
+      myViewer = viewer;
     }
 
+    @Nullable
     @Override
-    public void onChangeListMarkerChange(@NotNull PartialLocalLineStatusTracker tracker) {
-      scheduleRediff();
-    }
-
-    @Override
-    public void onExcludedFromCommitChange(@NotNull PartialLocalLineStatusTracker tracker) {
-      scheduleRediff();
-    }
-  }
-
-  private class MoveSelectedChangesToAnotherChangelistAction extends DumbAwareAction {
-    private final boolean myShortcut;
-
-    public MoveSelectedChangesToAnotherChangelistAction(boolean shortcut) {
-      myShortcut = shortcut;
-      copyShortcutFrom(ActionManager.getInstance().getAction("Vcs.MoveChangedLinesToChangelist"));
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      if (myShortcut) {
-        e.getPresentation().setEnabledAndVisible(true);
-        return;
-      }
-
+    public List<LocalTrackerChange> getSelectedTrackerChanges(@NotNull AnActionEvent e) {
       Editor editor = e.getData(CommonDataKeys.EDITOR);
-      Side side = Side.fromValue(getEditors(), editor);
-      if (side == null) {
-        e.getPresentation().setEnabledAndVisible(false);
-        return;
-      }
+      Side side = Side.fromValue(myViewer.getEditors(), editor);
+      if (side == null) return null;
 
-      List<MySimpleDiffChange> selectedChanges = getSelectedChanges(side);
-
-      String text;
-      if (!selectedChanges.isEmpty() && ContainerUtil.and(selectedChanges, change -> !change.isFromActiveChangelist())) {
-        String shortChangeListName = StringUtil.trimMiddle(myChangelistName, 40);
-        text = String.format("Move to '%s' Changelist", shortChangeListName);
-      }
-      else {
-        text = ActionsBundle.message("action.ChangesView.Move.text");
-      }
-
-      e.getPresentation().setText(text);
-      e.getPresentation().setIcon(AllIcons.Actions.MoveToAnotherChangelist);
-
-      e.getPresentation().setVisible(true);
-      e.getPresentation().setEnabled(!selectedChanges.isEmpty());
-    }
-
-    @Override
-    public void actionPerformed(@NotNull AnActionEvent e) {
-      Editor editor = e.getData(CommonDataKeys.EDITOR);
-      Side side = Side.fromValue(getEditors(), editor);
-      if (editor == null || side == null) return;
-
-      List<MySimpleDiffChange> selectedChanges = getSelectedChanges(side);
-      if (selectedChanges.isEmpty()) return;
-
-      BitSet selectedLines = getLocalSelectedLines(selectedChanges);
-
-      if (ContainerUtil.and(selectedChanges, change -> !change.isFromActiveChangelist())) {
-        LocalChangeList changeList = ChangeListManager.getInstance(getProject()).getChangeList(myChangelistId);
-        if (changeList != null) myTracker.moveToChangelist(selectedLines, changeList);
-      }
-      else {
-        MoveChangesLineStatusAction.moveToAnotherChangelist(myTracker, selectedLines);
-      }
-
-      rediff();
-    }
-
-    @NotNull
-    private List<MySimpleDiffChange> getSelectedChanges(@NotNull Side side) {
-      return ContainerUtil.findAll(SimpleLocalChangeListDiffViewer.this.getSelectedChanges(side), MySimpleDiffChange.class);
-    }
-  }
-
-  private class ExcludeSelectedChangesFromCommitAction extends DumbAwareAction {
-    private final boolean myShortcut;
-
-    public ExcludeSelectedChangesFromCommitAction(boolean shortcut) {
-      myShortcut = shortcut;
-      ActionUtil.copyFrom(this, "Vcs.Diff.ExcludeChangedLinesFromCommit");
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      if (!myAllowExcludeChangesFromCommit) {
-        e.getPresentation().setEnabledAndVisible(false);
-        return;
-      }
-
-      if (myShortcut) {
-        e.getPresentation().setEnabledAndVisible(true);
-        return;
-      }
-
-      Editor editor = e.getData(CommonDataKeys.EDITOR);
-      Side side = Side.fromValue(getEditors(), editor);
-      if (side == null) {
-        e.getPresentation().setEnabledAndVisible(false);
-        return;
-      }
-
-      List<MySimpleDiffChange> activeChanges = getActiveChanges(side);
-      boolean hasExcluded = ContainerUtil.or(activeChanges, MySimpleDiffChange::isExcludedFromCommit);
-
-      e.getPresentation().setText(activeChanges.isEmpty() || !hasExcluded ? "Exclude Lines from Commit" : "Include Lines into Commit");
-
-      e.getPresentation().setVisible(true);
-      e.getPresentation().setEnabled(!activeChanges.isEmpty());
-    }
-
-    @Override
-    public void actionPerformed(@NotNull AnActionEvent e) {
-      Editor editor = e.getData(CommonDataKeys.EDITOR);
-      Side side = Side.fromValue(getEditors(), editor);
-      if (editor == null || side == null) return;
-
-      List<MySimpleDiffChange> activeChanges = getActiveChanges(side);
-      if (activeChanges.isEmpty()) return;
-
-      BitSet selectedLines = getLocalSelectedLines(activeChanges);
-
-      boolean hasExcluded = ContainerUtil.or(activeChanges, MySimpleDiffChange::isExcludedFromCommit);
-      myTracker.setExcludedFromCommit(selectedLines, !hasExcluded);
-
-      rediff();
-    }
-
-    @NotNull
-    private List<MySimpleDiffChange> getActiveChanges(@NotNull Side side) {
-      List<MySimpleDiffChange> selectedChanges = ContainerUtil.findAll(getSelectedChanges(side), MySimpleDiffChange.class);
-      return ContainerUtil.filter(selectedChanges, MySimpleDiffChange::isFromActiveChangelist);
-    }
-  }
-
-  @NotNull
-  private static BitSet getLocalSelectedLines(@NotNull List<MySimpleDiffChange> changes) {
-    BitSet selectedLines = new BitSet();
-    for (SimpleDiffChange change : changes) {
-      int startLine = change.getStartLine(Side.RIGHT);
-      int endLine = change.getEndLine(Side.RIGHT);
-      selectedLines.set(startLine, startLine == endLine ? startLine + 1 : endLine);
-    }
-    return selectedLines;
-  }
-
-  private static class TrackerData {
-    private final boolean isReleased;
-    public final boolean isOperational;
-    @NotNull public final List<String> affectedChangelist;
-    @Nullable public final List<LocalRange> ranges;
-    @Nullable public final CharSequence localText;
-    @Nullable public final CharSequence vcsText;
-    @Nullable public final CharSequence trackerVcsText;
-
-    public TrackerData(boolean isReleased,
-                       boolean isOperational,
-                       @NotNull List<String> affectedChangelist,
-                       @Nullable List<LocalRange> ranges,
-                       @Nullable CharSequence localText,
-                       @Nullable CharSequence vcsText,
-                       @Nullable CharSequence trackerVcsText) {
-      this.isReleased = isReleased;
-      this.isOperational = isOperational;
-      this.affectedChangelist = affectedChangelist;
-      this.ranges = ranges;
-      this.localText = localText;
-      this.vcsText = vcsText;
-      this.trackerVcsText = trackerVcsText;
+      return StreamEx.of(myViewer.getSelectedChanges(side))
+        .select(MySimpleDiffChange.class)
+        .map(it -> new LocalTrackerChange(it.getStartLine(Side.RIGHT),
+                                          it.getEndLine(Side.RIGHT),
+                                          it.myChangelistId,
+                                          it.myIsExcludedFromCommit))
+        .toList();
     }
   }
 }

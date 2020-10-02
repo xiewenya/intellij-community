@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.usages.impl.rules;
 
 import com.intellij.icons.AllIcons;
@@ -20,7 +20,7 @@ import com.intellij.usages.Usage;
 import com.intellij.usages.UsageGroup;
 import com.intellij.usages.UsageTarget;
 import com.intellij.usages.UsageView;
-import com.intellij.usages.rules.UsageGroupingRule;
+import com.intellij.usages.rules.UsageGroupingRuleEx;
 import com.intellij.usages.rules.UsageInLibrary;
 import com.intellij.usages.rules.UsageInModule;
 import org.jetbrains.annotations.NotNull;
@@ -31,21 +31,18 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author max
- */
-public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
+class ModuleGroupingRule implements UsageGroupingRuleEx, DumbAware {
   private final ModuleGrouper myGrouper;
   private final boolean myFlattenModules;
 
-  public ModuleGroupingRule(Project project, boolean flattenModules) {
+  ModuleGroupingRule(@NotNull Project project, boolean flattenModules) {
     myGrouper = ModuleGrouper.instanceFor(project);
     myFlattenModules = flattenModules;
   }
 
   @NotNull
   @Override
-  public List<UsageGroup> getParentGroupsFor(@NotNull Usage usage, @NotNull UsageTarget[] targets) {
+  public List<UsageGroup> getParentGroupsFor(@NotNull Usage usage, UsageTarget @NotNull [] targets) {
     if (usage instanceof UsageInModule) {
       UsageInModule usageInModule = (UsageInModule)usage;
       Module module = usageInModule.getModule();
@@ -80,11 +77,16 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     return Collections.emptyList();
   }
 
+  @Override
+  public @Nullable String getGroupingActionId() {
+    return "UsageGrouping.Module";
+  }
+
   private static class LibraryUsageGroup extends UsageGroupBase {
 
     private final OrderEntry myEntry;
 
-    public LibraryUsageGroup(@NotNull OrderEntry entry) {
+    LibraryUsageGroup(@NotNull OrderEntry entry) {
       super(2);
       myEntry = entry;
     }
@@ -113,7 +115,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
   private static class SyntheticLibraryUsageGroup extends UsageGroupBase {
     @NotNull private final ItemPresentation myItemPresentation;
 
-    public SyntheticLibraryUsageGroup(@NotNull ItemPresentation itemPresentation) {
+    SyntheticLibraryUsageGroup(@NotNull ItemPresentation itemPresentation) {
       super(2);
       myItemPresentation = itemPresentation;
     }
@@ -126,7 +128,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     @Override
     @NotNull
     public String getText(UsageView view) {
-      return StringUtil.notNullize(myItemPresentation.getPresentableText(), "Library");
+      return StringUtil.notNullize(myItemPresentation.getPresentableText(), UsageViewBundle.message("list.item.library"));
     }
 
     public boolean equals(Object o) {
@@ -143,7 +145,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     private final Module myModule;
     private final ModuleGrouper myGrouper;
 
-    public ModuleUsageGroup(@NotNull Module module, @Nullable ModuleGrouper grouper) {
+    ModuleUsageGroup(@NotNull Module module, @Nullable ModuleGrouper grouper) {
       super(1);
       myModule = module;
       myGrouper = grouper;
@@ -179,11 +181,11 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     }
 
     public String toString() {
-      return UsageViewBundle.message("node.group.module") + getText(null);
+      return UsageViewBundle.message("node.group.module", getText(null));
     }
 
     @Override
-    public void calcData(final DataKey key, final DataSink sink) {
+    public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
       if (!isValid()) return;
       if (LangDataKeys.MODULE_CONTEXT == key) {
         sink.put(LangDataKeys.MODULE_CONTEXT, myModule);
@@ -194,7 +196,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
   private static class ModuleGroupUsageGroup extends UsageGroupBase {
     private final List<String> myGroupPath;
 
-    public ModuleGroupUsageGroup(@NotNull List<String> groupPath) {
+    ModuleGroupUsageGroup(@NotNull List<String> groupPath) {
       super(0);
       myGroupPath = groupPath;
     }
@@ -220,7 +222,7 @@ public class ModuleGroupingRule implements UsageGroupingRule, DumbAware {
     }
 
     public String toString() {
-      return UsageViewBundle.message("node.group.module.group") + getText(null);
+      return UsageViewBundle.message("node.group.module.group", getText(null));
     }
   }
 }

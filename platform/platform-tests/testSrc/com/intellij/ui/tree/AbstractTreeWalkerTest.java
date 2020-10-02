@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tree;
 
 import org.jetbrains.annotations.NotNull;
@@ -412,7 +412,7 @@ public class AbstractTreeWalkerTest {
     switch (walker.promise().getState()) {
       case PENDING:
         throw new IllegalStateException("not processed");
-      case FULFILLED:
+      case SUCCEEDED:
         if (!error) break;
         throw new IllegalStateException("not rejected");
       case REJECTED:
@@ -458,7 +458,7 @@ public class AbstractTreeWalkerTest {
   }
 
 
-  private static class Wrapper implements TreeVisitor {
+  private static final class Wrapper implements TreeVisitor {
     @SuppressWarnings("unused")
     private int count; // reflection
     private final TreeVisitor visitor;

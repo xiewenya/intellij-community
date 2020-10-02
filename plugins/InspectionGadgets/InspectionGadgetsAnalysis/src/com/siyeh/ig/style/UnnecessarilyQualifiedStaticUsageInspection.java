@@ -51,12 +51,6 @@ public class UnnecessarilyQualifiedStaticUsageInspection extends BaseInspection 
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("unnecessarily.qualified.static.usage.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     final PsiJavaCodeReferenceElement element = (PsiJavaCodeReferenceElement)infos[0];
     final PsiElement parent = element.getParent();
@@ -142,7 +136,7 @@ public class UnnecessarilyQualifiedStaticUsageInspection extends BaseInspection 
       return false;
     }
     final PsiJavaCodeReferenceElement qualifier = (PsiJavaCodeReferenceElement)qualifierElement;
-    if (isGenericReference(referenceElement, qualifier)) {
+    if (GenericsUtil.isGenericReference(referenceElement, qualifier)) {
       return false;
     }
     final PsiElement target = referenceElement.resolve();
@@ -221,24 +215,6 @@ public class UnnecessarilyQualifiedStaticUsageInspection extends BaseInspection 
         }
       }
       containingClass = ClassUtils.getContainingClass(containingClass);
-    }
-    return false;
-  }
-
-  static boolean isGenericReference(PsiJavaCodeReferenceElement referenceElement, PsiJavaCodeReferenceElement qualifierElement) {
-    final PsiReferenceParameterList qualifierParameterList = qualifierElement.getParameterList();
-    if (qualifierParameterList != null) {
-      final PsiTypeElement[] typeParameterElements = qualifierParameterList.getTypeParameterElements();
-      if (typeParameterElements.length > 0) {
-        return true;
-      }
-    }
-    final PsiReferenceParameterList parameterList = referenceElement.getParameterList();
-    if (parameterList != null) {
-      final PsiTypeElement[] typeParameterElements = parameterList.getTypeParameterElements();
-      if (typeParameterElements.length > 0) {
-        return true;
-      }
     }
     return false;
   }

@@ -5,13 +5,10 @@ package com.jetbrains.python.refactoring.changeSignature;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -20,6 +17,7 @@ import com.intellij.refactoring.changeSignature.ChangeSignatureHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.codeInsight.PyPsiIndexUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
@@ -36,7 +34,7 @@ import org.jetbrains.annotations.Nullable;
 public class PyChangeSignatureHandler implements ChangeSignatureHandler {
   @Nullable
   @Override
-  public PsiElement findTargetMember(PsiFile file, Editor editor) {
+  public PsiElement findTargetMember(@NotNull PsiFile file, @NotNull Editor editor) {
     final PsiElement element = PyUtil.findNonWhitespaceAtOffset(file, editor.getCaretModel().getOffset());
     return findTargetMember(element);
   }
@@ -44,18 +42,24 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
   @Nullable
   @Override
   public PsiElement findTargetMember(@Nullable PsiElement element) {
+    if (element == null) return null;
+    final TypeEvalContext context = TypeEvalContext.codeInsightFallback(element.getProject());
+
     final PyCallExpression callExpression = PsiTreeUtil.getParentOfType(element, PyCallExpression.class);
     if (callExpression != null) {
-      final PyCallable resolved = ContainerUtil.getFirstItem(callExpression.multiResolveCalleeFunction(PyResolveContext.defaultContext()));
-      if (resolved instanceof PyFunction && PyiUtil.isOverload(resolved, TypeEvalContext.codeInsightFallback(callExpression.getProject()))) {
-        return PyiUtil.getImplementation((PyFunction)resolved);
-      }
-      return resolved;
+      final PyResolveContext resolveContext = PyResolveContext.implicitContext().withTypeEvalContext(context);
+      final PyCallable resolved = ContainerUtil.getFirstItem(callExpression.multiResolveCalleeFunction(resolveContext));
+
+      return resolved instanceof PyFunction && PyiUtil.isOverload(resolved, context)
+             ? PyiUtil.getImplementation((PyFunction)resolved, context)
+             : resolved;
     }
+
     final PyFunction parent = PsiTreeUtil.getParentOfType(element, PyFunction.class);
-    if (parent != null && PyiUtil.isOverload(parent, TypeEvalContext.codeInsightFallback(parent.getProject()))) {
+    if (parent != null && PyiUtil.isOverload(parent, context)) {
       return null;
     }
+
     return parent;
   }
 
@@ -69,7 +73,7 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
   }
 
   @Override
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, @Nullable DataContext dataContext) {
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, @Nullable DataContext dataContext) {
     if (elements.length != 1) {
       return;
     }
@@ -93,7 +97,7 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
       return;
     }
 
-    if (isNotUnderSourceRoot(project, element.getContainingFile())) {
+    if (PyPsiIndexUtil.isNotUnderSourceRoot(project, element.getContainingFile())) {
       showCannotRefactorErrorHint(project, editor, PyBundle.message("refactoring.change.signature.error.not.under.source.root"));
       return;
     }
@@ -104,7 +108,7 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
     }
     if (!superMethod.equals(element)) {
       element = superMethod;
-      if (isNotUnderSourceRoot(project, superMethod.getContainingFile())) {
+      if (PyPsiIndexUtil.isNotUnderSourceRoot(project, superMethod.getContainingFile())) {
         return;
       }
     }
@@ -123,23 +127,9 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
     dialog.show();
   }
 
-  private static void showCannotRefactorErrorHint(@NotNull Project project, @Nullable Editor editor, @NotNull String details) {
+  private static void showCannotRefactorErrorHint(@NotNull Project project, @Nullable Editor editor, @NotNull @NlsContexts.DialogMessage String details) {
     final String message = RefactoringBundle.getCannotRefactorMessage(details);
-    CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, "refactoring.renameRefactorings");
-  }
-
-  public static boolean isNotUnderSourceRoot(@NotNull final Project project, @Nullable final PsiFile psiFile) {
-    if (psiFile == null) {
-      return true;
-    }
-    final VirtualFile virtualFile = psiFile.getVirtualFile();
-    if (virtualFile != null) {
-      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-      if (fileIndex.isExcluded(virtualFile) || (fileIndex.isInLibraryClasses(virtualFile) && !fileIndex.isInContent(virtualFile))) {
-        return true;
-      }
-    }
-    return false;
+    CommonRefactoringUtil.showErrorHint(project, editor, message, RefactoringBundle.message("changeSignature.refactoring.name"), "refactoring.renameRefactorings");
   }
 
   @Nullable
@@ -149,6 +139,9 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
     }
     final PyClass containingClass = function.getContainingClass();
     if (containingClass == null) {
+      return function;
+    }
+    if (PyUtil.isInitOrNewMethod(function)) {
       return function;
     }
     final PyFunction deepestSuperMethod = PySuperMethodsSearch.findDeepestSuperMethod(function);
@@ -163,13 +156,8 @@ public class PyChangeSignatureHandler implements ChangeSignatureHandler {
                                               function.getName(),
                                               containingClass.getName(),
                                               baseClassName);
-      final int choice;
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
-        choice = Messages.YES;
-      }
-      else {
-        choice = Messages.showYesNoCancelDialog(function.getProject(), message, REFACTORING_NAME, Messages.getQuestionIcon());
-      }
+      final int choice = Messages.showYesNoCancelDialog(function.getProject(), message, 
+                                                        RefactoringBundle.message("changeSignature.refactoring.name"), Messages.getQuestionIcon());
       switch (choice) {
         case Messages.YES:
           return deepestSuperMethod;

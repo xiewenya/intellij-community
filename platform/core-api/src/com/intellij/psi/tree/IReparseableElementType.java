@@ -1,22 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.tree;
 
 import com.intellij.lang.ASTNode;
@@ -29,10 +11,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A lazy-parseable element type which allows for incremental reparse. When the infrastructure detects
  * that all the document's changes are inside an AST node with reparseable type,
- * {@link #isParsable(ASTNode, CharSequence, Language, Project)} is invoked, and if it's successful,
+ * {@link #isReparseable(ASTNode, CharSequence, Language, Project)} is invoked, and if it's successful,
  * only the contents inside this element are reparsed instead of the whole file. This can speed up reparse dramatically.
  */
-public class IReparseableElementType extends ILazyParseableElementType {
+public class IReparseableElementType extends ILazyParseableElementType implements IReparseableElementTypeBase {
   public IReparseableElementType(@NotNull @NonNls String debugName) {
     super(debugName);
   }
@@ -83,10 +65,19 @@ public class IReparseableElementType extends ILazyParseableElementType {
    * @param project the project containing the content.
    * @return true if the content is valid, false if not
    */
+  @Override
   public boolean isParsable(@Nullable ASTNode parent,
                             @NotNull CharSequence buffer,
                             @NotNull Language fileLanguage,
                             @NotNull Project project) {
     return isParsable(buffer, fileLanguage, project);
   }
+
+  @Override
+  public boolean isValidReparse(@NotNull ASTNode oldNode, @NotNull ASTNode newNode) {
+    return true;
+  }
+
+  // Please, add no more public methods here. Add them to `IReparseableElementTypeBase` instead.
+  // If you are not sure about the API stability, use `ApiStatus.Experimental` annotation
 }

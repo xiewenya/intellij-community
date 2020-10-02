@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler;
 
 import com.intellij.ProjectTopics;
@@ -6,6 +6,7 @@ import com.intellij.compiler.impl.CompileDriver;
 import com.intellij.compiler.impl.ExitStatus;
 import com.intellij.compiler.server.BuildManager;
 import com.intellij.ide.highlighter.ModuleFileType;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.compiler.*;
@@ -23,14 +24,14 @@ import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.artifacts.ArtifactManager;
 import com.intellij.packaging.impl.compiler.ArtifactCompileScope;
-import com.intellij.testFramework.ModuleTestCase;
-import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.VfsTestUtil;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.*;
 import com.intellij.util.concurrency.Semaphore;
+import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.io.DirectoryContentSpec;
+import com.intellij.util.io.DirectoryContentSpecKt;
 import com.intellij.util.io.TestFileSystemBuilder;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.util.JpsPathUtil;
@@ -39,20 +40,19 @@ import org.junit.Assert;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 
-/**
- * @author nik
- */
-public abstract class BaseCompilerTestCase extends ModuleTestCase {
+public abstract class BaseCompilerTestCase extends JavaModuleTestCase {
   @Override
   protected void setUpModule() {
   }
 
   @Override
-  protected boolean isCreateProjectFileExplicitly() {
-    return false;
+  protected @NotNull OpenProjectTaskBuilder getOpenProjectOptions() {
+    // RecompileAfterVfsChangesTest fails runPostStartUpActivities is disabled
+    return super.getOpenProjectOptions().componentStoreLoadingEnabled(false);
   }
 
   @Override
@@ -60,7 +60,7 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
     super.setUp();
     myProject.getMessageBus().connect(getTestRootDisposable()).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         //todo[nik] projectOpened isn't called in tests so we need to add this listener manually
         forceFSRescan();
       }
@@ -70,6 +70,12 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
 
   protected void forceFSRescan() {
     BuildManager.getInstance().clearState(myProject);
+  }
+
+  @NotNull
+  @Override
+  protected LanguageLevel getProjectLanguageLevel() {
+    return LanguageLevel.JDK_1_8;
   }
 
   @Override
@@ -87,6 +93,9 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
         }
       }
       CompilerTestUtil.disableExternalCompiler(getProject());
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
@@ -117,13 +126,13 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
     });
   }
 
-  protected Module addModule(final String moduleName, final @Nullable VirtualFile sourceRoot) {
+  protected Module addModule(@NotNull String moduleName, @Nullable VirtualFile sourceRoot) {
     return addModule(moduleName, sourceRoot, null);
   }
 
-  protected Module addModule(final String moduleName, final @Nullable VirtualFile sourceRoot, final @Nullable VirtualFile testRoot) {
+  protected Module addModule(String moduleName, @Nullable VirtualFile sourceRoot, @Nullable VirtualFile testRoot) {
     return WriteAction.computeAndWait(() -> {
-      final Module module = createModule(moduleName);
+      Module module = createModule(moduleName);
       if (sourceRoot != null) {
         PsiTestUtil.addSourceContentToRoots(module, sourceRoot, false);
       }
@@ -207,7 +216,7 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
     return compile(false, compileStatusNotification -> getCompilerManager().rebuild(compileStatusNotification));
   }
 
-  protected CompilationLog compile(final boolean errorsExpected, final Consumer<CompileStatusNotification> action) {
+  protected CompilationLog compile(final boolean errorsExpected, final Consumer<? super CompileStatusNotification> action) {
     CompilationLog log = compile(action);
     if (errorsExpected && log.myErrors.length == 0) {
       Assert.fail("compilation finished without errors");
@@ -218,21 +227,24 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
     return log;
   }
 
-  private CompilationLog compile(final Consumer<CompileStatusNotification> action) {
-    final Ref<CompilationLog> result = Ref.create(null);
+  private CompilationLog compile(@NotNull Consumer<? super CompileStatusNotification> action) {
+    final Ref<CompilationLog> result = new Ref<>(null);
     final Semaphore semaphore = new Semaphore();
     semaphore.down();
     final List<String> generatedFilePaths = new ArrayList<>();
     myProject.getMessageBus().connect(getTestRootDisposable()).subscribe(CompilerTopics.COMPILATION_STATUS, new CompilationStatusListener() {
       @Override
-      public void fileGenerated(String outputRoot, String relativePath) {
+      public void fileGenerated(@NotNull String outputRoot, @NotNull String relativePath) {
         generatedFilePaths.add(relativePath);
       }
     });
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
-      final CompileStatusNotification callback = new CompileStatusNotification() {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
+      PlatformTestUtil.saveProject(myProject);
+      CompilerTestUtil.saveApplicationSettings();
+      CompilerTester.enableDebugLogging();
+      action.accept(new CompileStatusNotification() {
         @Override
-        public void finished(boolean aborted, int errors, int warnings, CompileContext compileContext) {
+        public void finished(boolean aborted, int errors, int warnings, @NotNull CompileContext compileContext) {
           try {
             if (aborted) {
               Assert.fail("compilation aborted");
@@ -247,23 +259,25 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
             semaphore.up();
           }
         }
-      };
-      PlatformTestUtil.saveProject(myProject);
-      CompilerTestUtil.saveApplicationSettings();
-      action.accept(callback);
+      });
     });
 
-    final long start = System.currentTimeMillis();
-    while (!semaphore.waitFor(10)) {
-      if (System.currentTimeMillis() - start > 5 * 60 * 1000) {
-        throw new RuntimeException("timeout");
+    try {
+      final long start = System.currentTimeMillis();
+      while (!semaphore.waitFor(10)) {
+        if (!BuildManager.getInstance().isBuildProcessDebuggingEnabled() && System.currentTimeMillis() - start > 5 * 60 * 1000) {
+          throw new RuntimeException("timeout");
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+          UIUtil.dispatchAllInvocationEvents();
+        }
       }
       if (SwingUtilities.isEventDispatchThread()) {
         UIUtil.dispatchAllInvocationEvents();
       }
     }
-    if (SwingUtilities.isEventDispatchThread()) {
-      UIUtil.dispatchAllInvocationEvents();
+    finally {
+      CompilerTester.printBuildLog();
     }
 
     return result.get();
@@ -303,14 +317,13 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
 
   @NotNull
   @Override
-  protected Module doCreateRealModule(String moduleName) {
+  protected Module doCreateRealModule(@NotNull String moduleName) {
     //todo[nik] reuse code from PlatformTestCase
-    final VirtualFile baseDir = getOrCreateProjectBaseDir();
-    final File moduleFile = new File(baseDir.getPath().replace('/', File.separatorChar), moduleName + ModuleFileType.DOT_DEFAULT_EXTENSION);
-    myFilesToDelete.add(moduleFile);
+    VirtualFile baseDir = getOrCreateProjectBaseDir();
+    Path moduleFile = baseDir.toNioPath().resolve(moduleName + ModuleFileType.DOT_DEFAULT_EXTENSION);
     return WriteAction.computeAndWait(() -> {
       Module module = ModuleManager.getInstance(myProject)
-                                   .newModule(FileUtil.toSystemIndependentName(moduleFile.getAbsolutePath()), getModuleType().getId());
+        .newModule(FileUtil.toSystemIndependentName(moduleFile.toString()), getModuleType().getId());
       module.getModuleFile();
       return module;
     });
@@ -322,6 +335,10 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
 
   protected static void assertOutput(Module module, TestFileSystemBuilder item) {
     assertOutput(module, item, false);
+  }
+
+  protected static void assertOutput(Module module, DirectoryContentSpec spec) {
+    DirectoryContentSpecKt.assertMatches(getOutputDir(module, false), spec);
   }
 
   protected static void assertOutput(Module module, TestFileSystemBuilder item, final boolean forTests) {
@@ -378,7 +395,7 @@ public abstract class BaseCompilerTestCase extends ModuleTestCase {
       myExternalBuildUpToDate = externalBuildUpToDate;
       myErrors = errors;
       myWarnings = warnings;
-      myGeneratedPaths = new THashSet<>(generatedFilePaths, FileUtil.PATH_HASHING_STRATEGY);
+      myGeneratedPaths = CollectionFactory.createFilePathSet(generatedFilePaths);
     }
 
     public void assertUpToDate() {

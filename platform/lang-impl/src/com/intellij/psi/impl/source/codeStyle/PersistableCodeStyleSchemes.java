@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.codeStyle;
 
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -6,32 +6,36 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.options.SchemeManagerFactory;
 import com.intellij.psi.codeStyle.CodeStyleScheme;
+import com.intellij.serviceContainer.NonInjectable;
 import com.intellij.util.xmlb.Accessor;
 import com.intellij.util.xmlb.SerializationFilter;
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * @author Rustam Vishnyakov
  */
 @State(
   name = "CodeStyleSchemeSettings",
-  storages = {
-    @Storage("code.style.schemes.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  },
-  additionalExportFile = CodeStyleSchemesImpl.CODE_STYLES_DIR_PATH
+  storages = @Storage("code.style.schemes.xml"),
+  additionalExportDirectory = CodeStyleSchemesImpl.CODE_STYLES_DIR_PATH
 )
-public class PersistableCodeStyleSchemes extends CodeStyleSchemesImpl implements PersistentStateComponent<Element> {
-  public String CURRENT_SCHEME_NAME = CodeStyleSchemeImpl.DEFAULT_SCHEME_NAME;
+public final class PersistableCodeStyleSchemes extends CodeStyleSchemesImpl implements PersistentStateComponent<Element> {
+  public String CURRENT_SCHEME_NAME = CodeStyleScheme.DEFAULT_SCHEME_NAME;
 
+  public PersistableCodeStyleSchemes() {
+    this(SchemeManagerFactory.getInstance());
+  }
+
+  @NonInjectable
+  @TestOnly
   public PersistableCodeStyleSchemes(@NotNull SchemeManagerFactory schemeManagerFactory) {
     super(schemeManagerFactory);
   }
 
-  @Nullable
+  @NotNull
   @Override
   public Element getState() {
     CodeStyleScheme currentScheme = getCurrentScheme();
@@ -40,7 +44,7 @@ public class PersistableCodeStyleSchemes extends CodeStyleSchemesImpl implements
       @Override
       public boolean accepts(@NotNull Accessor accessor, @NotNull Object bean) {
         if ("CURRENT_SCHEME_NAME".equals(accessor.getName())) {
-          return !CodeStyleSchemeImpl.DEFAULT_SCHEME_NAME.equals(accessor.read(bean));
+          return !CodeStyleScheme.DEFAULT_SCHEME_NAME.equals(accessor.read(bean));
         }
         else {
           return accessor.getValueClass().equals(String.class);
@@ -51,7 +55,7 @@ public class PersistableCodeStyleSchemes extends CodeStyleSchemesImpl implements
 
   @Override
   public void loadState(@NotNull Element state) {
-    CURRENT_SCHEME_NAME = CodeStyleSchemeImpl.DEFAULT_SCHEME_NAME;
+    CURRENT_SCHEME_NAME = CodeStyleScheme.DEFAULT_SCHEME_NAME;
     XmlSerializer.deserializeInto(this, state);
     CodeStyleScheme current = CURRENT_SCHEME_NAME == null ? null : mySchemeManager.findSchemeByName(CURRENT_SCHEME_NAME);
     setCurrentScheme(current == null ? getDefaultScheme() : current);

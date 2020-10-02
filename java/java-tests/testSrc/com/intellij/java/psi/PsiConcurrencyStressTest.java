@@ -1,8 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.psi;
 
 import com.intellij.codeInsight.daemon.DaemonAnalyzerTestCase;
@@ -13,7 +9,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
@@ -32,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 @SkipSlowTestLocally
@@ -59,7 +55,7 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
     DaemonProgressIndicator.setDebug(false);
     int numOfThreads = Runtime.getRuntime().availableProcessors();
     int iterations = Timings.adjustAccordingToMySpeed(20, true);
-    System.out.println("iterations = " + iterations);
+    LOG.debug("iterations = " + iterations);
     final int readIterations = iterations * 3;
 
     synchronized (this) {
@@ -72,8 +68,9 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
 
     final CountDownLatch reads = new CountDownLatch(numOfThreads);
     final Random random = new Random();
-    List<Thread> threads = ContainerUtil.map(Collections.nCopies(numOfThreads, ""), i ->
-      new Thread(() -> {
+
+    List<Future<?>> threads = ContainerUtil.map(Collections.nCopies(numOfThreads, ""), i ->
+      ApplicationManager.getApplication().executeOnPooledThread(() -> {
         for (int i1 = 0; i1 < readIterations; i1++) {
           if (myPsiManager == null) return;
           ProgressManager.getInstance().runProcess(() -> ApplicationManager.getApplication().runReadAction(() -> {
@@ -83,8 +80,7 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
         }
 
         reads.countDown();
-      }, "stress thread" + i));
-    threads.forEach(Thread::start);
+      }));
 
     final Document document = documentManager.getDocument(myFile);
 
@@ -101,7 +97,7 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
     }
 
     assertTrue("Timed out", reads.await(5, TimeUnit.MINUTES));
-    ConcurrencyUtil.joinAll(threads);
+    ConcurrencyUtil.getAll(threads);
   }
 
   private static void mark(final String s) {
@@ -152,11 +148,11 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
         mark("h");
         aClass.accept(new PsiRecursiveElementVisitor() {
           @Override
-          public void visitElement(final PsiElement element) {
+          public void visitElement(@NotNull final PsiElement element) {
             super.visitElement(element);
 
             final HighlightInfoHolder infoHolder = new HighlightInfoHolder(myFile);
-            for (HighlightVisitor visitor : Extensions.getExtensions(HighlightVisitor.EP_HIGHLIGHT_VISITOR, getProject())) {
+            for (HighlightVisitor visitor : HighlightVisitor.EP_HIGHLIGHT_VISITOR.getExtensionList(getProject())) {
               HighlightVisitor v = visitor.clone(); // to avoid race for com.intellij.codeInsight.daemon.impl.DefaultHighlightVisitor.myAnnotationHolder
               v.analyze(myFile, true, infoHolder, () -> v.visit(element));
             }
@@ -171,10 +167,5 @@ public class PsiConcurrencyStressTest extends DaemonAnalyzerTestCase {
         }
         break;
     }
-  }
-
-  @Override
-  protected void invokeTestRunnable(@NotNull final Runnable runnable) {
-    runnable.run();
   }
 }

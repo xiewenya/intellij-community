@@ -28,13 +28,10 @@ public class SuppressLocalInspectionTest extends LightQuickFixParameterizedTestC
     return LanguageLevel.JDK_1_3;
   }
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new LocalCanBeFinal(), new FieldCanBeLocalInspection()};
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

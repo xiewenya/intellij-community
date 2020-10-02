@@ -16,8 +16,12 @@
 package com.intellij.java.codeInsight.daemon.quickFix;
 
 import com.intellij.codeInsight.daemon.LightIntentionActionTestCase;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.codeInspection.deadCode.UnusedDeclarationInspectionBase;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.testFramework.LightProjectDescriptor;
+import org.jetbrains.annotations.NotNull;
+
+import static com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase.JAVA_8;
 
 /**
  * @author ven
@@ -26,18 +30,14 @@ public class CreateFieldFromParameterTest extends LightIntentionActionTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    CodeStyleSettingsManager.getSettings(getProject()).getCustomSettings(JavaCodeStyleSettings.class).FIELD_NAME_PREFIX = "my";
+    JavaCodeStyleSettings.getInstance(getProject()).FIELD_NAME_PREFIX = "my";
+    enableInspectionTool(new UnusedDeclarationInspectionBase());
   }
 
+  @NotNull
   @Override
-  protected void tearDown() throws Exception {
-    CodeStyleSettingsManager.getSettings(getProject()).getCustomSettings(JavaCodeStyleSettings.class).FIELD_NAME_PREFIX = "";
-    //noinspection SuperTearDownInFinally
-    super.tearDown();
-  }
-
-  public void test() {
-    doAllTests();
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_8;
   }
 
   @Override

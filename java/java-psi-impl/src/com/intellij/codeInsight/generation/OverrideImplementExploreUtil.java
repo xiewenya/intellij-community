@@ -1,8 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.generation;
 
 import com.intellij.codeInsight.MemberImplementorExplorer;
 import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.NullableLazyValue;
 import com.intellij.openapi.util.VolatileNullableLazyValue;
 import com.intellij.openapi.util.text.StringUtil;
@@ -15,10 +15,8 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 
 public class OverrideImplementExploreUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.OverrideImplementExploreUtil");
-
   @NotNull
-  public static Collection<CandidateInfo> getMethodsToOverrideImplement(PsiClass aClass, boolean toImplement) {
+  public static Collection<CandidateInfo> getMethodsToOverrideImplement(@NotNull PsiClass aClass, boolean toImplement) {
     return getMapToOverrideImplement(aClass, toImplement).values();
   }
 
@@ -34,21 +32,20 @@ public class OverrideImplementExploreUtil {
   }
 
   @NotNull
-  public static Map<MethodSignature, CandidateInfo> getMapToOverrideImplement(PsiClass aClass, boolean toImplement) {
+  public static Map<MethodSignature, CandidateInfo> getMapToOverrideImplement(@NotNull PsiClass aClass, boolean toImplement) {
     return getMapToOverrideImplement(aClass, toImplement, true);
   }
 
   @NotNull
-  public static Map<MethodSignature, CandidateInfo> getMapToOverrideImplement(PsiClass aClass, boolean toImplement, boolean skipImplemented) {
-    Map<MethodSignature, PsiMethod> abstracts = new LinkedHashMap<>();
-    Map<MethodSignature, PsiMethod> finals = new LinkedHashMap<>();
-    Map<MethodSignature, PsiMethod> concretes = new LinkedHashMap<>();
-
+  public static Map<MethodSignature, CandidateInfo> getMapToOverrideImplement(@NotNull PsiClass aClass, boolean toImplement, boolean skipImplemented) {
     if (aClass.isAnnotationType() || aClass instanceof PsiTypeParameter) return Collections.emptyMap();
 
     PsiUtilCore.ensureValid(aClass);
     Collection<HierarchicalMethodSignature> allMethodSigs = aClass.getVisibleSignatures();
     PsiResolveHelper resolveHelper = JavaPsiFacade.getInstance(aClass.getProject()).getResolveHelper();
+    Map<MethodSignature, PsiMethod> abstracts = new LinkedHashMap<>();
+    Map<MethodSignature, PsiMethod> finals = new LinkedHashMap<>();
+    Map<MethodSignature, PsiMethod> concretes = new LinkedHashMap<>();
     for (HierarchicalMethodSignature signature : allMethodSigs) {
       PsiMethod method = signature.getMethod();
       PsiUtilCore.ensureValid(method);
@@ -82,7 +79,7 @@ public class OverrideImplementExploreUtil {
 
       Map<MethodSignature, PsiMethod> map = hisClass.isInterface() || method.hasModifierProperty(PsiModifier.ABSTRACT) ? abstracts : concretes;
       fillMap(signature, method, map);
-      if (isDefaultMethod(aClass, method)) {
+      if (shouldAppearInOverrideList(aClass, method)) {
         fillMap(signature, method, concretes);
       }
     }
@@ -110,20 +107,22 @@ public class OverrideImplementExploreUtil {
     return result;
   }
 
-  private static boolean isDefaultMethod(PsiClass aClass, PsiMethod method) {
+  private static boolean isDefaultMethod(@NotNull PsiClass aClass, @NotNull PsiMethod method) {
     return method.hasModifierProperty(PsiModifier.DEFAULT) &&
            PsiUtil.getLanguageLevel(aClass).isAtLeast(LanguageLevel.JDK_1_8);
   }
 
-  private static void fillMap(HierarchicalMethodSignature signature, PsiMethod method, Map<MethodSignature, PsiMethod> map) {
+  private static void fillMap(@NotNull HierarchicalMethodSignature signature, @NotNull PsiMethod method, @NotNull Map<MethodSignature, PsiMethod> map) {
     final PsiMethod other = map.get(signature);
     if (other == null || preferLeftForImplement(method, other)) {
       map.put(signature, method);
     }
   }
 
+  @FunctionalInterface
   public interface MemberImplementorExplorersProvider {
-    MemberImplementorExplorer[] getExplorers();
+    @NotNull
+    List<? extends MemberImplementorExplorer> getExplorers();
   }
 
   private static final NullableLazyValue<MemberImplementorExplorersProvider> ourExplorersProvider = new VolatileNullableLazyValue<MemberImplementorExplorersProvider>() {
@@ -133,11 +132,11 @@ public class OverrideImplementExploreUtil {
     }
   };
 
-  public static void collectMethodsToImplement(PsiClass aClass,
-                                               Map<MethodSignature, PsiMethod> abstracts,
-                                               Map<MethodSignature, PsiMethod> finals,
-                                               Map<MethodSignature, PsiMethod> concretes,
-                                               Map<MethodSignature, CandidateInfo> result) {
+  private static void collectMethodsToImplement(@NotNull PsiClass aClass,
+                                                @NotNull Map<MethodSignature, PsiMethod> abstracts,
+                                                @NotNull Map<MethodSignature, PsiMethod> finals,
+                                                @NotNull Map<MethodSignature, PsiMethod> concretes,
+                                                @NotNull Map<MethodSignature, CandidateInfo> result) {
     for (Map.Entry<MethodSignature, PsiMethod> entry : abstracts.entrySet()) {
       MethodSignature signature = entry.getKey();
       PsiMethod abstractOne = entry.getValue();
@@ -145,7 +144,7 @@ public class OverrideImplementExploreUtil {
       if (concrete == null
           || PsiUtil.getAccessLevel(concrete.getModifierList()) < PsiUtil.getAccessLevel(abstractOne.getModifierList())
           || !abstractOne.getContainingClass().isInterface() && abstractOne.getContainingClass().isInheritor(concrete.getContainingClass(), true)
-          || isDefaultMethod(aClass, abstractOne)) {
+          || shouldAppearInOverrideList(aClass, abstractOne)) {
         if (finals.get(signature) == null) {
           PsiSubstitutor subst = correctSubstitutor(abstractOne, signature.getSubstitutor());
           CandidateInfo info = new CandidateInfo(abstractOne, subst);
@@ -158,9 +157,7 @@ public class OverrideImplementExploreUtil {
     if (explorersProvider != null) {
       for (final MemberImplementorExplorer implementor : explorersProvider.getExplorers()) {
         for (final PsiMethod method : implementor.getMethodsToImplement(aClass)) {
-          MethodSignature signature = MethodSignatureUtil.createMethodSignature(method.getName(), method.getParameterList(),
-                                                                                method.getTypeParameterList(), PsiSubstitutor.EMPTY,
-                                                                                method.isConstructor());
+          MethodSignature signature = MethodSignatureBackedByPsiMethod.create(method, PsiSubstitutor.EMPTY);
           CandidateInfo info = new CandidateInfo(method, PsiSubstitutor.EMPTY);
           result.put(signature, info);
         }
@@ -168,7 +165,18 @@ public class OverrideImplementExploreUtil {
     }
   }
 
-  private static boolean preferLeftForImplement(PsiMethod left, PsiMethod right) {
+  private static boolean shouldAppearInOverrideList(@NotNull PsiClass aClass, PsiMethod abstractOne) {
+    return isDefaultMethod(aClass, abstractOne) ||
+           // abstract methods from java.lang.Record (equals/hashCode/toString) are implicitly implemented in subclasses
+           // so it could be reasonable to expect them in 'override' method dialog
+           belongsToRecord(abstractOne);
+  }
+
+  static boolean belongsToRecord(@NotNull PsiMethod method) {
+    return CommonClassNames.JAVA_LANG_RECORD.equals(Objects.requireNonNull(method.getContainingClass()).getQualifiedName());
+  }
+
+  private static boolean preferLeftForImplement(@NotNull PsiMethod left, @NotNull PsiMethod right) {
     if (PsiUtil.getAccessLevel(left.getModifierList()) > PsiUtil.getAccessLevel(right.getModifierList())) return true;
     if (!left.getContainingClass().isInterface()) return true;
     if (!right.getContainingClass().isInterface()) return false;
@@ -204,12 +212,13 @@ public class OverrideImplementExploreUtil {
     }
   }
 
-  public static PsiSubstitutor correctSubstitutor(PsiMethod method, PsiSubstitutor substitutor) {
+  @NotNull
+  public static PsiSubstitutor correctSubstitutor(@NotNull PsiMethod method, @NotNull PsiSubstitutor substitutor) {
     PsiClass hisClass = method.getContainingClass();
     PsiTypeParameter[] typeParameters = method.getTypeParameters();
     if (typeParameters.length > 0) {
       if (PsiUtil.isRawSubstitutor(hisClass, substitutor)) {
-        substitutor = JavaPsiFacade.getInstance(method.getProject()).getElementFactory().createRawSubstitutor(substitutor, typeParameters);
+        substitutor = JavaPsiFacade.getElementFactory(method.getProject()).createRawSubstitutor(substitutor, typeParameters);
       }
     }
     return substitutor;

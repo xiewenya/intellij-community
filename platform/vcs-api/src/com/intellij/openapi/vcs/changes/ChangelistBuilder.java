@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.util.Factory;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -52,7 +41,7 @@ public interface ChangelistBuilder {
    * @param changeListName A name for a change list.
    * @param vcsKey
    */
-  void processChangeInList(Change change, String changeListName, VcsKey vcsKey);
+  void processChangeInList(Change change, @NlsSafe String changeListName, VcsKey vcsKey);
 
   void removeRegisteredChangeFor(final FilePath path);
 
@@ -60,8 +49,16 @@ public interface ChangelistBuilder {
    * Process a file that is not under version control.
    *
    * @param file a file to process
+   * @deprecated use {@link #processUnversionedFile(FilePath)} instead
    */
-  void processUnversionedFile(VirtualFile file);
+  @Deprecated
+  default void processUnversionedFile(VirtualFile file) {
+    if (file != null) {
+      processUnversionedFile(VcsUtil.getFilePath(file));
+    }
+  }
+
+  void processUnversionedFile(FilePath filePath);
 
   /**
    * Process a file that was deleted locally, but version
@@ -85,8 +82,16 @@ public interface ChangelistBuilder {
    * Process the file that is ignored by the version control.
    *
    * @param file an ignored file
+   * @deprecated use {@link #processIgnoredFile(FilePath)} instead
    */
-  void processIgnoredFile(VirtualFile file);
+  @Deprecated
+  default void processIgnoredFile(VirtualFile file) {
+    if (file != null) {
+      processIgnoredFile(VcsUtil.getFilePath(file));
+    }
+  }
+
+  void processIgnoredFile(FilePath filePath);
 
   /**
    * technically locked folder (for Subversion: locked in working copy to keep WC's state consistent)
@@ -106,13 +111,13 @@ public interface ChangelistBuilder {
    * @param branch    the name of the branch to which the file is switched.
    * @param recursive if true, all subdirectories of file are also marked as switched to that branch
    */
-  void processSwitchedFile(VirtualFile file, String branch, final boolean recursive);
+  void processSwitchedFile(VirtualFile file, @NlsSafe String branch, final boolean recursive);
 
-  void processRootSwitch(VirtualFile file, String branch);
+  void processRootSwitch(VirtualFile file, @NlsSafe String branch);
 
   boolean reportChangesOutsideProject();
-  
-  void reportAdditionalInfo(final String text);
+
+  void reportAdditionalInfo(@NlsContexts.Label final String text);
 
   void reportAdditionalInfo(final Factory<JComponent> infoComponent);
 }

@@ -1,55 +1,41 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
 import com.intellij.openapi.util.RecursionGuard;
 import com.intellij.openapi.util.RecursionManager;
+import com.intellij.util.DeprecatedMethodException;
 import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.Producer;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.AbstractMap;
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Supplier;
 
 /**
- * a Map which computes the value associated with the key (via {@link #create(Object)} method) on first {@link #get(Object)} access.
- * NOT THREAD SAFE.
- * For thread-safe alternative please use {@link ConcurrentFactoryMap}
+ * Map which computes the value associated with the key (via {@link #create(Object)} method) on first {@link #get(Object)} access.
+ * This map is NOT THREAD SAFE.
+ * For the thread-safe alternative please use {@link ConcurrentFactoryMap} instead.
  */
 public abstract class FactoryMap<K,V> implements Map<K, V> {
-  private static final RecursionGuard ourGuard = RecursionManager.createGuard("factoryMap");
-
   private Map<K, V> myMap;
 
   /**
-   * Use {@link #create(Function)} instead
+   * @deprecated Use {@link #create(Function)} instead
    */
   @Deprecated
   public FactoryMap() {
+    DeprecatedMethodException.report("Use FactoryMap.create*() instead");
+  }
+
+  private FactoryMap(boolean safe) {
   }
 
   @NotNull
   protected Map<K, V> createMap() {
-    return new THashMap<K, V>();
+    return new HashMap<>();
   }
 
   @Nullable
@@ -61,7 +47,8 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
     K k = notNull(key);
     V value = map.get(k);
     if (value == null) {
-      RecursionGuard.StackStamp stamp = ourGuard.markStack();
+      RecursionGuard.StackStamp stamp = RecursionManager.markStack();
+      //noinspection unchecked
       value = create((K)key);
       if (stamp.mayCacheNow()) {
         V v = notNull(value);
@@ -86,7 +73,7 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
 
   private static <T> T notNull(final Object key) {
     //noinspection unchecked
-    return key == null ? FactoryMap.<T>FAKE_NULL() : (T)key;
+    return key == null ? FAKE_NULL() : (T)key;
   }
   @Nullable
   private static <T> T nullize(T value) {
@@ -118,7 +105,7 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
     final Set<K> ts = getMap().keySet();
     K nullKey = FAKE_NULL();
     if (ts.contains(nullKey)) {
-      final java.util.HashSet<K> hashSet = new HashSet<K>(ts);
+      Set<K> hashSet = new HashSet<>(ts);
       hashSet.remove(nullKey);
       hashSet.add(null);
       return hashSet;
@@ -129,9 +116,8 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
   public boolean removeValue(Object value) {
     Object t = notNull(value);
     //noinspection SuspiciousMethodCalls
-    return getMap().values().remove(t);                                                                                
+    return getMap().values().remove(t);
   }
-
 
   @Override
   public void clear() {
@@ -163,38 +149,24 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
   @NotNull
   @Override
   public Collection<V> values() {
-    return ContainerUtil.map(getMap().values(), new Function<V, V>() {
-      @Override
-      public V fun(V v) {
-        return nullize(v);
-      }
-    });
+    return ContainerUtil.map(getMap().values(), FactoryMap::nullize);
   }
 
   @NotNull
   @Override
   public Set<Entry<K, V>> entrySet() {
-    return ContainerUtil.map2Set(getMap().entrySet(), new Function<Entry<K,V>, Entry<K,V>>() {
-          @Override
-          public Entry<K,V> fun(Entry<K,V> entry) {
-            return new AbstractMap.SimpleEntry<K, V>(nullize(entry.getKey()), nullize(entry.getValue()));
-          }
-        });
+    return ContainerUtil.map2Set(getMap().entrySet(),
+                                 entry -> new AbstractMap.SimpleEntry<>(nullize(entry.getKey()), nullize(entry.getValue())));
   }
 
-  /**
-   * Use {@link #create(Function)} instead. TODO to be removed in IDEA 2018
-   */
-  @Deprecated
-  @NotNull
-  public static <K, V> FactoryMap<K, V> createMap(@NotNull final Function<K, V> computeValue) {
-    return (FactoryMap<K, V>)create(computeValue);
+  @Override
+  public String toString() {
+    return String.valueOf(myMap);
   }
 
   @NotNull
-  public static <K, V> Map<K, V> create(@NotNull final Function<K, V> computeValue) {
-    //noinspection deprecation
-    return new FactoryMap<K, V>() {
+  public static <K, V> Map<K, V> create(@NotNull final Function<? super K, ? extends V> computeValue) {
+    return new FactoryMap<K, V>(true) {
       @Nullable
       @Override
       protected V create(K key) {
@@ -204,9 +176,8 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
   }
 
   @NotNull
-  public static <K, V> Map<K, V> createMap(@NotNull final Function<K, V> computeValue, @NotNull final Producer<Map<K,V>> mapCreator) {
-    //noinspection deprecation
-    return new FactoryMap<K, V>() {
+  public static <K, V> Map<K, V> createMap(@NotNull final Function<? super K, ? extends V> computeValue, @NotNull final Supplier<? extends Map<K, V>> mapCreator) {
+    return new FactoryMap<K, V>(true) {
       @Nullable
       @Override
       protected V create(K key) {
@@ -216,7 +187,7 @@ public abstract class FactoryMap<K,V> implements Map<K, V> {
       @NotNull
       @Override
       protected Map<K, V> createMap() {
-        return mapCreator.produce();
+        return mapCreator.get();
       }
     };
   }

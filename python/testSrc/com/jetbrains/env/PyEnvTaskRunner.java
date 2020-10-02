@@ -1,9 +1,6 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.env;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
@@ -12,22 +9,20 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.LoggingRule;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import com.jetbrains.python.tools.sdkTools.PySdkTools;
 import com.jetbrains.python.tools.sdkTools.SdkCreationType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.net.URL;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
-/**
- * @author traff
- */
 public class PyEnvTaskRunner {
   private static final Logger LOG = Logger.getInstance(PyEnvTaskRunner.class);
   private final List<String> myRoots;
@@ -44,15 +39,22 @@ public class PyEnvTaskRunner {
     myLoggingRule = loggingRule;
   }
 
-  // todo: doc
-  public void runTask(PyTestTask testTask, String testName, @NotNull final String... tagsRequiredByTest) {
+  /**
+   * Runs test on all interpreters.
+   *
+   * @param skipOnFlavors optional array of flavors of interpreters to skip
+   *
+   * @param tagsRequiredByTest optional array of tags to run tests on interpreters with these tags only
+   */
+  public void runTask(@NotNull final PyTestTask testTask,
+                      @NotNull final String testName,
+                      final Class<? extends PythonSdkFlavor> @Nullable [] skipOnFlavors,
+                      final String @NotNull ... tagsRequiredByTest) {
     boolean wasExecuted = false;
 
-    List<String> passedRoots = Lists.newArrayList();
+    List<String> passedRoots = new ArrayList<>();
 
     final Set<String> requiredTags = Sets.union(testTask.getTags(), Sets.newHashSet(tagsRequiredByTest));
-
-    final Set<String> tagsToCover = null;
 
     for (String root : myRoots) {
 
@@ -62,15 +64,6 @@ public class PyEnvTaskRunner {
       if (!suitableForTask || !shouldRun) {
         LOG.warn(String.format("Skipping %s (compatible with tags: %s, should run:%s)", root, suitableForTask, shouldRun));
         continue;
-      }
-
-      if (tagsToCover != null && envTags.size() > 0 && !isNeededToRun(tagsToCover, envTags)) {
-        LOG.warn(String.format("Skipping %s (test already was executed on a similar environment)", root));
-        continue;
-      }
-
-      if (tagsToCover != null) {
-        tagsToCover.removeAll(envTags);
       }
 
       LOG.warn(String.format("Running on root %s", root));
@@ -84,10 +77,17 @@ public class PyEnvTaskRunner {
         else {
           testTask.useNormalTimeout();
         }
-        final String executable = PythonSdkType.getPythonExecutable(root);
+        final String executable = PythonSdkUtil.getPythonExecutable(root);
         assert executable != null : "No executable in " + root;
 
         final Sdk sdk = getSdk(executable, testTask);
+        if (skipOnFlavors != null) {
+          final PythonSdkFlavor flavor = PythonSdkFlavor.getFlavor(sdk);
+          if (ContainerUtil.exists(skipOnFlavors, o -> o.isInstance(flavor))) {
+            LOG.warn("Skipping flavor " + flavor.toString());
+            continue;
+          }
+        }
 
         /*
           Skipping test if {@link PyTestTask} reports it does not support this language level

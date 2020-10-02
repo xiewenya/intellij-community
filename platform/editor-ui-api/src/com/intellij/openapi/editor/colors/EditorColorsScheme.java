@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.colors;
 
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.options.FontSize;
 import com.intellij.openapi.options.Scheme;
 import com.intellij.openapi.options.SchemeMetaInfo;
+import com.intellij.openapi.util.NlsSafe;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -28,6 +15,7 @@ import java.awt.*;
 
 public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Scheme, SchemeMetaInfo {
   @NonNls String DEFAULT_SCHEME_NAME = "Default";
+  @NonNls String DEFAULT_SCHEME_ALIAS = "Classic Light";
 
   void setName(String name);
 
@@ -58,24 +46,34 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
   FontPreferences getFontPreferences();
   void setFontPreferences(@NotNull FontPreferences preferences);
 
+  @NlsSafe
   String getEditorFontName();
+
   void setEditorFontName(String fontName);
 
   int getEditorFontSize();
 
   /**
    * Sets font size. Note, that this method checks that {@code fontSize} is within bounds and could change it if it is
-   * more than {@code com.intellij.application.options.EditorFontsConstants.getMaxEditorFontSize()} or less than
-   * {@code com.intellij.application.options.EditorFontsConstants.getMinEditorFontSize()}
+   * more than {@link com.intellij.application.options.EditorFontsConstants#getMaxEditorFontSize()} or less than
+   * {@link com.intellij.application.options.EditorFontsConstants#getMinEditorFontSize()}
    * @see com.intellij.application.options.EditorFontsConstants
    */
   void setEditorFontSize(int fontSize);
 
+  /**
+   * @deprecated Quick documentation component's font size is stored in application level property, and can be obtained
+   * using {@link com.intellij.codeInsight.documentation.DocumentationComponent#getQuickDocFontSize()}.
+   */
   @Deprecated
-  FontSize getQuickDocFontSize();
+  default FontSize getQuickDocFontSize() { return FontSize.SMALL; }
 
+  /**
+   * @deprecated Quick documentation component's font size is stored in application level property, and can be set
+   * using {@link com.intellij.codeInsight.documentation.DocumentationComponent#setQuickDocFontSize(FontSize)}.
+   */
   @Deprecated
-  void setQuickDocFontSize(@NotNull FontSize fontSize);
+  default void setQuickDocFontSize(@NotNull FontSize fontSize) {}
 
   @NotNull
   Font getFont(EditorFontType key);
@@ -91,8 +89,12 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
 
   /**
    * Sets line spacing. Note, that this method checks that {@code lineSpacing} is within bounds and could change it if it is
-   * more than {@code com.intellij.application.options.EditorFontsConstants.getMaxEditorLineSpacing()} or less than
-   * {@code com.intellij.application.options.EditorFontsConstants.getMinEditorLineSpacing()}
+   * more than {@link com.intellij.application.options.EditorFontsConstants#getMaxEditorLineSpacing()} or less than
+   * {@link com.intellij.application.options.EditorFontsConstants#getMinEditorLineSpacing()}
+   * <p>
+   * Currently, changing line spacing does not change the editor's scrolling position (in pixels), so the viewport's logical
+   * location can change as a result.
+   *
    * @see com.intellij.application.options.EditorFontsConstants
    */
   void setLineSpacing(float lineSpacing);
@@ -106,14 +108,16 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
   @NotNull
   FontPreferences getConsoleFontPreferences();
   void setConsoleFontPreferences(@NotNull FontPreferences preferences);
-  
+
   default void setUseEditorFontPreferencesInConsole() {}
   default boolean isUseEditorFontPreferencesInConsole() {return false;}
 
   default void setUseAppFontPreferencesInEditor() {}
   default boolean isUseAppFontPreferencesInEditor() {return false;}
 
+  @NlsSafe
   String getConsoleFontName();
+
   void setConsoleFontName(String fontName);
 
   int getConsoleFontSize();

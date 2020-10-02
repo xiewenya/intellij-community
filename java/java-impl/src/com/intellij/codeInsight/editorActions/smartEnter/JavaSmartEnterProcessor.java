@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.editorActions.smartEnter;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -32,9 +33,9 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
@@ -49,7 +50,7 @@ import static com.intellij.patterns.PsiJavaPatterns.psiElement;
  * @author spleaner
  */
 public class JavaSmartEnterProcessor extends SmartEnterProcessor {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.smartEnter.JavaSmartEnterProcessor");
+  private static final Logger LOG = Logger.getInstance(JavaSmartEnterProcessor.class);
 
   private static final Fixer[] ourFixers;
   private static final EnterProcessor[] ourEnterProcessors = {
@@ -74,6 +75,7 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
     fixers.add(new MethodCallFixer());
     fixers.add(new IfConditionFixer());
     fixers.add(new ForStatementFixer());
+    fixers.add(new TernaryColonFixer());
     fixers.add(new WhileConditionFixer());
     fixers.add(new CatchDeclarationFixer());
     fixers.add(new SwitchExpressionFixer());
@@ -107,7 +109,7 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
   private static final Key<Long> SMART_ENTER_TIMESTAMP = Key.create("smartEnterOriginalTimestamp");
 
   public static class TooManyAttemptsException extends Exception {}
-  
+
   private final JavadocFixer myJavadocFixer = new JavadocFixer();
 
   @Override
@@ -252,7 +254,7 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
     rangeMarker.dispose();
   }
 
-  private static void collectAllElements(PsiElement atCaret, List<PsiElement> res, boolean recurse) {
+  private static void collectAllElements(PsiElement atCaret, List<? super PsiElement> res, boolean recurse) {
     res.add(0, atCaret);
     if (doNotStepInto(atCaret)) {
       if (!recurse) return;
@@ -286,31 +288,25 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
       }
     }
 
-    PsiElement statementAtCaret = PsiTreeUtil.getParentOfType(atCaret,
-                                                              PsiStatement.class,
-                                                              PsiCodeBlock.class,
-                                                              PsiMember.class,
-                                                              PsiAnnotation.class,
-                                                              PsiComment.class,
-                                                              PsiImportStatementBase.class,
-                                                              PsiPackageStatement.class
-    );
-
-    if (statementAtCaret instanceof PsiBlockStatement) return null;
-
-    if (statementAtCaret != null && statementAtCaret.getParent() instanceof PsiForStatement) {
-      if (!PsiTreeUtil.hasErrorElements(statementAtCaret)) {
-        statementAtCaret = statementAtCaret.getParent();
+    for (PsiElement each : SyntaxTraverser.psiApi().parents(atCaret).skip(1)) {
+      if (each instanceof PsiMember ||
+          each instanceof PsiImportStatementBase ||
+          each instanceof PsiPackageStatement ||
+          each instanceof PsiAnnotation && PsiTreeUtil.hasErrorElements(each)) {
+        return each;
+      }
+      if (each instanceof PsiCodeBlock || each instanceof PsiComment) {
+        return null;
+      }
+      if (each instanceof PsiStatement) {
+        return each.getParent() instanceof PsiForStatement && !PsiTreeUtil.hasErrorElements(each) ? each.getParent() : each;
+      }
+      if (each instanceof PsiConditionalExpression && PsiUtilCore.hasErrorElementChild(each)) {
+        return each;
       }
     }
 
-    return statementAtCaret instanceof PsiStatement ||
-           statementAtCaret instanceof PsiMember ||
-           statementAtCaret instanceof PsiAnnotation ||
-           statementAtCaret instanceof PsiImportStatementBase ||
-           statementAtCaret instanceof PsiPackageStatement
-           ? statementAtCaret
-           : null;
+    return null;
   }
 
   protected void moveCaretInsideBracesIfAny(@NotNull final Editor editor, @NotNull final PsiFile file) throws IncorrectOperationException {
@@ -329,7 +325,7 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
     if (CharArrayUtil.regionMatches(chars, caretOffset - "{}".length(), "{}") ||
         CharArrayUtil.regionMatches(chars, caretOffset - "{\n}".length(), "{\n}")) {
       commit(editor);
-      final CommonCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(file.getProject()).getCommonSettings(JavaLanguage.INSTANCE);
+      final CommonCodeStyleSettings settings = CodeStyle.getSettings(file).getCommonSettings(JavaLanguage.INSTANCE);
       final boolean old = settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE;
       settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = false;
       PsiElement leaf = file.findElementAt(caretOffset - 1);
@@ -364,7 +360,7 @@ public class JavaSmartEnterProcessor extends SmartEnterProcessor {
   }
 
   protected static void plainEnter(@NotNull final Editor editor) {
-    getEnterHandler().execute(editor, ((EditorEx) editor).getDataContext());
+    getEnterHandler().execute(editor, editor.getCaretModel().getCurrentCaret(), ((EditorEx) editor).getDataContext());
   }
 
   protected static EditorActionHandler getEnterHandler() {

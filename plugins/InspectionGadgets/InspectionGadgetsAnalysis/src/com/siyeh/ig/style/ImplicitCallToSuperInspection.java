@@ -21,12 +21,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.JavaPsiConstructorUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
-import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -37,15 +37,7 @@ public class ImplicitCallToSuperInspection extends BaseInspection {
   public boolean m_ignoreForObjectSubclasses = false;
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "implicit.call.to.super.display.name");
-  }
-
-  @Override
-  @NotNull
-  protected String buildErrorString(Object... infos) {
+  protected @NotNull String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "implicit.call.to.super.problem.descriptor");
   }
@@ -65,8 +57,7 @@ public class ImplicitCallToSuperInspection extends BaseInspection {
   private static class AddExplicitSuperCall extends InspectionGadgetsFix {
 
     @Override
-    @NotNull
-    public String getFamilyName() {
+    public @NotNull String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "implicit.call.to.super.make.explicit.quickfix");
     }
@@ -112,7 +103,7 @@ public class ImplicitCallToSuperInspection extends BaseInspection {
       if (containingClass == null) {
         return;
       }
-      if (containingClass.isEnum()) {
+      if (containingClass.isEnum() || containingClass.isRecord()) {
         return;
       }
       if (m_ignoreForObjectSubclasses) {
@@ -144,7 +135,7 @@ public class ImplicitCallToSuperInspection extends BaseInspection {
         (PsiExpressionStatement)statement;
       final PsiExpression expression =
         expressionStatement.getExpression();
-      return ExpressionUtils.isConstructorInvocation(expression);
+      return JavaPsiConstructorUtil.isConstructorCall(expression);
     }
   }
 }

@@ -15,26 +15,28 @@
  */
 package com.intellij.refactoring.rename.naming;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.impl.light.LightElement;
-import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.util.containers.hash.HashSet;
 import org.jetbrains.annotations.NonNls;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author ven
  */
 public class ConstructorParameterOnFieldRenameRenamer extends AutomaticRenamer {
+  @Override
   @NonNls
   protected String canonicalNameToName(@NonNls final String canonicalName, final PsiNamedElement element) {
     return JavaCodeStyleManager.getInstance(element.getProject()).propertyNameToVariableName(canonicalName, VariableKind.PARAMETER);
   }
 
+  @Override
   protected String nameToCanonicalName(@NonNls final String name, final PsiNamedElement element) {
     final JavaCodeStyleManager javaCodeStyleManager = JavaCodeStyleManager.getInstance(element.getProject());
     final VariableKind variableKind = element instanceof PsiVariable ? javaCodeStyleManager.getVariableKind((PsiVariable)element) : VariableKind.FIELD;
@@ -75,15 +77,18 @@ public class ConstructorParameterOnFieldRenameRenamer extends AutomaticRenamer {
     }
   }
 
+  @Override
   public String getDialogTitle() {
-    return RefactoringBundle.message("rename.constructor.parameters.title");
+    return JavaRefactoringBundle.message("rename.constructor.parameters.title");
   }
 
+  @Override
   public String getDialogDescription() {
-    return RefactoringBundle.message("rename.constructor.parameters.with.the.following.names.to");
+    return JavaRefactoringBundle.message("rename.constructor.parameters.with.the.following.names.to");
   }
 
+  @Override
   public String entityName() {
-    return RefactoringBundle.message("entity.name.constructor.parameter");
+    return JavaRefactoringBundle.message("entity.name.constructor.parameter");
   }
 }

@@ -37,7 +37,10 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
   }
 
   public Self annotationParam(@NonNls final String annotationQualifiedName, @NonNls final String parameterName) {
-    return annotationParam(StandardPatterns.string().equalTo(annotationQualifiedName), parameterName);
+    return withParent(
+      PsiJavaPatterns.psiNameValuePair().withName(parameterName).withParent(
+        PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(
+          PsiJavaPatterns.psiAnnotation().qName(annotationQualifiedName))));
   }
 
   public Self annotationParam(@NonNls final String annotationQualifiedName) {
@@ -50,14 +53,14 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(
           PsiJavaPatterns.psiAnnotation().qName(annotationQualifiedName))));
   }
-  public Self annotationParam(@NotNull ElementPattern<PsiAnnotation> annotation) {
+  public Self annotationParam(@NotNull ElementPattern<? extends PsiAnnotation> annotation) {
     return withParent(
       PsiJavaPatterns.psiNameValuePair().withParent(
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(
           annotation)));
   }
 
-  public Self annotationParam(String parameterName, @NotNull ElementPattern<PsiAnnotation> annotation) {
+  public Self annotationParam(String parameterName, @NotNull ElementPattern<? extends PsiAnnotation> annotation) {
     return withParent(
       PsiJavaPatterns.psiNameValuePair().withName(parameterName).withParent(
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(annotation)));
@@ -99,7 +102,6 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
   }
 
   public Self methodCallParameter(final int index, final ElementPattern<? extends PsiMethod> methodPattern) {
-    //noinspection unchecked
     final PsiNamePatternCondition nameCondition = ContainerUtil.findInstance(methodPattern.getCondition().getConditions(), PsiNamePatternCondition.class);
 
     return with(new PatternCondition<T>("methodCallParameter") {
@@ -130,7 +132,6 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
   }
 
   public Self methodCallParameter(@NotNull final ElementPattern<? extends PsiMethod> methodPattern) {
-    //noinspection unchecked
     final PsiNamePatternCondition nameCondition = ContainerUtil.findInstance(methodPattern.getCondition().getConditions(), PsiNamePatternCondition.class);
 
     return with(new PatternCondition<T>("methodCallParameter") {

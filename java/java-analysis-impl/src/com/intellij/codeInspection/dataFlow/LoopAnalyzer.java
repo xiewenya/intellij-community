@@ -1,39 +1,27 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInspection.dataFlow.instructions.ConditionalGotoInstruction;
+import com.intellij.codeInspection.dataFlow.instructions.ControlTransferInstruction;
 import com.intellij.codeInspection.dataFlow.instructions.GotoInstruction;
 import com.intellij.codeInspection.dataFlow.instructions.Instruction;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.EmptyIterator;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.Graph;
-import gnu.trove.TIntArrayList;
-import gnu.trove.TIntObjectHashMap;
-import gnu.trove.TIntProcedure;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntList;
+import it.unimi.dsi.fastutil.ints.IntListIterator;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-class LoopAnalyzer {
-  private static class MyGraph implements Graph<Instruction> {
+final class LoopAnalyzer {
+  private static final class MyGraph implements Graph<Instruction> {
     @NotNull private final ControlFlow myFlow;
     private final Instruction[] myInstructions;
-    private final TIntObjectHashMap<int[]> myIns = new TIntObjectHashMap<>();
+    private final Int2ObjectMap<int[]> myIns = new Int2ObjectOpenHashMap<>();
 
     private MyGraph(@NotNull ControlFlow flow) {
       myFlow = flow;
@@ -45,27 +33,29 @@ class LoopAnalyzer {
           int[] froms = myIns.get(toIndex);
           if (froms == null) {
             froms = new int[]{fromIndex};
-            myIns.put(toIndex, froms);
           }
           else {
             froms = ArrayUtil.append(froms, fromIndex);
-            myIns.put(toIndex, froms);
           }
+          myIns.put(toIndex, froms);
         }
       }
     }
 
+    @NotNull
     @Override
     public Collection<Instruction> getNodes() {
       return Arrays.asList(myFlow.getInstructions());
     }
 
+    @NotNull
     @Override
     public Iterator<Instruction> getIn(Instruction n) {
       int[] ins = myIns.get(n.getIndex());
       return indicesToInstructions(ins);
     }
 
+    @NotNull
     @Override
     public Iterator<Instruction> getOut(Instruction instruction) {
       int fromIndex = instruction.getIndex();
@@ -75,7 +65,7 @@ class LoopAnalyzer {
 
     @NotNull
     private Iterator<Instruction> indicesToInstructions(int[] next) {
-      if (next == null) return EmptyIterator.getInstance();
+      if (next == null) return Collections.emptyIterator();
       List<Instruction> out = new ArrayList<>(next.length);
       for (int i : next) {
         out.add(myInstructions[i]);
@@ -84,35 +74,27 @@ class LoopAnalyzer {
     }
   }
 
-
-
   static int[] calcInLoop(ControlFlow controlFlow) {
     final int[] loop = new int[controlFlow.getInstructionCount()]; // loop[i] = loop number(strongly connected component number) of i-th instruction or 0 if outside loop
 
     MyGraph graph = new MyGraph(controlFlow);
     final DFSTBuilder<Instruction> builder = new DFSTBuilder<>(graph);
-    TIntArrayList sccs = builder.getSCCs();
-    sccs.forEach(new TIntProcedure() {
-      private int myTNumber;
-      private int component;
-
-      @Override
-      public boolean execute(int size) {
-        int value = size > 1 ? ++component : 0;
-        for (int i = 0; i < size; i++) {
-          Instruction instruction = builder.getNodeByTNumber(myTNumber + i);
-          loop[instruction.getIndex()] = value;
-        }
-        myTNumber += size;
-        return true;
+    IntList sccs = builder.getSCCs();
+    int tNumber = 0;
+    int component = 0;
+    for (IntListIterator iterator = sccs.iterator(); iterator.hasNext(); ) {
+      int size = iterator.nextInt();
+      int value = size > 1 ? ++component : 0;
+      for (int i = 0; i < size; i++) {
+        Instruction instruction = builder.getNodeByTNumber(tNumber + i);
+        loop[instruction.getIndex()] = value;
       }
-    });
-
+      tNumber += size;
+    }
     return loop;
   }
 
-  @NotNull
-  static int[] getSuccessorIndices(int i, Instruction[] myInstructions) {
+  static int @NotNull [] getSuccessorIndices(int i, Instruction[] myInstructions) {
     Instruction instruction = myInstructions[i];
     if (instruction instanceof GotoInstruction) {
       return new int[]{((GotoInstruction)instruction).getOffset()};
@@ -126,8 +108,6 @@ class LoopAnalyzer {
         return new int[]{i + 1, offset};
       }
     }
-    return i == myInstructions.length-1 ? ArrayUtil.EMPTY_INT_ARRAY : new int[]{i + 1};
+    return i == myInstructions.length-1 ? ArrayUtilRt.EMPTY_INT_ARRAY : new int[]{i + 1};
   }
-
-
 }

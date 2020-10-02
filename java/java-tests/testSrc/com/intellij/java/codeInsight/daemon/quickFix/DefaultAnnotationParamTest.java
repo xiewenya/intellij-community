@@ -25,11 +25,8 @@ import org.jetbrains.annotations.NotNull;
  */
 public class DefaultAnnotationParamTest extends LightQuickFixParameterizedTestCase {
 
-  public void test() { doAllTests(); }
-
   @Override
-  @NotNull
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[] { new DefaultAnnotationParamInspection()};
   }
 

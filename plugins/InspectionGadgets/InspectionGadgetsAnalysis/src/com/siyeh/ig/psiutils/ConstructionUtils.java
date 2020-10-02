@@ -7,15 +7,14 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-/**
- * @author Tagir Valeev
- */
 public class ConstructionUtils {
   private static final Set<String> GUAVA_UTILITY_CLASSES =
     ContainerUtil.set("com.google.common.collect.Maps", "com.google.common.collect.Lists", "com.google.common.collect.Sets");
@@ -70,8 +69,9 @@ public class ConstructionUtils {
   public static boolean isEmptyCollectionInitializer(PsiExpression expression) {
     expression = PsiUtil.skipParenthesizedExprDown(expression);
     if (expression instanceof PsiNewExpression) {
-      PsiExpressionList argumentList = ((PsiNewExpression)expression).getArgumentList();
-      if (argumentList != null && argumentList.isEmpty()) {
+      PsiNewExpression newExpression = (PsiNewExpression)expression;
+      PsiExpressionList argumentList = newExpression.getArgumentList();
+      if (argumentList != null && argumentList.isEmpty() && newExpression.getAnonymousClass() == null) {
         PsiType type = expression.getType();
         return com.intellij.psi.util.InheritanceUtil.isInheritor(type, CommonClassNames.JAVA_UTIL_COLLECTION) ||
                com.intellij.psi.util.InheritanceUtil.isInheritor(type, CommonClassNames.JAVA_UTIL_MAP);
@@ -79,7 +79,7 @@ public class ConstructionUtils {
     }
     if (expression instanceof PsiMethodCallExpression) {
       PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
-      String name = call.getMethodExpression().getReferenceName();
+      @NonNls String name = call.getMethodExpression().getReferenceName();
       PsiExpressionList argumentList = call.getArgumentList();
       if(name != null && name.startsWith("new") && argumentList.isEmpty()) {
         PsiMethod method = call.resolveMethod();
@@ -121,7 +121,7 @@ public class ConstructionUtils {
     }
     if (expression instanceof PsiMethodCallExpression) {
       PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
-      String name = call.getMethodExpression().getReferenceName();
+      @NonNls String name = call.getMethodExpression().getReferenceName();
       PsiExpressionList argumentList = call.getArgumentList();
       if(name != null && name.startsWith("new") && !argumentList.isEmpty()) {
         PsiMethod method = call.resolveMethod();
@@ -159,7 +159,7 @@ public class ConstructionUtils {
     expression = PsiUtil.skipParenthesizedExprDown(expression);
     if (expression instanceof PsiNewExpression) {
       PsiExpressionList argumentList = ((PsiNewExpression)expression).getArgumentList();
-      if (argumentList == null || argumentList.isEmpty()) return false;
+      if (argumentList == null || argumentList.isEmpty() || ((PsiNewExpression)expression).getAnonymousClass() != null) return false;
       PsiMethod constructor = ((PsiNewExpression)expression).resolveConstructor();
       if (constructor == null) return false;
       PsiClass aClass = constructor.getContainingClass();
@@ -175,7 +175,7 @@ public class ConstructionUtils {
     if (expression instanceof PsiMethodCallExpression) {
       PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
       if (ENUM_SET_NONE_OF.test(call)) return true;
-      String name = call.getMethodExpression().getReferenceName();
+      @NonNls String name = call.getMethodExpression().getReferenceName();
       PsiExpressionList argumentList = call.getArgumentList();
       if (name != null && name.startsWith("new") && !argumentList.isEmpty()) {
         PsiMethod method = call.resolveMethod();
@@ -253,7 +253,7 @@ public class ConstructionUtils {
     if (ctor == null || !ctor.getModifierList().hasExplicitModifier(PsiModifier.PUBLIC)) return false;
     PsiParameterList list = ctor.getParameterList();
     if (list.getParametersCount() != 1) return false;
-    PsiTypeElement typeElement = list.getParameters()[0].getTypeElement();
+    PsiTypeElement typeElement = Objects.requireNonNull(list.getParameter(0)).getTypeElement();
     if (typeElement == null) return false;
     PsiType type = typeElement.getType();
     PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(type);

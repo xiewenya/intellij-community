@@ -29,20 +29,20 @@ import java.util.List;
  * Abstraction layer for executing external system tasks.
  * 
  * @author Denis Zhdanov
- * @since 3/14/13 5:04 PM
  */
 public interface ExternalSystemTaskManager<S extends ExternalSystemExecutionSettings> {
 
   /**
    * @deprecated use {@link ExternalSystemTaskManager#executeTasks(ExternalSystemTaskId, List, String, ExternalSystemExecutionSettings, String, ExternalSystemTaskNotificationListener)}
    */
+  @Deprecated
   default void executeTasks(@NotNull ExternalSystemTaskId id,
                             @NotNull List<String> taskNames,
                             @NotNull String projectPath,
                             @Nullable S settings,
                             @NotNull List<String> vmOptions,
                             @NotNull List<String> scriptParameters,
-                            @Nullable String jvmAgentSetup,
+                            @Nullable String jvmParametersSetup,
                             @NotNull ExternalSystemTaskNotificationListener listener) throws ExternalSystemException {
   }
 
@@ -50,11 +50,11 @@ public interface ExternalSystemTaskManager<S extends ExternalSystemExecutionSett
                             @NotNull List<String> taskNames,
                             @NotNull String projectPath,
                             @Nullable S settings,
-                            @Nullable String jvmAgentSetup,
+                            @Nullable String jvmParametersSetup,
                             @NotNull ExternalSystemTaskNotificationListener listener) throws ExternalSystemException {
-    List<String> vmOptions = settings == null ? ContainerUtil.emptyList() : ContainerUtil.newArrayList(settings.getVmOptions());
-    List<String> arguments = settings == null ? ContainerUtil.emptyList() : ContainerUtil.newArrayList(settings.getArguments());
-    executeTasks(id, taskNames, projectPath, settings, vmOptions, arguments, jvmAgentSetup, listener);
+    List<String> vmOptions = settings == null ? ContainerUtil.emptyList() : settings.getJvmArguments();
+    List<String> arguments = settings == null ? ContainerUtil.emptyList() : settings.getArguments();
+    executeTasks(id, taskNames, projectPath, settings, vmOptions, arguments, jvmParametersSetup, listener);
   }
 
   boolean cancelTask(@NotNull ExternalSystemTaskId id,

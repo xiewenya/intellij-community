@@ -1,10 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.stubs;
 
 import com.intellij.openapi.project.Project;
@@ -13,24 +7,24 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.util.ArrayFactory;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.AtomicFieldUpdater;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 
-public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<StubElement> implements StubElement<T> {
+public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<StubElement<?>> implements StubElement<T> {
   StubList myStubList;
   private volatile T myPsi;
 
   private static final AtomicFieldUpdater<StubBase, PsiElement> ourPsiUpdater =
     AtomicFieldUpdater.forFieldOfType(StubBase.class, PsiElement.class);
 
-  protected StubBase(StubElement parent, IStubElementType elementType) {
+  protected StubBase(@Nullable StubElement parent, IStubElementType elementType) {
     super(parent);
-    StubList stubList = parent == null ? new StubList(10) : ((StubBase)parent).myStubList;
-    stubList.addStub(this, (StubBase<?>)parent, elementType);
+    myStubList = parent == null ? new MaterialStubList(10) : ((StubBase<?>)parent).myStubList;
+    myStubList.addStub(this, (StubBase<?>)parent, elementType);
   }
 
   @Override
@@ -51,7 +45,8 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     return myStubList.findChildStubByType(id, elementType);
   }
 
-  public void setPsi(@NotNull final T psi) {
+  public void setPsi(@NotNull T psi) {
+    assert myPsi == null || myPsi == psi;
     myPsi = psi;
   }
 
@@ -67,12 +62,11 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
 
     //noinspection unchecked
     psi = (T)getStubType().createPsi(this);
-    return ourPsiUpdater.compareAndSet(this, null, psi) ? psi : ObjectUtils.assertNotNull(myPsi);
+    return ourPsiUpdater.compareAndSet(this, null, psi) ? psi : Objects.requireNonNull(myPsi);
   }
 
-  @NotNull
   @Override
-  public <E extends PsiElement> E[] getChildrenByType(@NotNull final IElementType elementType, E[] array) {
+  public <E extends PsiElement> E @NotNull [] getChildrenByType(@NotNull final IElementType elementType, E[] array) {
     List<StubElement> childrenStubs = getChildrenStubs();
     int count = countChildren(elementType, childrenStubs);
 
@@ -83,9 +77,8 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     return array;
   }
 
-  @NotNull
   @Override
-  public <E extends PsiElement> E[] getChildrenByType(@NotNull final TokenSet filter, E[] array) {
+  public <E extends PsiElement> E @NotNull [] getChildrenByType(@NotNull final TokenSet filter, E[] array) {
     List<StubElement> childrenStubs = getChildrenStubs();
     int count = countChildren(filter, childrenStubs);
 
@@ -96,9 +89,8 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     return array;
   }
 
-  @NotNull
   @Override
-  public <E extends PsiElement> E[] getChildrenByType(@NotNull final IElementType elementType, @NotNull final ArrayFactory<E> f) {
+  public <E extends PsiElement> E @NotNull [] getChildrenByType(@NotNull final IElementType elementType, @NotNull final ArrayFactory<E> f) {
     List<StubElement> childrenStubs = getChildrenStubs();
     int count = countChildren(elementType, childrenStubs);
 
@@ -108,31 +100,33 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     return result;
   }
 
-  private static int countChildren(IElementType elementType, List<StubElement> childrenStubs) {
+  private static int countChildren(IElementType elementType, List<? extends StubElement> childrenStubs) {
     int count = 0;
     //noinspection ForLoopReplaceableByForEach
     for (int i = 0, childrenStubsSize = childrenStubs.size(); i < childrenStubsSize; i++) {
-      StubElement childStub = childrenStubs.get(i);
+      StubElement<?> childStub = childrenStubs.get(i);
       if (childStub.getStubType() == elementType) count++;
     }
 
     return count;
   }
 
-  private static int countChildren(TokenSet types, List<StubElement> childrenStubs) {
+  private static int countChildren(TokenSet types, List<? extends StubElement> childrenStubs) {
     int count = 0;
     //noinspection ForLoopReplaceableByForEach
     for (int i = 0, childrenStubsSize = childrenStubs.size(); i < childrenStubsSize; i++) {
-      StubElement childStub = childrenStubs.get(i);
+      StubElement<?> childStub = childrenStubs.get(i);
       if (types.contains(childStub.getStubType())) count++;
     }
 
     return count;
   }
 
-  private static <E extends PsiElement> void fillFilteredChildren(IElementType type, E[] result, List<StubElement> childrenStubs) {
+  private static <E extends PsiElement> void fillFilteredChildren(IElementType type, E[] result, List<? extends StubElement> childrenStubs) {
     int count = 0;
-    for (StubElement childStub : childrenStubs) {
+    //noinspection ForLoopReplaceableByForEach
+    for (int i = 0, childrenStubsSize = childrenStubs.size(); i < childrenStubsSize; i++) {
+      StubElement<?> childStub = childrenStubs.get(i);
       if (childStub.getStubType() == type) {
         //noinspection unchecked
         result[count++] = (E)childStub.getPsi();
@@ -142,9 +136,11 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     assert count == result.length;
   }
 
-  private static <E extends PsiElement> void fillFilteredChildren(TokenSet set, E[] result, List<StubElement> childrenStubs) {
+  private static <E extends PsiElement> void fillFilteredChildren(TokenSet set, E[] result, List<? extends StubElement> childrenStubs) {
     int count = 0;
-    for (StubElement childStub : childrenStubs) {
+    //noinspection ForLoopReplaceableByForEach
+    for (int i = 0, childrenStubsSize = childrenStubs.size(); i < childrenStubsSize; i++) {
+      StubElement<?> childStub = childrenStubs.get(i);
       if (set.contains(childStub.getStubType())) {
         //noinspection unchecked
         result[count++] = (E)childStub.getPsi();
@@ -154,9 +150,8 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     assert count == result.length;
   }
 
-  @NotNull
   @Override
-  public <E extends PsiElement> E[] getChildrenByType(@NotNull final TokenSet filter, @NotNull final ArrayFactory<E> f) {
+  public <E extends PsiElement> E @NotNull [] getChildrenByType(@NotNull final TokenSet filter, @NotNull final ArrayFactory<E> f) {
     List<StubElement> childrenStubs = getChildrenStubs();
     int count = countChildren(filter, childrenStubs);
 
@@ -171,7 +166,7 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
   @Override
   @Nullable
   public <E extends PsiElement> E getParentStubOfType(@NotNull final Class<E> parentClass) {
-    StubElement parent = myParent;
+    StubElement<?> parent = myParent;
     while (parent != null) {
       PsiElement psi = parent.getPsi();
       if (parentClass.isInstance(psi)) {
@@ -192,6 +187,9 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
     return getPsi().getProject();
   }
 
+  /**
+   * consider to use {@link DebugUtil.stubTreeToString()}
+   */
   public String printTree() {
     StringBuilder builder = new StringBuilder();
     printTree(builder, 0);
@@ -200,9 +198,9 @@ public abstract class StubBase<T extends PsiElement> extends ObjectStubBase<Stub
 
   private void printTree(StringBuilder builder, int nestingLevel) {
     for (int i = 0; i < nestingLevel; i++) builder.append("  ");
-    builder.append(toString()).append('\n');
-    for (StubElement child : getChildrenStubs()) {
-      ((StubBase)child).printTree(builder, nestingLevel + 1);
+    builder.append(this).append('\n');
+    for (StubElement<?> child : getChildrenStubs()) {
+      ((StubBase<?>)child).printTree(builder, nestingLevel + 1);
     }
   }
 

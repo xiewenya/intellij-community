@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.componentTree;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -31,6 +17,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
 import com.intellij.ui.ColoredTreeCellRenderer;
@@ -67,15 +54,15 @@ import java.awt.datatransfer.Transferable;
 import java.awt.dnd.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
 public final class ComponentTree extends Tree implements DataProvider {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.componentTree.ComponentTree");
+  private static final Logger LOG = Logger.getInstance(ComponentTree.class);
 
   public static final DataKey<LwInspectionSuppression[]> LW_INSPECTION_SUPPRESSION_ARRAY_DATA_KEY =
     DataKey.create(LwInspectionSuppression.class.getName());
@@ -128,10 +115,12 @@ public final class ComponentTree extends Tree implements DataProvider {
     if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
       setDragEnabled(true);
       setTransferHandler(new TransferHandler() {
+        @Override
         public int getSourceActions(JComponent c) {
           return DnDConstants.ACTION_COPY_OR_MOVE;
         }
 
+        @Override
         protected Transferable createTransferable(JComponent c) {
           return DraggedComponentList.pickupSelection(myEditor, null);
         }
@@ -160,6 +149,7 @@ public final class ComponentTree extends Tree implements DataProvider {
     myQuickFixManager.refreshIntentionHint();
   }
 
+  @Override
   @Nullable
   public String getToolTipText(final MouseEvent e) {
     final TreePath path = getPathForLocation(e.getX(), e.getY());
@@ -208,7 +198,7 @@ public final class ComponentTree extends Tree implements DataProvider {
    *
    * @return currently selected components.
    */
-  @NotNull public RadComponent[] getSelectedComponents() {
+  public RadComponent @NotNull [] getSelectedComponents() {
     final TreePath[] paths = getSelectionPaths();
     if (paths == null) {
       return RadComponent.EMPTY_ARRAY;
@@ -231,7 +221,8 @@ public final class ComponentTree extends Tree implements DataProvider {
    * Provides {@link PlatformDataKeys#NAVIGATABLE} to navigate to
    * binding of currently selected component (if any)
    */
-  public Object getData(final String dataId) {
+  @Override
+  public Object getData(@NotNull final String dataId) {
     if (GuiEditor.DATA_KEY.is(dataId)) {
       return myEditor;
     }
@@ -339,6 +330,7 @@ public final class ComponentTree extends Tree implements DataProvider {
     return result;
   }
 
+  @Override
   public void setUI(final TreeUI ui) {
     super.setUI(ui);
 
@@ -365,7 +357,7 @@ public final class ComponentTree extends Tree implements DataProvider {
         icon = item.getSmallIcon();
       }
       else {
-        icon = UIDesignerIcons.Unknown_small;
+        icon = UIDesignerIcons.Unknown;
       }
       return icon;
     }
@@ -388,6 +380,7 @@ public final class ComponentTree extends Tree implements DataProvider {
   private final class MyTreeCellRenderer extends ColoredTreeCellRenderer {
     @NonNls private static final String SWING_PACKAGE = "javax.swing";
 
+    @Override
     public void customizeCellRenderer(
       final JTree tree,
       final Object value,
@@ -481,7 +474,7 @@ public final class ComponentTree extends Tree implements DataProvider {
         }
       }
       else if (node.getUserObject() != null) {
-        final String fragment = node.getUserObject().toString();
+        final @NlsSafe String fragment = node.getUserObject().toString();
         if (fragment != null) {
           append(fragment, SimpleTextAttributes.REGULAR_ATTRIBUTES);
         }
@@ -496,6 +489,7 @@ public final class ComponentTree extends Tree implements DataProvider {
   }
 
   private final class MyDropTargetListener extends DropTargetAdapter {
+    @Override
     public void dragOver(DropTargetDragEvent dtde) {
       try {
         RadComponent dropTargetComponent = null;
@@ -539,10 +533,12 @@ public final class ComponentTree extends Tree implements DataProvider {
       }
     }
 
+    @Override
     public void dragExit(DropTargetEvent dte) {
       setDropTargetComponent(null);
     }
 
+    @Override
     public void drop(DropTargetDropEvent dtde) {
       try {
         final DraggedComponentList dcl = DraggedComponentList.fromTransferable(dtde.getTransferable());
@@ -591,6 +587,7 @@ public final class ComponentTree extends Tree implements DataProvider {
       myEditor = editor;
     }
 
+    @Override
     public void deleteElement(@NotNull DataContext dataContext) {
       if (myEditor != null) {
         LwInspectionSuppression[] suppressions = LW_INSPECTION_SUPPRESSION_ARRAY_DATA_KEY.getData(dataContext);
@@ -610,6 +607,7 @@ public final class ComponentTree extends Tree implements DataProvider {
       }
     }
 
+    @Override
     public boolean canDeleteElement(@NotNull DataContext dataContext) {
       if (myEditor != null) {
         LwInspectionSuppression[] suppressions = LW_INSPECTION_SUPPRESSION_ARRAY_DATA_KEY.getData(dataContext);

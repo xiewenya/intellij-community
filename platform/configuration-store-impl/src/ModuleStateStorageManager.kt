@@ -1,51 +1,69 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.ide.highlighter.ModuleFileType
 import com.intellij.openapi.components.*
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.impl.ModuleEx
 import com.intellij.openapi.module.impl.ModuleManagerImpl
-import com.intellij.openapi.module.impl.getModuleNameByFilePath
-import com.intellij.openapi.project.ProjectBundle
 import com.intellij.openapi.project.isExternalStorageEnabled
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
-import com.intellij.util.LineSeparator
-import com.intellij.util.loadElement
+import com.intellij.util.io.systemIndependentPath
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import java.io.FileNotFoundException
-import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import java.io.IOException
 import java.nio.file.Path
-import java.nio.file.Paths
+import kotlin.concurrent.write
 
-internal class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, module: Module) : StateStorageManagerImpl("module", macroSubstitutor, module) {
+@ApiStatus.Internal
+open class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, module: Module) : StateStorageManagerImpl("module", macroSubstitutor, module), RenameableStateStorageManager {
   override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation) = StoragePathMacros.MODULE_FILE
 
-  override fun pathRenamed(oldPath: String, newPath: String, event: VFileEvent?) {
+  // the only macro is supported by ModuleStateStorageManager
+  final override fun expandMacro(collapsedPath: String): Path {
+    if (collapsedPath != StoragePathMacros.MODULE_FILE) {
+      throw IllegalStateException("Cannot resolve $collapsedPath in $macros")
+    }
+    return macros.get(0).value
+  }
+
+  final override fun rename(newName: String) {
+    storageLock.write {
+      val storage = getOrCreateStorage(StoragePathMacros.MODULE_FILE, RoamingType.DEFAULT) as FileBasedStorage
+      val file = storage.getVirtualFile(StateStorageOperation.WRITE)
+      try {
+        if (file != null) {
+          file.rename(storage, newName)
+        }
+        else if (storage.file.fileName.toString() != newName) {
+          // old file didn't exist or renaming failed
+          val newFile = storage.file.parent.resolve(newName)
+          storage.setFile(null, newFile)
+          pathRenamed(newFile, null)
+        }
+      }
+      catch (e: IOException) {
+        LOG.debug(e)
+      }
+    }
+  }
+
+  override fun clearVirtualFileTracker(virtualFileTracker: StorageVirtualFileTracker) {
+    virtualFileTracker.remove(expandMacro(StoragePathMacros.MODULE_FILE).systemIndependentPath)
+  }
+
+  override fun pathRenamed(newPath: Path, event: VFileEvent?) {
     try {
-      super.pathRenamed(oldPath, newPath, event)
+      setMacros(listOf(Macro(StoragePathMacros.MODULE_FILE, newPath)))
     }
     finally {
       val requestor = event?.requestor
       if (requestor == null || requestor !is StateStorage /* not renamed as result of explicit rename */) {
         val module = componentManager as ModuleEx
         val oldName = module.name
-        module.rename(getModuleNameByFilePath(newPath), false)
+        module.rename(newPath.fileName.toString().removeSuffix(ModuleFileType.DOT_DEFAULT_EXTENSION), false)
         (ModuleManager.getInstance(module.project) as? ModuleManagerImpl)?.fireModuleRenamedByVfsEvent(module, oldName)
       }
     }
@@ -64,60 +82,51 @@ internal class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubs
     element.addContent(optionElement)
   }
 
-  override fun beforeElementSaved(element: Element) {
-    val componentIterator = element.getChildren("component").iterator()
+  override fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
+    val componentIterator = elements.iterator()
     for (component in componentIterator) {
       if (component.getAttributeValue("name") == "DeprecatedModuleOptionManager") {
         componentIterator.remove()
         for (option in component.getChildren("option")) {
-          element.setAttribute(option.getAttributeValue("key"), option.getAttributeValue("value"))
+          rootAttributes.put(option.getAttributeValue("key"), option.getAttributeValue("value"))
         }
         break
       }
     }
 
     // need be last for compat reasons
-    element.setAttribute(ProjectStateStorageManager.VERSION_OPTION, "4")
+    rootAttributes.put(ProjectStateStorageManager.VERSION_OPTION, "4")
   }
 
   override val isExternalSystemStorageEnabled: Boolean
-    get() = (componentManager as Module).project.isExternalStorageEnabled
+    get() = (componentManager as Module?)?.project?.isExternalStorageEnabled ?: false
 
-  override fun createFileBasedStorage(path: String, collapsedPath: String, roamingType: RoamingType, rootTagName: String?): StateStorage
-    = ModuleFileStorage(this, Paths.get(path), collapsedPath, rootTagName, roamingType, getMacroSubstitutor(collapsedPath), if (roamingType == RoamingType.DISABLED) null else compoundStreamProvider)
+  override fun createFileBasedStorage(path: Path, collapsedPath: String, roamingType: RoamingType, rootTagName: String?): StateStorage {
+    return ModuleFileStorage(this, path, collapsedPath, rootTagName, roamingType, getMacroSubstitutor(collapsedPath), if (roamingType == RoamingType.DISABLED) null else compoundStreamProvider)
+  }
+
+  override fun getFileBasedStorageConfiguration(fileSpec: String) = moduleFileBasedStorageConfiguration
 
   private class ModuleFileStorage(storageManager: ModuleStateStorageManager,
                                   file: Path,
                                   fileSpec: String,
                                   rootElementName: String?,
                                   roamingType: RoamingType,
-                                  pathMacroManager: TrackingPathMacroSubstitutor? = null,
+                                  pathMacroManager: PathMacroSubstitutor? = null,
                                   provider: StreamProvider? = null) : MyFileStorage(storageManager, file, fileSpec, rootElementName, roamingType, pathMacroManager, provider) {
-    // use VFS to load module file because it is refreshed and loaded into VFS in any case
-    override fun loadLocalData(): Element? {
-      blockSavingTheContent = false
-      val virtualFile = virtualFile
-      if (virtualFile == null || !virtualFile.exists()) {
-        // only on first load
-        if (storageDataRef.get() == null && !storageManager.isExternalSystemStorageEnabled) {
-          throw FileNotFoundException(ProjectBundle.message("module.file.does.not.exist.error", file.toString()))
-        }
-        else {
-          return null
-        }
+    override fun handleVirtualFileNotFound() {
+      if (storageDataRef.get() == null && !storageManager.isExternalSystemStorageEnabled) {
+        throw FileNotFoundException(ConfigurationStoreBundle.message("module.file.does.not.exist.error", file.toString()))
       }
-
-      if (virtualFile.length == 0L) {
-        processReadException(null)
-      }
-      else {
-        runAndHandleExceptions {
-          val charBuffer = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(virtualFile.contentsToByteArray()))
-          lineSeparator = detectLineSeparators(charBuffer, if (isUseXmlProlog) null else LineSeparator.LF)
-          return loadElement(charBuffer)
-        }
-      }
-      return null
     }
   }
+}
+
+private val moduleFileBasedStorageConfiguration = object : FileBasedStorageConfiguration {
+  override val isUseVfsForWrite: Boolean
+    get() = true
+
+  // use VFS to load module file because it is refreshed and loaded into VFS in any case
+  override val isUseVfsForRead: Boolean
+    get() = true
 }

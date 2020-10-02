@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner;
 
 import com.intellij.codeInsight.CodeInsightUtil;
@@ -32,7 +18,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.uiDesigner.compiler.AsmCodeGenerator;
 import com.intellij.uiDesigner.make.FormSourceCodeGenerator;
 import com.intellij.uiDesigner.radComponents.LayoutManagerRegistry;
@@ -46,7 +32,7 @@ import javax.swing.*;
  * @author Vladimir Kondratyev
  */
 public final class GuiDesignerConfigurable implements SearchableConfigurable, Configurable.NoScroll {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.GuiDesignerConfigurable");
+  private static final Logger LOG = Logger.getInstance(GuiDesignerConfigurable.class);
   private final Project myProject;
   private MyGeneralUI myGeneralUI;
 
@@ -57,6 +43,7 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     myProject = project;
   }
 
+  @Override
   public String getDisplayName() {
     return UIDesignerBundle.message("title.gui.designer");
   }
@@ -67,6 +54,7 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     return "project.propGUI";
   }
 
+  @Override
   public JComponent createComponent() {
     if (myGeneralUI == null) {
       myGeneralUI = new MyGeneralUI();
@@ -75,6 +63,7 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     return myGeneralUI.myPanel;
   }
 
+  @Override
   public boolean isModified() {
     final GuiDesignerConfiguration configuration = GuiDesignerConfiguration.getInstance(myProject);
 
@@ -83,6 +72,10 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     }
 
     if (myGeneralUI.myChkCopyFormsRuntime.isSelected() != configuration.COPY_FORMS_RUNTIME_TO_OUTPUT) {
+      return true;
+    }
+    
+    if (myGeneralUI.myChkUseDynamicBundles.isSelected() != configuration.USE_DYNAMIC_BUNDLES) {
       return true;
     }
 
@@ -101,10 +94,11 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     if (configuration.RESIZE_HEADERS != myGeneralUI.myResizeHeaders.isSelected()) {
       return true;
     }
-    
+
     return false;
   }
 
+  @Override
   public void apply() {
     final GuiDesignerConfiguration configuration = GuiDesignerConfiguration.getInstance(myProject);
     configuration.COPY_FORMS_RUNTIME_TO_OUTPUT = myGeneralUI.myChkCopyFormsRuntime.isSelected();
@@ -112,6 +106,7 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     configuration.INSTRUMENT_CLASSES = myGeneralUI.myRbInstrumentClasses.isSelected();
     configuration.DEFAULT_FIELD_ACCESSIBILITY = (String)myGeneralUI .myDefaultFieldAccessibilityCombo.getSelectedItem();
     configuration.RESIZE_HEADERS = myGeneralUI.myResizeHeaders.isSelected();
+    configuration.USE_DYNAMIC_BUNDLES = myGeneralUI.myChkUseDynamicBundles.isSelected();
 
     if (configuration.INSTRUMENT_CLASSES && !myProject.isDefault()) {
       final DispatchThreadProgressWindow progressWindow = new DispatchThreadProgressWindow(false, myProject);
@@ -121,6 +116,7 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     }
   }
 
+  @Override
   public void reset() {
     final GuiDesignerConfiguration configuration = GuiDesignerConfiguration.getInstance(myProject);
 
@@ -132,21 +128,18 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
       myGeneralUI.myRbInstrumentSources.setSelected(true);
     }
     myGeneralUI.myChkCopyFormsRuntime.setSelected(configuration.COPY_FORMS_RUNTIME_TO_OUTPUT);
+    myGeneralUI.myChkUseDynamicBundles.setSelected(configuration.USE_DYNAMIC_BUNDLES);
 
-    myGeneralUI.myLayoutManagerCombo.setModel(new DefaultComboBoxModel(LayoutManagerRegistry.getNonDeprecatedLayoutManagerNames()));
-    myGeneralUI.myLayoutManagerCombo.setRenderer(new ListCellRendererWrapper<String>() {
-      @Override
-      public void customize(JList list, String value, int index, boolean selected, boolean hasFocus) {
-        setText(LayoutManagerRegistry.getLayoutManagerDisplayName(value));
-      }
-    });
+    myGeneralUI.myLayoutManagerCombo.setModel(new DefaultComboBoxModel<>(LayoutManagerRegistry.getNonDeprecatedLayoutManagerNames()));
+    myGeneralUI.myLayoutManagerCombo.setRenderer(SimpleListCellRenderer.create("", LayoutManagerRegistry::getLayoutManagerDisplayName));
     myGeneralUI.myLayoutManagerCombo.setSelectedItem(configuration.DEFAULT_LAYOUT_MANAGER);
 
     myGeneralUI.myDefaultFieldAccessibilityCombo.setSelectedItem(configuration.DEFAULT_FIELD_ACCESSIBILITY);
-    
+
     myGeneralUI.myResizeHeaders.setSelected(configuration.RESIZE_HEADERS);
   }
 
+  @Override
   public void disposeUIResources() {
     myGeneralUI = null;
   } /*UI for "General" tab*/
@@ -156,15 +149,16 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
     public JRadioButton myRbInstrumentClasses;
     public JRadioButton myRbInstrumentSources;
     public JCheckBox myChkCopyFormsRuntime;
-    private JComboBox myLayoutManagerCombo;
-    private JComboBox myDefaultFieldAccessibilityCombo;
+    public JCheckBox myChkUseDynamicBundles;
+    private JComboBox<String> myLayoutManagerCombo;
+    private JComboBox<String> myDefaultFieldAccessibilityCombo;
     private JCheckBox myResizeHeaders;
   }
 
   private final class MyApplyRunnable implements Runnable {
     private final DispatchThreadProgressWindow myProgressWindow;
 
-    public MyApplyRunnable(final DispatchThreadProgressWindow progressWindow) {
+    MyApplyRunnable(final DispatchThreadProgressWindow progressWindow) {
       myProgressWindow = progressWindow;
     }
 
@@ -209,11 +203,13 @@ public final class GuiDesignerConfigurable implements SearchableConfigurable, Co
       }, "", null);
     }
 
+    @Override
     public void run() {
       ProgressManager.getInstance().runProcess(() -> applyImpl(), myProgressWindow);
     }
   }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();

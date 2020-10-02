@@ -109,7 +109,7 @@ public final class JsonReaderEx implements Closeable {
     stack[stackSize++] = JsonScope.EMPTY_DOCUMENT;
   }
 
-  private JsonReaderEx(@NotNull CharSequence in, int start, @NotNull int[] stack) {
+  private JsonReaderEx(@NotNull CharSequence in, int start, int @NotNull [] stack) {
     this.in = in;
     position = start;
     limit = in.length();
@@ -535,7 +535,6 @@ public final class JsonReaderEx implements Closeable {
     return peeked = peeking;
   }
 
-  @SuppressWarnings("ConstantConditions")
   private int peekNumber() {
     // Like nextNonWhitespace, this uses locals 'p' and 'l' to save inner-loop field access.
     CharSequence in = this.in;

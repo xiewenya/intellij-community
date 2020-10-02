@@ -1,11 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.paint;
 
+import com.intellij.ui.JreHiDpiUtil;
 import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.ui.paint.LinePainter2D.Align;
 import com.intellij.ui.paint.LinePainter2D.StrokeType;
-import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.scale.ScaleContext;
 import junit.framework.TestCase;
 import org.junit.Test;
 
@@ -13,8 +14,8 @@ import java.awt.*;
 import java.awt.geom.Line2D;
 import java.util.EnumSet;
 
-import static com.intellij.util.ui.JBUI.ScaleType.PIX_SCALE;
-import static com.intellij.util.ui.JBUI.scale;
+import static com.intellij.ui.scale.DerivedScaleType.PIX_SCALE;
+import static com.intellij.util.ui.TestScaleHelper.overrideJreHiDPIEnabled;
 
 /**
  * Tests the {@link LinePainter2D} painting.
@@ -32,20 +33,20 @@ public class LinePainter2DTest extends AbstractPainter2DTest {
 
   @Test
   public void testAlign() {
-    JBUI.setUserScaleFactor(1);
+    JBUIScale.setUserScaleFactor((float)1);
 
     overrideJreHiDPIEnabled(false);
-    supplyGraphics(1, 1, 1, this::testAlign);
+    supplyGraphics(1, 1, 1, LinePainter2DTest::testAlign);
 
     overrideJreHiDPIEnabled(true);
-    supplyGraphics(2, 1, 1, this::testAlign);
+    supplyGraphics(2, 1, 1, LinePainter2DTest::testAlign);
   }
 
-  private Void testAlign(Graphics2D g) {
-    double scale = JBUI.ScaleContext.create(g).getScale(PIX_SCALE);
-    String msg = "LinePainter2D.align is incorrect (JreHiDPIEnabled: " + UIUtil.isJreHiDPIEnabled() + "; scale: " + scale + ")";
+  private static Void testAlign(Graphics2D g) {
+    double scale = ScaleContext.create(g).getScale(PIX_SCALE);
+    String msg = "LinePainter2D.align is incorrect (JreHiDPIEnabled: " + JreHiDpiUtil.isJreHiDPIEnabled() + "; scale: " + scale + ")";
     double delta = 0.000001;
-    boolean jhd = UIUtil.isJreHiDPIEnabled();
+    boolean jhd = JreHiDpiUtil.isJreHiDPIEnabled();
 
     // HORIZONTAL
     Line2D line = LinePainter2D.align(g, EnumSet.of(Align.CENTER_X, Align.CENTER_Y), 2.5, 2.5, 5, false, StrokeType.CENTERED, 1);
@@ -100,8 +101,8 @@ public class LinePainter2DTest extends AbstractPainter2DTest {
     return null;
   }
 
-  private void paintLines(Graphics2D g, StrokeType type, float trX, float trY) {
-    g.translate(scale(trX), scale(trY));
+  private static void paintLines(Graphics2D g, StrokeType type, float trX, float trY) {
+    g.translate(JBUIScale.scale(trX), JBUIScale.scale(trY));
     Object aa = RenderingHints.VALUE_ANTIALIAS_ON;
     paintLine(g, 0, 0, 0, 0, type, 1, aa); // a dot
     paintLine(g, 0, -2, 0, -LINE_LEN, type, 1, aa);
@@ -114,17 +115,18 @@ public class LinePainter2DTest extends AbstractPainter2DTest {
     paintLine(g, -2, -2, -LINE_LEN, -LINE_LEN, type, 1, aa);
   }
 
-  private void paintLine(Graphics2D g,
-                         double x1, double y1, double x2, double y2,
-                         StrokeType strokeType,
-                         double strokeWidth,
-                         Object valueAA)
+  @SuppressWarnings("SameParameterValue")
+  private static void paintLine(Graphics2D g,
+                                double x1, double y1, double x2, double y2,
+                                StrokeType strokeType,
+                                double strokeWidth,
+                                Object valueAA)
   {
-    strokeWidth = scale((float)strokeWidth);
-    x1 = scale((float)x1);
-    y1 = scale((float)y1);
-    x2 = scale((float)x2);
-    y2 = scale((float)y2);
+    strokeWidth = JBUIScale.scale((float)strokeWidth);
+    x1 = JBUIScale.scale((float)x1);
+    y1 = JBUIScale.scale((float)y1);
+    x2 = JBUIScale.scale((float)x2);
+    y2 = JBUIScale.scale((float)y2);
     LinePainter2D.paint(g, x1, y1, x2, y2, strokeType, strokeWidth, valueAA);
   }
 
@@ -135,7 +137,7 @@ public class LinePainter2DTest extends AbstractPainter2DTest {
 
   @Override
   protected String getGoldenImageName() {
-    return "LinePainter2D";
+    return "gold_LinePainter2D";
   }
 
   @Override

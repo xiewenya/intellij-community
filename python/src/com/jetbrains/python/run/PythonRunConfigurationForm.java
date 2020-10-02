@@ -1,49 +1,43 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.run;
 
 import com.google.common.collect.Lists;
+import com.intellij.execution.ui.CommonProgramParametersPanel;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.ui.HideableDecorator;
 import com.intellij.ui.PanelWithAnchor;
 import com.intellij.ui.RawCommandLineEditor;
 import com.intellij.ui.UserActivityProviderComponent;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBComboBoxLabel;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.jetbrains.PySymbolFieldWithBrowseButton;
 import com.jetbrains.PySymbolFieldWithBrowseButtonKt;
+import com.jetbrains.extensions.ContextAnchor;
+import com.jetbrains.extensions.ModuleBasedContextAnchor;
+import com.jetbrains.extensions.ProjectSdkContextAnchor;
 import com.jetbrains.extensions.python.FileChooserDescriptorExtKt;
-import com.jetbrains.extenstions.ContextAnchor;
-import com.jetbrains.extenstions.ModuleBasedContextAnchor;
-import com.jetbrains.extenstions.ProjectSdkContextAnchor;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.debugger.PyDebuggerOptionsProvider;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -53,13 +47,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author yole
  */
 public class PythonRunConfigurationForm implements PythonRunConfigurationParams, PanelWithAnchor {
-  public static final String SCRIPT_PATH = "Script path";
-  public static final String MODULE_NAME = "Module name";
   private JPanel myRootPanel;
   private TextFieldWithBrowseButton myScriptTextField;
   private RawCommandLineEditor myScriptParametersTextField;
@@ -73,20 +66,22 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
   private final PySymbolFieldWithBrowseButton myModuleField;
   private JBComboBoxLabel myTargetComboBox;
   private JPanel myModuleFieldPanel;
+  private TextFieldWithBrowseButton myInputFileTextFieldWithBrowseButton;
+  private JPanel myExecutionOptionsPlaceholder;
+  private JPanel myExecutionOptionsPanel;
+  private JBCheckBox myRedirectInputCheckBox;
   private boolean myModuleMode;
 
   public PythonRunConfigurationForm(PythonRunConfiguration configuration) {
     myCommonOptionsForm = PyCommonOptionsFormFactory.getInstance().createForm(configuration.getCommonOptionsFormData());
-    myCommonOptionsForm.addInterpreterModeListener((isRemoteInterpreter) -> {
-      emulateTerminalEnabled(!isRemoteInterpreter);
-    });
+    myCommonOptionsForm.addInterpreterModeListener((isRemoteInterpreter) -> emulateTerminalEnabled(!isRemoteInterpreter));
     myCommonOptionsPlaceholder.add(myCommonOptionsForm.getMainPanel(), BorderLayout.CENTER);
 
     myProject = configuration.getProject();
 
     final FileChooserDescriptor chooserDescriptor =
       FileChooserDescriptorExtKt
-        .withPythonFiles(FileChooserDescriptorFactory.createSingleFileDescriptor().withTitle("Select Script"), true);
+        .withPythonFiles(FileChooserDescriptorFactory.createSingleFileDescriptor().withTitle(PyBundle.message("python.run.select.script")), true);
 
     final PyBrowseActionListener listener = new PyBrowseActionListener(configuration, chooserDescriptor) {
 
@@ -108,10 +103,7 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
     //myTargetComboBox.setSelectedIndex(0);
     myEmulateTerminalCheckbox.setSelected(false);
 
-    myEmulateTerminalCheckbox.addChangeListener(
-      (ChangeEvent e) -> updateShowCommandLineEnabled());
-
-    setAnchor(myCommonOptionsForm.getAnchor());
+    setAnchor(myRedirectInputCheckBox.getAnchor());
 
     final Module module = configuration.getModule();
     final Sdk sdk = configuration.getSdk();
@@ -131,30 +123,39 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
     myModuleFieldPanel.add(myModuleField, BorderLayout.CENTER);
 
     //myTargetComboBox.addActionListener(e -> updateRunModuleMode());
+
+    myInputFileTextFieldWithBrowseButton.addBrowseFolderListener(new TextBrowseFolderListener(FileChooserDescriptorFactory.createSingleFileDescriptor(), myProject));
+    HideableDecorator executionOptionsDecorator = new HideableDecorator(myExecutionOptionsPlaceholder, PyBundle.message("runcfg.labels.execution"), false);
+    myExecutionOptionsPanel.setBorder(JBUI.Borders.empty(5, 0));
+    executionOptionsDecorator.setOn(true);
+    executionOptionsDecorator.setContentComponent(myExecutionOptionsPanel);
+
+    myRedirectInputCheckBox.addItemListener(e -> myInputFileTextFieldWithBrowseButton.setEnabled(myRedirectInputCheckBox.isSelected()));
+
+    final ButtonGroup group = new ButtonGroup() {
+      @Override
+      public void setSelected(ButtonModel model, boolean isSelected) {
+        if (!isSelected && Objects.equals(getSelection(), model)) {
+          clearSelection();
+          return;
+        }
+        super.setSelected(model, isSelected);
+      }
+    };
+    group.add(myEmulateTerminalCheckbox);
+    group.add(myRedirectInputCheckBox);
+    group.add(myShowCommandLineCheckbox);
+
+    CommonProgramParametersPanel.addMacroSupport(myScriptParametersTextField.getEditorField());
   }
 
   private void updateRunModuleMode() {
-    boolean mode = (MODULE_NAME + ":").equals(myTargetComboBox.getText());
-    checkTargetComboConsistency(mode);
+    boolean mode = (getModuleNameText() + ":").equals(myTargetComboBox.getText());
     setModuleModeInternal(mode);
-  }
-
-  private void checkTargetComboConsistency(boolean mode) {
-    String item = myTargetComboBox.getText();
-    assert item != null;
-    //noinspection StringToUpperCaseOrToLowerCaseWithoutLocale
-    if (mode && !item.toLowerCase().contains("module")) {
-      throw new IllegalArgumentException("This option should refer to a module");
-    }
-  }
-
-  private void updateShowCommandLineEnabled() {
-    myShowCommandLineCheckbox.setEnabled(!myEmulateTerminalCheckbox.isVisible() || !myEmulateTerminalCheckbox.isSelected());
   }
 
   private void emulateTerminalEnabled(boolean flag) {
     myEmulateTerminalCheckbox.setVisible(flag);
-    updateShowCommandLineEnabled();
   }
 
   public JComponent getPanel() {
@@ -233,18 +234,52 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
   public void setMultiprocessMode(boolean multiprocess) {
   }
 
+  @Nls public static String getScriptPathText() {
+    return PyBundle.message("runcfg.labels.script.path");
+  }
+
+  @Nls public static String getModuleNameText() {
+    return PyBundle.message("runcfg.labels.module.name");
+  }
+
+  @Nls public static String getCustomNameText() {
+    return PyBundle.message("runcfg.labels.custom.name");
+  }
+
+  @Override
+  @NotNull
+  public String getInputFile() {
+    return myInputFileTextFieldWithBrowseButton.getText();
+  }
+
+  @Override
+  public void setInputFile(@NotNull String inputFile) {
+    myInputFileTextFieldWithBrowseButton.setText(inputFile);
+  }
+
+  @Override
+  public boolean isRedirectInput() {
+    return myRedirectInputCheckBox.isSelected();
+  }
+
+  @Override
+  public void setRedirectInput(boolean isRedirectInput) {
+    myRedirectInputCheckBox.setSelected(isRedirectInput);
+    myInputFileTextFieldWithBrowseButton.setEnabled(isRedirectInput);
+  }
+
   @Override
   public void setAnchor(JComponent anchor) {
     this.anchor = anchor;
     myScriptParametersLabel.setAnchor(anchor);
     myCommonOptionsForm.setAnchor(anchor);
+    myRedirectInputCheckBox.setAnchor(anchor);
   }
 
   @Override
   public void setModuleMode(boolean moduleMode) {
-    setTargetComboBoxValue(moduleMode ? MODULE_NAME : SCRIPT_PATH);
-    updateRunModuleMode();
-    checkTargetComboConsistency(moduleMode);
+    setTargetComboBoxValue(moduleMode ? getModuleNameText() : getScriptPathText());
+    setModuleModeInternal(moduleMode);
   }
 
   private void setModuleModeInternal(boolean moduleMode) {
@@ -258,21 +293,21 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
     myTargetComboBox = new MyComboBox();
   }
 
-  private void setTargetComboBoxValue(String text) {
+  private void setTargetComboBoxValue(@NlsContexts.Label String text) {
     myTargetComboBox.setText(text + ":");
   }
 
   private class MyComboBox extends JBComboBoxLabel implements UserActivityProviderComponent {
-    private final List<ChangeListener> myListeners = Lists.newArrayList();
+    private final List<ChangeListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
-    public MyComboBox() {
+    MyComboBox() {
       this.addMouseListener(new MouseAdapter() {
         @Override
         public void mouseClicked(MouseEvent e) {
           JBPopupFactory.getInstance().createListPopup(
-            new BaseListPopupStep<String>("Choose target to run", Lists.newArrayList(SCRIPT_PATH, MODULE_NAME)) {
+            new BaseListPopupStep<@Nls String>(PyBundle.message("python.configuration.choose.target.to.run"), Lists.newArrayList(getScriptPathText(), getModuleNameText())) {
               @Override
-              public PopupStep onChosen(String selectedValue, boolean finalChoice) {
+              public PopupStep onChosen(@Nls String selectedValue, boolean finalChoice) {
                 setTargetComboBoxValue(selectedValue);
                 updateRunModuleMode();
                 return FINAL_CHOICE;
@@ -283,12 +318,12 @@ public class PythonRunConfigurationForm implements PythonRunConfigurationParams,
     }
 
     @Override
-    public void addChangeListener(ChangeListener changeListener) {
+    public void addChangeListener(@NotNull ChangeListener changeListener) {
       myListeners.add(changeListener);
     }
 
     @Override
-    public void removeChangeListener(ChangeListener changeListener) {
+    public void removeChangeListener(@NotNull ChangeListener changeListener) {
       myListeners.remove(changeListener);
     }
 

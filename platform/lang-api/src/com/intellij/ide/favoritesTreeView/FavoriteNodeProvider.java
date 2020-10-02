@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.favoritesTreeView;
 
@@ -40,10 +26,10 @@ public abstract class FavoriteNodeProvider {
   public static final ExtensionPointName<FavoriteNodeProvider> EP_NAME = new ExtensionPointName<>("com.intellij.favoriteNodeProvider");
 
   @Nullable
-  public abstract Collection<AbstractTreeNode> getFavoriteNodes(DataContext context, final ViewSettings viewSettings);
+  public abstract Collection<AbstractTreeNode<?>> getFavoriteNodes(DataContext context, @NotNull ViewSettings viewSettings);
 
   @Nullable
-  public AbstractTreeNode createNode(final Project project, final Object element, final ViewSettings viewSettings) {
+  public AbstractTreeNode<?> createNode(final Project project, final Object element, @NotNull ViewSettings viewSettings) {
     return null;
   }
 
@@ -61,7 +47,6 @@ public abstract class FavoriteNodeProvider {
    * Returns the weight of the specified project view node element to use when sorting the favorites list.
    *
    * @param element the element for which the weight is requested.
-   * @param isSortByType
    * @return the weight, or -1 if {@code element} is not an element supported by this provider.
    */
   public abstract int getElementWeight(final Object element, final boolean isSortByType);
@@ -94,7 +79,6 @@ public abstract class FavoriteNodeProvider {
   /**
    * Returns the persistable URL for the specified element.
    *
-   * @param element
    * @return the URL, or null if the element is not supported by this provider.
    */
   @Nullable @NonNls
@@ -103,7 +87,6 @@ public abstract class FavoriteNodeProvider {
   /**
    * Returns the name of the module containing the specified element.
    *
-   * @param element
    * @return the name of the module, or null if the element is not supported by this provider or the module name is unknown.
    */
   @Nullable
@@ -118,8 +101,7 @@ public abstract class FavoriteNodeProvider {
    * @return the path of objects to be added to the tree, or null if it was not possible to locate an object with the
    * specified URL.
    */
-  @Nullable
-  public abstract Object[] createPathFromUrl(final Project project, final String url, final String moduleName);
+  public abstract Object @Nullable [] createPathFromUrl(final Project project, final String url, final String moduleName);
 
   @Nullable
   public PsiElement getPsiElement(final Object element) {

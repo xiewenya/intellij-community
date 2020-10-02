@@ -209,7 +209,14 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
 
   // PY-11208
   public void testMockPatchObject() {
-    doMultiFileTest(getTestName(true) + ".py");
+    runWithAdditionalClassEntryInSdkRoots(
+      getTestDirectoryPath() + "/lib",
+      () -> {
+        final PsiFile file = myFixture.configureByFile(getTestDirectoryPath() + "/a.py");
+        configureInspection();
+        assertSdkRootsNotParsed(file);
+      }
+    );
   }
 
   // PY-22525
@@ -274,5 +281,28 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
   // PY-27964
   public void testUsingFunctoolsSingledispatch() {
     doTest();
+  }
+
+  // PY-27866
+  public void testUnionOwnSlots() {
+    doTestByText("from typing import Union\n" +
+                 "\n" +
+                 "class A:\n" +
+                 "    __slots__ = ['x']\n" +
+                 "\n" +
+                 "class B:\n" +
+                 "    __slots__ = ['y']\n" +
+                 "    \n" +
+                 "def foo(ab: Union[A, B]):\n" +
+                 "    print(ab.x)");
+  }
+
+  // PY-37755 PY-2700
+  public void testGlobalAndNonlocalUnresolvedAttribute() {
+    doTest();
+  }
+
+  public void testClassLevelDunderAll() {
+    doMultiFileTest("a.py");
   }
 }

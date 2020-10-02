@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.javac;
 
 import com.google.protobuf.ByteString;
@@ -21,6 +7,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.incremental.BinaryContent;
 
 import javax.tools.Diagnostic;
+import javax.tools.JavaFileManager;
 import javax.tools.JavaFileObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -31,8 +18,7 @@ import java.util.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class JavacProtoUtil {
-
+public final class JavacProtoUtil {
   public static JavacRemoteProto.Message.Request createCancelRequest() {
     return JavacRemoteProto.Message.Request.newBuilder().setRequestType(JavacRemoteProto.Message.Request.Type.CANCEL).build();
   }
@@ -41,7 +27,14 @@ public class JavacProtoUtil {
     return JavacRemoteProto.Message.Request.newBuilder().setRequestType(JavacRemoteProto.Message.Request.Type.SHUTDOWN).build();
   }
 
-  public static JavacRemoteProto.Message.Request createCompilationRequest(List<String> options, Collection<File> files, Collection<File> classpath, Collection<File> platformCp, Collection<File> modulePath, Collection<File> sourcePath, Map<File, Set<File>> outs) {
+  public static JavacRemoteProto.Message.Request createCompilationRequest(List<String> options,
+                                                                          Collection<? extends File> files,
+                                                                          Collection<? extends File> classpath,
+                                                                          Collection<? extends File> platformCp,
+                                                                          ModulePath modulePath,
+                                                                          Collection<? extends File> upgradeModulePath,
+                                                                          Collection<? extends File> sourcePath,
+                                                                          Map<File, Set<File>> outs) {
     final JavacRemoteProto.Message.Request.Builder builder = JavacRemoteProto.Message.Request.newBuilder();
     builder.setRequestType(JavacRemoteProto.Message.Request.Type.COMPILE);
     builder.addAllOption(options);
@@ -54,8 +47,16 @@ public class JavacProtoUtil {
     for (File file : platformCp) {
       builder.addPlatformClasspath(FileUtilRt.toSystemIndependentName(file.getPath()));
     }
-    for (File file : modulePath) {
-      builder.addModulePath(FileUtilRt.toSystemIndependentName(file.getPath()));
+    for (File file : modulePath.getPath()) {
+      final String pathEntry = FileUtilRt.toSystemIndependentName(file.getPath());
+      builder.addModulePath(pathEntry);
+      final String moduleName = modulePath.getModuleName(file);
+      if (moduleName != null) {
+        builder.putModuleNames(pathEntry, moduleName);
+      }
+    }
+    for (File file : upgradeModulePath) {
+      builder.addUpgradeModulePath(FileUtilRt.toSystemIndependentName(file.getPath()));
     }
     for (File file : sourcePath) {
       builder.addSourcepath(FileUtilRt.toSystemIndependentName(file.getPath()));
@@ -77,6 +78,8 @@ public class JavacProtoUtil {
 
     msgBuilder.setKind(convertKind(fileObject.getKind()));
     msgBuilder.setFilePath(FileUtilRt.toSystemIndependentName(fileObject.getFile().getPath()));
+    msgBuilder.setIsGenerated(fileObject.isGenerated());
+
     final BinaryContent content = fileObject.getContent();
     if (content != null) {
       msgBuilder.setContent(ByteString.copyFrom(content.getBuffer(), content.getOffset(), content.getLength()));
@@ -93,11 +96,13 @@ public class JavacProtoUtil {
     if (relativePath != null) {
       msgBuilder.setRelativePath(relativePath);
     }
-    final URI srcUri = fileObject.getSourceUri();
-    if (srcUri != null) {
-      msgBuilder.setSourceUri(srcUri.toString());
+    for (URI uri : fileObject.getSourceUris()) {
+      msgBuilder.addSourceUri(uri.toString());
     }
-
+    final JavaFileManager.Location location = fileObject.getLocation();
+    if (location != null) {
+      msgBuilder.setLocation(location.getName());
+    }
     final JavacRemoteProto.Message.Response.Builder builder = JavacRemoteProto.Message.Response.newBuilder();
     builder.setResponseType(JavacRemoteProto.Message.Response.Type.OUTPUT_OBJECT).setOutputObject(msgBuilder.build());
 
@@ -107,6 +112,7 @@ public class JavacProtoUtil {
   public static JavacRemoteProto.Message.Response createCustomDataResponse(String pluginId, String dataName, byte[] data) {
     final JavacRemoteProto.Message.Response.OutputObject outObjMsg = JavacRemoteProto.Message.Response.OutputObject.newBuilder()
       .setKind(JavacRemoteProto.Message.Response.OutputObject.Kind.OTHER)
+      .setIsGenerated(false)
       .setFilePath(pluginId)
       .setClassName(dataName)
       .setContent(ByteString.copyFrom(data))
@@ -118,9 +124,8 @@ public class JavacProtoUtil {
   }
 
   public static JavacRemoteProto.Message.Response createSourceFileLoadedResponse(File srcFile) {
-
     final JavacRemoteProto.Message.Response.OutputObject outObjMsg = JavacRemoteProto.Message.Response.OutputObject.newBuilder()
-      .setKind(convertKind(JavaFileObject.Kind.SOURCE)).setFilePath(FileUtilRt.toSystemIndependentName(srcFile.getPath())).build();
+      .setKind(convertKind(JavaFileObject.Kind.SOURCE)).setIsGenerated(false).setFilePath(FileUtilRt.toSystemIndependentName(srcFile.getPath())).build();
 
     final JavacRemoteProto.Message.Response.Builder builder = JavacRemoteProto.Message.Response.newBuilder();
     builder.setResponseType(JavacRemoteProto.Message.Response.Type.SRC_FILE_LOADED).setOutputObject(outObjMsg);
@@ -216,6 +221,7 @@ public class JavacProtoUtil {
   public static JavacRemoteProto.Message.UUID toProtoUUID(UUID requestId) {
     return JavacRemoteProto.Message.UUID.newBuilder().setMostSigBits(requestId.getMostSignificantBits()).setLeastSigBits(requestId.getLeastSignificantBits()).build();
   }
+
   public static UUID fromProtoUUID(JavacRemoteProto.Message.UUID requestId) {
     return new UUID(requestId.getMostSigBits(), requestId.getLeastSigBits());
   }
@@ -232,6 +238,7 @@ public class JavacProtoUtil {
         return JavacRemoteProto.Message.Response.OutputObject.Kind.OTHER;
     }
   }
+
   private static JavacRemoteProto.Message.Response.CompileMessage.Kind convertKind(Diagnostic.Kind kind) {
     switch (kind) {
       case ERROR: return JavacRemoteProto.Message.Response.CompileMessage.Kind.ERROR;
@@ -242,5 +249,4 @@ public class JavacProtoUtil {
         return JavacRemoteProto.Message.Response.CompileMessage.Kind.OTHER;
     }
   }
-
 }

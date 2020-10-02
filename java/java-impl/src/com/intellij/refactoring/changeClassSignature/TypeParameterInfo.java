@@ -19,7 +19,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.refactoring.util.CanonicalTypes;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
@@ -52,10 +51,10 @@ public interface TypeParameterInfo {
                @NotNull @NonNls String defaultValue,
                @NotNull @NonNls String boundValue) throws IncorrectOperationException {
       this(name,
-           JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createTypeFromText(defaultValue, aClass.getLBrace()),
+           JavaPsiFacade.getElementFactory(aClass.getProject()).createTypeFromText(defaultValue, aClass.getLBrace()),
            boundValue.isEmpty()
            ? null
-           : JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory().createTypeFromText(boundValue, aClass.getLBrace()));
+           : JavaPsiFacade.getElementFactory(aClass.getProject()).createTypeFromText(boundValue, aClass.getLBrace()));
     }
 
     public void setNewName(String newName) {

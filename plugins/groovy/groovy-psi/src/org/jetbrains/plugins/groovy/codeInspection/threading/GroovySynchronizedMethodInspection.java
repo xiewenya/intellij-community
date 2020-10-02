@@ -16,9 +16,9 @@
 package org.jetbrains.plugins.groovy.codeInspection.threading;
 
 import com.intellij.psi.PsiModifier;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
@@ -26,16 +26,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 public class GroovySynchronizedMethodInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Synchronized method";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Synchronized method '#ref' #loc";
+    return GroovyBundle.message("inspection.message.synchronized.method.ref");
 
   }
 

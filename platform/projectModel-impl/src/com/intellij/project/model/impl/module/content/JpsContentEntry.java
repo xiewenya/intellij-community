@@ -1,26 +1,8 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.project.model.impl.module.content;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.roots.ContentEntry;
-import com.intellij.openapi.roots.ContentFolder;
-import com.intellij.openapi.roots.ExcludeFolder;
-import com.intellij.openapi.roots.SourceFolder;
+import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.impl.DirectoryIndexExcludePolicy;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
@@ -46,9 +28,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public class JpsContentEntry implements ContentEntry, Disposable {
   private final VirtualFilePointer myRoot;
   private final JpsModule myModule;
@@ -93,9 +72,8 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     return myRoot.getUrl();
   }
 
-  @NotNull
   @Override
-  public SourceFolder[] getSourceFolders() {
+  public SourceFolder @NotNull [] getSourceFolders() {
     return mySourceFolders.toArray(new SourceFolder[0]);
   }
 
@@ -117,9 +95,8 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     return folders;
   }
 
-  @NotNull
   @Override
-  public VirtualFile[] getSourceFolderFiles() {
+  public VirtualFile @NotNull [] getSourceFolderFiles() {
     return getFiles(getSourceFolders());
   }
 
@@ -134,9 +111,8 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     return VfsUtilCore.toVirtualFileArray(result);
   }
 
-  @NotNull
   @Override
-  public ExcludeFolder[] getExcludeFolders() {
+  public ExcludeFolder @NotNull [] getExcludeFolders() {
     return myExcludeFolders.toArray(new ExcludeFolder[0]);
   }
 
@@ -147,8 +123,7 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     for (JpsExcludeFolder folder : myExcludeFolders) {
       excluded.add(folder.getUrl());
     }
-    for (DirectoryIndexExcludePolicy excludePolicy : Extensions
-      .getExtensions(DirectoryIndexExcludePolicy.EP_NAME, myRootModel.getProject())) {
+    for (DirectoryIndexExcludePolicy excludePolicy : DirectoryIndexExcludePolicy.EP_NAME.getExtensions(myRootModel.getProject())) {
       for (VirtualFilePointer pointer : excludePolicy.getExcludeRootsForModule(myRootModel)) {
         excluded.add(pointer.getUrl());
       }
@@ -156,14 +131,13 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     return excluded;
   }
 
-  @NotNull
   @Override
-  public VirtualFile[] getExcludeFolderFiles() {
+  public VirtualFile @NotNull [] getExcludeFolderFiles() {
     List<VirtualFile> excluded = new ArrayList<>();
     for (JpsExcludeFolder folder : myExcludeFolders) {
       ContainerUtil.addIfNotNull(excluded, folder.getFile());
     }
-    for (DirectoryIndexExcludePolicy excludePolicy : Extensions.getExtensions(DirectoryIndexExcludePolicy.EP_NAME, myRootModel.getProject())) {
+    for (DirectoryIndexExcludePolicy excludePolicy : DirectoryIndexExcludePolicy.EP_NAME.getExtensions(myRootModel.getProject())) {
       for (VirtualFilePointer pointer : excludePolicy.getExcludeRootsForModule(myRootModel)) {
         ContainerUtil.addIfNotNull(excluded, pointer.getFile());
       }
@@ -248,11 +222,13 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     }
   }
 
+  @NotNull
   @Override
   public ExcludeFolder addExcludeFolder(@NotNull VirtualFile file) {
     return addExcludeFolder(file.getUrl());
   }
 
+  @NotNull
   @Override
   public ExcludeFolder addExcludeFolder(@NotNull String url) {
     final JpsExcludeFolder folder = new JpsExcludeFolder(url, this);
@@ -322,6 +298,12 @@ public class JpsContentEntry implements ContentEntry, Disposable {
     for (String pattern : patterns) {
       addExcludePattern(pattern);
     }
+  }
+
+  @NotNull
+  @Override
+  public ModuleRootModel getRootModel() {
+    return myRootModel;
   }
 
   @Override

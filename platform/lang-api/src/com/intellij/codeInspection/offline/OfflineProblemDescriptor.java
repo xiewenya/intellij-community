@@ -18,16 +18,18 @@ package com.intellij.codeInspection.offline;
 
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefManager;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 
 public class OfflineProblemDescriptor {
   public String myType;
   public String myFQName;
-  public String myDescription;
+  public @InspectionMessage String myDescription;
   public List<String> myHints;
   public int myProblemIndex;
   public int myLine;
@@ -49,11 +51,11 @@ public class OfflineProblemDescriptor {
     myFQName = FQName;                              
   }
 
-  public String getDescription() {
+  public @InspectionMessage String getDescription() {
     return myDescription;
   }
 
-  public void setDescription(final String description) {
+  public void setDescription(@InspectionMessage String description) {
     myDescription = description;
   }
 
@@ -94,11 +96,11 @@ public class OfflineProblemDescriptor {
 
     if (myLine != that.myLine) return false;
     if (myProblemIndex != that.myProblemIndex) return false;
-    if (myDescription != null ? !myDescription.equals(that.myDescription) : that.myDescription != null) return false;
-    if (myFQName != null ? !myFQName.equals(that.myFQName) : that.myFQName != null) return false;
-    if (myHints != null ? !myHints.equals(that.myHints) : that.myHints != null) return false;
-    if (myModuleName != null ? !myModuleName.equals(that.myModuleName) : that.myModuleName != null) return false;
-    if (myType != null ? !myType.equals(that.myType) : that.myType != null) return false;
+    if (!Objects.equals(myDescription, that.myDescription)) return false;
+    if (!Objects.equals(myFQName, that.myFQName)) return false;
+    if (!Objects.equals(myHints, that.myHints)) return false;
+    if (!Objects.equals(myModuleName, that.myModuleName)) return false;
+    if (!Objects.equals(myType, that.myType)) return false;
 
     return true;
   }

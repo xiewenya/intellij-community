@@ -1,28 +1,16 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.schemes;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.options.Scheme;
-import com.intellij.openapi.options.SchemeManager;
 import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,23 +18,24 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.Collection;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCombo.MySchemeListItem<T>> {
-  public static final String PROJECT_LEVEL = "Project";
-  public static final String IDE_LEVEL = "IDE";
+  public static final @NotNull Supplier<@Nls String> PROJECT_LEVEL = IdeBundle.messagePointer("scheme.project");
+  public static final @NotNull Supplier<@Nls String> IDE_LEVEL = IdeBundle.messagePointer("scheme.ide");
 
   public SchemesCombo() {
     super(new MyComboBoxModel<>());
     setRenderer(new MyListCellRenderer());
   }
 
-  public void resetSchemes(@NotNull Collection<T> schemes) {
+  public void resetSchemes(@NotNull Collection<? extends T> schemes) {
     final MyComboBoxModel<T> model = (MyComboBoxModel<T>)getModel();
     model.removeAllElements();
     if (supportsProjectSchemes()) {
-      model.addElement(new MySeparatorItem(PROJECT_LEVEL));
+      model.addElement(new MySeparatorItem(PROJECT_LEVEL.get()));
       addItems(schemes, scheme -> isProjectScheme(scheme));
-      model.addElement(new MySeparatorItem(IDE_LEVEL));
+      model.addElement(new MySeparatorItem(IDE_LEVEL.get()));
       addItems(schemes, scheme -> !isProjectScheme(scheme));
     }
     else {
@@ -69,6 +58,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
     return item != null ? item.getScheme() : null;
   }
 
+  @Override
   @Nullable
   public SchemesCombo.MySchemeListItem<T> getSelectedItem() {
     int i = getSelectedIndex();
@@ -88,7 +78,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
   @NotNull
   protected abstract SimpleTextAttributes getSchemeAttributes(T scheme);
 
-  private void addItems(@NotNull Collection<T> schemes, Predicate<T> filter) {
+  private void addItems(@NotNull Collection<? extends T> schemes, Predicate<? super T> filter) {
     for (T scheme : schemes) {
       if (filter.test(scheme)) {
         ((MyComboBoxModel<T>) getModel()).addElement(new MySchemeListItem<>(scheme));
@@ -99,7 +89,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
   static class MySchemeListItem<T extends Scheme> {
     private @Nullable final T myScheme;
 
-    public MySchemeListItem(@Nullable T scheme) {
+    MySchemeListItem(@Nullable T scheme) {
       myScheme = scheme;
     }
 
@@ -114,8 +104,8 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
     }
 
     @NotNull
-    public String getPresentableText() {
-      return myScheme != null ? SchemeManager.getDisplayName(myScheme) : "";
+    public @NlsContexts.ListItem String getPresentableText() {
+      return myScheme != null ? myScheme.getDisplayName() : "";
     }
 
     public boolean isSeparator() {
@@ -133,7 +123,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
                                                   boolean hasFocus) {
       Component c;
       if (value != null && value.isSeparator()) {
-        c = new MyTitledSeparator("Stored in " + value.getPresentableText());
+        c = new MyTitledSeparator(IdeBundle.message("separator.scheme.stored.in", value.getPresentableText()));
       }
       else {
         c = super.getListCellRendererComponent(list, value, index, selected, hasFocus);
@@ -153,7 +143,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
         append(value.getPresentableText(), getSchemeAttributes(scheme));
         if (supportsProjectSchemes()) {
           if (index == -1) {
-            append("  " + (isProjectScheme(scheme) ? PROJECT_LEVEL : IDE_LEVEL),
+            append("  " + (isProjectScheme(scheme) ? PROJECT_LEVEL.get() : IDE_LEVEL.get()),
                    SimpleTextAttributes.GRAY_ATTRIBUTES);
           }
         }
@@ -175,9 +165,9 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
 
   private class MySeparatorItem extends MySchemeListItem<T> {
 
-    private final String myTitle;
+    private final @NlsContexts.ListItem String myTitle;
 
-    public MySeparatorItem(@NotNull String title) {
+    MySeparatorItem(@NotNull @NlsContexts.ListItem String title) {
       super(null);
       myTitle = title;
     }
@@ -196,7 +186,7 @@ public abstract class SchemesCombo<T extends Scheme> extends ComboBox<SchemesCom
 
   private static class MyTitledSeparator extends JPanel {
 
-    public MyTitledSeparator(@NotNull String titleText) {
+    MyTitledSeparator(@NlsContexts.Separator @NotNull String titleText) {
       super();
       setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
       JLabel label = new JLabel(titleText);

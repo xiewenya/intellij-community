@@ -16,20 +16,18 @@
 package org.jetbrains.uast.java
 
 import com.intellij.psi.PsiAssignmentExpression
-import org.jetbrains.uast.UBinaryExpression
-import org.jetbrains.uast.UElement
-import org.jetbrains.uast.UIdentifier
+import org.jetbrains.uast.*
 
 class JavaUAssignmentExpression(
-  override val psi: PsiAssignmentExpression,
+  override val sourcePsi: PsiAssignmentExpression,
   givenParent: UElement?
 ) : JavaAbstractUExpression(givenParent), UBinaryExpression {
-  override val leftOperand by lz { JavaConverter.convertOrEmpty(psi.lExpression, this) }
-  override val rightOperand by lz { JavaConverter.convertOrEmpty(psi.rExpression, this) }
-  override val operator by lz { psi.operationTokenType.getOperatorType() }
+  override val leftOperand: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.lExpression, this) }
+  override val rightOperand: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.rExpression, this) }
+  override val operator: UastBinaryOperator by lz { sourcePsi.operationTokenType.getOperatorType() }
 
-  override fun resolveOperator() = null
+  override fun resolveOperator(): Nothing? = null
 
   override val operatorIdentifier: UIdentifier
-    get() = UIdentifier(psi.operationSign, this)
+    get() = UIdentifier(sourcePsi.operationSign, this)
 }

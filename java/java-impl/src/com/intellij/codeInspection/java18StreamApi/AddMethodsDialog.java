@@ -1,40 +1,28 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.java18StreamApi;
 
 
 import com.intellij.codeInsight.intention.impl.config.ActionUsagePanel;
+import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.refactoring.ui.ClassNameReferenceEditor;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.LinkedMultiMap;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,20 +30,22 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Dmitry Batkovich
  */
 public class AddMethodsDialog extends DialogWrapper {
+  public static final @NlsSafe String OR_ELSE_DEFAULT_VALUE = ".orElseGet(() -> defaultValue)";
+  private static final @NlsSafe String STREAM_PREFIX = "stream.";
   private final static Logger LOG = Logger.getInstance(AddMethodsDialog.class);
   @NotNull private final Project myProject;
 
   private JPanel myPanel;
   private ComboBox myTemplatesCombo;
   private ClassNameReferenceEditor myClassNameEditor;
-  private ComboBox myMethodNameCombo;
+  private ComboBox<Collection<PsiMethod>> myMethodNameCombo;
   private ActionUsagePanel myBeforeActionPanel;
   private ActionUsagePanel myAfterActionPanel;
   private JPanel myExamplePanel;
@@ -75,16 +65,17 @@ public class AddMethodsDialog extends DialogWrapper {
         if (template == null) {
           return;
         }
-        append("stream.");
+        append(STREAM_PREFIX);
         final String streamApiMethodName = template.getStreamApiMethodName();
         if (StreamApiConstants.STREAM_STREAM_API_METHODS.getValue().contains(streamApiMethodName)) {
           append(streamApiMethodName + "()", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
         }
         else {
           LOG.assertTrue(StreamApiConstants.FAKE_FIND_MATCHED.equals(streamApiMethodName));
-          append(String.format(StreamApiConstants.FAKE_FIND_MATCHED_PATTERN, "condition"), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-          append(" or ");
-          append(".orElseGet(() -> defaultValue)", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+          @NlsSafe String fragment = String.format(StreamApiConstants.FAKE_FIND_MATCHED_PATTERN, "condition");
+          append(fragment, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+          append(JavaBundle.message("add.methods.dialog.or"));
+          append(OR_ELSE_DEFAULT_VALUE, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
         }
       }
     });
@@ -132,18 +123,10 @@ public class AddMethodsDialog extends DialogWrapper {
         myTemplatesCombo.setSelectedItem(templatesAsList.get(0));
       }
     });
-    myMethodNameCombo.setRenderer(new ListCellRendererWrapper<Collection<PsiMethod>>() {
-      @Override
-      public void customize(JList list, Collection<PsiMethod> methods, int index, boolean selected, boolean hasFocus) {
-        if (methods != null) {
-          LOG.assertTrue(!methods.isEmpty());
-          setText(ContainerUtil.getFirstItem(methods).getName());
-        }
-      }
-    });
+    myMethodNameCombo.setRenderer(SimpleListCellRenderer.create("", value -> value.iterator().next().getName()));
     myClassNameEditor.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         final String classFqn = e.getDocument().getText();
         final PsiClass aClass = JavaPsiFacade.getInstance(project).findClass(classFqn, GlobalSearchScope.allScope(project));
         final DefaultComboBoxModel comboBoxModel = (DefaultComboBoxModel)myMethodNameCombo.getModel();
@@ -153,7 +136,7 @@ public class AddMethodsDialog extends DialogWrapper {
         }
         else {
           final List<PseudoLambdaReplaceTemplate> possibleTemplates = PseudoLambdaReplaceTemplate.getAllTemplates();
-          final LinkedMultiMap<String, PsiMethod> nameToMethod = new LinkedMultiMap<>();
+          final MultiMap<String, PsiMethod> nameToMethod = MultiMap.createLinked();
           for (PsiMethod m : ContainerUtil.filter(aClass.getMethods(), method -> {
             if (method.isConstructor() ||
                 !method.hasModifierProperty(PsiModifier.STATIC) ||
@@ -192,8 +175,8 @@ public class AddMethodsDialog extends DialogWrapper {
     setOKActionEnabled(isEnabled);
     myExamplePanel.setEnabled(isEnabled);
     if (!isEnabled) {
-      myBeforeActionPanel.reset("", StdFileTypes.JAVA);
-      myAfterActionPanel.reset("", StdFileTypes.JAVA);
+      myBeforeActionPanel.reset("", JavaFileType.INSTANCE);
+      myAfterActionPanel.reset("", JavaFileType.INSTANCE);
     }
   }
 
@@ -210,8 +193,8 @@ public class AddMethodsDialog extends DialogWrapper {
     LOG.assertTrue(psiExpression instanceof PsiMethodCallExpression);
     final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)psiExpression;
     template.convertToStream(methodCallExpression, method, false);
-    myBeforeActionPanel.reset("void example() {\n  <spot>" + methodCallExpression.getText() + "</spot>;\n}", StdFileTypes.JAVA);
-    myAfterActionPanel.reset("void example() {\n  <spot>" + template.convertToStream(methodCallExpression, method, true).getText() + "</spot>\n}", StdFileTypes.JAVA);
+    myBeforeActionPanel.reset("void example() {\n  <spot>" + methodCallExpression.getText() + "</spot>;\n}", JavaFileType.INSTANCE);
+    myAfterActionPanel.reset("void example() {\n  <spot>" + template.convertToStream(methodCallExpression, method, true).getText() + "</spot>\n}", JavaFileType.INSTANCE);
   }
 
   @Override

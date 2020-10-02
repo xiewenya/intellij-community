@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.help.impl;
 
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -25,28 +11,24 @@ import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.keymap.ex.KeymapManagerEx;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import gnu.trove.THashSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class KeymapGenerator implements ApplicationStarter {
+final class KeymapGenerator implements ApplicationStarter {
   @Override
   public String getCommandName() {
     return "keymap";
   }
 
   @Override
-  public void premain(String[] args) {
-
-  }
-
-  @Override
-  public void main(String[] args) {
+  public void main(String @NotNull [] args) {
     ActionManager actionManager = ActionManager.getInstance();
     StringBuilder xml = new StringBuilder();
     xml.append("<Keymaps>\n");
@@ -59,7 +41,7 @@ public class KeymapGenerator implements ApplicationStarter {
         if (!StringUtil.isEmpty(shortcuts)) {
           AnAction action = actionManager.getAction(id);
           xml.append("    <Action id=\"").append(id).append("\">\n");
-          Set<String> addedShortcuts = new THashSet<>();
+          Set<String> addedShortcuts = new HashSet<>();
           for (Shortcut shortcut : keymap.getShortcuts(id)) {
             // Different shortcuts may have equal display strings (e.g. shift+minus and shift+subtract)
             // We don't want them do be duplicated for users
@@ -71,7 +53,7 @@ public class KeymapGenerator implements ApplicationStarter {
           if (action != null) {
             String text = action.getTemplatePresentation().getText();
             if (text != null) {
-              xml.append("      <Text>").append(StringUtil.escapeXml(text)).append("</Text>\n");
+              xml.append("      <Text>").append(StringUtil.escapeXmlEntities(text)).append("</Text>\n");
             }
           }
           xml.append("    </Action>\n");

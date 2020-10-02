@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
+import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
-import com.intellij.util.containers.Queue;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -33,29 +20,31 @@ import javax.swing.*;
 import java.awt.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.Set;
 
-public class ScopeToolState {
+public final class ScopeToolState {
   private static final Logger LOG = Logger.getInstance(ScopeToolState.class);
   @NotNull
   private final String myScopeName;
   private NamedScope myScope;
-  private InspectionToolWrapper myToolWrapper;
+  private InspectionToolWrapper<?, ?> myToolWrapper;
   private boolean myEnabled;
   private HighlightDisplayLevel myLevel;
   private ConfigPanelState myAdditionalConfigPanelState;
 
   public ScopeToolState(@NotNull NamedScope scope,
-                        @NotNull InspectionToolWrapper toolWrapper,
+                        @NotNull InspectionToolWrapper<?, ?> toolWrapper,
                         boolean enabled,
                         @NotNull HighlightDisplayLevel level) {
-    this(scope.getName(), toolWrapper, enabled, level);
+    this(scope.getScopeId(), toolWrapper, enabled, level);
     myScope = scope;
   }
 
   public ScopeToolState(@NotNull String scopeName,
-                        @NotNull InspectionToolWrapper toolWrapper,
+                        @NotNull InspectionToolWrapper<?, ?> toolWrapper,
                         boolean enabled,
                         @NotNull HighlightDisplayLevel level) {
     myScopeName = scopeName;
@@ -83,7 +72,7 @@ public class ScopeToolState {
   }
 
   @NotNull
-  public InspectionToolWrapper getTool() {
+  public InspectionToolWrapper<?, ?> getTool() {
     return myToolWrapper;
   }
 
@@ -107,7 +96,7 @@ public class ScopeToolState {
   @Nullable
   public JComponent getAdditionalConfigPanel() {
     if (myAdditionalConfigPanelState == null) {
-      myAdditionalConfigPanelState = ConfigPanelState.of(myToolWrapper.getTool().createOptionsPanel());
+      myAdditionalConfigPanelState = ConfigPanelState.of(myToolWrapper.getTool().createOptionsPanel(), myToolWrapper);
     }
     return myAdditionalConfigPanelState.getPanel(isEnabled());
   }
@@ -116,22 +105,26 @@ public class ScopeToolState {
     myAdditionalConfigPanelState = null;
   }
 
-  public void setTool(@NotNull InspectionToolWrapper tool) {
+  public void setTool(@NotNull InspectionToolWrapper<?, ?> tool) {
     myToolWrapper = tool;
   }
 
   public boolean equalTo(@NotNull ScopeToolState state2) {
     if (isEnabled() != state2.isEnabled()) return false;
     if (getLevel() != state2.getLevel()) return false;
-    InspectionToolWrapper toolWrapper = getTool();
-    InspectionToolWrapper toolWrapper2 = state2.getTool();
+    InspectionToolWrapper<?, ?> toolWrapper = getTool();
+    InspectionToolWrapper<?, ?> toolWrapper2 = state2.getTool();
     if (!toolWrapper.isInitialized() && !toolWrapper2.isInitialized()) return true;
+    return areSettingsEqual(toolWrapper, toolWrapper2);
+  }
+
+  public static boolean areSettingsEqual(@NotNull InspectionToolWrapper<?, ?> toolWrapper, @NotNull InspectionToolWrapper<?, ?> toolWrapper2) {
     try {
       @NonNls String tempRoot = "root";
       Element oldToolSettings = new Element(tempRoot);
-      toolWrapper.getTool().writeSettings(oldToolSettings);
+      tryWriteSettings(toolWrapper.getTool(), oldToolSettings);
       Element newToolSettings = new Element(tempRoot);
-      toolWrapper2.getTool().writeSettings(newToolSettings);
+      tryWriteSettings(toolWrapper2.getTool(), newToolSettings);
       return JDOMUtil.areElementsEqual(oldToolSettings, newToolSettings);
     }
     catch (WriteExternalException e) {
@@ -144,8 +137,32 @@ public class ScopeToolState {
     myScope = null;
   }
 
-  private static class ConfigPanelState {
-    private static final ConfigPanelState EMPTY = new ConfigPanelState(null);
+  public static void tryReadSettings(@NotNull InspectionProfileEntry entry, @NotNull Element node) throws InvalidDataException {
+    try {
+      entry.readSettings(node);
+    }
+    catch (InvalidDataException e) {
+      throw e;
+    }
+    catch (Exception e) {
+      throw new InvalidDataException("Can't read settings for tool #" + entry.getShortName(), e);
+    }
+  }
+
+  public static void tryWriteSettings(@NotNull InspectionProfileEntry entry, @NotNull Element node) throws WriteExternalException {
+    try {
+      entry.writeSettings(node);
+    }
+    catch (WriteExternalException | ProcessCanceledException e) {
+      throw e;
+    }
+    catch (Exception e) {
+      throw new RuntimeException("Can't write settings for tool #" + entry.getShortName(), e);
+    }
+  }
+
+  private static final class ConfigPanelState {
+    private static final ConfigPanelState EMPTY = new ConfigPanelState(null, null);
 
     private final JComponent myOptionsPanel;
     private final Set<Component> myEnableRequiredComponent = new HashSet<>();
@@ -153,13 +170,13 @@ public class ScopeToolState {
     private boolean myLastState = true;
     private boolean myDeafListeners;
 
-    private ConfigPanelState(JComponent optionsPanel) {
+    private ConfigPanelState(JComponent optionsPanel, InspectionToolWrapper<?, ?> wrapper) {
       myOptionsPanel = optionsPanel;
       if (myOptionsPanel != null) {
-        Queue<Component> q = new Queue<>(1);
+        Deque<Component> q = new ArrayDeque<>(1);
         q.addLast(optionsPanel);
         while (!q.isEmpty()) {
-          final Component current = q.pullFirst();
+          final Component current = q.removeFirst();
           current.addPropertyChangeListener("enabled", new PropertyChangeListener() {
             @Override
             public void propertyChange(PropertyChangeEvent evt) {
@@ -169,7 +186,11 @@ public class ScopeToolState {
                   myEnableRequiredComponent.add(current);
                 }
                 else {
-                  LOG.assertTrue(myEnableRequiredComponent.remove(current));
+                  String message = wrapper == null
+                                   ? null
+                                   : (" tool = #" + wrapper.getShortName());
+                  LOG.assertTrue(myEnableRequiredComponent.remove(current), message);
+
                 }
               }
             }
@@ -203,8 +224,8 @@ public class ScopeToolState {
       return myOptionsPanel;
     }
 
-    private static ConfigPanelState of(JComponent panel) {
-      return panel == null ? EMPTY : new ConfigPanelState(panel);
+    private static ConfigPanelState of(JComponent panel, InspectionToolWrapper<?, ?> toolWrapper) {
+      return panel == null ? EMPTY : new ConfigPanelState(panel, toolWrapper);
     }
   }
 }

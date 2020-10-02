@@ -1,10 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.debugger;
 
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.SimpleConfigurable;
 import com.intellij.openapi.util.Getter;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import com.intellij.xdebugger.settings.DebuggerSettingsCategory;
 import com.intellij.xdebugger.settings.XDebuggerSettings;
@@ -18,7 +17,7 @@ import static java.util.Collections.singletonList;
 
 public class GroovyDebuggerSettings extends XDebuggerSettings<GroovyDebuggerSettings> implements Getter<GroovyDebuggerSettings> {
   public Boolean DEBUG_DISABLE_SPECIFIC_GROOVY_METHODS = true;
-  public boolean ENABLE_GROOVY_HOTSWAP = Registry.is("enable.groovy.hotswap");
+  public boolean ENABLE_GROOVY_HOTSWAP = true;
 
   public GroovyDebuggerSettings() {
     super("groovy_debugger");
@@ -33,8 +32,7 @@ public class GroovyDebuggerSettings extends XDebuggerSettings<GroovyDebuggerSett
         return singletonList(SimpleConfigurable.create("reference.idesettings.debugger.groovy", GroovyBundle.message("groovy.debug.caption"),
                                                        "reference.idesettings.debugger.groovy", GroovySteppingConfigurableUi.class, this));
       case HOTSWAP:
-        return singletonList(SimpleConfigurable.create("reference.idesettings.debugger.groovy", GroovyBundle.message("groovy.debug.caption"),
-                                                       "reference.idesettings.debugger.groovy", GroovyHotSwapConfigurableUi.class, this));
+        return singletonList(new GroovyHotSwapConfigurable(this));
     }
     return Collections.emptyList();
   }

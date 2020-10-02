@@ -1,5 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.remote.wrapper;
 
+import com.intellij.openapi.externalSystem.importing.ProjectResolverPolicy;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
@@ -8,6 +10,7 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProgressNotificationManager;
 import com.intellij.openapi.externalSystem.service.remote.RemoteExternalSystemProjectResolver;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,7 +23,6 @@ import java.rmi.RemoteException;
  * Thread-safe.
  *
  * @author Denis Zhdanov
- * @since 2/8/12 7:21 PM
  */
 public class ExternalSystemProjectResolverWrapper<S extends ExternalSystemExecutionSettings>
   extends AbstractRemoteExternalSystemServiceWrapper<S, RemoteExternalSystemProjectResolver<S>>
@@ -39,10 +41,16 @@ public class ExternalSystemProjectResolverWrapper<S extends ExternalSystemExecut
   public DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
                                                   @NotNull String projectPath,
                                                   boolean isPreviewMode,
-                                                  @Nullable S settings)
+                                                  @Nullable S settings,
+                                                  @Nullable ProjectResolverPolicy resolverPolicy)
     throws ExternalSystemException, IllegalArgumentException, IllegalStateException, RemoteException {
     try {
-      return getDelegate().resolveProjectInfo(id, projectPath, isPreviewMode, settings);
+      return getDelegate().resolveProjectInfo(id, projectPath, isPreviewMode, settings, resolverPolicy);
+    }
+    catch (ProcessCanceledException e) {
+      myProgressManager.onCancel(id);
+      throw e.getCause() == null || e.getCause() instanceof ExternalSystemException
+            ? e : new ProcessCanceledException(new ExternalSystemException(e.getCause()));
     }
     catch (ExternalSystemException e) {
       myProgressManager.onFailure(id, e);

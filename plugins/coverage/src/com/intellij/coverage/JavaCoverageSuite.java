@@ -1,34 +1,20 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
+import com.intellij.execution.configurations.ModuleBasedConfiguration;
+import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.InvalidDataException;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.psi.JavaPsiFacade;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiManager;
-import com.intellij.psi.PsiPackage;
+import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.rt.coverage.data.ProjectData;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -41,14 +27,13 @@ import java.util.List;
 /**
  * @author ven
  */
-public class JavaCoverageSuite extends BaseCoverageSuite {
-  private static final Logger LOG = Logger.getInstance(JavaCoverageSuite.class.getName());
-
+public final class JavaCoverageSuite extends BaseCoverageSuite {
   private String[] myFilters;
   private String mySuiteToMerge;
 
   @NonNls
   private static final String FILTER = "FILTER";
+  @NonNls
   private static final String EXCLUDED_FILTER = "EXCLUDED_FILTER";
   @NonNls
   private static final String MERGE_SUITE = "MERGE_SUITE";
@@ -83,18 +68,16 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     myCoverageEngine = coverageSupportProvider;
   }
 
-  @NotNull
-  public String[] getFilteredPackageNames() {
+  public String @NotNull [] getFilteredPackageNames() {
     return getPackageNames(myFilters);
   }
 
-  @NotNull
-  public String[] getExcludedPackageNames() {
+  public String @NotNull [] getExcludedPackageNames() {
     return getPackageNames(myExcludePatterns);
   }
 
   private static String[] getPackageNames(String[] filters) {
-    if (filters == null || filters.length == 0) return ArrayUtil.EMPTY_STRING_ARRAY;
+    if (filters == null || filters.length == 0) return ArrayUtilRt.EMPTY_STRING_ARRAY;
     List<String> result = new ArrayList<>();
     for (String filter : filters) {
       if (filter.equals("*")) {
@@ -102,29 +85,27 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
       }
       else if (filter.endsWith(".*")) result.add(filter.substring(0, filter.length() - 2));
     }
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
-  @NotNull
-  public String[] getFilteredClassNames() {
+  public String @NotNull [] getFilteredClassNames() {
     return getClassNames(myFilters);
   }
 
-  @NotNull
-  public String[] getExcludedClassNames() {
+  public String @NotNull [] getExcludedClassNames() {
     return getClassNames(myExcludePatterns);
   }
 
-  @NotNull
-  private static String[] getClassNames(final String[] filters) {
-    if (filters == null) return ArrayUtil.EMPTY_STRING_ARRAY;
+  private static String @NotNull [] getClassNames(final String[] filters) {
+    if (filters == null) return ArrayUtilRt.EMPTY_STRING_ARRAY;
     List<String> result = new ArrayList<>();
     for (String filter : filters) {
       if (!filter.equals("*") && !filter.endsWith(".*")) result.add(filter);
     }
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     super.readExternal(element);
 
@@ -146,9 +127,10 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     for (Element child : children) {
       filters.add(child.getValue());
     }
-    return filters.isEmpty() ? null : ArrayUtil.toStringArray(filters);
+    return filters.isEmpty() ? null : ArrayUtilRt.toStringArray(filters);
   }
 
+  @Override
   public void writeExternal(final Element element) throws WriteExternalException {
     super.writeExternal(element);
     if (mySuiteToMerge != null) {
@@ -170,6 +152,7 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     }
   }
 
+  @Override
   @Nullable
   public ProjectData getCoverageData(final CoverageDataManager coverageDataManager) {
     final ProjectData data = getCoverageData();
@@ -199,6 +182,7 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     return map;
   }
 
+  @Override
   @NotNull
   public CoverageEngine getCoverageEngine() {
     return myCoverageEngine;
@@ -229,7 +213,7 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     }
     final String[] filteredPackageNames = getFilteredPackageNames();
     for (final String packName : filteredPackageNames) {
-      if (packName.equals(packageFQName) || packageFQName.startsWith(packName) && packageFQName.charAt(packName.length()) == '.') {
+      if (PsiNameHelper.isSubpackageOf(packageFQName, packName)) {
         return true;
       }
     }
@@ -281,18 +265,20 @@ public class JavaCoverageSuite extends BaseCoverageSuite {
     final List<PsiClass> classes = new ArrayList<>();
     final String[] classNames = getFilteredClassNames();
     if (classNames.length > 0) {
+      final DumbService dumbService = DumbService.getInstance(project);
       for (final String className : classNames) {
-        final PsiClass aClass =
-          ReadAction.compute(() -> {
-            final DumbService dumbService = DumbService.getInstance(project);
-            dumbService.setAlternativeResolveEnabled(true);
-            try {
-              return JavaPsiFacade.getInstance(project).findClass(className.replace("$", "."), GlobalSearchScope.allScope(project));
+        ThrowableComputable<PsiClass, RuntimeException> computable = () -> {
+          GlobalSearchScope searchScope = GlobalSearchScope.allScope(project);
+          RunConfigurationBase<?> configuration = getConfiguration();
+          if (configuration instanceof ModuleBasedConfiguration) {
+            Module module = ((ModuleBasedConfiguration<?,?>)configuration).getConfigurationModule().getModule();
+            if (module != null) {
+              searchScope = GlobalSearchScope.moduleRuntimeScope(module, isTrackTestFolders());
             }
-            finally {
-              dumbService.setAlternativeResolveEnabled(false);
-            }
-          });
+          }
+          return JavaPsiFacade.getInstance(project).findClass(className.replace("$", "."), searchScope);
+        };
+        final PsiClass aClass = ReadAction.compute(() -> dumbService.computeWithAlternativeResolveEnabled(computable));
         if (aClass != null) {
           classes.add(aClass);
         }

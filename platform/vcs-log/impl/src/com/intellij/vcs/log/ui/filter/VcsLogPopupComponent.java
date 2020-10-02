@@ -1,61 +1,59 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.ui.filter;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.ActionGroup;
+import com.intellij.openapi.actionSystem.impl.AutoPopupSupportingListener;
+import com.intellij.openapi.ui.GraphicsConfig;
+import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.ClickListener;
-import com.intellij.ui.RoundedLineBorder;
+import com.intellij.ui.popup.PopupState;
+import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.AccessibleContextDelegate;
+import com.intellij.vcs.log.VcsLogBundle;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import javax.swing.*;
 import javax.swing.border.Border;
+import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.Area;
+import java.awt.geom.RoundRectangle2D;
+import java.util.function.Supplier;
 
 public abstract class VcsLogPopupComponent extends JPanel {
   private static final int GAP_BEFORE_ARROW = 3;
-  private static final int BORDER_SIZE = 2;
+  protected static final int BORDER_SIZE = 2;
+  protected static final int ARC_SIZE = 10;
 
-  @NotNull private final String myName;
-  @NotNull private JLabel myNameLabel;
+  private final PopupState<JBPopup> myPopupState = PopupState.forPopup();
+  @NotNull private final Supplier<@NlsContexts.Label String> myDisplayName;
+  @Nullable private JLabel myNameLabel;
   @NotNull private JLabel myValueLabel;
 
-  protected VcsLogPopupComponent(@NotNull String name) {
-    myName = name;
+  protected VcsLogPopupComponent(@NotNull Supplier<@NlsContexts.Label String> displayName) {
+    myDisplayName = displayName;
   }
 
   public JComponent initUi() {
-    myNameLabel = new JLabel(myName + ": ");
-    myValueLabel = new JLabel() {
-      @Override
-      public String getText() {
-        return getCurrentText();
-      }
-    };
+    myNameLabel = shouldDrawLabel() ? new DynamicLabel(() -> myDisplayName.get() + ": ") : null;
+    myValueLabel = new DynamicLabel(this::getCurrentText);
     setDefaultForeground();
     setFocusable(true);
-    setBorder(createUnfocusedBorder());
+    setBorder(wrapBorder(createUnfocusedBorder()));
 
     setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
-    add(myNameLabel);
+    if (myNameLabel != null) add(myNameLabel);
     add(myValueLabel);
     add(Box.createHorizontalStrut(GAP_BEFORE_ARROW));
     add(new JLabel(AllIcons.Ide.Statusbar_arrows));
@@ -66,7 +64,9 @@ public abstract class VcsLogPopupComponent extends JPanel {
     });
     showPopupMenuOnClick();
     showPopupMenuFromKeyboard();
-    indicateHovering();
+    if (shouldIndicateHovering()) {
+      indicateHovering();
+    }
     indicateFocusing();
     return this;
   }
@@ -75,6 +75,19 @@ public abstract class VcsLogPopupComponent extends JPanel {
   public abstract String getCurrentText();
 
   public abstract void installChangeListener(@NotNull Runnable onChange);
+
+  @NotNull
+  protected Color getDefaultSelectorForeground() {
+    return StartupUiUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getInactiveTextColor().darker().darker();
+  }
+
+  protected boolean shouldIndicateHovering() {
+    return true;
+  }
+
+  protected boolean shouldDrawLabel() {
+    return true;
+  }
 
   /**
    * Create popup actions available under this filter.
@@ -85,12 +98,12 @@ public abstract class VcsLogPopupComponent extends JPanel {
     addFocusListener(new FocusAdapter() {
       @Override
       public void focusGained(@NotNull FocusEvent e) {
-        setBorder(createFocusedBorder());
+        setBorder(wrapBorder(createFocusedBorder()));
       }
 
       @Override
       public void focusLost(@NotNull FocusEvent e) {
-        setBorder(createUnfocusedBorder());
+        setBorder(wrapBorder(createUnfocusedBorder()));
       }
     });
   }
@@ -131,17 +144,24 @@ public abstract class VcsLogPopupComponent extends JPanel {
   }
 
   private void setDefaultForeground() {
-    myNameLabel.setForeground(UIUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getInactiveTextColor());
-    myValueLabel.setForeground(UIUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getInactiveTextColor().darker().darker());
+    if (myNameLabel != null) {
+      myNameLabel.setForeground(StartupUiUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getInactiveTextColor());
+    }
+    myValueLabel.setForeground(getDefaultSelectorForeground());
   }
 
   private void setOnHoverForeground() {
-    myNameLabel.setForeground(UIUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getTextAreaForeground());
-    myValueLabel.setForeground(UIUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getTextFieldForeground());
+    if (myNameLabel != null) {
+      myNameLabel.setForeground(StartupUiUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getTextAreaForeground());
+    }
+    myValueLabel.setForeground(StartupUiUtil.isUnderDarcula() ? UIUtil.getLabelForeground() : UIUtil.getTextFieldForeground());
   }
 
   private void showPopupMenu() {
+    if (myPopupState.isRecentlyHidden()) return; // do not show new popup
     ListPopup popup = createPopupMenu();
+    myPopupState.prepareToShow(popup);
+    AutoPopupSupportingListener.installOn(popup);
     popup.showUnderneathOf(this);
   }
 
@@ -153,11 +173,97 @@ public abstract class VcsLogPopupComponent extends JPanel {
   }
 
   private static Border createFocusedBorder() {
-    return BorderFactory.createCompoundBorder(new RoundedLineBorder(UIUtil.getHeaderActiveColor(), 10, BORDER_SIZE), JBUI.Borders.empty(2));
+    return new FilledRoundedBorder(UIUtil.getFocusedBorderColor(), ARC_SIZE, BORDER_SIZE);
   }
 
-  private static Border createUnfocusedBorder() {
-    return BorderFactory
-      .createCompoundBorder(BorderFactory.createEmptyBorder(BORDER_SIZE, BORDER_SIZE, BORDER_SIZE, BORDER_SIZE), JBUI.Borders.empty(2));
+  protected Border createUnfocusedBorder() {
+    return JBUI.Borders.empty(BORDER_SIZE);
+  }
+
+  private static Border wrapBorder(Border outerBorder) {
+    return BorderFactory.createCompoundBorder(outerBorder, JBUI.Borders.empty(2));
+  }
+
+  public static class FilledRoundedBorder implements Border {
+    private final Color myColor;
+    private final int myThickness;
+    private final int myArcSize;
+
+    public FilledRoundedBorder(@NotNull Color color, int arcSize, int thickness) {
+      myColor = color;
+      myThickness = thickness;
+      myArcSize = arcSize;
+    }
+
+    @Override
+    public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
+      GraphicsConfig config = GraphicsUtil.setupAAPainting(g);
+
+      g.setColor(myColor);
+
+      int thickness = JBUI.scale(myThickness);
+      int arcSize = JBUI.scale(myArcSize);
+      Area area = new Area(new RoundRectangle2D.Double(x, y, width, height, arcSize, arcSize));
+      int innerArc = Math.max(arcSize - thickness, 0);
+      area.subtract(new Area(new RoundRectangle2D.Double(x + thickness, y + thickness,
+                                                         width - 2 * thickness, height - 2 * thickness,
+                                                         innerArc, innerArc)));
+      ((Graphics2D)g).fill(area);
+
+      config.restore();
+    }
+
+    @Override
+    public Insets getBorderInsets(Component c) {
+      return JBUI.insets(myThickness);
+    }
+
+    @Override
+    public boolean isBorderOpaque() {
+      return false;
+    }
+  }
+
+  private static final class DynamicLabel extends JLabel {
+    private final Supplier<@NlsContexts.Label String> myText;
+
+    private DynamicLabel(@NotNull Supplier<@NlsContexts.Label String> text) {myText = text;}
+
+    @Override
+    @NlsContexts.Label
+    public String getText() {
+      if (myText == null) return "";
+      return myText.get();
+    }
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleVcsLogPopupComponent(super.getAccessibleContext());
+    }
+    return accessibleContext;
+  }
+
+  private class AccessibleVcsLogPopupComponent extends AccessibleContextDelegate {
+
+    AccessibleVcsLogPopupComponent(AccessibleContext context) {
+      super(context);
+    }
+
+    @Override
+    protected Container getDelegateParent() {
+      return null;
+    }
+
+    @Override
+    public String getAccessibleName() {
+      return VcsLogBundle.message("vcs.log.Accessibility.filter.label", myNameLabel.getText(), myValueLabel.getText());
+    }
+
+    @Override
+    public AccessibleRole getAccessibleRole() {
+      return AccessibleRole.POPUP_MENU;
+    }
   }
 }

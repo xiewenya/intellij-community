@@ -66,7 +66,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   }
 
   @Override
-  public SimpleNode[] getChildren() {
+  public SimpleNode @NotNull [] getChildren() {
     return doGetChildren(myDomElement);
   }
 
@@ -177,8 +177,7 @@ public class BaseDomElementNode extends AbstractDomElementNode {
   }
 
   @Override
-  @NotNull
-  public Object[] getEqualityObjects() {
+  public Object @NotNull [] getEqualityObjects() {
     return new Object[]{myDomElement};
   }
 

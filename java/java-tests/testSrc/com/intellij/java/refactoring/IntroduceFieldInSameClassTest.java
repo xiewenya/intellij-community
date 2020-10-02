@@ -22,7 +22,7 @@ import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiType;
 import com.intellij.refactoring.introduceField.BaseExpressionToFieldHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -30,32 +30,32 @@ import java.util.List;
 /**
  * @author ven
  */
-public class IntroduceFieldInSameClassTest extends LightCodeInsightTestCase {
+public class IntroduceFieldInSameClassTest extends LightJavaCodeInsightTestCase {
   @NotNull
   @Override
   protected String getTestDataPath() {
-    return JavaTestUtil.getJavaTestDataPath();
+    return JavaTestUtil.getJavaTestDataPath() + "/refactoring/introduceField/";
   }
 
   public void testInClassInitializer() {
-    configureByFile("/refactoring/introduceField/before1.java");
+    configureByFile("before1.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, true);
-    checkResultByFile("/refactoring/introduceField/after1.java");
+    checkResultByFile("after1.java");
   }
 
   public void testConflictingFieldInContainingClass() {
-    configureByFile("/refactoring/introduceField/beforeConflictingFieldInContainingClass.java");
+    configureByFile("beforeConflictingFieldInContainingClass.java");
     new MockIntroduceFieldHandler(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false) {
       @Override
       protected String getNewName(Project project, PsiExpression expr, PsiType type) {
         return "aField";
       }
-    }.invoke(getProject(), myEditor, myFile, null);
-    checkResultByFile("/refactoring/introduceField/afterConflictingFieldInContainingClass.java");
+    }.invoke(getProject(), getEditor(), getFile(), null);
+    checkResultByFile("afterConflictingFieldInContainingClass.java");
   }
 
   public void testConflictingFieldInContainingClassLocal() {
-    configureByFile("/refactoring/introduceField/beforeConflictingFieldInContainingClassLocal.java");
+    configureByFile("beforeConflictingFieldInContainingClassLocal.java");
     new MockIntroduceFieldHandler(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false) {
       @Override
       protected String getNewName(Project project, PsiExpression expr, PsiType type) {
@@ -66,79 +66,85 @@ public class IntroduceFieldInSameClassTest extends LightCodeInsightTestCase {
       protected int getChosenClassIndex(List<PsiClass> classes) {
         return 0;
       }
-    }.invoke(getProject(), myEditor, myFile, null);
-    checkResultByFile("/refactoring/introduceField/afterConflictingFieldInContainingClassLocal.java");
+    }.invoke(getProject(), getEditor(), getFile(), null);
+    checkResultByFile("afterConflictingFieldInContainingClassLocal.java");
   }
 
   public void testInElseClause() {
-    configureByFile("/refactoring/introduceField/beforeElseClause.java");
+    configureByFile("beforeElseClause.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_CURRENT_METHOD, true);
-    checkResultByFile("/refactoring/introduceField/afterElseClause.java");
+    checkResultByFile("afterElseClause.java");
   }
 
   public void testOuterClass() {
-    configureByFile("/refactoring/introduceField/beforeOuterClass.java");
+    configureByFile("beforeOuterClass.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR, false);
-    checkResultByFile("/refactoring/introduceField/afterOuterClass.java");
+    checkResultByFile("afterOuterClass.java");
+  }
+
+  public void testConflictingConstructorParameter() {
+    configureByFile("beforeConflictingConstructorParameter.java");
+    performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR, false);
+    checkResultByFile("afterConflictingConstructorParameter.java");
   }
 
   public void testOnClassLevelNoDuplicates() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelNoDuplicates.java");
+    configureByFile("beforeOnClassLevelNoDuplicates.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelNoDuplicates.java");
+    checkResultByFile("afterOnClassLevelNoDuplicates.java");
   }
 
   public void testOnClassLevelDuplicates() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelDuplicates.java");
+    configureByFile("beforeOnClassLevelDuplicates.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelDuplicates.java");
+    checkResultByFile("afterOnClassLevelDuplicates.java");
   }
 
   public void testOnClassLevelDuplicates1() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelDuplicates1.java");
+    configureByFile("beforeOnClassLevelDuplicates1.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelDuplicates1.java");
+    checkResultByFile("afterOnClassLevelDuplicates1.java");
   }
 
   public void testOnClassLevelBinary() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelBinary.java");
+    configureByFile("beforeOnClassLevelBinary.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelBinary.java");
+    checkResultByFile("afterOnClassLevelBinary.java");
   }
 
   //multiple error elements on class level corresponding to the extracted fragment ------------------
   public void testOnClassLevelNewExpression() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelNewExpression.java");
+    configureByFile("beforeOnClassLevelNewExpression.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelNewExpression.java");
+    checkResultByFile("afterOnClassLevelNewExpression.java");
   }
 
   public void testOnClassLevelClassForName() {
-    configureByFile("/refactoring/introduceField/beforeOnClassLevelClassForName.java");
+    configureByFile("beforeOnClassLevelClassForName.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterOnClassLevelClassForName.java");
+    checkResultByFile("afterOnClassLevelClassForName.java");
   }
   //-------------------------------------------------------------------------------------------------
 
   public void testUnresolvedReferenceToLocalVar() {
-    configureByFile("/refactoring/introduceField/beforeUnresolvedReferenceToLocalVar.java");
+    configureByFile("beforeUnresolvedReferenceToLocalVar.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_CURRENT_METHOD, false);
-    checkResultByFile("/refactoring/introduceField/afterUnresolvedReferenceToLocalVar.java");
+    checkResultByFile("afterUnresolvedReferenceToLocalVar.java");
   }
 
   public void testForcedFieldType() {
-    configureByFile("/refactoring/introduceField/beforeForcedFieldType.java");
+    configureByFile("beforeForcedFieldType.java");
     new MockIntroduceFieldHandler(BaseExpressionToFieldHandler.InitializationPlace.IN_CURRENT_METHOD, false) {
       @Override
       protected PsiType getFieldType(PsiType type) {
         return PsiType.INT;
       }
-    }.invoke(getProject(), myEditor, myFile, null);
-    checkResultByFile("/refactoring/introduceField/afterForcedFieldType.java");
+    }.invoke(getProject(), getEditor(), getFile(), null);
+    checkResultByFile("afterForcedFieldType.java");
   }
 
   public void testRejectIntroduceFieldFromExprInThisCall() {
-    configureByFile("/refactoring/introduceField/beforeRejectIntroduceFieldFromExprInThisCall.java");
+    configureByFile("beforeRejectIntroduceFieldFromExprInThisCall.java");
     try {
       performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
       fail("Should not proceed");
@@ -148,42 +154,48 @@ public class IntroduceFieldInSameClassTest extends LightCodeInsightTestCase {
     }
   }
 
+  public void testAcceptIntroduceFieldFromExprInThisCall() {
+    configureByFile("beforeAcceptIntroduceFieldFromExprInThisCall.java");
+    performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, true);
+    checkResultByFile("afterAcceptIntroduceFieldFromExprInThisCall.java");
+  }
+
   public void testInConstructorEnclosingAnonymous() {
-    configureByFile("/refactoring/introduceField/beforeEnclosingAnonymous.java");
+    configureByFile("beforeEnclosingAnonymous.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR, false);
-    checkResultByFile("/refactoring/introduceField/afterEnclosingAnonymous.java");
+    checkResultByFile("afterEnclosingAnonymous.java");
   }
 
   public void testLocalVarAnnotations() {
-    configureByFile("/refactoring/introduceField/beforeLocalVarAnnotations.java");
+    configureByFile("beforeLocalVarAnnotations.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterLocalVarAnnotations.java");
+    checkResultByFile("afterLocalVarAnnotations.java");
   }
 
   public void testFromLambdaExpr() {
-    configureByFile("/refactoring/introduceField/beforeFromLambdaExpr.java");
+    configureByFile("beforeFromLambdaExpr.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterFromLambdaExpr.java");
+    checkResultByFile("afterFromLambdaExpr.java");
   }
 
   public void testSimplifyDiamond() {
-    configureByFile("/refactoring/introduceField/beforeSimplifiedDiamond.java");
+    configureByFile("beforeSimplifiedDiamond.java");
     performRefactoring(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION, false);
-    checkResultByFile("/refactoring/introduceField/afterSimplifiedDiamond.java");
+    checkResultByFile("afterSimplifiedDiamond.java");
   }
 
   public void testStaticFieldInInnerClass() {
-    configureByFile("/refactoring/introduceField/beforeStaticFieldInInnerClass.java");
+    configureByFile("beforeStaticFieldInInnerClass.java");
     new MockIntroduceFieldHandler(BaseExpressionToFieldHandler.InitializationPlace.IN_CURRENT_METHOD, false) {
       @Override
       protected int getChosenClassIndex(List<PsiClass> classes) {
         return 0;
       }
-    }.invoke(getProject(), myEditor, myFile, null);
-    checkResultByFile("/refactoring/introduceField/afterStaticFieldInInnerClass.java");
+    }.invoke(getProject(), getEditor(), getFile(), null);
+    checkResultByFile("afterStaticFieldInInnerClass.java");
   }
 
-  private static void performRefactoring(BaseExpressionToFieldHandler.InitializationPlace initializationPlace, boolean declareStatic) {
-    new MockIntroduceFieldHandler(initializationPlace, declareStatic).invoke(getProject(), myEditor, myFile, null);
+  private void performRefactoring(BaseExpressionToFieldHandler.InitializationPlace initializationPlace, boolean declareStatic) {
+    new MockIntroduceFieldHandler(initializationPlace, declareStatic).invoke(getProject(), getEditor(), getFile(), null);
   }
 }

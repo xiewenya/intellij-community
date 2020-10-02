@@ -17,19 +17,29 @@ package com.intellij.java.codeInspection;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.miscGenerics.RawTypeCanBeGenericInspection;
-import com.intellij.openapi.roots.ModuleRootModificationUtil;
+import com.intellij.java.JavaBundle;
+import com.intellij.openapi.diagnostic.DefaultLogger;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.roots.ContentEntry;
+import com.intellij.openapi.roots.ModifiableRootModel;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-public class RawTypeCanBeGenericTest extends LightCodeInsightFixtureTestCase {
-  private RawTypeCanBeGenericInspection myInspection = new RawTypeCanBeGenericInspection();
+public class RawTypeCanBeGenericTest extends LightJavaCodeInsightFixtureTestCase {
+  private static final ProjectDescriptor JDK_8_WITH_LEVEL_6 = new ProjectDescriptor(LanguageLevel.JDK_1_6) {
+    @Override
+    public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
+      super.configureModule(module, model, contentEntry);
+      model.setSdk(IdeaTestUtil.getMockJdk18());
+    }
+  };
 
   @Override
   protected String getBasePath() {
@@ -39,19 +49,7 @@ public class RawTypeCanBeGenericTest extends LightCodeInsightFixtureTestCase {
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    ModuleRootModificationUtil.setModuleSdk(myModule, IdeaTestUtil.getMockJdk18());
-    myFixture.enableInspections(myInspection);
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      myFixture.disableInspections(myInspection);
-    }
-    finally {
-      myInspection = null;
-      super.tearDown();
-    }
+    myFixture.enableInspections(new RawTypeCanBeGenericInspection());
   }
 
   public void testField() {
@@ -62,11 +60,16 @@ public class RawTypeCanBeGenericTest extends LightCodeInsightFixtureTestCase {
     doTest(getMessage("list", "List<String>"));
   }
 
+  public void testAvoidUnrelatedWarnings() {
+    doTest(getMessage("iterator", "Iterator<String>"));
+  }
+
   public void testAtEquals() {
     doTest(getMessage("list", "List<String>"));
   }
 
   public void testConflict() {
+    DefaultLogger.disableStderrDumping(getTestRootDisposable());
     try {
       doTest(getMessage("list", "List<T>"));
       fail("No conflict detected");
@@ -99,17 +102,17 @@ public class RawTypeCanBeGenericTest extends LightCodeInsightFixtureTestCase {
   }
 
   private static String getMessage(String variable, String type) {
-    return InspectionsBundle.message("inspection.raw.variable.type.can.be.generic.quickfix", variable, type);
+    return JavaBundle.message("inspection.raw.variable.type.can.be.generic.quickfix", variable, type);
   }
 
   private static String getMessagePrefix() {
-    String message = InspectionsBundle.message("inspection.raw.variable.type.can.be.generic.quickfix", "@", "@");
+    String message = JavaBundle.message("inspection.raw.variable.type.can.be.generic.quickfix", "@", "@");
     return message.substring(0, message.indexOf("@"));
   }
 
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return JAVA_1_6;
+    return JDK_8_WITH_LEVEL_6;
   }
 }

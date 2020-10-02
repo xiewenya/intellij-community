@@ -1,28 +1,16 @@
 package org.jetbrains.idea.devkit.kotlin.inspections.internal
 
-import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import org.jetbrains.idea.devkit.inspections.PluginModuleTestCase
 import org.jetbrains.idea.devkit.inspections.internal.UndesirableClassUsageInspection
-import org.jetbrains.idea.devkit.module.PluginModuleType
-import org.junit.Assume
 
-class KtUndesirableClassUsageInspectionTest : LightCodeInsightFixtureTestCase() {
+class KtUndesirableClassUsageInspectionTest : PluginModuleTestCase() {
 
   @Throws(Exception::class)
   override fun setUp() {
     super.setUp()
 
     myFixture.enableInspections(UndesirableClassUsageInspection())
-    Assume.assumeTrue("`KotlinUastBindingContextProviderService` should be available for proper test work, " +
-                      "in kotlin < 1.1.60 it is bundled in android-lint not in main kotlin plugin",
-                      ServiceManager.getService(project,
-                                                Class.forName("org.jetbrains.uast.kotlin.KotlinUastBindingContextProviderService")) != null)
-  }
-
-  override fun getProjectDescriptor() = object : DefaultLightProjectDescriptor() {
-    override fun getModuleType() = PluginModuleType.getInstance()
   }
 
   fun testUsages() {

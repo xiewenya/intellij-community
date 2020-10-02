@@ -24,6 +24,7 @@ import com.siyeh.ipp.base.PsiElementPredicate;
 
 class FlipConditionalPredicate implements PsiElementPredicate {
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     if (!(element instanceof PsiConditionalExpression)) {
       return false;
@@ -31,6 +32,7 @@ class FlipConditionalPredicate implements PsiElementPredicate {
     final PsiConditionalExpression conditionalExpression = (PsiConditionalExpression)element;
     final PsiExpression condition = conditionalExpression.getCondition();
     return !(PsiTreeUtil.getDeepestLast(condition) instanceof PsiErrorElement) &&
+           !(PsiTreeUtil.getDeepestLast(element) instanceof PsiErrorElement) &&
            conditionalExpression.getThenExpression() != null &&
            conditionalExpression.getElseExpression() != null;
   }

@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.memberPullUp;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -8,9 +8,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.MethodSignatureUtil;
@@ -194,7 +193,7 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
     }
   }
 
-  private static boolean willBeUsedInSubclass(PsiElement member, Set<PsiMember> movedMembers, PsiClass superclass, PsiClass subclass) {
+  private static boolean willBeUsedInSubclass(PsiElement member, Set<? extends PsiMember> movedMembers, PsiClass superclass, PsiClass subclass) {
     for (PsiReference ref : ReferencesSearch.search(member, new LocalSearchScope(subclass), false)) {
       PsiElement element = ref.getElement();
       if (!RefactoringHierarchyUtil.willBeInTargetClass(element, movedMembers, superclass, false)) {
@@ -238,7 +237,7 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
 
       final GrMethod movedElement =
         anchor != null ? (GrMethod)myTargetSuperClass.addBefore(methodCopy, anchor) : (GrMethod)myTargetSuperClass.add(methodCopy);
-      CodeStyleSettings styleSettings = CodeStyleSettingsManager.getSettings(method.getProject());
+      JavaCodeStyleSettings styleSettings = JavaCodeStyleSettings.getInstance(method.getContainingFile());
       if (styleSettings.INSERT_OVERRIDE_ANNOTATION) {
         if (PsiUtil.isLanguageLevel5OrHigher(mySourceClass) && !myTargetSuperClass.isInterface() ||
             PsiUtil.isLanguageLevel6OrHigher(mySourceClass)) {
@@ -310,7 +309,7 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
   }
 
   public static void replaceMovedMemberTypeParameters(final PsiElement member,
-                                                      final Iterable<PsiTypeParameter> parametersIterable,
+                                                      final Iterable<? extends PsiTypeParameter> parametersIterable,
                                                       final PsiSubstitutor substitutor,
                                                       final GroovyPsiElementFactory factory) {
     final Map<PsiElement, PsiElement> replacement = new LinkedHashMap<>();
@@ -363,7 +362,7 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
     }
   }
 
-  private static class StaticReferenceResult {
+  private static final class StaticReferenceResult {
     final GrReferenceElement<?> reference;
     final GrMember referee;
     final PsiClass refereeClass;
@@ -377,7 +376,7 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
     }
   }
 
-  private class StaticReferencesCollector extends GrClassMemberReferenceVisitor {
+  private final class StaticReferencesCollector extends GrClassMemberReferenceVisitor {
 
     private final Set<PsiMember> myMovedMembers;
     final List<StaticReferenceResult> results = new ArrayList<>();
@@ -569,8 +568,6 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
         }
 
       }
-
-      assert referenceList != null;
       referenceList.add(ref);
     }
   }
@@ -607,8 +604,8 @@ public class GrPullUpHelper implements PullUpHelper<MemberInfo> {
    * @return if removed  - a reference to the class or null if there were no references to this class in the reference list
    */
   public static PsiQualifiedReferenceElement removeFromReferenceList(PsiReferenceList refList, PsiClass aClass) throws IncorrectOperationException {
-    List<? extends PsiQualifiedReferenceElement> refs = Arrays.asList(
-      refList instanceof GrReferenceList ? ((GrReferenceList)refList).getReferenceElementsGroovy() : refList.getReferenceElements());
+    PsiQualifiedReferenceElement[] refs =
+      refList instanceof GrReferenceList ? ((GrReferenceList)refList).getReferenceElementsGroovy() : refList.getReferenceElements();
 
     for (PsiQualifiedReferenceElement ref : refs) {
       if (ref.isReferenceTo(aClass)) {

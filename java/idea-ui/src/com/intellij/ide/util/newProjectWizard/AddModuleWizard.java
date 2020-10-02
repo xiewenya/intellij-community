@@ -1,6 +1,7 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.newProjectWizard;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.newProjectWizard.modes.ImportMode;
 import com.intellij.ide.util.newProjectWizard.modes.WizardMode;
 import com.intellij.ide.util.projectWizard.ModuleWizardStep;
@@ -13,6 +14,7 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkTypeId;
 import com.intellij.openapi.roots.ui.configuration.DefaultModulesProvider;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.projectImport.ProjectImportBuilder;
 import com.intellij.projectImport.ProjectImportProvider;
 import com.intellij.util.containers.ContainerUtil;
@@ -29,16 +31,16 @@ import java.util.function.Function;
 import static java.util.stream.Collectors.*;
 
 public class AddModuleWizard extends AbstractProjectWizard {
-  private final ProjectImportProvider[] myImportProviders;
+  private final List<ProjectImportProvider> myImportProviders;
   private final ModulesProvider myModulesProvider;
   private WizardMode myWizardMode;
 
   /**
    * @param project if null, the wizard will start creating new project, otherwise will add a new module to the existing project.
    */
-  public AddModuleWizard(@Nullable Project project, String filePath, ProjectImportProvider... importProviders) {
+  public AddModuleWizard(@Nullable Project project, @NotNull String filePath, ProjectImportProvider... importProviders) {
     super(getImportWizardTitle(project, importProviders), project, filePath);
-    myImportProviders = importProviders;
+    myImportProviders = Arrays.asList(importProviders);
     myModulesProvider = DefaultModulesProvider.createForProject(project);
     initModuleWizard(project, filePath);
   }
@@ -46,28 +48,29 @@ public class AddModuleWizard extends AbstractProjectWizard {
   /**
    * @param project if null, the wizard will start creating new project, otherwise will add a new module to the existing project.
    */
-  public AddModuleWizard(Project project, Component dialogParent, String filePath, ProjectImportProvider... importProviders) {
+  public AddModuleWizard(Project project, Component dialogParent, @NotNull String filePath, ProjectImportProvider... importProviders) {
     super(getImportWizardTitle(project, importProviders), project, dialogParent);
-    myImportProviders = importProviders;
+    myImportProviders = Arrays.asList(importProviders);
     myModulesProvider = DefaultModulesProvider.createForProject(project);
     initModuleWizard(project, filePath);
   }
 
-  private static String getImportWizardTitle(Project project, ProjectImportProvider... providers) {
-    StringBuilder builder = new StringBuilder("Import ");
-    builder.append(project == null ? "Project" : "Module");
-    if (providers.length == 1) {
-      builder.append(" from ").append(providers[0].getName());
+  private static @NlsContexts.DialogTitle String getImportWizardTitle(Project project, ProjectImportProvider... providers) {
+    int isProject = project == null ? 0 : 1;
+    if (providers.length != 1) {
+      return JavaUiBundle.message("module.wizard.dialog.title", isProject, 0, null);
     }
-    return builder.toString();
+    return JavaUiBundle.message("module.wizard.dialog.title", isProject, 1, providers[0].getName());
   }
 
-  private void initModuleWizard(@Nullable final Project project, @Nullable final String defaultPath) {
+  private void initModuleWizard(@Nullable final Project project, @NotNull final String defaultPath) {
     myWizardContext.addContextListener(new WizardContext.Listener() {
+      @Override
       public void buttonsUpdateRequested() {
         updateButtons();
       }
 
+      @Override
       public void nextStepRequested() {
         doNextAction();
       }
@@ -79,8 +82,8 @@ public class AddModuleWizard extends AbstractProjectWizard {
     for (ProjectImportProvider provider : myImportProviders) {
       provider.getBuilder().setFileToImport(defaultPath);
     }
-    if (myImportProviders.length == 1) {
-      final ProjectImportBuilder builder = myImportProviders[0].getBuilder();
+    if (myImportProviders.size() == 1) {
+      final ProjectImportBuilder builder = myImportProviders.get(0).getBuilder();
       myWizardContext.setProjectBuilder(builder);
       builder.setUpdate(getWizardContext().getProject() != null);
     }
@@ -137,7 +140,7 @@ public class AddModuleWizard extends AbstractProjectWizard {
    *                to return {@code true} for the step to go to
    * @return        {@code true} if current wizard is navigated to the target step; {@code false} otherwise
    */
-  public boolean navigateToStep(@NotNull com.intellij.util.Function<Step, Boolean> filter) {
+  public boolean navigateToStep(@NotNull com.intellij.util.Function<? super Step, Boolean> filter) {
     for (int i = 0, myStepsSize = mySteps.size(); i < myStepsSize; i++) {
       ModuleWizardStep step = mySteps.get(i);
       if (filter.fun(step) != Boolean.TRUE) {

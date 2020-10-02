@@ -11,6 +11,7 @@ import java.util.List;
 
 public class PanelGridBuilder implements PanelBuilder {
   private boolean expand;
+  private boolean splitColumns;
   private final List<GridBagPanelBuilder> builders = new ArrayList<>();
 
   /**
@@ -24,18 +25,33 @@ public class PanelGridBuilder implements PanelBuilder {
   }
 
   /**
-   * Turns on vertical resizing of grid rows when the panel is resized. Grid components
-   * don't resize, only grid cells are resized and components are centered vertically within the cells.
-   * By default empty space takes all free area below the grid.
+   * Allow resizing vertically all panel grid. By default all rows take only preferred height being
+   * anchored to the top of the panel and don't resize vertically. All free space is filled with a
+   * blank area.
+   * This setting is useful when one or more rows are resizable also. To turn on row vertical
+   * resizing use {@link ComponentPanelBuilder#resizeX(boolean)}.
    *
    * @return <code>this</code>
    */
-  public PanelGridBuilder expandVertically() {
+  public PanelGridBuilder resize() {
     this.expand = true;
     return this;
   }
 
+  /**
+   * Splits components and their inline comments into different columns in the resulting grid.
+   * This method is effective only when you build a grid of panels containing components with
+   * comment text resided on the right of the component. By default component and the comment
+   * text are placed in a row and different alignment rules apply to different rows.
+   *
+   * @return <code>this</code>
+   */
+  public PanelGridBuilder splitColumns() {
+    this.splitColumns = true;
+    return this;
+  }
 
+  @Override
   @NotNull
   public JPanel createPanel() {
     JPanel panel = new JPanel(new GridBagLayout());
@@ -46,6 +62,7 @@ public class PanelGridBuilder implements PanelBuilder {
     return panel;
   }
 
+  @Override
   public boolean constrainsValid() {
     return builders.stream().allMatch(b -> b.constrainsValid());
   }
@@ -55,7 +72,7 @@ public class PanelGridBuilder implements PanelBuilder {
   }
 
   private void addToPanel(JPanel panel, GridBagConstraints gc) {
-    builders.stream().filter(b -> b.constrainsValid()).forEach(b -> b.addToPanel(panel, gc));
+    builders.stream().filter(b -> b.constrainsValid()).forEach(b -> b.addToPanel(panel, gc, splitColumns));
 
     if (!expand) {
       gc.gridx = 0;

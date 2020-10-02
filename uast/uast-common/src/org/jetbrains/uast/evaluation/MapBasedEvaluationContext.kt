@@ -18,12 +18,13 @@ package org.jetbrains.uast.evaluation
 import com.intellij.openapi.progress.ProcessCanceledException
 import org.jetbrains.uast.*
 import org.jetbrains.uast.values.UUndeterminedValue
+import org.jetbrains.uast.values.UValue
 import org.jetbrains.uast.visitor.UastVisitor
 import java.lang.ref.SoftReference
 import java.util.*
 
 class MapBasedEvaluationContext(
-  override val uastContext: UastContext,
+  override val uastContext: UastLanguagePlugin,
   override val extensions: List<UEvaluatorExtension>
 ) : UEvaluationContext {
 
@@ -54,7 +55,7 @@ class MapBasedEvaluationContext(
   @Throws(ProcessCanceledException::class)
   private fun getOrCreateEvaluator(declaration: UDeclaration, state: UEvaluationState? = null): UEvaluator {
     val containingFile = declaration.getContainingUFile()
-    val modificationStamp = containingFile?.psi?.modificationStamp ?: -1L
+    val modificationStamp = containingFile?.sourcePsi?.modificationStamp ?: -1L
     val evaluatorWithStamp = evaluators[declaration]?.get()
     if (evaluatorWithStamp != null && evaluatorWithStamp.stamp == modificationStamp) {
       return evaluatorWithStamp.evaluator
@@ -68,9 +69,9 @@ class MapBasedEvaluationContext(
     }
   }
 
-  override fun analyze(declaration: UDeclaration, state: UEvaluationState) = getOrCreateEvaluator(declaration, state)
+  override fun analyze(declaration: UDeclaration, state: UEvaluationState): UEvaluator = getOrCreateEvaluator(declaration, state)
 
-  override fun getEvaluator(declaration: UDeclaration) = getOrCreateEvaluator(declaration)
+  override fun getEvaluator(declaration: UDeclaration): UEvaluator = getOrCreateEvaluator(declaration)
 
   private fun getEvaluator(expression: UExpression): UEvaluator? {
     var containingElement = expression.uastParent
@@ -86,12 +87,12 @@ class MapBasedEvaluationContext(
     return null
   }
 
-  fun cachedValueOf(expression: UExpression) =
+  fun cachedValueOf(expression: UExpression): UValue? =
     (getEvaluator(expression) as? TreeBasedEvaluator)?.getCached(expression)
 
-  override fun valueOf(expression: UExpression) =
+  override fun valueOf(expression: UExpression): UValue =
     valueOfIfAny(expression) ?: UUndeterminedValue
 
-  override fun valueOfIfAny(expression: UExpression) =
+  override fun valueOfIfAny(expression: UExpression): UValue? =
     getEvaluator(expression)?.evaluate(expression)
 }

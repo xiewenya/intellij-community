@@ -1,8 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
@@ -10,7 +11,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class BlockUtils {
+public final class BlockUtils {
 
   /**
    * Adds new statements before given anchor statement creating a new code block, if necessary
@@ -151,7 +152,7 @@ public class BlockUtils {
     return forward ? element.getNextSibling() : element.getPrevSibling();
   }
 
-  public static boolean containsConflictingDeclarations(PsiCodeBlock block, PsiCodeBlock parentBlock) {
+  public static boolean containsConflictingDeclarations(@NotNull PsiCodeBlock block, @NotNull PsiCodeBlock parentBlock) {
     final PsiStatement[] statements = block.getStatements();
     if (statements.length == 0) {
       return false;
@@ -177,9 +178,6 @@ public class BlockUtils {
         }
         final PsiLocalVariable localVariable = (PsiLocalVariable)variable;
         final String variableName = localVariable.getName();
-        if (variableName == null) {
-          continue;
-        }
         for (PsiCodeBlock codeBlock : affectedBlocks) {
           final PsiVariable target = resolveHelper.resolveAccessibleReferencedVariable(variableName, codeBlock);
           if (target instanceof PsiLocalVariable) {
@@ -196,5 +194,27 @@ public class BlockUtils {
       }
     }
     return false;
+  }
+
+  public static void inlineCodeBlock(@NotNull PsiStatement orig, PsiCodeBlock codeBlock) {
+    PsiJavaToken lBrace = codeBlock.getLBrace();
+    PsiJavaToken rBrace = codeBlock.getRBrace();
+    if (lBrace == null || rBrace == null) return;
+
+    final PsiElement[] children = codeBlock.getChildren();
+    if (children.length > 2) {
+      final PsiElement added =
+        orig.getParent().addRangeBefore(
+          children[1],
+          children[children.length - 2],
+          orig);
+      final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(orig.getManager());
+      codeStyleManager.reformat(added);
+    }
+    orig.delete();
+  }
+
+  public static PsiBlockStatement createBlockStatement(Project project) {
+    return (PsiBlockStatement)JavaPsiFacade.getElementFactory(project).createStatementFromText("{}", null);
   }
 }

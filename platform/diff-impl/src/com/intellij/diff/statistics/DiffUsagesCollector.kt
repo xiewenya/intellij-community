@@ -1,79 +1,80 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.statistics
 
 import com.intellij.diff.impl.DiffSettingsHolder.DiffSettings
+import com.intellij.diff.tools.external.ExternalDiffSettings
 import com.intellij.diff.tools.fragmented.UnifiedDiffTool
 import com.intellij.diff.tools.simple.SimpleDiffTool
 import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings
 import com.intellij.diff.util.DiffPlaces
-import com.intellij.internal.statistic.UsagesCollector
-import com.intellij.internal.statistic.beans.GroupDescriptor
-import com.intellij.internal.statistic.beans.UsageDescriptor
-import com.intellij.util.containers.ContainerUtil
+import com.intellij.internal.statistic.beans.MetricEvent
+import com.intellij.internal.statistic.beans.addBoolIfDiffers
+import com.intellij.internal.statistic.beans.addMetricsIfDiffers
+import com.intellij.internal.statistic.eventLog.FeatureUsageData
+import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
+import java.util.*
 
-class DiffUsagesCollector : UsagesCollector() {
-  companion object {
-    val ID = GroupDescriptor.create("Diff")
-    val VERSION = 1
-  }
+class DiffUsagesCollector : ApplicationUsagesCollector() {
+  override fun getGroupId(): String = "vcs.diff"
+  override fun getVersion(): Int = 4
 
-  override fun getGroupId(): GroupDescriptor {
-    return ID
-  }
+  override fun getMetrics(): Set<MetricEvent> {
+    val set = HashSet<MetricEvent>()
 
-  override fun getUsages(): Set<UsageDescriptor> {
-    val usages: MutableMap<String, Int> = ContainerUtil.newHashMap()
-    usages["Total"] = 1
+    val places = listOf(DiffPlaces.DEFAULT,
+                        DiffPlaces.CHANGES_VIEW,
+                        DiffPlaces.VCS_LOG_VIEW,
+                        DiffPlaces.VCS_FILE_HISTORY_VIEW,
+                        DiffPlaces.COMMIT_DIALOG,
+                        DiffPlaces.MERGE,
+                        DiffPlaces.TESTS_FAILED_ASSERTIONS)
 
+    for (place in places) {
+      val data = FeatureUsageData().addData("diff_place", place)
 
-    listOf(DiffPlaces.DEFAULT, DiffPlaces.CHANGES_VIEW, DiffPlaces.COMMIT_DIALOG).forEach { place ->
       val diffSettings = DiffSettings.getSettings(place)
-      val textSettings = TextDiffSettings.getSettings(place)
+      val defaultDiffSettings = DiffSettings.getDefaultSettings(place)
 
-      usages.increment("TextDiffSettings.IgnorePolicy", textSettings.ignorePolicy)
-      usages.increment("TextDiffSettings.HighlightPolicy", textSettings.highlightPolicy)
-      usages.increment("TextDiffSettings.ExpandByDefault", textSettings.isExpandByDefault)
-      usages.increment("DiffSettings.isUnifiedTool", isUnifiedToolDefault(diffSettings))
+      val textSettings = TextDiffSettings.getSettings(place)
+      val defaultTextSettings = TextDiffSettings.getDefaultSettings(place)
+
+      addMetricsIfDiffers(set, textSettings, defaultTextSettings, data) {
+        addBool("sync.scroll" ) { it.isEnableSyncScroll }
+        add("ignore.policy") { it.ignorePolicy }
+        add("highlight.policy") { it.highlightPolicy }
+        add("show.warnings.policy") { it.highlightingLevel }
+        add("context.range") { it.contextRange }
+        addBool("collapse.unchanged") { !it.isExpandByDefault }
+        addBool("show.line.numbers") { it.isShowLineNumbers }
+        addBool("show.white.spaces") { it.isShowWhitespaces }
+        addBool("show.indent.lines") { it.isShowIndentLines }
+        addBool("use.soft.wraps") { it.isUseSoftWraps }
+        addBool("enable.read.lock") { it.isReadOnlyLock }
+        add("show.breadcrumbs") { it.breadcrumbsPlacement }
+        addBool("merge.apply.non.conflicted") { it.isAutoApplyNonConflictedChanges }
+        addBool("merge.enable.lst.markers") { it.isEnableLstGutterMarkersInMerge }
+      }
+      addBoolIfDiffers(set, diffSettings, defaultDiffSettings, { isUnifiedToolDefault(it) }, "use.unified.diff", data)
     }
 
+    val diffSettings = DiffSettings.getSettings(DiffPlaces.DEFAULT)
+    val defaultDiffSettings = DiffSettings.getDefaultSettings(DiffPlaces.DEFAULT)
+    addBoolIfDiffers(set, diffSettings, defaultDiffSettings, { it.isGoToNextFileOnNextDifference }, "iterate.next.file")
 
-    val diffSettings = DiffSettings.getSettings(null)
-    usages.increment("DiffSettings.IterateNextFile", diffSettings.isGoToNextFileOnNextDifference)
+    val externalSettings = ExternalDiffSettings.instance
+    val defaultExternalSettings = ExternalDiffSettings()
+    addBoolIfDiffers(set, externalSettings, defaultExternalSettings, { it.isDiffEnabled }, "use.external.diff")
+    addBoolIfDiffers(set, externalSettings, defaultExternalSettings, { it.isDiffEnabled && it.isDiffDefault }, "use.external.diff.by.default")
+    addBoolIfDiffers(set, externalSettings, defaultExternalSettings, { it.isMergeEnabled }, "use.external.merge")
 
-
-    return usages.map { it -> UsageDescriptor("diff.$VERSION.${it.key}", it.value) }.toSet()
+    return set
   }
 
   private fun isUnifiedToolDefault(settings: DiffSettings): Boolean {
     val toolOrder = settings.diffToolsOrder
-    val defaultToolIndex = ContainerUtil.indexOf(toolOrder, SimpleDiffTool::class.java.canonicalName)
-    val unifiedToolIndex = ContainerUtil.indexOf(toolOrder, UnifiedDiffTool::class.java.canonicalName)
-    return unifiedToolIndex != -1 && unifiedToolIndex < defaultToolIndex
-  }
-
-  private fun MutableMap<String, Int>.increment(key: String) {
-    put(key, (get(key) ?: 0) + 1)
-  }
-
-  private fun MutableMap<String, Int>.increment(prefix: String, suffix: Enum<*>) {
-    increment("$prefix.${suffix.name}")
-  }
-
-  private fun MutableMap<String, Int>.increment(key: String, condition: Boolean) {
-    if (condition) increment(key)
+    val defaultToolIndex = toolOrder.indexOf(SimpleDiffTool::class.java.canonicalName)
+    val unifiedToolIndex = toolOrder.indexOf(UnifiedDiffTool::class.java.canonicalName)
+    if (unifiedToolIndex == -1) return false
+    return defaultToolIndex == -1 || unifiedToolIndex < defaultToolIndex
   }
 }

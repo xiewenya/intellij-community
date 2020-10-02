@@ -23,9 +23,6 @@ import com.intellij.testFramework.PlatformTestUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class PropertiesEnterTest extends LightPlatformCodeInsightTestCase {
   @NonNls private static final String BASE_PATH = "/propertiesFile/enter/";
 
@@ -52,7 +49,7 @@ public class PropertiesEnterTest extends LightPlatformCodeInsightTestCase {
     configureFromFileText("performance.properties", text);
     PlatformTestUtil.startPerformanceTest("Property files editing", 2500, () -> {
       type("aaaa=bbb");
-      PsiDocumentManager.getInstance(ourProject).commitAllDocuments();
+      PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
     }).assertTiming();
   }
 

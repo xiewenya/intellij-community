@@ -19,9 +19,11 @@ import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -40,12 +42,6 @@ public class RedundantFieldInitializationInspection extends BaseInspection imple
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("redundant.field.initialization.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("redundant.field.initialization.problem.descriptor");
   }
@@ -53,7 +49,7 @@ public class RedundantFieldInitializationInspection extends BaseInspection imple
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel("Only warn on initialization to null", this, "onlyWarnOnNull");
+    return new SingleCheckboxOptionsPanel(JavaAnalysisBundle.message("inspection.redundant.field.initialization.option"), this, "onlyWarnOnNull");
   }
 
   @Override
@@ -92,10 +88,9 @@ public class RedundantFieldInitializationInspection extends BaseInspection imple
       if (initializer == null) {
         return;
       }
-      final String text = initializer.getText();
       final PsiType type = field.getType();
       if (PsiType.BOOLEAN.equals(type)) {
-        if (onlyWarnOnNull || !PsiKeyword.FALSE.equals(text)) {
+        if (onlyWarnOnNull || !ExpressionUtils.isLiteral(PsiUtil.skipParenthesizedExprDown(initializer), false)) {
           return;
         }
       }

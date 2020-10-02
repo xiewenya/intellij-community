@@ -35,7 +35,7 @@ public class GenerateDomElementAction extends CodeInsightAction {
 
   public GenerateDomElementAction(@NotNull final GenerateDomElementProvider generateProvider, @Nullable Icon icon) {
     getTemplatePresentation().setDescription(generateProvider.getDescription());
-    getTemplatePresentation().setText(generateProvider.getDescription());
+    getTemplatePresentation().setText(generateProvider.getText());
     getTemplatePresentation().setIcon(icon);
 
     myProvider = generateProvider;
@@ -58,9 +58,7 @@ public class GenerateDomElementAction extends CodeInsightAction {
         };
         
         if (GenerateDomElementAction.this.startInWriteAction()) {
-          WriteCommandAction.writeCommandAction(project, file).run(() -> {
-            runnable.run();
-          });
+          WriteCommandAction.writeCommandAction(project, file).run(() -> runnable.run());
         }
         else {
           runnable.run();

@@ -1,42 +1,30 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.stubs;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.Language;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
+import java.util.*;
 
-public abstract class IStubElementType<StubT extends StubElement, PsiT extends PsiElement> extends IElementType implements StubSerializer<StubT> {
+public abstract class IStubElementType<StubT extends StubElement<?>, PsiT extends PsiElement> extends IElementType implements StubSerializer<StubT> {
   private static volatile boolean ourInitializedStubs;
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.stubs.IStubElementType");
-  
-  public IStubElementType(@NotNull @NonNls final String debugName, @Nullable final Language language) {
+  private static volatile Set<String> ourLazyExternalIds = Collections.emptySet();
+  private static final Logger LOG = Logger.getInstance(IStubElementType.class);
+
+  public IStubElementType(@NotNull @NonNls String debugName, @Nullable Language language) {
     super(debugName, language);
+    if (!isLazilyRegistered()) {
+      checkNotInstantiatedTooLate();
+    }
+  }
+
+  public static void checkNotInstantiatedTooLate() {
     if (ourInitializedStubs) {
       LOG.error("All stub element types should be created before index initialization is complete.\n" +
                 "Please add the class containing stub element type constants to \"stubElementTypeHolder\" extension.\n" +
@@ -44,20 +32,42 @@ public abstract class IStubElementType<StubT extends StubElement, PsiT extends P
     }
   }
 
-  static void loadRegisteredStubElementTypes() {
-    for (StubElementTypeHolderEP holderEP : Extensions.getExtensions(StubElementTypeHolderEP.EP_NAME)) {
-      holderEP.initialize();
+  private boolean isLazilyRegistered() {
+    try {
+      return ourLazyExternalIds.contains(getExternalId());
+    }
+    catch (Throwable e) {
+      // "getExternalId" might throw when called from constructor, if it accesses subclass fields
+      // Lazily-registered types have a contract that their "getExternalId" doesn't throw like this,
+      // so getting an exception here is a sign that someone indeed creates their stub type after StubElementTypeHolderEP initialization.
+      return false;
+    }
+  }
+
+  static void dropRegisteredTypes() {
+    ourInitializedStubs = false;
+  }
+
+  static @NotNull List<StubFieldAccessor> loadRegisteredStubElementTypes() {
+    List<StubFieldAccessor> result = new ArrayList<>();
+    for (StubElementTypeHolderEP bean : StubElementTypeHolderEP.EP_NAME.getExtensionList()) {
+      result.addAll(bean.initializeOptimized());
+    }
+
+    Set<String> lazyIds = new HashSet<>();
+    for (StubFieldAccessor accessor : result) {
+      lazyIds.add(accessor.externalId);
     }
     ourInitializedStubs = true;
+    ourLazyExternalIds = lazyIds;
+    return result;
   }
 
   public abstract PsiT createPsi(@NotNull StubT stub);
 
-  @NotNull
-  public abstract StubT createStub(@NotNull PsiT psi, final StubElement parentStub);
+  public abstract @NotNull StubT createStub(@NotNull PsiT psi, StubElement<?> parentStub);
 
   public boolean shouldCreateStub(ASTNode node) {
     return true;
   }
-
 }

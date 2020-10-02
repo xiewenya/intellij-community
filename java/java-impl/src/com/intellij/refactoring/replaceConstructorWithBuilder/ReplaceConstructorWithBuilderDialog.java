@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.replaceConstructorWithBuilder;
 
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -30,13 +17,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidatorEx;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.RefactoringBundle;
@@ -46,6 +33,7 @@ import com.intellij.refactoring.ui.RefactoringDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.ui.*;
 import com.intellij.ui.table.JBTable;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -78,7 +66,7 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
   private final LinkedHashMap<String, ParameterData> myParametersMap;
   private MyTableModel myTableModel;
   private JBTable myTable;
-  private String mySetterPrefix;
+  private @NlsSafe String mySetterPrefix;
 
   private static final String RECENT_KEYS = "ReplaceConstructorWithBuilder.RECENT_KEYS";
   private static final String SETTER_PREFIX_KEY = "ConstructorWithBuilder.SetterPrefix";
@@ -93,7 +81,7 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
       ParameterData.createFromConstructor(constructor, mySetterPrefix, myParametersMap);
     }
     init();
-    setTitle(ReplaceConstructorWithBuilderProcessor.REFACTORING_NAME);
+    setTitle(JavaRefactoringBundle.message("replace.constructor.with.builder"));
   }
 
   @Override
@@ -127,12 +115,12 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
   @Override
   protected JComponent createNorthPanel() {
     JPanel panel = new JPanel(new BorderLayout());
-    panel.add(new JLabel("Parameters to Pass to the Builder"), BorderLayout.CENTER);
+    panel.add(new JLabel(JavaRefactoringBundle.message("constructor.with.builder.parameters.to.pass.to.the.builder.title")), BorderLayout.CENTER);
 
-    final DefaultActionGroup actionGroup = new DefaultActionGroup(null, false);
-    actionGroup.addAction(new AnAction("Rename Setters Prefix") {
+    final DefaultActionGroup actionGroup = new DefaultActionGroup();
+    actionGroup.addAction(new AnAction(JavaRefactoringBundle.message("constructor.with.builder.rename.setters.prefix.action.name")) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         applyNewSetterPrefix();
       }
     }).setAsSecondary(true);
@@ -145,7 +133,9 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
   }
 
   private void applyNewSetterPrefix() {
-    final String setterPrefix = Messages.showInputDialog(myTable, "New setter prefix:", "Rename Setters Prefix", null,
+    final String setterPrefix = Messages.showInputDialog(myTable, JavaRefactoringBundle
+                                                           .message("constructor.with.builder.new.setter.prefix.dialog.message"), JavaRefactoringBundle
+                                                           .message("constructor.with.builder.rename.setters.prefix.action.name"), null,
                                                          mySetterPrefix, new MySetterPrefixInputValidator());
     if (setterPrefix != null) {
       mySetterPrefix = setterPrefix;
@@ -183,14 +173,15 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
 
     final DocumentAdapter validateButtonsListener = new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         validateButtons();
       }
     };
     myNewClassName.getDocument().addDocumentListener(validateButtonsListener);
     final PsiClass psiClass = myConstructors[0].getContainingClass();
     LOG.assertTrue(psiClass != null);
-    myNewClassName.setText(psiClass.getName() + "Builder");
+    @NlsSafe String builderDefaultName = psiClass.getName() + "Builder";
+    myNewClassName.setText(builderDefaultName);
 
     return splitter;
   }
@@ -209,17 +200,22 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
   protected void canRun() throws ConfigurationException {
     final PsiNameHelper nameHelper = PsiNameHelper.getInstance(myProject);
     for (ParameterData parameterData : myParametersMap.values()) {
-      if (!nameHelper.isIdentifier(parameterData.getFieldName())) throw new ConfigurationException("\'" + parameterData.getFieldName() + "\' is not a valid field name");
-      if (!nameHelper.isIdentifier(parameterData.getSetterName())) throw new ConfigurationException("\'" + parameterData.getSetterName() + "\' is not a valid setter name");
+      if (!nameHelper.isIdentifier(parameterData.getFieldName())) throw new ConfigurationException(
+        JavaRefactoringBundle.message("replace.constructor.builder.error.invalid.field.name", parameterData.getFieldName()));
+      if (!nameHelper.isIdentifier(parameterData.getSetterName())) throw new ConfigurationException(
+        JavaRefactoringBundle.message("replace.constructor.builder.error.invalid.setter.name", parameterData.getSetterName()));
     }
     if (myCreateBuilderClassRadioButton.isSelected()) {
       final String className = myNewClassName.getText().trim();
-      if (className.length() == 0 || !nameHelper.isQualifiedName(className)) throw new ConfigurationException("\'" + className + "\' is invalid builder class name");
+      if (className.length() == 0 || !nameHelper.isQualifiedName(className)) throw new ConfigurationException(
+        JavaRefactoringBundle.message("replace.constructor.builder.error.invalid.builder.class.name", className));
       final String packageName = myPackageTextField.getText().trim();
-      if (packageName.length() > 0 && !nameHelper.isQualifiedName(packageName)) throw new ConfigurationException("\'" + packageName + "\' is invalid builder package name");
+      if (packageName.length() > 0 && !nameHelper.isQualifiedName(packageName)) throw new ConfigurationException(
+        JavaRefactoringBundle.message("replace.constructor.builder.error.invalid.builder.package.name", packageName));
     } else {
       final String qualifiedName = myExistentClassTF.getText().trim();
-      if (qualifiedName.length() == 0 || !nameHelper.isQualifiedName(qualifiedName)) throw new ConfigurationException("\'" + qualifiedName + "\' is invalid builder qualified class name");
+      if (qualifiedName.length() == 0 || !nameHelper.isQualifiedName(qualifiedName)) throw new ConfigurationException(
+        JavaRefactoringBundle.message("replace.constructor.builder.error.invalid.builder.qualified.class.name", qualifiedName));
     }
   }
 
@@ -250,7 +246,8 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
       JComponent.WHEN_FOCUSED
     );
 
-    myTable.setPreferredScrollableViewportSize(new Dimension(550, myTable.getRowHeight() * 12));
+    myTable.setPreferredScrollableViewportSize(JBUI.size(550, -1));
+    myTable.setVisibleRowCount(12);
     myTable.getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
     return ScrollPaneFactory.createScrollPane(myTable);
@@ -265,7 +262,7 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
   private void createUIComponents() {
     final DocumentListener adapter = new DocumentListener() {
       @Override
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         validateButtons();
       }
     };
@@ -286,7 +283,8 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
       @Override
       public void actionPerformed(ActionEvent e) {
         final TreeClassChooser chooser = TreeClassChooserFactory.getInstance(getProject())
-          .createWithInnerClassesScopeChooser("Select Builder Class", GlobalSearchScope.projectScope(myProject), null, null);
+          .createWithInnerClassesScopeChooser(
+            JavaRefactoringBundle.message("replace.constructor.builder.select.builder.class.chooser.title"), GlobalSearchScope.projectScope(myProject), null, null);
         final String classText = myExistentClassTF.getText();
         final PsiClass currentClass = JavaPsiFacade.getInstance(myProject).findClass(classText, GlobalSearchScope.allScope(myProject));
         if (currentClass != null) {
@@ -374,15 +372,15 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
     public String getColumnName(int column) {
       switch (column) {
         case PARAM:
-          return "Parameter";
+          return JavaRefactoringBundle.message("replace.constructor.builder.parameter.table.title");
         case FIELD:
-          return "Field Name";
+          return JavaRefactoringBundle.message("replace.constructor.builder.field.name.table.title");
         case SETTER:
-          return "Setter Name";
+          return JavaRefactoringBundle.message("replace.constructor.builder.setter.name.table.title");
         case DEFAULT_VALUE:
-          return "Default Value";
+          return JavaRefactoringBundle.message("replace.constructor.builder.default.value.table.title");
         case SKIP_SETTER:
-          return "Optional Setter";
+          return JavaRefactoringBundle.message("replace.constructor.builder.optional.setter.table.title");
       }
       assert false: "unknown column " + column;
       return null;
@@ -407,7 +405,7 @@ public class ReplaceConstructorWithBuilderDialog extends RefactoringDialog {
         return null;
       }
       return !PsiNameHelper.getInstance(myProject).isIdentifier(inputString)
-             ? "Identifier \'" + inputString + "\' is invalid" : null;
+             ? JavaRefactoringBundle.message("replace.constructor.builder.error.identifier.invalid", inputString) : null;
     }
   }
 }

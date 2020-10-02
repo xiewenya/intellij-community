@@ -35,6 +35,9 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.util.List;
 
+/**
+ * A set of API methods for working with injected PSI: code that resides inside other (host) PSI, e.g. string literals, XML text, etc.
+ */
 public abstract class InjectedLanguageManager {
 
   public static InjectedLanguageManager getInstance(Project project) {
@@ -45,14 +48,15 @@ public abstract class InjectedLanguageManager {
 
   public static final Key<Boolean> FRANKENSTEIN_INJECTION = Key.create("FRANKENSTEIN_INJECTION");
 
-  public abstract PsiLanguageInjectionHost getInjectionHost(@NotNull FileViewProvider provider);
+  public abstract PsiLanguageInjectionHost getInjectionHost(@NotNull FileViewProvider injectedProvider);
 
   @Nullable
-  public abstract PsiLanguageInjectionHost getInjectionHost(@NotNull PsiElement element);
+  public abstract PsiLanguageInjectionHost getInjectionHost(@NotNull PsiElement injectedElement);
 
   @NotNull
   public abstract TextRange injectedToHost(@NotNull PsiElement injectedContext, @NotNull TextRange injectedTextRange);
   public abstract int injectedToHost(@NotNull PsiElement injectedContext, int injectedOffset);
+  public abstract int injectedToHost(@NotNull PsiElement injectedContext, int injectedOffset, boolean minHostOffset);
 
   /**
    * @deprecated use {@link MultiHostInjector#MULTIHOST_INJECTOR_EP_NAME extension point} for production and
@@ -70,7 +74,7 @@ public abstract class InjectedLanguageManager {
   @NotNull
   public abstract List<TextRange> intersectWithAllEditableFragments(@NotNull PsiFile injectedPsi, @NotNull TextRange rangeToEdit);
 
-  public abstract boolean isInjectedFragment(@NotNull PsiFile file);
+  public abstract boolean isInjectedFragment(@NotNull PsiFile injectedFile);
 
   /**
    * Finds PSI element in injected fragment (if any) at the given offset in the host file.<p/>

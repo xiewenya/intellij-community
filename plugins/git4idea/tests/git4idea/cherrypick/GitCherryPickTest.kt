@@ -30,7 +30,7 @@ abstract class GitCherryPickTest : GitSingleRepoTest() {
 
     cherryPick(commit)
 
-    assertErrorNotification("Cherry-pick Failed", """
+    assertErrorNotification("Cherry-pick failed", """
       ${shortHash(commit)} fix #1
       Your local changes would be overwritten by cherry-pick.
       Commit your changes or stash them to proceed.""")
@@ -73,15 +73,13 @@ abstract class GitCherryPickTest : GitSingleRepoTest() {
     cherryPick(commit)
 
     `assert commit dialog was shown`()
-    assertLastMessage("""
-      on_master
-
-      (cherry picked from commit ${shortHash(commit)})""".trimIndent())
+    assertLastMessage("on_master")
     repo.assertCommitted {
       modified("c.txt")
     }
     assertSuccessfulNotification("Cherry-pick successful",
                                  "${shortHash(commit)} on_master")
+    changeListManager.assertNoChanges()
     changeListManager.waitScheduledChangelistDeletions()
     changeListManager.assertOnlyDefaultChangelist()
   }
@@ -89,7 +87,7 @@ abstract class GitCherryPickTest : GitSingleRepoTest() {
   protected fun cherryPick(hashes: List<String>) {
     updateChangeListManager()
     val details = readDetails(hashes)
-    GitCherryPicker(project, git).cherryPick(details)
+    GitCherryPicker(project).cherryPick(details)
   }
 
   protected fun cherryPick(vararg hashes: String) {

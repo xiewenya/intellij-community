@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.projectWizard;
 
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.importProject.ProjectDescriptor;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.ConfigurationException;
@@ -49,18 +35,22 @@ public class ProjectJdkStep extends ModuleWizardStep {
     myJDKsComponent = myProjectJdksConfigurable.createComponent();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myJDKsComponent;
   }
 
+  @Override
   public String getHelpId() {
     return "reference.dialogs.new.project.fromScratch.sdk";
   }
 
+  @Override
   public JComponent getComponent() {
-    final JLabel label = new JLabel(IdeBundle.message("prompt.please.select.project.jdk"));
+    final JLabel label = new JLabel(JavaUiBundle.message("prompt.please.select.project.jdk"));
     label.setUI(new MultiLineLabelUI());
     final JPanel panel = new JPanel(new GridBagLayout()){
+      @Override
       public Dimension getPreferredSize() {
         return new Dimension(-1, 200);
       }
@@ -82,6 +72,7 @@ public class ProjectJdkStep extends ModuleWizardStep {
     }
   }
 
+  @Override
   public void updateDataModel() {
     myContext.setProjectJdk(getJdk());
   }
@@ -91,15 +82,17 @@ public class ProjectJdkStep extends ModuleWizardStep {
     return myProjectJdksConfigurable.getSelectedJdk();
   }
 
+  @Override
   public Icon getIcon() {
     return myContext.getStepIcon();
   }
 
+  @Override
   public boolean validate() throws ConfigurationException {
     final Sdk jdk = myProjectJdksConfigurable.getSelectedJdk();
     if (jdk == null && !ApplicationManager.getApplication().isUnitTestMode()) {
-      int result = Messages.showOkCancelDialog(IdeBundle.message("prompt.confirm.project.no.jdk"),
-                                               IdeBundle.message("title.no.jdk.specified"), Messages.getWarningIcon());
+      int result = Messages.showOkCancelDialog(JavaUiBundle.message("prompt.confirm.project.no.jdk"),
+                                               JavaUiBundle.message("title.no.jdk.specified"), Messages.getWarningIcon());
       if (result != Messages.OK) {
         return false;
       }
@@ -113,6 +106,7 @@ public class ProjectJdkStep extends ModuleWizardStep {
     return "Project JDK";
   }
 
+  @Override
   public void disposeUIResources() {
     super.disposeUIResources();
     myProjectJdksConfigurable.disposeUIResources();

@@ -1,23 +1,29 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.api
 
 import com.google.common.net.UrlEscapers
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.io.URLUtil
+import org.jetbrains.annotations.NonNls
+import org.jetbrains.idea.svn.SvnBundle.message
 import org.jetbrains.idea.svn.SvnUtil
 import org.jetbrains.idea.svn.commandLine.SvnBindException
 import java.net.URI
 import java.net.URISyntaxException
 
+private const val FILE_URL_PREFIX = "file:/"
+
 class Url private constructor(innerUri: URI) {
   private val uri = fixDefaultPort(innerUri)
 
-  val protocol = uri.scheme.orEmpty()
-  val host = uri.host.orEmpty()
-  val port = uri.port
+  val protocol: String = uri.scheme.orEmpty()
+  val host: String = uri.host.orEmpty()
+  val port: Int = uri.port
   val userInfo: String? = uri.userInfo
-  val path = uri.path.orEmpty().removeSuffix("/")
+  val path: String = uri.path.orEmpty().removeSuffix("/")
 
-  val tail get() = path.substringAfterLast('/')
+  @get:NlsSafe
+  val tail: String get() = path.substringAfterLast('/')
 
   fun commonAncestorWith(url: Url): Url? {
     if (protocol != url.protocol || host != url.host || port != url.port || userInfo != url.userInfo) return null
@@ -32,11 +38,11 @@ class Url private constructor(innerUri: URI) {
   }
 
   @Throws(SvnBindException::class)
-  fun appendPath(path: String, encoded: Boolean = true) =
+  fun appendPath(path: String, encoded: Boolean = true): Url =
     if (path.isEmpty() || path == "/") this else wrap { uri.resolve(URI(prepareUri(path.removePrefix("/"), encoded))) }
 
   @Throws(SvnBindException::class)
-  fun setUserInfo(userInfo: String?) = wrap { URI(uri.scheme, userInfo, uri.host, uri.port, uri.path, uri.query, uri.fragment) }
+  fun setUserInfo(userInfo: String?): Url = wrap { URI(uri.scheme, userInfo, uri.host, uri.port, uri.path, uri.query, uri.fragment) }
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
@@ -45,34 +51,40 @@ class Url private constructor(innerUri: URI) {
     return uri == other.uri
   }
 
-  override fun hashCode() = uri.hashCode()
+  override fun hashCode(): Int = uri.hashCode()
 
-  override fun toString() = uri.toASCIIString().removeSuffix("/")
-  fun toDecodedString() = URLUtil.unescapePercentSequences(toString())
+  override fun toString(): String = fixFileUrlToString(uri.toASCIIString().removeSuffix("/"))
+  @NlsSafe
+  fun toDecodedString(): String = URLUtil.unescapePercentSequences(toString())
+
+  private fun fixFileUrlToString(url: String) = if (url.startsWith(FILE_URL_PREFIX) && !url.startsWith(
+      "$FILE_URL_PREFIX/")) "$FILE_URL_PREFIX//${url.substring(FILE_URL_PREFIX.length)}"
+  else url
 
   companion object {
     @JvmField
-    val EMPTY = Url(URI(""))
-    @JvmField
-    val DEFAULT_PORTS = mapOf("http" to 80, "https" to 443, "svn" to 3690, "svn+ssh" to 22)
+    val EMPTY: Url = Url(URI(""))
+
+    @NonNls
+    private val DEFAULT_PORTS: Map<String, Int> = mapOf("http" to 80, "https" to 443, "svn" to 3690, "svn+ssh" to 22)
 
     @JvmStatic
     @Throws(SvnBindException::class)
     fun parse(value: String, encoded: Boolean = true): Url = wrap {
       val uri = URI(prepareUri(value, encoded)).normalize()
 
-      if (!uri.isAbsolute) throw SvnBindException("$uri is not absolute")
-      if (uri.isOpaque) throw SvnBindException("$uri is not hierarchical")
-      if (uri.query != null) throw SvnBindException("$uri could not contain query")
-      if (uri.fragment != null) throw SvnBindException("$uri could not contain fragment")
+      if (!uri.isAbsolute) throw SvnBindException(message("error.url.is.not.absolute", uri))
+      if (uri.isOpaque) throw SvnBindException(message("error.url.is.not.hierarchical", uri))
+      if (uri.query != null) throw SvnBindException(message("error.url.could.not.contain.query", uri))
+      if (uri.fragment != null) throw SvnBindException(message("error.url.could.not.contain.fragment", uri))
       uri
     }
 
     @JvmStatic
-    fun tail(url: String) = url.removeSuffix("/").substringAfterLast('/')
+    fun tail(url: String): String = url.removeSuffix("/").substringAfterLast('/')
 
     @JvmStatic
-    fun removeTail(url: String) = url.removeSuffix("/").substringBeforeLast('/', "")
+    fun removeTail(url: String): String = url.removeSuffix("/").substringBeforeLast('/', "")
 
     @JvmStatic
     fun append(url1: String, url2: String): String {
@@ -92,11 +104,11 @@ class Url private constructor(innerUri: URI) {
     }
 
     @JvmStatic
-    fun isAncestor(parent: String, child: String) = parent.isEmpty() || child.startsWith(
+    fun isAncestor(parent: String, child: String): Boolean = parent.isEmpty() || child.startsWith(
       parent) && (parent.last() == '/' || child.getOrElse(parent.length, { '/' }) == '/')
 
     @JvmStatic
-    fun getCommonAncestor(url1: String, url2: String) = (url1.splitToSequence('/') zip url2.splitToSequence('/'))
+    fun getCommonAncestor(url1: String, url2: String): String = (url1.splitToSequence('/') zip url2.splitToSequence('/'))
       .takeWhile { it.first == it.second }
       .joinToString("/") { it.first }
 

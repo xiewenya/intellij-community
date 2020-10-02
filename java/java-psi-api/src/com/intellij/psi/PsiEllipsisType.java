@@ -14,7 +14,7 @@ public class PsiEllipsisType extends PsiArrayType {
     super(componentType);
   }
 
-  public PsiEllipsisType(@NotNull PsiType componentType, @NotNull PsiAnnotation[] annotations) {
+  public PsiEllipsisType(@NotNull PsiType componentType, PsiAnnotation @NotNull [] annotations) {
     super(componentType, annotations);
   }
 
@@ -22,27 +22,19 @@ public class PsiEllipsisType extends PsiArrayType {
     super(componentType, provider);
   }
 
-  /** @deprecated use {@link #annotate(TypeAnnotationProvider)} (to be removed in IDEA 18) */
-  public static PsiType createEllipsis(@NotNull PsiType componentType, @NotNull PsiAnnotation[] annotations) {
-    return new PsiEllipsisType(componentType, annotations);
+  @Override
+  public @NotNull String getPresentableText(boolean annotated) {
+    return getText(getDeepComponentType().getPresentableText(annotated), "...", false, annotated);
   }
 
-  @NotNull
   @Override
-  public String getPresentableText(boolean annotated) {
-    return getText(getComponentType().getPresentableText(), "...", false, annotated);
+  public @NotNull String getCanonicalText(boolean annotated) {
+    return getText(getDeepComponentType().getCanonicalText(annotated), "...", true, annotated);
   }
 
-  @NotNull
   @Override
-  public String getCanonicalText(boolean annotated) {
-    return getText(getComponentType().getCanonicalText(annotated), "...", true, annotated);
-  }
-
-  @NotNull
-  @Override
-  public String getInternalCanonicalText() {
-    return getText(getComponentType().getInternalCanonicalText(), "...", true, true);
+  public @NotNull String getInternalCanonicalText() {
+    return getText(getDeepComponentType().getInternalCanonicalText(), "...", true, true);
   }
 
   @Override
@@ -57,6 +49,7 @@ public class PsiEllipsisType extends PsiArrayType {
    * @return the array type instance.
    */
   @Contract(pure = true)
+  @NotNull
   public PsiType toArrayType() {
     return new PsiArrayType(getComponentType(), getAnnotationProvider());
   }

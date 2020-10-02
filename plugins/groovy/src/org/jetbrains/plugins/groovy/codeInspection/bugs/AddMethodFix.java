@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.bugs;
 
 import com.intellij.codeInspection.ProblemDescriptor;
@@ -12,12 +12,11 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiTypeParameter;
 import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyInspectionBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrCodeBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
@@ -55,7 +54,7 @@ public class AddMethodFix extends GroovyFix {
       String templName = JavaTemplateUtil.TEMPLATE_IMPLEMENTED_METHOD_BODY;
       final FileTemplate template = FileTemplateManager.getInstance(project).getCodeTemplate(templName);
 
-      Properties properties = new Properties();
+      Properties properties = FileTemplateManager.getInstance(project).getDefaultProperties();
 
       String returnType = generateTypeText(psiClass);
       properties.setProperty(FileTemplate.ATTRIBUTE_RETURN_TYPE, returnType);
@@ -71,7 +70,7 @@ public class AddMethodFix extends GroovyFix {
         final GrCodeBlock newBody = GroovyPsiElementFactory.getInstance(project).createMethodBodyFromText("\n" + bodyText + "\n");
 
         final GrMethod method = GroovyPsiElementFactory.getInstance(project).createMethodFromText(
-          "", myMethodName, returnType, ArrayUtil.EMPTY_STRING_ARRAY, psiClass
+          "", myMethodName, returnType, ArrayUtilRt.EMPTY_STRING_ARRAY, psiClass
         );
         method.setBlock(newBody);
         psiClass.add(method);
@@ -86,14 +85,13 @@ public class AddMethodFix extends GroovyFix {
   @NotNull
   @Override
   public String getName() {
-    return GroovyInspectionBundle.message("add.method", myMethodName, myClassName);
+    return GroovyBundle.message("add.method", myMethodName, myClassName);
   }
 
-  @Nls
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Add method";
+    return GroovyBundle.message("add.method.family");
   }
 
   static String generateTypeText(GrTypeDefinition aClass) {

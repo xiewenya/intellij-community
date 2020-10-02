@@ -22,14 +22,16 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiIdentifier;
 import com.intellij.psi.PsiVariable;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
-import com.intellij.testFramework.PlatformTestCase;
-import com.intellij.testFramework.PsiTestCase;
+import com.intellij.testFramework.HeavyPlatformTestCase;
+import com.intellij.testFramework.JavaPsiTestCase;
 import com.intellij.testFramework.PsiTestUtil;
+import org.jetbrains.annotations.NotNull;
 
-@PlatformTestCase.WrapInCommand
-public class NormalizeDeclarationTest extends PsiTestCase{
+@HeavyPlatformTestCase.WrapInCommand
+public class NormalizeDeclarationTest extends JavaPsiTestCase {
   private static final String BASE_PATH = JavaTestUtil.getJavaTestDataPath() + "/psi/normalizeDeclaration";
 
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return BASE_PATH;
@@ -37,6 +39,7 @@ public class NormalizeDeclarationTest extends PsiTestCase{
 
   public void test1() throws Exception { doTest(); }
   public void test2() throws Exception { doTest(); }
+  public void testCStyleArrayParameterBeforeErrorId() throws Exception { doTest(); }
 
   public void testSCR6549() throws Exception { doTest(); }
   public void testSCR9467() throws Exception { doTest(); }

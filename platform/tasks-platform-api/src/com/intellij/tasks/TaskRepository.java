@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.tasks;
 
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.impl.CancellableRunnable;
 import com.intellij.util.Function;
@@ -25,20 +26,22 @@ import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Tag;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.regex.Pattern;
 
 /**
- * This class describes bug-tracking server.
+ * Describes bug-tracking server.
  * Do not forget to mark your implementation with {@link Tag} annotation to make it persistent.
  *
  * @author Dmitry Avdeev
  * @see TaskRepositoryType
- * @see BaseRepository
+ * @see com.intellij.tasks.impl.BaseRepository
  */
 @Tag("server")
 public abstract class TaskRepository {
@@ -59,11 +62,12 @@ public abstract class TaskRepository {
    */
   public static final int NATIVE_SEARCH = 0x0010;
 
+  public static final Pattern TIME_SPENT_PATTERN = Pattern.compile("([0-9]+)h ([0-9]+)m");
+
   /**
    * URL of the server to be used in requests. For more human-readable name of repository (e.g. some imaginary URL containing name of
    * selected project), that will be used in settings, use {@link #getPresentableName()}.
    *
-   * @return URL of the server
    * @see #getPresentableName()
    */
   @Attribute("url")
@@ -81,8 +85,6 @@ public abstract class TaskRepository {
 
   /**
    * Shared repositories will be visible in visible in other projects, but only their URL will be initialized there.
-   *
-   * @return whether repository is shared
    */
   @Attribute("shared")
   public boolean isShared() {
@@ -96,8 +98,8 @@ public abstract class TaskRepository {
   /**
    * @return name of this repository, that will be shown in settings
    */
-  public String getPresentableName() {
-    return StringUtil.isEmpty(getUrl()) ? "<undefined>" : getUrl();
+  public @NlsContexts.Label String getPresentableName() {
+    return StringUtil.isEmpty(getUrl()) ? TaskApiBundle.message("label.undefined") : getUrl(); //NON-NLS
   }
 
   public Icon getIcon() {
@@ -105,9 +107,9 @@ public abstract class TaskRepository {
   }
 
   /**
-   * @see #createCancellableConnection()
-   * @deprecated
+   * @deprecated use #createCancellableConnection()
    */
+  @Deprecated
   public void testConnection() throws Exception {
   }
 
@@ -115,7 +117,7 @@ public abstract class TaskRepository {
    * Returns an object that can test connection.
    * {@link CancellableRunnable#cancel()} should cancel the process.
    *
-   * @return null if not supported
+   * @return {@code null} if not supported
    */
   @Nullable
   public CancellableConnection createCancellableConnection() {
@@ -134,16 +136,9 @@ public abstract class TaskRepository {
    * @deprecated To be removed in IDEA 14. Use {@link #getIssues(String, int, int, boolean)} instead.
    */
   @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2014")
   public Task[] getIssues(@Nullable String query, int max, long since) throws Exception {
     throw new UnsupportedOperationException("Deprecated: should not be called");
-  }
-
-  /**
-   * @deprecated To be removed in IDEA 14. Use {@link #getIssues(String, int, int, boolean, ProgressIndicator)} instead.
-   */
-  @Deprecated
-  public Task[] getIssues(@Nullable String query, int max, long since, @NotNull ProgressIndicator cancelled) throws Exception {
-    return getIssues(query, max, since);
   }
 
   /**
@@ -171,7 +166,6 @@ public abstract class TaskRepository {
   /**
    * Retrieve states available for task from server. One of these states will be passed later to {@link #setTaskState(Task, TaskState)}.
    * @param task task to update
-   * @return set of available states
    */
   @NotNull
   public Set<CustomTaskState> getAvailableTaskStates(@NotNull Task task) throws Exception {
@@ -182,26 +176,22 @@ public abstract class TaskRepository {
 
   /**
    * Remember state used when opening task most recently.
-   * @param state preferred task state
    */
   public abstract void setPreferredOpenTaskState(@Nullable CustomTaskState state);
 
   /**
    * Task state that was used last time when opening task.
-   * @return preferred task state
    */
   @Nullable
   public abstract CustomTaskState getPreferredOpenTaskState();
 
   /**
    * Remember state used when closing task most recently.
-   * @param state preferred task state
    */
   public abstract void setPreferredCloseTaskState(@Nullable CustomTaskState state);
 
   /**
    * Task state that was used last time when closing task.
-   * @return preferred task state
    */
   @Nullable
   public abstract CustomTaskState getPreferredCloseTaskState();
@@ -215,6 +205,7 @@ public abstract class TaskRepository {
   @Nullable
   public abstract Task findTask(@NotNull String id) throws Exception;
 
+  @Override
   @NotNull
   public abstract TaskRepository clone();
 
@@ -229,7 +220,7 @@ public abstract class TaskRepository {
    * and so it's a subject of change in future.
    *
    * @param taskName ID of the task to check
-   * @return extracted ID of the issue or {@code null} if it doesn't look as issue ID of this tracker
+   * @return extracted ID of the issue or {@code null} if it doesn't look like issue ID of this tracker
    */
   @Nullable
   public abstract String extractId(@NotNull String taskName);
@@ -261,6 +252,10 @@ public abstract class TaskRepository {
     }
   }
 
+  /**
+   * This is invoked right after setting state.
+   */
+  public void initializeRepository() {}
 
   // for serialization
   public TaskRepository() {
@@ -355,6 +350,9 @@ public abstract class TaskRepository {
     return "{id} (e.g. FOO-001), {summary}, {number} (e.g. 001), {project} (e.g. FOO)";
   }
 
+  /**
+   * @param timeSpent time in {@link #TIME_SPENT_PATTERN} format
+   */
   public void updateTimeSpent(@NotNull LocalTask task, @NotNull String timeSpent, @NotNull String comment) throws Exception {
     throw new UnsupportedOperationException();
   }

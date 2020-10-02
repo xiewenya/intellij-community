@@ -1,71 +1,58 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.win32;
 
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.FileAttributes;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.win32.FileInfo;
 import com.intellij.openapi.util.io.win32.IdeaWin32;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileWithId;
-import com.intellij.util.ArrayUtil;
-import gnu.trove.THashMap;
-import gnu.trove.TIntObjectHashMap;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.containers.FastUtilHashingStrategies;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
+import java.util.Map;
 
 /**
  * @author Dmitry Avdeev
  */
-class Win32FsCache {
+final class Win32FsCache {
   private final IdeaWin32 myKernel = IdeaWin32.getInstance();
-  private Reference<TIntObjectHashMap<THashMap<String, FileAttributes>>> myCache;
+  private Reference<Int2ObjectMap<Map<String, FileAttributes>>> myCache;
 
   void clearCache() {
     myCache = null;
   }
 
-  @NotNull
-  private TIntObjectHashMap<THashMap<String, FileAttributes>> getMap() {
-    TIntObjectHashMap<THashMap<String, FileAttributes>> map = com.intellij.reference.SoftReference.dereference(myCache);
+  private @NotNull Int2ObjectMap<Map<String, FileAttributes>> getMap() {
+    Int2ObjectMap<Map<String, FileAttributes>> map = com.intellij.reference.SoftReference.dereference(myCache);
     if (map == null) {
-      map = new TIntObjectHashMap<>();
+      map = new Int2ObjectOpenHashMap<>();
       myCache = new SoftReference<>(map);
     }
     return map;
   }
 
-  @NotNull
-  String[] list(@NotNull VirtualFile file) {
+  String @NotNull [] list(@NotNull VirtualFile file) {
     String path = file.getPath();
     FileInfo[] fileInfo = myKernel.listChildren(path);
     if (fileInfo == null || fileInfo.length == 0) {
-      return ArrayUtil.EMPTY_STRING_ARRAY;
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
 
     String[] names = new String[fileInfo.length];
-    TIntObjectHashMap<THashMap<String, FileAttributes>> map = getMap();
+    Int2ObjectMap<Map<String, FileAttributes>> map = getMap();
     int parentId = ((VirtualFileWithId)file).getId();
-    THashMap<String, FileAttributes> nestedMap = map.get(parentId);
+    Map<String, FileAttributes> nestedMap = map.get(parentId);
     if (nestedMap == null) {
-      nestedMap = new THashMap<>(fileInfo.length, FileUtil.PATH_HASHING_STRATEGY);
+      nestedMap = CollectionFactory.createFilePathMap(fileInfo.length, file.isCaseSensitive());
       map.put(parentId, nestedMap);
     }
     for (int i = 0, length = fileInfo.length; i < length; i++) {
@@ -81,8 +68,8 @@ class Win32FsCache {
   FileAttributes getAttributes(@NotNull VirtualFile file) {
     VirtualFile parent = file.getParent();
     int parentId = parent instanceof VirtualFileWithId ? ((VirtualFileWithId)parent).getId() : -((VirtualFileWithId)file).getId();
-    TIntObjectHashMap<THashMap<String, FileAttributes>> map = getMap();
-    THashMap<String, FileAttributes> nestedMap = map.get(parentId);
+    Int2ObjectMap<Map<String, FileAttributes>> map = getMap();
+    Map<String, FileAttributes> nestedMap = map.get(parentId);
     String name = file.getName();
     FileAttributes attributes = nestedMap != null ? nestedMap.get(name) : null;
 
@@ -96,7 +83,7 @@ class Win32FsCache {
       }
       attributes = info.toFileAttributes();
       if (nestedMap == null) {
-        nestedMap = new IncompleteChildrenMap<>(FileUtil.PATH_HASHING_STRATEGY);
+        nestedMap = new IncompleteChildrenMap<>();
         map.put(parentId, nestedMap);
       }
       nestedMap.put(name, attributes);
@@ -104,9 +91,9 @@ class Win32FsCache {
     return attributes;
   }
 
-  private static class IncompleteChildrenMap<K, V> extends THashMap<K,V> {
-    IncompleteChildrenMap(TObjectHashingStrategy<K> strategy) {
-      super(strategy);
+  private static final class IncompleteChildrenMap<V> extends Object2ObjectOpenCustomHashMap<String, V> {
+    IncompleteChildrenMap() {
+      super(FastUtilHashingStrategies.getStringStrategy(SystemInfoRt.isFileSystemCaseSensitive));
     }
   }
 }

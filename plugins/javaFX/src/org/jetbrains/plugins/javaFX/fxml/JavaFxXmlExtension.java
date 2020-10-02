@@ -11,17 +11,18 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.javaFX.fxml.refs.JavaFxTagNameReference;
 
 public class JavaFxXmlExtension extends DefaultXmlExtension {
+  @Override
   public boolean isAvailable(final PsiFile file) {
     return JavaFxFileTypeFactory.isFxml(file);
   }
 
+  @Override
   public TagNameReference createTagNameReference(final ASTNode nameElement, final boolean startTagFlag) {
     return new JavaFxTagNameReference(nameElement, startTagFlag);
   }
 
-  @Nullable
   @Override
-  public String[][] getNamespacesFromDocument(XmlDocument parent, boolean declarationsExist) {
+  public String[] @Nullable [] getNamespacesFromDocument(XmlDocument parent, boolean declarationsExist) {
     return XmlUtil.getDefaultNamespaces(parent);
   }
 }

@@ -1,47 +1,39 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.memberPushDown;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ChangeContextUtil;
+import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.codeInsight.intention.impl.CreateClassDialog;
 import com.intellij.codeInsight.intention.impl.CreateSubclassAction;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.javadoc.PsiDocComment;
+import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.*;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.classMembers.MemberInfoBase;
+import com.intellij.refactoring.inline.InlineMethodProcessor;
 import com.intellij.refactoring.listeners.JavaRefactoringListenerManager;
 import com.intellij.refactoring.listeners.impl.JavaRefactoringListenerManagerImpl;
 import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.util.IncorrectOperationException;
-import java.util.HashSet;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -103,25 +95,33 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
         context = (PsiElement)newClassContext;
       }
     }
+    if (targetClass instanceof PsiAnonymousClass &&
+        toMove.stream().map(MemberInfoBase::getOverrides).anyMatch(Objects::nonNull)) {
+      conflicts.putValue(targetClass, JavaBundle.message("push.down.anonymous.conflict"));
+    }
     new PushDownConflicts((PsiClass)pushDownData.getSourceClass(), toMove.toArray(new MemberInfo[0]), conflicts)
       .checkTargetClassConflicts(targetClass, context);
   }
 
   @Override
-  public NewSubClassData preprocessNoInheritorsFound(PsiElement sourceClass, String conflictDialogTitle) {
+  public NewSubClassData preprocessNoInheritorsFound(PsiElement sourceClass, @NlsContexts.DialogTitle String conflictDialogTitle) {
     final PsiClass aClass = (PsiClass)sourceClass;
     final PsiFile containingFile = aClass.getContainingFile();
     final boolean defaultPackage = StringUtil.isEmptyOrSpaces(containingFile instanceof PsiClassOwner ? ((PsiClassOwner)containingFile).getPackageName() : "");
     if (aClass.isEnum() || aClass.hasModifierProperty(PsiModifier.FINAL) || defaultPackage) {
-      if (Messages.showOkCancelDialog((aClass.isEnum() ? "Enum " + aClass.getQualifiedName() + " doesn't have constants to inline to. "
-                                                       : (defaultPackage ? "Class " : "Final class ") + aClass.getQualifiedName() + "does not have inheritors. ") +
-                                      "Pushing members down will result in them being deleted. " +
-                                      "Would you like to proceed?", conflictDialogTitle, Messages.getWarningIcon()) != Messages.OK) {
+      String message = JavaRefactoringBundle.message(defaultPackage
+                                                     ? "push.down.no.inheritors.class.warning.text"
+                                                     : "push.down.no.inheritors.final.class.warning.text",
+                                                     aClass.getQualifiedName());
+      String text =
+        aClass.isEnum() ? JavaRefactoringBundle.message("push.down.enum.no.constants.warning.text", aClass.getQualifiedName()) : message;
+      if (Messages.showOkCancelDialog(JavaRefactoringBundle.message("push.down.delete.warning.text", text), conflictDialogTitle,
+                                      Messages.getWarningIcon()) != Messages.OK) {
         return NewSubClassData.ABORT_REFACTORING;
       }
     } else {
       String noInheritors = aClass.isInterface() ?
-                            RefactoringBundle.message("interface.0.does.not.have.inheritors", aClass.getQualifiedName()) :
+                            JavaRefactoringBundle.message("interface.0.does.not.have.inheritors", aClass.getQualifiedName()) :
                             RefactoringBundle.message("class.0.does.not.have.inheritors", aClass.getQualifiedName());
       final String message = noInheritors + "\n" + RefactoringBundle.message("push.down.will.delete.members");
       final int answer = Messages.showYesNoCancelDialog(message, conflictDialogTitle, Messages.getWarningIcon());
@@ -150,9 +150,16 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
     for (MemberInfoBase<? extends PsiElement> memberInfo : pushDownData.getMembersToMove()) {
       final PsiElement member = memberInfo.getMember();
       member.accept(new JavaRecursiveElementVisitor() {
-        @Override public void visitReferenceExpression(PsiReferenceExpression expression) {
-          encodeRef((PsiClass)pushDownData.getSourceClass(), expression, movedMembers, expression);
-          super.visitReferenceExpression(expression);
+        @Override
+        public void visitThisExpression(PsiThisExpression expression) {
+          encodeRef((PsiClass)pushDownData.getSourceClass(), null, movedMembers, expression, expression);
+          super.visitThisExpression(expression);
+        }
+
+        @Override
+        public void visitReferenceElement(PsiJavaCodeReferenceElement referenceElement) {
+          encodeRef((PsiClass)pushDownData.getSourceClass(), referenceElement, movedMembers, referenceElement);
+          super.visitReferenceElement(referenceElement);
         }
 
         @Override public void visitNewExpression(PsiNewExpression expression) {
@@ -178,7 +185,7 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
 
   @Override
   public void pushDownToClass(PsiElement targetElement, PushDownData<MemberInfo, PsiMember> pushDownData) {
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(pushDownData.getSourceClass().getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(pushDownData.getSourceClass().getProject());
     final PsiClass targetClass = targetElement instanceof PsiClass ? (PsiClass)targetElement : null;
     if (targetClass == null) {
       return;
@@ -203,7 +210,7 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
               if (!(resolve instanceof PsiClass) || resolve != sourceClass) {
                 continue;
               }
-              PsiClass inheritor = InheritanceUtil.findEnclosingInstanceInScope(sourceClass, element, Condition.TRUE, false);
+              PsiClass inheritor = InheritanceUtil.findEnclosingInstanceInScope(sourceClass, element, Conditions.alwaysTrue(), false);
               if (inheritor != null && inheritor != targetClass) {
                 //usages in other targets should be updated on corresponding turns
                 continue;
@@ -231,14 +238,23 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
       }
       else if (member instanceof PsiMethod) {
         PsiMethod method = (PsiMethod)member;
-        PsiMethod methodBySignature = MethodSignatureUtil.findMethodBySuperSignature(targetClass, method.getSignature(substitutor), false);
-        if (methodBySignature == null) {
+        PsiMethod methodBySignature = MethodSignatureUtil.findMethodBySuperSignature(targetClass, method.getSignature(substitutor), true);
+        boolean pushMethodToClass = methodBySignature == null;
+        if (!pushMethodToClass) {
+          //non-abstract method inherited from super class
+          PsiClass containingClass = methodBySignature.getContainingClass();
+          pushMethodToClass = containingClass == sourceClass ||
+                              containingClass != targetClass && methodBySignature.hasModifierProperty(PsiModifier.ABSTRACT);
+        }
+        if (pushMethodToClass) {
           newMember = (PsiMethod)targetClass.add(method);
           final PsiMethod oldMethod = (PsiMethod)memberInfo.getMember();
           if (sourceClass.isInterface() && !targetClass.isInterface()) {
             PsiUtil.setModifierProperty(newMember, PsiModifier.PUBLIC, true);
             if (oldMethod.hasModifierProperty(PsiModifier.ABSTRACT)) {
-              RefactoringUtil.makeMethodAbstract(targetClass, (PsiMethod)newMember);
+              if (oldMethod.getBody() == null) {
+                RefactoringUtil.makeMethodAbstract(targetClass, (PsiMethod)newMember);
+              }
             }
             else {
               PsiUtil.setModifierProperty(newMember, PsiModifier.DEFAULT, false);
@@ -260,6 +276,12 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
             if (annotation != null && !leaveOverrideAnnotation(sourceClass, substitutor, method)) {
               annotation.delete();
             }
+            PsiParameter[] sourceParameters = method.getParameterList().getParameters();
+            PsiParameter[] targetParameters = methodBySignature.getParameterList().getParameters();
+            for (int i = 0; i < sourceParameters.length; i++) {
+              GenerateMembersUtil.copyAnnotations(sourceParameters[i], targetParameters[i]);
+            }
+            GenerateMembersUtil.copyAnnotations(method, methodBySignature);
           }
           final PsiDocComment oldDocComment = method.getDocComment();
           if (oldDocComment != null) {
@@ -274,6 +296,7 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
               }
             }
           }
+          inlineSuperCall(memberInfo, methodBySignature);
         }
       }
       else if (member instanceof PsiClass) {
@@ -291,10 +314,11 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
               }
             }
             PsiJavaCodeReferenceElement classRef = classType != null ? factory.createReferenceElementByType(classType) : factory.createClassReferenceElement(psiClass);
-            if (psiClass.isInterface()) {
-              targetClass.getImplementsList().add(classRef);
-            } else {
-              targetClass.getExtendsList().add(classRef);
+            PsiReferenceList extendsImplementsList = psiClass.isInterface() && !targetClass.isInterface()
+                                                     ? targetClass.getImplementsList()
+                                                     : targetClass.getExtendsList();
+            if (extendsImplementsList != null) {
+              extendsImplementsList.add(classRef);
             }
           }
         }
@@ -302,11 +326,14 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
           newMember = (PsiMember)targetClass.add(member);
         }
       }
+      else if (member instanceof PsiClassInitializer) {
+        newMember = (PsiMember)targetClass.add(member);
+      }
 
       if (newMember != null) {
         decodeRefs(sourceClass, newMember, targetClass);
         //rebind imports first
-        Collections.sort(refsToRebind, Comparator.comparing(PsiReference::getElement, PsiUtil.BY_POSITION));
+        refsToRebind.sort(Comparator.comparing(PsiReference::getElement, PsiUtil.BY_POSITION));
         for (PsiReference psiReference : refsToRebind) {
           JavaCodeStyleManager.getInstance(sourceClass.getProject()).shortenClassReferences(psiReference.bindToElement(newMember));
         }
@@ -316,12 +343,31 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
     }
   }
 
+  public void inlineSuperCall(MemberInfoBase<? extends PsiElement> memberInfo, PsiMethod methodBySignature) {
+    PsiMethod superMethod = (PsiMethod)memberInfo.getMember();
+    Collection<PsiReference> superReferences =
+      ReferencesSearch.search(superMethod, new LocalSearchScope(methodBySignature)).findAll();
+    if (superReferences.size() == 1) {
+      PsiReference reference = ContainerUtil.getFirstItem(superReferences);
+      if (reference == null) return;
+      PsiElement element = reference.getElement();
+      if (element instanceof PsiReferenceExpression) {
+        PsiReferenceExpression referenceExpression = (PsiReferenceExpression)element;
+        if (superMethod.getBody() != null) {
+          // No super method body: either native method or compilation error
+          new InlineMethodProcessor(element.getProject(), superMethod, referenceExpression, null, true)
+            .inlineMethodCall(referenceExpression);
+        }
+      }
+    }
+  }
+
   @Override
   public void removeFromSourceClass(PushDownData<MemberInfo, PsiMember> pushDownData) {
     for (MemberInfoBase<? extends PsiElement> memberInfo : pushDownData.getMembersToMove()) {
       final PsiElement member = memberInfo.getMember();
 
-      if (member instanceof PsiField) {
+      if (member instanceof PsiField || member instanceof PsiClassInitializer) {
         member.delete();
       }
       else if (member instanceof PsiMethod) {
@@ -372,14 +418,22 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
     }
     return true;
   }
-  
+
   private static void encodeRef(PsiClass aClass,
                                 final PsiJavaCodeReferenceElement expression,
                                 final Set<PsiMember> movedMembers,
                                 final PsiElement toPut) {
     final PsiElement resolved = expression.resolve();
     if (resolved == null) return;
-    final PsiElement qualifier = expression.getQualifier();
+    encodeRef(aClass, resolved, movedMembers, toPut, expression.getQualifier());
+  }
+
+  private static void encodeRef(final PsiClass aClass,
+                                @Nullable final PsiElement resolved,
+                                @NotNull final Set<PsiMember> movedMembers,
+                                @NotNull final PsiElement toPut,
+                                @Nullable final PsiElement qualifier) {
+
     for (PsiMember movedMember : movedMembers) {
       if (movedMember.equals(resolved)) {
         if (qualifier == null) {
@@ -395,8 +449,8 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
           toPut.putCopyableUserData(REPLACE_QUALIFIER_KEY, (PsiClass)movedMember);
         }
       } else {
-        if (qualifier instanceof PsiThisExpression) {
-          final PsiJavaCodeReferenceElement qElement = ((PsiThisExpression)qualifier).getQualifier();
+        if (qualifier instanceof PsiThisExpression || qualifier instanceof PsiSuperExpression) {
+          final PsiJavaCodeReferenceElement qElement = ((PsiQualifiedExpression)qualifier).getQualifier();
           if (qElement != null && qElement.isReferenceTo(aClass)) {
             toPut.putCopyableUserData(REPLACE_QUALIFIER_KEY, aClass);
           }
@@ -406,11 +460,18 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
   }
 
   private static void decodeRefs(PsiClass sourceClass, final PsiMember member, final PsiClass targetClass) {
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(sourceClass.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(sourceClass.getProject());
     member.accept(new JavaRecursiveElementWalkingVisitor() {
-      @Override public void visitReferenceExpression(PsiReferenceExpression expression) {
+      @Override
+      public void visitReferenceElement(PsiJavaCodeReferenceElement referenceElement) {
+        decodeRef(sourceClass, referenceElement, factory, targetClass, referenceElement);
+        super.visitReferenceElement(referenceElement);
+      }
+
+      @Override
+      public void visitThisExpression(PsiThisExpression expression) {
         decodeRef(sourceClass, expression, factory, targetClass, expression);
-        super.visitReferenceExpression(expression);
+        super.visitThisExpression(expression);
       }
 
       @Override public void visitNewExpression(PsiNewExpression expression) {
@@ -429,36 +490,39 @@ public class JavaPushDownDelegate extends PushDownDelegate<MemberInfo, PsiMember
   }
 
   private static void decodeRef(PsiClass sourceClass,
-                                final PsiJavaCodeReferenceElement ref,
+                                final PsiElement ref,
                                 final PsiElementFactory factory,
                                 final PsiClass targetClass,
                                 final PsiElement toGet) {
     try {
       if (toGet.getCopyableUserData(REMOVE_QUALIFIER_KEY) != null) {
         toGet.putCopyableUserData(REMOVE_QUALIFIER_KEY, null);
-        final PsiElement qualifier = ref.getQualifier();
+        final PsiElement qualifier = ref instanceof PsiJavaCodeReferenceElement ? ((PsiJavaCodeReferenceElement)ref).getQualifier()
+                                                                                : ref;
         if (qualifier != null) qualifier.delete();
       }
       else {
         PsiClass psiClass = toGet.getCopyableUserData(REPLACE_QUALIFIER_KEY);
         if (psiClass != null) {
           toGet.putCopyableUserData(REPLACE_QUALIFIER_KEY, null);
-          PsiElement qualifier = ref.getQualifier();
+          PsiElement qualifier = ref instanceof PsiJavaCodeReferenceElement ? ((PsiJavaCodeReferenceElement)ref).getQualifier() : ref;
           if (qualifier != null) {
 
             if (psiClass == sourceClass) {
               psiClass = targetClass;
             } else if (psiClass.getContainingClass() == sourceClass) {
               psiClass = targetClass.findInnerClassByName(psiClass.getName(), false);
-              LOG.assertTrue(psiClass != null);
+              if (psiClass == null) {
+                return;
+              }
             }
 
-            if (!(qualifier instanceof PsiThisExpression) && ref instanceof PsiReferenceExpression) {
+            if (!(qualifier instanceof PsiThisExpression) && !(qualifier instanceof PsiSuperExpression) && ref instanceof PsiReferenceExpression) {
               ((PsiReferenceExpression)ref).setQualifierExpression(factory.createReferenceExpression(psiClass));
             }
             else {
-              if (qualifier instanceof PsiThisExpression) {
-                qualifier = ((PsiThisExpression)qualifier).getQualifier();
+              if (qualifier instanceof PsiThisExpression || qualifier instanceof PsiSuperExpression) {
+                qualifier = ((PsiQualifiedExpression)qualifier).getQualifier();
               }
               qualifier.replace(factory.createReferenceElementByType(factory.createType(psiClass)));
             }

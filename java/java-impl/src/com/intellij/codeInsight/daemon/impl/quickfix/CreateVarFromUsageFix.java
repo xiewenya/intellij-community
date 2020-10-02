@@ -16,11 +16,11 @@
 
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiReferenceExpression;
-import org.jetbrains.annotations.Nls;
 
 public abstract class CreateVarFromUsageFix extends CreateFromUsageBaseFix {
   protected final PsiReferenceExpression myReferenceExpression;
@@ -42,7 +42,7 @@ public abstract class CreateVarFromUsageFix extends CreateFromUsageBaseFix {
 
   @Override
   protected PsiElement getElement() {
-    if (!myReferenceExpression.isValid() || !myReferenceExpression.getManager().isInProject(myReferenceExpression)) return null;
+    if (!myReferenceExpression.isValid() || !canModify(myReferenceExpression)) return null;
 
     PsiElement parent = myReferenceExpression.getParent();
 
@@ -59,14 +59,10 @@ public abstract class CreateVarFromUsageFix extends CreateFromUsageBaseFix {
 
   @Override
   protected boolean isAvailableImpl(int offset) {
-    if (CreateFromUsageUtils.shouldShowTag(offset, myReferenceExpression.getReferenceNameElement(), myReferenceExpression)) {
-      setText(getText(myReferenceExpression.getReferenceName()));
-      return true;
-    }
-
-    return false;
+    setText(getText(myReferenceExpression.getReferenceName()));
+    return true;
   }
 
-  @Nls(capitalization = Nls.Capitalization.Sentence)
+  @IntentionName
   protected abstract String getText(String varName);
 }

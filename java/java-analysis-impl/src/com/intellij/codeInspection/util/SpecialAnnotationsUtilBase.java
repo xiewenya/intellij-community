@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.util;
 
-import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiElement;
@@ -32,9 +17,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.List;
 
-public class SpecialAnnotationsUtilBase {
-  public static LocalQuickFix createAddToSpecialAnnotationsListQuickFix(@NotNull final String text,
-                                                                        @NotNull final String family,
+public final class SpecialAnnotationsUtilBase {
+  public static LocalQuickFix createAddToSpecialAnnotationsListQuickFix(@NotNull final @IntentionName String text,
+                                                                        @NotNull final @IntentionFamilyName String family,
                                                                         @NotNull final List<String> targetList,
                                                                         @NotNull final String qualifiedName,
                                                                         final PsiElement context) {
@@ -81,7 +66,7 @@ public class SpecialAnnotationsUtilBase {
     */
   }
 
-  public static void createAddToSpecialAnnotationFixes(@NotNull PsiModifierListOwner owner, @NotNull Processor<String> processor) {
+  public static void createAddToSpecialAnnotationFixes(@NotNull PsiModifierListOwner owner, @NotNull Processor<? super String> processor) {
     final PsiModifierList modifierList = owner.getModifierList();
     if (modifierList != null) {
       final PsiAnnotation[] psiAnnotations = modifierList.getAnnotations();
@@ -89,7 +74,8 @@ public class SpecialAnnotationsUtilBase {
         @NonNls final String name = psiAnnotation.getQualifiedName();
         if (name == null) continue;
         if (name.startsWith("java.") || //name.startsWith("javax.") ||
-            name.startsWith("org.jetbrains.") && AnnotationUtil.isJetbrainsAnnotation(StringUtil.getShortName(name))) continue;
+            name.startsWith("org.jetbrains.") ||
+            NullableNotNullManager.isNullabilityAnnotation(psiAnnotation)) continue;
         if (!processor.process(name)) break;
       }
     }

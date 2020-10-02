@@ -70,6 +70,11 @@
     <item name='java.awt.Component boolean isFocusCycleRoot(java.awt.Container) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
+    <item name='java.awt.Component boolean isFocusTraversable()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.awt.Component boolean isFocusTraversableOverridden()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -199,6 +204,9 @@
         </annotation>
     </item>
     <item name='java.awt.Component java.awt.Dimension getMaximumSize()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.awt.Component java.awt.Dimension getSize(java.awt.Dimension)'>
@@ -208,9 +216,15 @@
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.awt.Component java.awt.Dimension minimumSize()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.awt.Component java.awt.Dimension preferredSize()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.awt.Component java.awt.Dimension size()'>
@@ -249,6 +263,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.awt.Component void initializeFocusTraversalKeys()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.awt.Component void layout()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -267,6 +286,16 @@
     </item>
     <item name='java.awt.Component void resize(java.awt.Dimension) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.awt.Component void setAutoFocusTransferOnDisposal(boolean)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
+    <item name='java.awt.Component void setIgnoreRepaint(boolean)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.awt.Component void writeObject(java.io.ObjectOutputStream) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
@@ -393,17 +422,17 @@
     </item>
     <item name='java.awt.Container java.awt.Component add(java.awt.Component)'>
         <annotation name='org.jetbrains.annotations.Contract'>
-            <val val="&quot;!null-&gt;!null;null-&gt;null&quot;"/>
+            <val val="&quot;_-&gt;param1&quot;"/>
         </annotation>
     </item>
     <item name='java.awt.Container java.awt.Component add(java.awt.Component, int)'>
         <annotation name='org.jetbrains.annotations.Contract'>
-            <val val="&quot;!null,_-&gt;!null;null,_-&gt;null&quot;"/>
+            <val val="&quot;_,_-&gt;param1&quot;"/>
         </annotation>
     </item>
     <item name='java.awt.Container java.awt.Component add(java.lang.String, java.awt.Component)'>
         <annotation name='org.jetbrains.annotations.Contract'>
-            <val val="&quot;_,!null-&gt;!null;_,null-&gt;null&quot;"/>
+            <val val="&quot;_,_-&gt;param2&quot;"/>
         </annotation>
     </item>
     <item name='java.awt.Container java.awt.Component findComponentAt(int, int)'>
@@ -458,6 +487,11 @@
     <item name='java.awt.Container void increaseComponentCount(java.awt.Component) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
+    <item name='java.awt.Container void initializeFocusTraversalKeys()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.awt.Container void list(java.io.PrintStream, int) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -486,7 +520,13 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.awt.Container.DropTargetEventTargetFilter FILTER'>
+        <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
     <item name='java.awt.Container.DropTargetEventTargetFilter boolean accept(java.awt.Component) 0'>
+        <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.awt.Container.MouseEventTargetFilter FILTER'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.awt.Container.MouseEventTargetFilter MouseEventTargetFilter()'>
@@ -547,6 +587,11 @@
             <val name="pure" val="true"/>
         </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.awt.Dimension void setSize(int, int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.awt.Dimension void setSize(java.awt.Dimension) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
@@ -653,6 +698,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.awt.Window java.awt.Window[] getOwnerlessWindows()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
+    </item>
     <item name='java.awt.Window java.lang.String constructComponentName()'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -662,6 +712,9 @@
         </annotation>
     </item>
     <item name='java.awt.Window java.util.List&lt;java.awt.Image&gt; getIconImages()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.awt.Window void adjustDecendantsOnParent(int)'>
@@ -697,6 +750,11 @@
     </item>
     <item name='java.awt.Window void readObject(java.io.ObjectInputStream) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.awt.Window void setAutoRequestFocus(boolean)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.awt.Window void setFocusCycleRoot(boolean)'>
         <annotation name='org.jetbrains.annotations.Contract'>

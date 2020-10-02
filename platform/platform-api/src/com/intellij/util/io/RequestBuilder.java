@@ -1,9 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.util.net.ssl.UntrustedCertificateStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -13,6 +12,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URLConnection;
 
+@SuppressWarnings("BoundedWildcard")
 public abstract class RequestBuilder {
   public abstract RequestBuilder connectTimeout(int value);
   public abstract RequestBuilder readTimeout(int value);
@@ -37,10 +37,12 @@ public abstract class RequestBuilder {
    */
   public abstract RequestBuilder isReadResponseOnError(boolean isReadResponseOnError);
 
-  // Used in Rider
-  @SuppressWarnings("unused")
+  /**
+   * Whether to analyze response status code and throw an exception if it's an "error" code.
+   * Defaults to true.
+   */
   @NotNull
-  public abstract RequestBuilder untrustedCertificateStrategy(@NotNull UntrustedCertificateStrategy strategy);
+  public abstract RequestBuilder throwStatusCodeException(boolean shouldThrow);
 
   public abstract <T> T connect(@NotNull HttpRequests.RequestProcessor<T> processor) throws IOException;
 
@@ -67,8 +69,7 @@ public abstract class RequestBuilder {
     connect(request -> request.saveToFile(file, indicator));
   }
 
-  @NotNull
-  public byte[] readBytes(@Nullable ProgressIndicator indicator) throws IOException {
+  public byte @NotNull [] readBytes(@Nullable ProgressIndicator indicator) throws IOException {
     return connect(request -> request.readBytes(indicator));
   }
 
@@ -99,7 +100,7 @@ public abstract class RequestBuilder {
     });
   }
 
-  public void write(@NotNull byte[] data) throws IOException {
+  public void write(byte @NotNull [] data) throws IOException {
     connect(request -> {
       request.write(data);
       return null;

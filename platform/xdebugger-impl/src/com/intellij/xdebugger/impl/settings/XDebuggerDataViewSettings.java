@@ -18,9 +18,6 @@ package com.intellij.xdebugger.impl.settings;
 import com.intellij.util.xmlb.annotations.Tag;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
 
-/**
- * @author nik
- */
 @Tag("data-views")
 public class XDebuggerDataViewSettings implements XDebuggerSettingsManager.DataViewSettings {
   static final int DEFAULT_VALUE_TOOLTIP_DELAY = 700;
@@ -72,6 +69,7 @@ public class XDebuggerDataViewSettings implements XDebuggerSettingsManager.DataV
     showLibraryStackFrames = value;
   }
 
+  @Override
   public boolean isShowValuesInline() {
     return showValuesInline;
   }

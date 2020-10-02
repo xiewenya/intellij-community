@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.index
 
 import com.intellij.openapi.diagnostic.Logger
@@ -10,19 +10,15 @@ import com.intellij.util.io.DataInputOutputUtil
 import java.io.DataInput
 import java.io.DataOutput
 
-/**
- * @author traff
- */
-
 abstract class PrebuiltIndexAwareIdIndexer : PrebuiltIndexProviderBase<Map<IdIndexEntry, Int>>(), LexingIdIndexer {
   companion object {
     private val LOG = Logger.getInstance("#com.intellij.index.PrebuiltIndexAwareIdIndexer")
-    val ID_INDEX_FILE_NAME = "id-index"
+    const val ID_INDEX_FILE_NAME: String = "id-index"
   }
 
-  override val indexName get() = ID_INDEX_FILE_NAME
+  override val indexName: String get() = ID_INDEX_FILE_NAME
 
-  override val indexExternalizer get() = IdIndexMapDataExternalizer()
+  override val indexExternalizer: IdIndexMapDataExternalizer get() = IdIndexMapDataExternalizer()
 
   override fun map(inputData: FileContent): Map<IdIndexEntry, Int> {
     val map = get(inputData)
@@ -57,7 +53,7 @@ class IdIndexMapDataExternalizer : DataExternalizer<Map<IdIndexEntry, Int>> {
     for (i in 0 until size) {
       val wordHash = DataInputOutputUtil.readINT(`in`)
       val value = DataInputOutputUtil.readINT(`in`)
-      map.put(IdIndexEntry(wordHash), value)
+      map[IdIndexEntry(wordHash)] = value
     }
     return map
   }

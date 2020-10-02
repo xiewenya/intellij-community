@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase
 
 import com.intellij.openapi.progress.EmptyProgressIndicator
@@ -31,7 +17,6 @@ import git4idea.test.resolveConflicts
 import org.mockito.Mockito
 
 class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
-
   private lateinit var ultimate: GitRepository
   private lateinit var community: GitRepository
   private lateinit var contrib: GitRepository
@@ -51,14 +36,17 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
 
     Executor.cd(projectRoot)
     touch(".gitignore", "community\ncontrib")
-    git("add .gitignore")
-    git("commit -m gitignore")
+    git(project, "add .gitignore")
+    git(project, "commit -m gitignore")
   }
 
   fun `test all successful`() {
     ultimate.`place feature above master`()
     community.`diverge feature and master`()
     contrib.`place feature on master`()
+
+    refresh()
+    updateChangeListManager()
 
     rebase("master")
 
@@ -71,7 +59,7 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     val localChange = LocalChange(community, "new.txt", "Some content")
     `fail with critical error while rebasing 2nd root`(localChange)
 
-    assertErrorNotification("Rebase Failed",
+    assertErrorNotification("Rebase failed",
         """
         contrib: $UNKNOWN_ERROR_TEXT <br/>
         $LOCAL_CHANGES_WARNING
@@ -117,7 +105,7 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
 
     assertNotNull(confirmation, "Abort confirmation message was not shown")
     assertEquals("Incorrect confirmation message text",
-                 cleanupForAssertion("Do you want just to abort rebase in contrib, or also rollback the successful rebase in community?"),
+                 cleanupForAssertion("Abort rebase in contrib only or also rollback rebase in community?"),
                  cleanupForAssertion(confirmation!!))
     assertNoRebaseInProgress(allRepositories)
     allRepositories.forEach { it.`assert feature not rebased on master`() }
@@ -130,9 +118,13 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     community.`prepare simple conflict`()
     contrib.`diverge feature and master`()
 
+    refresh()
+    updateChangeListManager()
+    keepCommitMessageAfterConflict()
+
     var facedConflictInUltimate = false
     var facedConflictInCommunity = false
-    vcsHelper.onMerge({
+    vcsHelper.onMerge {
       assertFalse(facedConflictInCommunity && facedConflictInUltimate)
       if (ultimate.hasConflict("c.txt")) {
         assertFalse(facedConflictInUltimate)
@@ -146,7 +138,7 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
         assertNoRebaseInProgress(ultimate)
         community.resolveConflicts()
       }
-    })
+    }
 
     rebase("master")
 
@@ -174,6 +166,9 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     community.`prepare simple conflict`()
     contrib.`diverge feature and master`()
 
+    refresh()
+    updateChangeListManager()
+
     `do nothing on merge`()
     rebase("master")
     GitRebaseUtils.continueRebase(project)
@@ -186,6 +181,10 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     ultimate.`diverge feature and master`()
     community.`prepare simple conflict`()
     contrib.`diverge feature and master`()
+
+    refresh()
+    updateChangeListManager()
+    keepCommitMessageAfterConflict()
 
     `do nothing on merge`()
     rebase("master")
@@ -207,6 +206,9 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
       it.git("checkout master")
     }
     git.setShouldRebaseFail { it == contrib }
+
+    refresh()
+    updateChangeListManager()
 
     val uiHandler = Mockito.mock(GitBranchUiHandler::class.java)
     Mockito.`when`(uiHandler.progressIndicator).thenReturn(EmptyProgressIndicator())
@@ -239,6 +241,9 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     allRepositories.forEach { it.`diverge feature and master`() }
     localChange?.generate()
 
+    refresh()
+    updateChangeListManager()
+
     git.setShouldRebaseFail { it == contrib }
     try {
       rebase("master")
@@ -254,6 +259,9 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
     ultimate.`diverge feature and master`()
     localChange?.generate()
 
+    refresh()
+    updateChangeListManager()
+
     try {
       rebase("master")
     }
@@ -263,7 +271,7 @@ class GitMultiRepoRebaseTest : GitRebaseBaseTest() {
   }
 
   private fun rebase(onto: String) {
-    GitTestingRebaseProcess(project, GitRebaseParams(onto), allRepositories).rebase()
+    GitTestingRebaseProcess(project, GitRebaseParams(vcs.version, onto), allRepositories).rebase()
   }
 
   private fun abortOngoingRebase() {

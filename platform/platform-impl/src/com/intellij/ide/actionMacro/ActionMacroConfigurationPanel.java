@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actionMacro;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.ex.KeymapManagerEx;
+import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Couple;
@@ -35,7 +23,7 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 
-public class ActionMacroConfigurationPanel implements Disposable {
+public final class ActionMacroConfigurationPanel implements Disposable {
   private static final String SPLITTER_PROPORTION = "ActionMacroConfigurationPanel.SPLITTER_PROPORTION";
   private Splitter mySplitter;
   private final JList myMacrosList;
@@ -51,6 +39,7 @@ public class ActionMacroConfigurationPanel implements Disposable {
     myMacroActionsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
     myMacrosList.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         final int selIndex = myMacrosList.getSelectedIndex();
         if (selIndex == -1) {
@@ -101,7 +90,7 @@ public class ActionMacroConfigurationPanel implements Disposable {
       manager.addMacro(macro);
       removedIds.remove(macro.getActionId());
     }
-    manager.registerActions();
+    manager.registerActions(ActionManager.getInstance());
 
     for (String id : removedIds) {
       Keymap[] allKeymaps = KeymapManagerEx.getInstanceEx().getAllKeymaps();
@@ -168,9 +157,9 @@ public class ActionMacroConfigurationPanel implements Disposable {
               while (elements.hasMoreElements()) {
                 final ActionMacro macro = (ActionMacro)elements.nextElement();
                 if (macro.getName().equals(name)) {
-                  if (Messages.showYesNoDialog(IdeBundle.message("message.macro.exists", name),
-                                               IdeBundle.message("title.macro.name.already.used"),
-                                               Messages.getWarningIcon()) != Messages.YES) {
+                  if (!MessageDialogBuilder
+                        .yesNo(IdeBundle.message("title.macro.name.already.used"), IdeBundle.message("message.macro.exists", name))
+                        .icon(Messages.getWarningIcon()).ask(mySplitter)) {
                     return false;
                   }
                   myMacrosModel.removeElement(macro);

@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.util.text;
 
 import com.intellij.diff.comparison.ComparisonManagerImpl;
+import com.intellij.diff.comparison.InnerFragmentsPolicy;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.lang.DiffIgnoredRangeProvider;
@@ -29,7 +16,6 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,7 +30,7 @@ import static com.intellij.diff.tools.util.base.IgnorePolicy.*;
 
 public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implements TwosideTextDiffProvider {
   private static final IgnorePolicy[] IGNORE_POLICIES = {DEFAULT, TRIM_WHITESPACES, IGNORE_WHITESPACES, IGNORE_WHITESPACES_CHUNKS, FORMATTING};
-  private static final HighlightPolicy[] HIGHLIGHT_POLICIES = {BY_LINE, BY_WORD, BY_WORD_SPLIT, DO_NOT_HIGHLIGHT};
+  private static final HighlightPolicy[] HIGHLIGHT_POLICIES = {BY_LINE, BY_WORD, BY_WORD_SPLIT, BY_CHAR, DO_NOT_HIGHLIGHT};
 
   @Nullable private final Project myProject;
   @NotNull private final DiffContent myContent1;
@@ -94,8 +80,8 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
                                 @NotNull Runnable rediff,
                                 @NotNull Disposable disposable,
                                 @NotNull DiffIgnoredRangeProvider ignoredRangeProvider,
-                                @NotNull IgnorePolicy[] ignorePolicies,
-                                @NotNull HighlightPolicy[] highlightPolicies) {
+                                IgnorePolicy @NotNull [] ignorePolicies,
+                                HighlightPolicy @NotNull [] highlightPolicies) {
     super(settings, rediff, disposable, ignorePolicies, highlightPolicies);
     myProject = project;
     myContent1 = content1;
@@ -116,16 +102,16 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
                                                @NotNull CharSequence text2,
                                                @NotNull LineOffsets lineOffsets1,
                                                @NotNull LineOffsets lineOffsets2,
-                                               @Nullable List<Range> linesRanges,
+                                               @Nullable List<? extends Range> linesRanges,
                                                @NotNull IgnorePolicy ignorePolicy,
-                                               boolean innerFragments,
+                                               @NotNull HighlightPolicy highlightPolicy,
                                                @NotNull ProgressIndicator indicator) {
     if (ignorePolicy == FORMATTING) {
-      return compareIgnoreFormatting(text1, text2, lineOffsets1, lineOffsets2, linesRanges, innerFragments, indicator);
+      return compareIgnoreFormatting(text1, text2, lineOffsets1, lineOffsets2, linesRanges, highlightPolicy, indicator);
     }
     else {
       return SimpleTextDiffProvider.compareRange(null, text1, text2, lineOffsets1, lineOffsets2, linesRanges,
-                                                 ignorePolicy, innerFragments, indicator);
+                                                 ignorePolicy, highlightPolicy, indicator);
     }
   }
 
@@ -134,9 +120,11 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
                                                            @NotNull CharSequence text2,
                                                            @NotNull LineOffsets lineOffsets1,
                                                            @NotNull LineOffsets lineOffsets2,
-                                                           @Nullable List<Range> linesRanges,
-                                                           boolean innerFragments,
+                                                           @Nullable List<? extends Range> linesRanges,
+                                                           @NotNull HighlightPolicy highlightPolicy,
                                                            @NotNull ProgressIndicator indicator) {
+    InnerFragmentsPolicy fragmentsPolicy = highlightPolicy.getFragmentsPolicy();
+
     List<TextRange> ignoredRanges1 = myProvider.getIgnoredRanges(myProject, text1, myContent1);
     List<TextRange> ignoredRanges2 = myProvider.getIgnoredRanges(myProject, text2, myContent2);
 
@@ -146,14 +134,14 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
     ComparisonManagerImpl comparisonManager = ComparisonManagerImpl.getInstanceImpl();
     if (linesRanges == null) {
       List<LineFragment> fragments = comparisonManager.compareLinesWithIgnoredRanges(text1, text2, lineOffsets1, lineOffsets2,
-                                                                                     ignored1, ignored2, innerFragments, indicator);
+                                                                                     ignored1, ignored2, fragmentsPolicy, indicator);
       return Collections.singletonList(fragments);
     }
     else {
       List<List<LineFragment>> result = new ArrayList<>();
       for (Range range : linesRanges) {
         result.add(comparisonManager.compareLinesWithIgnoredRanges(range, text1, text2, lineOffsets1, lineOffsets2,
-                                                                   ignored1, ignored2, innerFragments, indicator));
+                                                                   ignored1, ignored2, fragmentsPolicy, indicator));
       }
       return result;
     }
@@ -163,7 +151,6 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
   private static DiffIgnoredRangeProvider getIgnoredRangeProvider(@Nullable Project project,
                                                                   @NotNull DiffContent content1,
                                                                   @NotNull DiffContent content2) {
-    if (!Registry.is("diff.smart.ignore.enabled")) return null;
     for (DiffIgnoredRangeProvider provider : DiffIgnoredRangeProvider.EP_NAME.getExtensions()) {
       if (provider.accepts(project, content1) &&
           provider.accepts(project, content2)) {
@@ -173,7 +160,7 @@ public class SmartTextDiffProvider extends TwosideTextDiffProviderBase implement
     return null;
   }
 
-  public static class NoIgnore extends SmartTextDiffProvider implements TwosideTextDiffProvider.NoIgnore {
+  public static final class NoIgnore extends SmartTextDiffProvider implements TwosideTextDiffProvider.NoIgnore {
     private NoIgnore(@Nullable Project project,
                      @NotNull DiffContent content1,
                      @NotNull DiffContent content2,

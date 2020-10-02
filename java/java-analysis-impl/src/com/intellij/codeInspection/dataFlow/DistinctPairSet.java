@@ -3,6 +3,7 @@
  */
 package com.intellij.codeInspection.dataFlow;
 
+import com.intellij.codeInspection.dataFlow.value.RelationType;
 import gnu.trove.TLongArrayList;
 import gnu.trove.TLongHashSet;
 import gnu.trove.TLongIterator;
@@ -45,12 +46,20 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
     return true;
   }
 
-  boolean addUnordered(int firstIndex, int secondIndex) {
+  void addUnordered(int firstIndex, int secondIndex) {
     if (!myData.contains(createPair(firstIndex, secondIndex, true)) &&
         !myData.contains(createPair(secondIndex, firstIndex, true))) {
       myData.add(createPair(firstIndex, secondIndex, false));
     }
-    return true;
+  }
+
+  @Override
+  public boolean remove(Object o) {
+    if (o instanceof DistinctPair) {
+      DistinctPair dp = (DistinctPair)o;
+      return myData.remove(createPair(dp.myFirst, dp.mySecond, dp.myOrdered));
+    }
+    return false;
   }
 
   @Override
@@ -63,15 +72,16 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
     int firstVal = first.get(0);
     int secondVal = second.get(0);
     int firstIndex = myState.getEqClassIndex(myState.getFactory().getValue(firstVal));
+    if (firstIndex == -1) return false;
     int secondIndex = myState.getEqClassIndex(myState.getFactory().getValue(secondVal));
-    if (firstIndex == -1 || secondIndex == -1) return false;
+    if (secondIndex == -1) return false;
     long pair = createPair(firstIndex, secondIndex, dp.isOrdered());
     return myData.contains(pair) && decode(pair).equals(dp);
   }
 
   @Override
   public Iterator<DistinctPair> iterator() {
-    return new Iterator<DistinctPair>() {
+    return new Iterator<>() {
       final TLongIterator iterator = myData.iterator();
 
       @Override
@@ -113,6 +123,12 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
 
       if (pc1 == c1Index || pc2 == c1Index) {
         addedToC1 = true;
+        if (distinct < 0) {
+          if (pc1 == c1Index && myData.contains(createPair(pc2, c2Index, true)) ||
+              pc2 == c1Index && myData.contains(createPair(c2Index, pc1, true))) {
+            return false;
+          }
+        }
       }
 
       if (pc1 == c2Index || pc2 == c2Index) {
@@ -137,14 +153,53 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
     return true;
   }
 
+  public void splitClass(int index, int[] splitIndices) {
+    TLongArrayList toAdd = new TLongArrayList();
+    for(TLongIterator iterator = myData.iterator(); iterator.hasNext(); ) {
+      DistinctPair pair = decode(iterator.next());
+      if (pair.myFirst == index) {
+        for (int splitIndex : splitIndices) {
+          toAdd.add(createPair(splitIndex, pair.mySecond, pair.isOrdered()));
+        }
+        iterator.remove();
+      } else if (pair.mySecond == index) {
+        for (int splitIndex : splitIndices) {
+          toAdd.add(createPair(pair.myFirst, splitIndex, pair.isOrdered()));
+        }
+        iterator.remove();
+      }
+    }
+    myData.addAll(toAdd.toNativeArray());
+  }
+
   public boolean areDistinctUnordered(int c1Index, int c2Index) {
     return myData.contains(createPair(c1Index, c2Index, false));
+  }
+
+  @Nullable
+  RelationType getRelation(int c1Index, int c2Index) {
+    if (areDistinctUnordered(c1Index, c2Index)) {
+      return RelationType.NE;
+    }
+    if (myData.contains(createPair(c1Index, c2Index, true))) {
+      return RelationType.LT;
+    }
+    if (myData.contains(createPair(c2Index, c1Index, true))) {
+      return RelationType.GT;
+    }
+    return null;
   }
 
   private DistinctPair decode(long encoded) {
     boolean ordered = encoded < 0;
     encoded = Math.abs(encoded);
     return new DistinctPair(low(encoded), high(encoded), ordered, myState.getEqClasses());
+  }
+
+  public void dropOrder(DistinctPair pair) {
+    if (remove(pair)) {
+      addUnordered(pair.myFirst, pair.mySecond);
+    }
   }
 
   private static long createPair(int low, int high, boolean ordered) {
@@ -175,22 +230,36 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
       myList = list;
     }
 
-    @NotNull
-    public EqClass getFirst() {
+    public @NotNull EqClass getFirst() {
       return myList.get(myFirst);
     }
 
-    @NotNull
-    public EqClass getSecond() {
+    public int getFirstIndex() {
+      return myFirst;
+    }
+
+    public @NotNull EqClass getSecond() {
       return myList.get(mySecond);
+    }
+
+    public int getSecondIndex() {
+      return mySecond;
+    }
+
+    public void check() {
+      if (myList.get(myFirst) == null) {
+        throw new IllegalStateException(this + ": EqClass " + myFirst + " is missing");
+      }
+      if (myList.get(mySecond) == null) {
+        throw new IllegalStateException(this + ": EqClass " + mySecond + " is missing");
+      }
     }
 
     public boolean isOrdered() {
       return myOrdered;
     }
 
-    @Nullable
-    public EqClass getOtherClass(int eqClassIndex) {
+    public @Nullable EqClass getOtherClass(int eqClassIndex) {
       if (myFirst == eqClassIndex) {
         return getSecond();
       }
@@ -217,7 +286,7 @@ final class DistinctPairSet extends AbstractSet<DistinctPairSet.DistinctPair> {
 
     @Override
     public String toString() {
-      return "{" + getFirst() + (myOrdered ? "<" : "!=") + getSecond() + "}";
+      return "{" + myList.get(myFirst) + (myOrdered ? "<" : "!=") + myList.get(mySecond) + "}";
     }
   }
 }

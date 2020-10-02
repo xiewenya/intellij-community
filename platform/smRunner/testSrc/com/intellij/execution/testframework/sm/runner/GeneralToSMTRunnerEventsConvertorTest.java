@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.sm.runner;
 
 import com.intellij.execution.executors.DefaultRunExecutor;
-import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.testframework.Filter;
 import com.intellij.execution.testframework.TestConsoleProperties;
 import com.intellij.execution.testframework.actions.AbstractRerunFailedTestsAction;
@@ -28,11 +13,13 @@ import com.intellij.execution.testframework.sm.runner.ui.MockPrinter;
 import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView;
 import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerTestTreeView;
 import com.intellij.execution.testframework.sm.runner.ui.SMTestRunnerResultsForm;
+import com.intellij.execution.testframework.stacktrace.DiffHyperlink;
 import com.intellij.execution.testframework.ui.TestsOutputConsolePrinter;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.testFramework.PlatformTestUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,13 +47,13 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
   private MockPrinter myMockResettablePrinter;
   private File myTempFile;
 
-  private class MyConsoleView extends SMTRunnerConsoleView {
+  private final class MyConsoleView extends SMTRunnerConsoleView {
     private final TestsOutputConsolePrinter myTestsOutputConsolePrinter;
 
-    private MyConsoleView(final TestConsoleProperties consoleProperties, final ExecutionEnvironment environment) {
+    private MyConsoleView(final TestConsoleProperties consoleProperties) {
       super(consoleProperties);
 
-      myTestsOutputConsolePrinter = new TestsOutputConsolePrinter(MyConsoleView.this, consoleProperties, null) {
+      myTestsOutputConsolePrinter = new TestsOutputConsolePrinter(this, consoleProperties, null) {
         @Override
         public void print(final String text, final ConsoleViewContentType contentType) {
           myMockResettablePrinter.print(text, contentType);
@@ -91,9 +78,8 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     TestConsoleProperties.SELECT_FIRST_DEFECT.set(consoleProperties, false);
     TestConsoleProperties.TRACK_RUNNING_TEST.set(consoleProperties, false);
 
-    final ExecutionEnvironment environment = new ExecutionEnvironment();
     myMockResettablePrinter = new MockPrinter(true);
-    myConsole = new MyConsoleView(consoleProperties, environment);
+    myConsole = new MyConsoleView(consoleProperties);
     myConsole.initUI();
     myResultsViewer = myConsole.getResultsViewer();
     myEventsProcessor = new GeneralToSMTRunnerEventsConvertor(consoleProperties.getProject(), myResultsViewer.getTestsRootNode(), "SMTestFramework");
@@ -101,6 +87,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     myTreeModel = myResultsViewer.getTreeView().getModel();
 
     myEventsProcessor.onStartTesting();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
   }
 
   @Override
@@ -142,6 +129,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     assertTrue(proxy.isInProgress());
 
     final Object rootTreeNode = (myTreeModel.getRoot());
+
     assertEquals(1, myTreeModel.getChildCount(rootTreeNode));
     final SMTestProxy rootProxy = SMTRunnerTestTreeView.getTestProxyFor(rootTreeNode);
     assertNotNull(rootProxy);
@@ -221,13 +209,15 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     assertFalse(proxy.isInProgress());
   }
 
-  public void testOnTestFailure_Twice() {
+  public void testOnTestFailure_Twice() throws InterruptedException {
     myMockResettablePrinter.resetIfNecessary();
     onTestStarted("some_test");
     myEventsProcessor.onTestFailure(new TestFailedEvent("some_test", "msg 1", "trace 1", false, null, null));
     myEventsProcessor.onTestFailure(new TestFailedEvent("some_test", "msg 2", "trace 2", false, null, null));
 
     assertEquals(1, myEventsProcessor.getRunningTestsQuantity());
+    Thread.sleep(150);
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
     assertEquals("\nmsg 1\ntrace 1\n\nmsg 2\ntrace 2\n", myMockResettablePrinter.getStdErr());
   }
 
@@ -262,7 +252,8 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     onTestStarted("some_test");
     final String fullName = myEventsProcessor.getFullTestName("some_test");
     final SMTestProxy proxy = myEventsProcessor.getProxyByFullTestName(fullName);
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("some_test", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("some_test", 10L));
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
 
     assertEquals(0, myEventsProcessor.getRunningTestsQuantity());
 
@@ -272,6 +263,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
 
     //Tree
     final Object rootTreeNode = myTreeModel.getRoot();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
     assertEquals(1, myTreeModel.getChildCount(rootTreeNode));
     final SMTestProxy rootProxy = SMTRunnerTestTreeView.getTestProxyFor(rootTreeNode);
     assertNotNull(rootProxy);
@@ -306,8 +298,9 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
   public void testOnFinishedTesting_WithFailure() {
     onTestStarted("test");
     myEventsProcessor.onTestFailure(new TestFailedEvent("test", "", "", false, null, null));
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10L));
     myEventsProcessor.onFinishTesting();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
 
     //Tree
     final Object rootTreeNode = myTreeModel.getRoot();
@@ -322,8 +315,9 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
   public void testOnFinishedTesting_WithError() {
     onTestStarted("test");
     myEventsProcessor.onTestFailure(new TestFailedEvent("test", "", "", true, null, null));
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10L));
     myEventsProcessor.onFinishTesting();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
 
     //Tree
     final Object rootTreeNode = myTreeModel.getRoot();
@@ -338,8 +332,9 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
   public void testOnFinishedTesting_WithIgnored() {
     onTestStarted("test");
     myEventsProcessor.onTestIgnored(new TestIgnoredEvent("test", "", null));
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("test", 10L));
     myEventsProcessor.onFinishTesting();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
 
     //Tree
     final Object rootTreeNode = myTreeModel.getRoot();
@@ -385,7 +380,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     assertEquals("suite3", test2.getParent().getName());
     assertEquals("suite2", test2.getParent().getParent().getName());
 
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("test2", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("test2", 10L));
 
     //check that after finishing suite (suite3), current will be parent of finished suite (i.e. suite2)
     myEventsProcessor.onSuiteFinished(new TestSuiteFinishedEvent("suite3"));
@@ -430,7 +425,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     myEventsProcessor.onSuiteFinished(new TestSuiteFinishedEvent("suite1"));
 
     myEventsProcessor.onSuiteStarted(new TestSuiteStartedEvent("suite2", null));
-    myEventsProcessor.onTestFinished(new TestFinishedEvent("suite2.test1", 10l));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("suite2.test1", 10L));
     myEventsProcessor.onSuiteFinished(new TestSuiteFinishedEvent("suite2"));
 
     assertNotNull(test1);
@@ -443,6 +438,29 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     assertEquals(1, children.get(0).getChildren().size());
     assertEquals("suite2", children.get(1).getName());
     assertEquals(0, children.get(1).getChildren().size());
+  }
+
+  public void testClassConfigurationFailedCount() {
+    myEventsProcessor.onTestStarted(new TestStartedEvent("Class Configuration", "java:suite://com.jetbrains.testing.ATestCase"));
+    myEventsProcessor.onTestFailure(new TestFailedEvent("Class Configuration", "", "", true, null, null));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("Class Configuration", null));
+    myEventsProcessor.onSuiteStarted(new TestSuiteStartedEvent("ATestCase", "java:suite://com.jetbrains.testing.ATestCase"));
+    myEventsProcessor.onTestStarted(new TestStartedEvent("ATestCase.test1", "java:test://com.jetbrains.testing.ATestCase/test1"));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("ATestCase.test1", null));
+    myEventsProcessor.onTestStarted(new TestStartedEvent("ATestCase.test2", "java:test://com.jetbrains.testing.ATestCase/test2"));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("ATestCase.test2", null));
+
+    myEventsProcessor.onTestStarted(new TestStartedEvent("Class Configuration", "java:suite://com.jetbrains.testing.BTestCase"));
+    myEventsProcessor.onTestFailure(new TestFailedEvent("Class Configuration", "", "", true, null, null));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("Class Configuration", null));
+    myEventsProcessor.onSuiteFinished(new TestSuiteFinishedEvent("ATestCase"));
+    myEventsProcessor.onSuiteStarted(new TestSuiteStartedEvent("BTestCase", "java:suite://com.jetbrains.testing.BTestCase"));
+    myEventsProcessor.onTestStarted(new TestStartedEvent("BTestCase.test1", "java:test://com.jetbrains.testing.BTestCase/test1"));
+    myEventsProcessor.onTestFinished(new TestFinishedEvent("BTestCase.test1", null));
+    myEventsProcessor.onSuiteFinished(new TestSuiteFinishedEvent("BTestCase"));
+
+    assertEquals(5, myResultsViewer.getFinishedTestCount());
+    assertEquals(2, myResultsViewer.getFailedTestCount());
   }
 
   public void test3212() {
@@ -459,6 +477,7 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
   private void onTestStarted(final String testName, @Nullable final String locationUrl) {
     myEventsProcessor.onTestStarted(new TestStartedEvent(testName, locationUrl));
     myResultsViewer.performUpdate();
+    PlatformTestUtil.waitWhileBusy(myResultsViewer.getTreeView());
   }
 
   private void onTestSuiteStarted(final String suiteName) {
@@ -488,6 +507,68 @@ public class GeneralToSMTRunnerEventsConvertorTest extends BaseSMTRunnerTestCase
     final List<? extends SMTestProxy> tests = suite.getChildren();
     assertEquals(1, tests.size());
     assertEquals("ATest", tests.get(0).getName());
+  }
+
+  public void testComparisonFailure() throws Exception {
+    myEventsProcessor.onStartTesting();
+    ImportedToGeneralTestEventsConverter.parseTestResults(() -> new StringReader("<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                                                                           "<testrun duration=\"592\" footerText=\"Generated by IntelliJ IDEA\" name=\"suite1\">\n" +
+                                                                           "    <suite name=\"suite1\" status=\"failed\">\n" +
+                                                                           "        <test name=\"ATest\" status=\"failed\">\n" +
+                                                                           "           <output type=\"stderr\">java.lang.AssertionError: \n" +
+                                                                           "           </output>\n" +
+                                                                           "           <output type=\"stdout\">Expected :\n" +
+                                                                           "           </output>\n" +
+                                                                           "           <output type=\"stderr\">2\n" +
+                                                                           "           </output>\n" +
+                                                                           "           <output type=\"stdout\">Actual   :\n" +
+                                                                           "           </output>" +
+                                                                           "           <diff actual=\"3\" expected=\"2\"/>" +
+                                                                                    "</test>" +
+                                                                           "    </suite>\n" +
+                                                                           "</testrun>\n"),
+                                                          myEventsProcessor);
+    myEventsProcessor.onFinishTesting();
+
+    final List<? extends SMTestProxy> children = myResultsViewer.getTestsRootNode().getChildren();
+    assertEquals(1, children.size());
+    final SMTestProxy suite = children.get(0);
+    assertEquals("suite1", suite.getName());
+    final List<? extends SMTestProxy> tests = suite.getChildren();
+    assertEquals(1, tests.size());
+    SMTestProxy proxy = tests.get(0);
+    assertEquals("ATest", proxy.getName());
+    DiffHyperlink diffHyperlink = proxy.getDiffViewerProvider();
+    assertNotNull(diffHyperlink);
+    assertEquals("2", diffHyperlink.getLeft());
+  }
+
+  public void testPreserveOutputOnImport() throws Exception {
+    myEventsProcessor.onStartTesting();
+    ImportedToGeneralTestEventsConverter.parseTestResults(() -> new StringReader("<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                                                                           "<testrun duration=\"592\" footerText=\"Generated by IntelliJ IDEA\" name=\"suite1\">\n" +
+                                                                           "    <suite name=\"suite1\" status=\"failed\">\n" +
+                                                                           "        <test name=\"ATest\" status=\"failed\">\n" +
+                                                                           "          <output type=\"stdout\">test output</output>" +
+                                                                           "          <output type=\"stderr\">error output</output>" +
+                                                                           "        </test>" +
+                                                                           "    </suite>\n" +
+                                                                           "</testrun>\n"),
+                                                          myEventsProcessor);
+    myEventsProcessor.onFinishTesting();
+
+    final List<? extends SMTestProxy> children = myResultsViewer.getTestsRootNode().getChildren();
+    assertEquals(1, children.size());
+    final SMTestProxy suite = children.get(0);
+    assertEquals("suite1", suite.getName());
+    final List<? extends SMTestProxy> tests = suite.getChildren();
+    assertEquals(1, tests.size());
+    SMTestProxy proxy = tests.get(0);
+    assertEquals("ATest", proxy.getName());
+    MockPrinter printer = new MockPrinter();
+    proxy.printOn(printer);
+    assertEquals("test output", printer.getStdOut().trim());
+    assertEquals("error output", printer.getStdErr().trim());
   }
 
   public void testSampleImportTestWithMetainfo() throws Exception {

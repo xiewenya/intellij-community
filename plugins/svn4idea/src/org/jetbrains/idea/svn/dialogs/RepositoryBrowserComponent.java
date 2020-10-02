@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.dialogs;
 
 import com.intellij.openapi.Disposable;
@@ -17,6 +17,7 @@ import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.EditSourceOnDoubleClickHandler;
 import com.intellij.util.NotNullFunction;
+import com.intellij.util.ui.StatusText;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -24,7 +25,6 @@ import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.browse.DirectoryEntry;
-import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.dialogs.browserCache.Expander;
 import org.jetbrains.idea.svn.history.SvnFileRevision;
 
@@ -39,14 +39,12 @@ import java.util.Collection;
 import java.util.Enumeration;
 import java.util.List;
 
-import static org.jetbrains.idea.svn.SvnUtil.createUrl;
-
 /**
  * @author alex
  */
 public class RepositoryBrowserComponent extends JPanel implements Disposable, DataProvider {
 
-  private JTree myRepositoryTree;
+  private Tree myRepositoryTree;
   private final SvnVcs myVCS;
 
   public RepositoryBrowserComponent(@NotNull SvnVcs vcs) {
@@ -139,20 +137,12 @@ public class RepositoryBrowserComponent extends JPanel implements Disposable, Da
     return (pathToNode != null) && (pathToNode.length > 0) && myRepositoryTree.isExpanded(new TreePath(pathToNode));
   }
 
-  public void addURL(String url) {
-    try {
-      ((RepositoryTreeModel)myRepositoryTree.getModel()).addRoot(createUrl(url));
-    }
-    catch (SvnBindException ignored) {
-    }
+  public void addURL(@NotNull Url url) {
+    ((RepositoryTreeModel)myRepositoryTree.getModel()).addRoot(url);
   }
 
-  public void removeURL(String url) {
-    try {
-      ((RepositoryTreeModel)myRepositoryTree.getModel()).removeRoot(createUrl(url));
-    }
-    catch (SvnBindException ignored) {
-    }
+  public void removeURL(@NotNull Url url) {
+    ((RepositoryTreeModel)myRepositoryTree.getModel()).removeRoot(url);
   }
 
   @Nullable
@@ -262,8 +252,9 @@ public class RepositoryBrowserComponent extends JPanel implements Disposable, Da
     }
   }
 
+  @Override
   @Nullable
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
       final Project project = myVCS.getProject();
       if (project == null || project.isDefault()) {
@@ -289,10 +280,16 @@ public class RepositoryBrowserComponent extends JPanel implements Disposable, Da
     return null;
   }
 
+  @Override
   public void dispose() {
   }
 
   public void setLazyLoadingExpander(final NotNullFunction<RepositoryBrowserComponent, Expander> expanderFactory) {
     ((RepositoryTreeModel)myRepositoryTree.getModel()).setDefaultExpanderFactory(expanderFactory);
+  }
+
+  @NotNull
+  public StatusText getStatusText() {
+    return myRepositoryTree.getEmptyText();
   }
 }

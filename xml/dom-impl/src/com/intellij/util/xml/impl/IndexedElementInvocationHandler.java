@@ -34,8 +34,8 @@ import java.util.List;
 /**
  * @author peter
  */
-public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedChildDescriptionImpl, ElementStub>{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.impl.IndexedElementInvocationHandler");
+public class IndexedElementInvocationHandler extends DomInvocationHandler {
+  private static final Logger LOG = Logger.getInstance(IndexedElementInvocationHandler.class);
   private final int myIndex;
 
   public IndexedElementInvocationHandler(final EvaluatedXmlName tagName,
@@ -48,7 +48,6 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
     myIndex = index;
   }
 
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   public boolean equals(final Object obj) {
     return super.equals(obj) && myIndex == ((IndexedElementInvocationHandler)obj).myIndex;
   }
@@ -60,7 +59,7 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
   @Nullable
   @Override
   protected String getValue() {
-    return myStub == null ? super.getValue() : myStub.getValue();
+    return myStub == null ? super.getValue() : ((ElementStub)myStub).getValue();
   }
 
   @Override
@@ -97,6 +96,11 @@ public class IndexedElementInvocationHandler extends DomInvocationHandler<FixedC
       }
     });
     return newTag[0];
+  }
+
+  @Override
+  public FixedChildDescriptionImpl getChildDescription() {
+    return (FixedChildDescriptionImpl)super.getChildDescription();
   }
 
   @Override

@@ -16,6 +16,7 @@
 package com.intellij.rt.execution.testFrameworks;
 
 import java.io.*;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.jar.Attributes;
@@ -23,15 +24,16 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.zip.ZipOutputStream;
 
+/** @noinspection CallToPrintStackTrace*/
 public abstract class ForkedByModuleSplitter {
   protected final ForkedDebuggerHelper myForkedDebuggerHelper = new ForkedDebuggerHelper();
   protected final String myWorkingDirsPath;
   protected final String myForkMode;
-  protected final List   myNewArgs;
+  protected final List<String> myNewArgs;
   protected String myDynamicClasspath;
-  protected List myVMParameters;
+  protected List<String> myVMParameters;
 
-  public ForkedByModuleSplitter(String workingDirsPath, String forkMode, List newArgs) {
+  public ForkedByModuleSplitter(String workingDirsPath, String forkMode, List<String> newArgs) {
     myWorkingDirsPath = workingDirsPath;
     myForkMode = forkMode;
     myNewArgs = newArgs;
@@ -43,7 +45,7 @@ public abstract class ForkedByModuleSplitter {
                             String repeatCount) throws Exception {
     args = myForkedDebuggerHelper.excludeDebugPortFromArgs(args);
 
-    myVMParameters = new ArrayList();
+    myVMParameters = new ArrayList<String>();
     final BufferedReader bufferedReader = new BufferedReader(new FileReader(commandLinePath));
     myDynamicClasspath = bufferedReader.readLine();
     try {
@@ -62,8 +64,12 @@ public abstract class ForkedByModuleSplitter {
   }
 
   //read output from wrappers
-  protected int startChildFork(final List args, File workingDir, String classpath, String repeatCount) throws IOException, InterruptedException {
-    List vmParameters = new ArrayList(myVMParameters);
+  protected int startChildFork(final List<String> args,
+                               File workingDir,
+                               String classpath,
+                               List<String> moduleOptions,
+                               String repeatCount) throws IOException, InterruptedException {
+    List<String> vmParameters = new ArrayList<String>(myVMParameters);
 
     myForkedDebuggerHelper.setupDebugger(vmParameters);
     final ProcessBuilder builder = new ProcessBuilder();
@@ -78,7 +84,21 @@ public abstract class ForkedByModuleSplitter {
     builder.add("-classpath");
     if (myDynamicClasspath.length() > 0) {
       try {
-        builder.add(createClasspathJarFile(new Manifest(), classpath).getAbsolutePath());
+        if ("ARGS_FILE".equals(myDynamicClasspath)) {
+          File argFile = File.createTempFile("arg_file", null);
+          argFile.deleteOnExit();
+          FileOutputStream writer = new FileOutputStream(argFile);
+          try {
+            writer.write(classpath.getBytes(Charset.defaultCharset()));
+          }
+          finally {
+            writer.close();
+          }
+          builder.add("@" + argFile.getAbsolutePath());
+        }
+        else {
+          builder.add(createClasspathJarFile(new Manifest(), classpath).getAbsolutePath());
+        }
       }
       catch (Throwable e) {
         builder.add(classpath);
@@ -86,6 +106,10 @@ public abstract class ForkedByModuleSplitter {
     }
     else {
       builder.add(classpath);
+    }
+
+    if (moduleOptions != null) {
+      builder.add(moduleOptions);
     }
 
     builder.add(getStarterName());
@@ -96,50 +120,31 @@ public abstract class ForkedByModuleSplitter {
     builder.setWorkingDir(workingDir);
 
     final Process exec = builder.createProcess();
-    final boolean[] stopped = new boolean[1];
-
-    new Thread(createInputReader(exec.getErrorStream(), System.err, stopped), "Read forked error output").start();
-    new Thread(createInputReader(exec.getInputStream(), System.out, stopped), "Read forked output").start();
-    final int i = exec.waitFor();
-    stopped[0] = true;
-    return i;
+    new Thread(createInputReader(exec.getErrorStream(), System.err), "Read forked error output").start();
+    new Thread(createInputReader(exec.getInputStream(), System.out), "Read forked output").start();
+    return exec.waitFor();
   }
 
-  private static Runnable createInputReader(final InputStream inputStream, final PrintStream outputStream, final boolean[] stopped) {
+  private static Runnable createInputReader(final InputStream inputStream, final PrintStream outputStream) {
     return new Runnable() {
-      char[] buf = new char[8192];
-
+      @Override
       public void run() {
-        final InputStreamReader inputReader;
         try {
-          inputReader = new InputStreamReader(inputStream, "UTF-8");
-        }
-        catch (UnsupportedEncodingException e) {
-          return;
-        }
-
-        try {
-          while (true) {
-            if (stopped[0]) break;
-
-            int n;
-            try {
-              while (inputReader.ready() && (n = inputReader.read(buf)) > 0) {
-                outputStream.print(new String(buf, 0, n));
-              }
-            }
-            catch (IOException e) {
-              e.printStackTrace();
+          final BufferedReader inputReader = new BufferedReader(new InputStreamReader(inputStream, "UTF-8"));
+          try {
+            while (true) {
+              String line = inputReader.readLine();
+              if (line == null) break;
+              outputStream.println(line);
             }
           }
-        }
-        finally {
-          try {
+          finally {
             inputReader.close();
           }
-          catch (IOException e) {
-            e.printStackTrace();
-          }
+        }
+        catch (UnsupportedEncodingException ignored) { }
+        catch (IOException e) {
+          e.printStackTrace();
         }
       }
     };
@@ -155,9 +160,19 @@ public abstract class ForkedByModuleSplitter {
       while ((workingDir = perDirReader.readLine()) != null) {
         final String moduleName = perDirReader.readLine();
         final String classpath = perDirReader.readLine();
+        List<String> moduleOptions = new ArrayList<String>();
+        String modulePath = perDirReader.readLine();
+        if (modulePath != null && modulePath.length() > 0) {
+          moduleOptions.add("-p");
+          moduleOptions.add(modulePath);
+        }
+        final int optionsSize = Integer.parseInt(perDirReader.readLine());
+        for (int i = 0; i < optionsSize; i++) {
+          moduleOptions.add(perDirReader.readLine());
+        }
         try {
 
-          List classNames = new ArrayList();
+          List<String> classNames = new ArrayList<String>();
           final int classNamesSize = Integer.parseInt(perDirReader.readLine());
           for (int i = 0; i < classNamesSize; i++) {
             String className = perDirReader.readLine();
@@ -169,7 +184,8 @@ public abstract class ForkedByModuleSplitter {
             classNames.add(className);
           }
 
-          final int childResult = startPerModuleFork(moduleName, classNames, packageName, workingDir, classpath, repeatCount, result);
+          String filters = perDirReader.readLine();
+          final int childResult = startPerModuleFork(moduleName, classNames, packageName, workingDir, classpath, moduleOptions, repeatCount, result, filters != null ? filters : "");
           result = Math.min(childResult, result);
         }
         catch (Exception e) {
@@ -186,11 +202,14 @@ public abstract class ForkedByModuleSplitter {
   protected abstract int startSplitting(String[] args, String configName, String repeatCount) throws Exception;
 
   protected abstract int startPerModuleFork(String moduleName,
-                                            List classNames,
+                                            List<String> classNames,
                                             String packageName,
                                             String workingDir,
                                             String classpath,
-                                            String repeatCount, int result) throws Exception;
+                                            List<String> moduleOptions,
+                                            String repeatCount,
+                                            int result,
+                                            String filters) throws Exception;
 
   protected abstract String getStarterName();
 
@@ -198,25 +217,24 @@ public abstract class ForkedByModuleSplitter {
     final Attributes attributes = manifest.getMainAttributes();
     attributes.put(Attributes.Name.MANIFEST_VERSION, "1.0");
 
-    String classpathForManifest = "";
+    StringBuilder classpathForManifest = new StringBuilder();
     int idx = 0;
     int endIdx = 0;
     while (endIdx >= 0) {
       endIdx = classpath.indexOf(File.pathSeparator, idx);
       String path = endIdx < 0 ? classpath.substring(idx) : classpath.substring(idx, endIdx);
       if (classpathForManifest.length() > 0) {
-        classpathForManifest += " ";
+        classpathForManifest.append(" ");
       }
       try {
-        //noinspection Since15
-        classpathForManifest += new File(path).toURI().toURL().toString();
+        classpathForManifest.append(new File(path).toURI().toURL().toString());
       }
       catch (NoSuchMethodError e) {
-        classpathForManifest += new File(path).toURL().toString();
+        classpathForManifest.append(new File(path).toURL().toString());
       }
       idx = endIdx + File.pathSeparator.length();
     }
-    attributes.put(Attributes.Name.CLASS_PATH, classpathForManifest);
+    attributes.put(Attributes.Name.CLASS_PATH, classpathForManifest.toString());
 
     File jarFile = File.createTempFile("classpath", ".jar");
     ZipOutputStream jarPlugin = null;

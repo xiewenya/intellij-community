@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -20,17 +6,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Throwable2Computable;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vcs.VcsKey;
+import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.FilePathsHelper;
 import com.intellij.openapi.vcs.changes.VcsDirtyScope;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.encoding.EncodingRegistry;
 import com.intellij.reference.SoftReference;
-import java.util.HashSet;
 import com.intellij.util.containers.SLRUMap;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.Contract;
@@ -42,13 +24,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class ContentRevisionCache {
   private final Object myLock;
   private final SLRUMap<Key, SoftReference<byte[]>> myCache;
   private final SLRUMap<CurrentKey, VcsRevisionNumber> myCurrentRevisionsCache;
+  private final Map<Key, byte[]> myConstantCache = new HashMap<>();
   private long myCounter;
 
   public ContentRevisionCache() {
@@ -58,7 +40,7 @@ public class ContentRevisionCache {
     myCounter = 0;
   }
 
-  private void put(FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey, @NotNull UniqueType type, @Nullable final byte[] bytes) {
+  private void put(FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey, @NotNull UniqueType type, final byte @Nullable [] bytes) {
     if (bytes == null) return;
     synchronized (myLock) {
       myCache.put(new Key(path, number, vcsKey, type), new SoftReference<>(bytes));
@@ -72,7 +54,7 @@ public class ContentRevisionCache {
     }
   }
 
-  public void clearScope(final List<VcsDirtyScope> scopes) {
+  public void clearScope(final List<? extends VcsDirtyScope> scopes) {
     // VcsDirtyScope.belongsTo() performs some checks under read action. So deadlock could occur if some thread tries to modify
     // ContentRevisionCache (i.e. call getOrLoadCurrentAsBytes()) under write action while other thread invokes clearScope(). To prevent
     // such deadlocks we also perform locking "myLock" (and other logic) under read action.
@@ -115,7 +97,7 @@ public class ContentRevisionCache {
 
   @Nullable
   @Contract("!null, _, _ -> !null")
-  public static String getAsString(@Nullable byte[] bytes, @NotNull FilePath file, @Nullable Charset charset) {
+  public static String getAsString(byte @Nullable [] bytes, @NotNull FilePath file, @Nullable Charset charset) {
     if (bytes == null) return null;
     if (charset == null) {
       return bytesToString(file, bytes);
@@ -125,30 +107,29 @@ public class ContentRevisionCache {
     }
   }
 
-  @Nullable
+  @NotNull
   public static String getOrLoadAsString(@NotNull Project project,
                                          @NotNull FilePath file,
                                          VcsRevisionNumber number,
                                          @NotNull VcsKey key,
                                          @NotNull UniqueType type,
-                                         @NotNull Throwable2Computable<byte[], VcsException, IOException> loader,
+                                         @NotNull Throwable2Computable<byte[], ? extends VcsException, ? extends IOException> loader,
                                          @Nullable Charset charset)
     throws VcsException, IOException {
     final byte[] bytes = getOrLoadAsBytes(project, file, number, key, type, loader);
-    if (bytes == null) return null;
     return getAsString(bytes, file, charset);
   }
 
 
-  @Nullable
+  @NotNull
   public static String getOrLoadAsString(final Project project, FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey,
-                                         @NotNull UniqueType type, final Throwable2Computable<byte[], VcsException, IOException> loader)
+                                         @NotNull UniqueType type, final Throwable2Computable<byte[], ? extends VcsException, ? extends IOException> loader)
     throws VcsException, IOException {
     return getOrLoadAsString(project, path, number, vcsKey, type, loader, null);
   }
 
   @NotNull
-  private static String bytesToString(FilePath path, @NotNull byte[] bytes) {
+  private static String bytesToString(FilePath path, byte @NotNull [] bytes) {
     Charset charset = null;
     if (path.getVirtualFile() != null) {
       charset = path.getVirtualFile().getCharset();
@@ -163,8 +144,7 @@ public class ContentRevisionCache {
     return CharsetToolkit.bytesToString(bytes, EncodingRegistry.getInstance().getDefaultCharset());
   }
 
-  @Nullable
-  public byte[] getBytes(FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey, @NotNull UniqueType type) {
+  public byte @Nullable [] getBytes(FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey, @NotNull UniqueType type) {
     synchronized (myLock) {
       final SoftReference<byte[]> reference = myCache.get(new Key(path, number, vcsKey, type));
       return SoftReference.dereference(reference);
@@ -186,11 +166,15 @@ public class ContentRevisionCache {
     }
   }
 
-  public static byte[] getOrLoadAsBytes(final Project project, FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey,
-                                        @NotNull UniqueType type, final Throwable2Computable<byte[], VcsException, IOException> loader)
+  public static byte @NotNull [] getOrLoadAsBytes(final Project project, FilePath path, VcsRevisionNumber number, @NotNull VcsKey vcsKey,
+                                                  @NotNull UniqueType type, final Throwable2Computable<byte @NotNull [], ? extends VcsException, ? extends IOException> loader)
     throws VcsException, IOException {
     ContentRevisionCache cache = ProjectLevelVcsManager.getInstance(project).getContentRevisionCache();
     byte[] bytes = cache.getBytes(path, number, vcsKey, type);
+    if (bytes != null) {
+      return bytes;
+    }
+    bytes = cache.getFromConstantCache(path, number, vcsKey, type);
     if (bytes != null) {
       return bytes;
     }
@@ -210,10 +194,9 @@ public class ContentRevisionCache {
 
   public static void checkContentsSize(final String path, final long size) throws VcsException {
     if (size > VcsUtil.getMaxVcsLoadedFileSize()) {
-      throw new VcsException("Can not show contents of \n'" + path +
-                             "'.\nFile size is bigger than " +
-                             StringUtil.formatFileSize(VcsUtil.getMaxVcsLoadedFileSize()) +
-                             ".\n\nYou can relax this restriction by increasing " + VcsUtil.MAX_VCS_LOADED_SIZE_KB + " property in idea.properties file.");
+      throw new VcsException(VcsBundle.message("file.content.too.big.to.load.increase.property.suggestion", path,
+                                               StringUtil.formatFileSize(VcsUtil.getMaxVcsLoadedFileSize()),
+                                               VcsUtil.MAX_VCS_LOADED_SIZE_KB));
     }
   }
 
@@ -235,8 +218,31 @@ public class ContentRevisionCache {
     }
   }
 
+  public void putIntoConstantCache(@NotNull FilePath path,
+                                   @NotNull VcsRevisionNumber revisionNumber,
+                                   @NotNull VcsKey vcsKey,
+                                   byte[] content) {
+    synchronized (myConstantCache) {
+      myConstantCache.put(new Key(path, revisionNumber, vcsKey, UniqueType.REPOSITORY_CONTENT), content);
+    }
+  }
+
+  public byte[] getFromConstantCache(@NotNull FilePath path,
+                                     @NotNull VcsRevisionNumber revisionNumber,
+                                     @NotNull VcsKey vcsKey,
+                                     @NotNull UniqueType type) {
+    synchronized (myConstantCache) {
+      return myConstantCache.get(new Key(path, revisionNumber, vcsKey, type));
+    }
+  }
+
+  public void clearConstantCache() {
+    myConstantCache.clear();
+  }
+
   public static Pair<VcsRevisionNumber, byte[]> getOrLoadCurrentAsBytes(final Project project, FilePath path, @NotNull VcsKey vcsKey,
-      final CurrentRevisionProvider loader) throws VcsException, IOException {
+                                                                        final CurrentRevisionProvider loader)
+    throws VcsException, IOException {
     ContentRevisionCache cache = ProjectLevelVcsManager.getInstance(project).getContentRevisionCache();
 
     VcsRevisionNumber currentRevision;
@@ -290,7 +296,7 @@ public class ContentRevisionCache {
     }
   }
 
-  private static class Key extends CurrentKey {
+  private static final class Key extends CurrentKey {
     private final VcsRevisionNumber myNumber;
     protected final UniqueType myType;
 
@@ -335,7 +341,7 @@ public class ContentRevisionCache {
     }
   }
 
-  public static enum UniqueType {
+  public enum UniqueType {
     REPOSITORY_CONTENT,
     REMOTE_CONTENT
   }
@@ -345,6 +351,7 @@ public class ContentRevisionCache {
       ++ myCounter;
       myCurrentRevisionsCache.clear();
       myCache.clear();
+      myConstantCache.clear();
     }
   }
 }

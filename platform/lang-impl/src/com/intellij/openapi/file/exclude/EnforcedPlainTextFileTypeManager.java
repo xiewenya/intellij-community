@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.file.exclude;
 
 import com.intellij.ide.scratch.ScratchUtil;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.components.Service;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.FileTypes;
@@ -25,81 +11,91 @@ import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileWithId;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.FileContentUtilCore;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.indexing.FileBasedIndex;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
-import java.util.Map;
 
 /**
  * Retrieves plain text file type from open projects' configurations.
  *
  * @author Rustam Vishnyakov
  */
-public class EnforcedPlainTextFileTypeManager implements ProjectManagerListener {
-  private final Map<Project, Collection<VirtualFile>> myPlainTextFileSets = ContainerUtil.createConcurrentWeakMap();
-  private volatile boolean mySetsInitialized;
-  private final Object LOCK = new Object();
+@Service
+public final class EnforcedPlainTextFileTypeManager {
+  // optimization: manual arrays to optimize iteration
+  private Collection/*<VirtualFile>*/[] explicitlyMarkedSets = new Collection[0];
+  private Project[] explicitlyMarkedProjects = new Project[0];
 
   public EnforcedPlainTextFileTypeManager() {
-    ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectManager.TOPIC, this);
+    ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
+      @Override
+      public void projectOpened(@NotNull Project project) {
+        addProjectPlainTextFiles(project);
+      }
+
+      @Override
+      public void projectClosed(@NotNull Project project) {
+        ensureProjectFileSetRemoved(project);
+      }
+
+      private void addProjectPlainTextFiles(@NotNull Project project) {
+        if (!project.isDisposed()) {
+          ensureProjectFileUpToDate(project);
+          Disposer.register(project, () -> ensureProjectFileSetRemoved(project));
+        }
+      }
+    });
+  }
+
+  public static EnforcedPlainTextFileTypeManager getInstance() {
+    return ApplicationManager.getApplication().getService(EnforcedPlainTextFileTypeManager.class);
   }
 
   public boolean isMarkedAsPlainText(@NotNull VirtualFile file) {
-    if (!(file instanceof VirtualFileWithId) || file.isDirectory()) return false;
-    if (!mySetsInitialized) {
-      synchronized (LOCK) {
-        if (!mySetsInitialized) {
-          initPlainTextFileSets();
-          mySetsInitialized = true;
-        }
-      }
+    if (!(file instanceof VirtualFileWithId) || file.isDirectory()) {
+      return false;
     }
-    if (!myPlainTextFileSets.isEmpty()) {
-      for (Collection<VirtualFile> projectSet : myPlainTextFileSets.values()) {
-        if (projectSet != null && projectSet.contains(file)) return true;
+    for (Collection explicitlyMarked : explicitlyMarkedSets) {
+      if (explicitlyMarked.contains(file)) {
+        return true;
       }
     }
     return false;
   }
 
-  private void initPlainTextFileSets() {
-    Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
-    for (Project openProject : openProjects) {
-      addProjectPlainTextFiles(openProject);
-    }
-  }
-
   public static boolean isApplicableFor(@Nullable VirtualFile file) {
     if (!(file instanceof VirtualFileWithId) || file.isDirectory()) return false;
     if (ScratchUtil.isScratch(file)) return false;
-    FileType originalType = FileTypeManager.getInstance().getFileTypeByFileName(file.getName());
+    FileType originalType = FileTypeManager.getInstance().getFileTypeByFileName(file.getNameSequence());
     return !originalType.isBinary() && originalType != FileTypes.PLAIN_TEXT && originalType != StdFileTypes.JAVA;
   }
 
-  public void markAsPlainText(@NotNull Project project, @NotNull VirtualFile... files) {
+  public void markAsPlainText(@NotNull Project project, VirtualFile @NotNull ... files) {
     setPlainTextStatus(project, true, files);
   }
 
-  public void resetOriginalFileType(@NotNull Project project, @NotNull VirtualFile... files) {
+  public void resetOriginalFileType(@NotNull Project project, VirtualFile @NotNull ... files) {
     setPlainTextStatus(project, false, files);
   }
 
-  private void setPlainTextStatus(@NotNull final Project project, final boolean isAdded, @NotNull final VirtualFile... files) {
+  private void setPlainTextStatus(@NotNull final Project project, final boolean toAdd, final VirtualFile @NotNull ... files) {
     ApplicationManager.getApplication().runWriteAction(() -> {
-      ProjectPlainTextFileTypeManager projectManager = ProjectPlainTextFileTypeManager.getInstance(project);
+      ProjectFileIndex fileIndex = ProjectFileIndex.getInstance(project);
+      ProjectPlainTextFileTypeManager plainTextFileTypeManager = ProjectPlainTextFileTypeManager.getInstance(project);
       for (VirtualFile file : files) {
-        if (projectManager.isInContent(file) || projectManager.isInLibrarySource(file)) {
-          ensureProjectFileSetAdded(project, projectManager);
-          if (isAdded ?
-              projectManager.addFile(file) :
-              projectManager.removeFile(file)) {
-            FileBasedIndex.getInstance().requestReindex(file);
+        if (fileIndex.isInContent(file) || fileIndex.isInLibrarySource(file) || fileIndex.isExcluded(file)) {
+          boolean changed = toAdd ?
+                            plainTextFileTypeManager.addFile(file) :
+                            plainTextFileTypeManager.removeFile(file);
+          if (changed) {
+            ensureProjectFileUpToDate(project);
           }
         }
       }
@@ -107,33 +103,22 @@ public class EnforcedPlainTextFileTypeManager implements ProjectManagerListener 
     });
   }
 
-  private void ensureProjectFileSetAdded(@NotNull Project project,
-                                         @NotNull ProjectPlainTextFileTypeManager projectPlainTextFileTypeManager) {
-    if (!myPlainTextFileSets.containsKey(project)) {
-      myPlainTextFileSets.put(project, projectPlainTextFileTypeManager.getFiles());
+  private void ensureProjectFileUpToDate(@NotNull Project project) {
+    int i = ArrayUtil.indexOf(explicitlyMarkedProjects, project);
+    ProjectPlainTextFileTypeManager projectPlainTextFileTypeManager = ProjectPlainTextFileTypeManager.getInstance(project);
+    if (i == -1) {
+      explicitlyMarkedProjects = ArrayUtil.append(explicitlyMarkedProjects, project);
+      explicitlyMarkedSets = ArrayUtil.append(explicitlyMarkedSets, projectPlainTextFileTypeManager.getFiles());
+    }
+    else {
+      explicitlyMarkedSets[i] = projectPlainTextFileTypeManager.getFiles();
     }
   }
-
-  public static EnforcedPlainTextFileTypeManager getInstance() {
-    return ServiceManager.getService(EnforcedPlainTextFileTypeManager.class);
-  }
-
-  @Override
-  public void projectOpened(Project project) {
-    addProjectPlainTextFiles(project);
-  }
-
-  @Override
-  public void projectClosed(Project project) {
-    myPlainTextFileSets.remove(project);
-  }
-
-  private void addProjectPlainTextFiles(@NotNull Project project) {
-    if (!project.isDisposed()) {
-      ProjectPlainTextFileTypeManager projectPlainTextFileTypeManager = ProjectPlainTextFileTypeManager.getInstance(project);
-      if (projectPlainTextFileTypeManager != null) {
-        myPlainTextFileSets.put(project, projectPlainTextFileTypeManager.getFiles());
-      }
+  private void ensureProjectFileSetRemoved(@NotNull Project project) {
+    int i = ArrayUtil.indexOf(explicitlyMarkedProjects, project);
+    if (i >= 0) {
+      explicitlyMarkedProjects = ArrayUtil.remove(explicitlyMarkedProjects, i);
+      explicitlyMarkedSets = ArrayUtil.remove(explicitlyMarkedSets, i);
     }
   }
 }

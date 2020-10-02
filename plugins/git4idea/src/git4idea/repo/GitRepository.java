@@ -1,26 +1,14 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.repo;
 
+import com.intellij.dvcs.ignore.VcsRepositoryIgnoredFilesHolder;
 import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.messages.Topic;
 import git4idea.GitLocalBranch;
 import git4idea.GitVcs;
 import git4idea.branch.GitBranchesCollection;
+import git4idea.status.GitStagingAreaHolder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,7 +21,7 @@ import java.util.Collection;
  *   All get-methods (like {@link #getCurrentRevision()}) are just getters of the correspondent fields and thus are very fast.
  * </p>
  * <p>
- *   The GitRepository is updated "externally" by the {@link git4idea.repo.GitRepositoryUpdater}, when correspondent {@code .git/} service files
+ *   The GitRepository is updated "externally" by the {@link GitRepositoryUpdater}, when correspondent {@code .git/} service files
  *   change.
  * </p>
  * <p>
@@ -74,6 +62,9 @@ public interface GitRepository extends Repository {
   GitRepositoryFiles getRepositoryFiles();
 
   @NotNull
+  GitStagingAreaHolder getStagingAreaHolder();
+
+  @NotNull
   GitUntrackedFilesHolder getUntrackedFilesHolder();
 
 
@@ -94,18 +85,15 @@ public interface GitRepository extends Repository {
 
   /**
    * Returns remotes defined in this Git repository.
-   * It is different from {@link git4idea.repo.GitConfig#getRemotes()} because remotes may be defined not only in {@code .git/config},
-   * but in {@code .git/remotes/} or even {@code .git/branches} as well.
-   * On the other hand, it is a very old way to define remotes and we are not going to implement this until needed.
-   * See <a href="http://thread.gmane.org/gmane.comp.version-control.git/182960">discussion in the Git mailing list</a> that confirms
-   * that remotes a defined in {@code .git/config} only nowadays.
-   * @return GitRemotes defined for this repository.
    */
   @NotNull
   Collection<GitRemote> getRemotes();
 
   @NotNull
   Collection<GitBranchTrackInfo> getBranchTrackInfos();
+
+  @Nullable
+  GitBranchTrackInfo getBranchTrackInfo(@NotNull String localBranchName);
 
   boolean isRebaseInProgress();
 
@@ -120,4 +108,7 @@ public interface GitRepository extends Repository {
    */
   @NotNull
   Collection<GitSubmoduleInfo> getSubmodules();
+
+  @NotNull
+  VcsRepositoryIgnoredFilesHolder getIgnoredFilesHolder();
 }

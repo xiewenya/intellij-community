@@ -1,6 +1,6 @@
 from typing import Any
+
 from .. import exceptions
-from .. import packages
 
 ConnectTimeoutError = exceptions.ConnectTimeoutError
 MaxRetryError = exceptions.MaxRetryError
@@ -8,20 +8,31 @@ ProtocolError = exceptions.ProtocolError
 ReadTimeoutError = exceptions.ReadTimeoutError
 ResponseError = exceptions.ResponseError
 
-log = ...  # type: Any
+log: Any
 
 class Retry:
-    DEFAULT_METHOD_WHITELIST = ...  # type: Any
-    BACKOFF_MAX = ...  # type: Any
-    total = ...  # type: Any
-    connect = ...  # type: Any
-    read = ...  # type: Any
-    redirect = ...  # type: Any
-    status_forcelist = ...  # type: Any
-    method_whitelist = ...  # type: Any
-    backoff_factor = ...  # type: Any
-    raise_on_redirect = ...  # type: Any
-    def __init__(self, total=..., connect=..., read=..., redirect=..., method_whitelist=..., status_forcelist=..., backoff_factor=..., raise_on_redirect=..., _observed_errors=...) -> None: ...
+    DEFAULT_METHOD_WHITELIST: Any
+    BACKOFF_MAX: Any
+    total: Any
+    connect: Any
+    read: Any
+    redirect: Any
+    status_forcelist: Any
+    method_whitelist: Any
+    backoff_factor: Any
+    raise_on_redirect: Any
+    def __init__(
+        self,
+        total=...,
+        connect=...,
+        read=...,
+        redirect=...,
+        method_whitelist=...,
+        status_forcelist=...,
+        backoff_factor=...,
+        raise_on_redirect=...,
+        _observed_errors=...,
+    ) -> None: ...
     def new(self, **kw): ...
     @classmethod
     def from_int(cls, retries, redirect=..., default=...): ...

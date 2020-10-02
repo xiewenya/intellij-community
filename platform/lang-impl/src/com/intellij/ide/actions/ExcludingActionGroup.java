@@ -39,7 +39,7 @@ public class ExcludingActionGroup extends ActionGroup {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     myDelegate.update(e);
   }
 
@@ -49,8 +49,7 @@ public class ExcludingActionGroup extends ActionGroup {
   }
 
   @Override
-  @NotNull
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     List<AnAction> result = new ArrayList<>();
     for (AnAction action : myDelegate.getChildren(e)) {
       if (myExcludes.contains(action)) {

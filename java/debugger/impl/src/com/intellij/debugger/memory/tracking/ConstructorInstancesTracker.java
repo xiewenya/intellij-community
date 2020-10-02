@@ -1,7 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.memory.tracking;
 
 import com.intellij.debugger.DebuggerManager;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.DebugProcessImpl;
@@ -9,9 +10,8 @@ import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
-import com.intellij.debugger.memory.component.InstancesTracker;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.memory.component.MemoryViewDebugProcessData;
-import com.intellij.debugger.memory.event.InstancesTrackerListener;
 import com.intellij.debugger.memory.utils.StackFrameItem;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.ui.breakpoints.JavaLineBreakpointType;
@@ -20,6 +20,8 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
+import com.intellij.xdebugger.memory.component.InstancesTracker;
+import com.intellij.xdebugger.memory.event.InstancesTrackerListener;
 import com.sun.jdi.Location;
 import com.sun.jdi.Method;
 import com.sun.jdi.ObjectReference;
@@ -86,7 +88,7 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
 
   public void obsolete() {
     if (myNewObjects != null) {
-      myNewObjects.forEach(ObjectReference::enableCollection);
+      myNewObjects.forEach(DebuggerUtilsEx::enableCollection);
     }
 
     myNewObjects = null;
@@ -112,7 +114,7 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
   @NotNull
   @Override
   public List<ObjectReference> getNewInstances() {
-    return myNewObjects == null ? Collections.EMPTY_LIST : new ArrayList<>(myNewObjects);
+    return myNewObjects == null ? Collections.emptyList() : new ArrayList<>(myNewObjects);
   }
 
   @Override
@@ -167,7 +169,6 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
 
   private final class MyConstructorBreakpoints extends MyConstructorBreakpointBase {
     private final List<BreakpointRequest> myRequests = new ArrayList<>();
-    private final String myDisplayName = "MemoryViewConstructorTracker:" + myClassName;
     private volatile boolean myIsEnabled = false;
     private volatile boolean myIsDeleted = false;
 
@@ -191,7 +192,7 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
 
     @Override
     public String getDisplayName() {
-      return myDisplayName;
+      return JavaDebuggerBundle.message("memory.view.constructor.tracker.name", myClassName);
     }
 
     @Override
@@ -206,8 +207,7 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
     }
 
     @Override
-    public boolean processLocatableEvent(SuspendContextCommandImpl action, LocatableEvent event)
-      throws EventProcessingException {
+    public boolean processLocatableEvent(@NotNull SuspendContextCommandImpl action, LocatableEvent event) {
       if (myIsDeleted) {
         event.request().disable();
       }
@@ -239,7 +239,7 @@ public class ConstructorInstancesTracker implements TrackerForNewInstances, Disp
           final MemoryViewDebugProcessData data = suspendContext.getDebugProcess().getUserData(MemoryViewDebugProcessData.KEY);
           ObjectReference thisRef = getThisObject(suspendContext, event);
           if (thisRef != null && thisRef.referenceType().name().equals(myClassName) && data != null) {
-            thisRef.disableCollection();
+            DebuggerUtilsEx.disableCollection(thisRef);
             myTrackedObjects.add(thisRef);
             data.getTrackedStacks().addStack(thisRef, StackFrameItem.createFrames(suspendContext, false));
           }

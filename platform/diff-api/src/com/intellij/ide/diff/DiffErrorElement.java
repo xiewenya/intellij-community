@@ -21,23 +21,19 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.PlatformIcons;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.io.IOException;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class DiffErrorElement extends DiffElement {
-  private final String myMessage;
+  private final @Nls String myMessage;
 
-  public DiffErrorElement() {
-    this("Can't load children", "");
-  }
-
-  public DiffErrorElement(@NotNull String message, @NotNull String description) {
+  public DiffErrorElement(@NotNull @Nls String message, @NotNull @Nls String description) {
     myMessage = message;
   }
 
@@ -72,9 +68,8 @@ public class DiffErrorElement extends DiffElement {
     return EMPTY_ARRAY;
   }
 
-  @Nullable
   @Override
-  public byte[] getContent() {
+  public byte @Nullable [] getContent() {
     return null;
   }
 
@@ -88,6 +83,7 @@ public class DiffErrorElement extends DiffElement {
     return PlatformIcons.ERROR_INTRODUCTION_ICON;
   }
 
+  @Override
   @NotNull
   public DiffContent createDiffContent(@Nullable Project project, @NotNull ProgressIndicator indicator)
     throws DiffRequestProducerException, ProcessCanceledException {

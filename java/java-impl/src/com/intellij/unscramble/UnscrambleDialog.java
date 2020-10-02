@@ -1,40 +1,27 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.unscramble;
 
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.configurable.VcsContentAnnotationConfigurable;
 import com.intellij.ui.GuiUtils;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.TextFieldWithHistory;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -55,9 +42,6 @@ import java.util.List;
 
 import static com.intellij.util.containers.ContainerUtil.ar;
 
-/**
- * @author cdr
- */
 public class UnscrambleDialog extends DialogWrapper {
   @NonNls private static final String PROPERTY_LOG_FILE_HISTORY_URLS = "UNSCRAMBLE_LOG_FILE_URL";
   @NonNls private static final String PROPERTY_LOG_FILE_LAST_URL = "UNSCRAMBLE_LOG_FILE_LAST_URL";
@@ -68,7 +52,7 @@ public class UnscrambleDialog extends DialogWrapper {
   private final Project myProject;
   private JPanel myEditorPanel;
   private JPanel myLogFileChooserPanel;
-  private JComboBox myUnscrambleChooser;
+  private JComboBox<UnscrambleSupport> myUnscrambleChooser;
   private JPanel myPanel;
   private TextFieldWithHistory myLogFile;
   private JCheckBox myUseUnscrambler;
@@ -137,7 +121,7 @@ public class UnscrambleDialog extends DialogWrapper {
     myLogFile.setHistorySize(10);
     myLogFile.setHistory(savedUrls);
 
-    String lastUrl = getPropertyValue(PROPERTY_LOG_FILE_LAST_URL);
+    String lastUrl = getPropertyValue(PROPERTY_LOG_FILE_LAST_URL); //NON-NLS URL is safe to show
     if (lastUrl == null && !savedUrls.isEmpty()) {
       lastUrl = savedUrls.get(savedUrls.size() - 1);
     }
@@ -151,7 +135,7 @@ public class UnscrambleDialog extends DialogWrapper {
     int index = 0;
     if (selectedUnscrambler != null) {
       for (int i = 0; i < count; i++) {
-        final UnscrambleSupport unscrambleSupport = (UnscrambleSupport)myUnscrambleChooser.getItemAt(i);
+        final UnscrambleSupport unscrambleSupport = myUnscrambleChooser.getItemAt(i);
         if (unscrambleSupport != null && Comparing.strEqual(unscrambleSupport.getPresentableName(), selectedUnscrambler.getPresentableName())) {
           index = i;
           break;
@@ -197,9 +181,8 @@ public class UnscrambleDialog extends DialogWrapper {
   public static List<String> getSavedLogFileUrls() {
     final List<String> res = new ArrayList<>();
     final String savedUrl = PropertiesComponent.getInstance().getValue(PROPERTY_LOG_FILE_HISTORY_URLS);
-    final String[] strings = savedUrl == null ? ArrayUtil.EMPTY_STRING_ARRAY : savedUrl.split(":::");
-    for (int i = 0; i != strings.length; ++i) {
-      res.add(strings[i]);
+    if (savedUrl != null) {
+      ContainerUtil.addAll(res, savedUrl.split(":::"));
     }
     return res;
   }
@@ -217,9 +200,13 @@ public class UnscrambleDialog extends DialogWrapper {
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions(){
-    return new Action[]{createNormalizeTextAction(), getOKAction(), getCancelAction(), getHelpAction()};
+  protected Action @NotNull [] createActions() {
+    return ArrayUtil.prepend(createNormalizeTextAction(), super.createActions());
+  }
+
+  @Override
+  protected String getHelpId() {
+    return "find.analyzeStackTrace";
   }
 
   @Override
@@ -243,16 +230,10 @@ public class UnscrambleDialog extends DialogWrapper {
 
   private void populateRegisteredUnscramblerList() {
     for (UnscrambleSupport unscrambleSupport : UnscrambleSupport.EP_NAME.getExtensions()) {
-      //noinspection unchecked
       myUnscrambleChooser.addItem(unscrambleSupport);
     }
-    //noinspection unchecked
-    myUnscrambleChooser.setRenderer(new ListCellRendererWrapper<UnscrambleSupport>() {
-      @Override
-      public void customize(JList list, UnscrambleSupport unscrambleSupport, int index, boolean selected, boolean hasFocus) {
-        setText(unscrambleSupport == null ? IdeBundle.message("unscramble.no.unscrambler.item") : unscrambleSupport.getPresentableName());
-      }
-    });
+    myUnscrambleChooser.setRenderer(SimpleListCellRenderer.create(
+      JavaBundle.message("unscramble.no.unscrambler.item"), UnscrambleSupport::getPresentableName));
   }
 
   @Override
@@ -279,7 +260,7 @@ public class UnscrambleDialog extends DialogWrapper {
   }
 
   @Nullable
-  private String getPropertyValue(@NotNull String name) {
+  private @NlsSafe String getPropertyValue(@NotNull String name) {
     String projectValue = PropertiesComponent.getInstance(myProject).getValue(name);
     if (projectValue != null) {
       return projectValue;
@@ -296,8 +277,8 @@ public class UnscrambleDialog extends DialogWrapper {
   }
 
   private final class NormalizeTextAction extends AbstractAction {
-    public NormalizeTextAction(){
-      putValue(NAME, IdeBundle.message("unscramble.normalize.button"));
+    NormalizeTextAction(){
+      putValue(NAME, JavaBundle.message("unscramble.normalize.button"));
       putValue(DEFAULT_ACTION, Boolean.FALSE);
     }
 
@@ -388,11 +369,6 @@ public class UnscrambleDialog extends DialogWrapper {
     });
   }
 
-  @Override
-  public void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("find.analyzeStackTrace");
-  }
-
   private boolean performUnscramble() {
     UnscrambleSupport selectedUnscrambler = getSelectedUnscrambler();
     JComponent settings = mySettingsPanel.getComponentCount() == 0 ? null : (JComponent)mySettingsPanel.getComponent(0);
@@ -413,20 +389,20 @@ public class UnscrambleDialog extends DialogWrapper {
 
   private static RunContentDescriptor addConsole(final Project project, final List<ThreadState> threadDump, String unscrambledTrace) {
     Icon icon = null;
-    String message = IdeBundle.message("unscramble.unscrambled.stacktrace.tab");
+    String message = JavaBundle.message("unscramble.unscrambled.stacktrace.tab");
     if (!threadDump.isEmpty()) {
-      message = IdeBundle.message("unscramble.unscrambled.threaddump.tab");
-      icon = AllIcons.Debugger.ThreadStates.Threaddump;
+      message = JavaBundle.message("unscramble.unscrambled.threaddump.tab");
+      icon = AllIcons.Actions.Dump;
     }
     else {
       String name = getExceptionName(unscrambledTrace);
       if (name != null) {
         message = name;
-        icon = AllIcons.Debugger.ThreadStates.Exception;
+        icon = AllIcons.Actions.Lightning;
       }
     }
     if (ContainerUtil.find(threadDump, DEADLOCK_CONDITION) != null) {
-      message = IdeBundle.message("unscramble.unscrambled.deadlock.tab");
+      message = JavaBundle.message("unscramble.unscrambled.deadlock.tab");
       icon = AllIcons.Debugger.KillProcess;
     }
     return AnalyzeStacktraceUtil.addConsole(project, threadDump.size() > 1 ? new ThreadDumpConsoleFactory(project, threadDump) : null, message, unscrambledTrace, icon);
@@ -458,6 +434,7 @@ public class UnscrambleDialog extends DialogWrapper {
 
   @Nullable
   private static String getExceptionAbbreviation(String line) {
+    line = StringUtil.trimStart(line.trim(), "Caused by: ");
     int lastDelimiter = 0;
     for (int j = 0; j < line.length(); j++) {
       char c = line.charAt(j);

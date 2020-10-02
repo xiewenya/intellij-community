@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.diagnostic.Dumpable;
@@ -20,7 +20,6 @@ import java.util.Collections;
  * Caches information allowing faster offset<->logicalPosition conversions even for long lines.
  * Requests for conversion can be made from under read action, document changes and cache invalidation should be done in EDT.
  */
-@SuppressWarnings("SynchronizeOnThis")
 class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, Dumpable {
   private final Document myDocument;
   private final EditorView myView;
@@ -44,13 +43,13 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
   }
 
   @Override
-  public void beforeDocumentChange(DocumentEvent event) {
+  public void beforeDocumentChange(@NotNull DocumentEvent event) {
     myUpdateInProgress = true;
     myDocumentChangeOldEndLine = getAdjustedLineNumber(event.getOffset() + event.getOldLength());
   }
 
   @Override
-  public void documentChanged(DocumentEvent event) {
+  public void documentChanged(@NotNull DocumentEvent event) {
     try {
       int startLine = myDocument.getLineNumber(event.getOffset());
       int newEndLine = getAdjustedLineNumber(event.getOffset() + event.getNewLength());
@@ -91,7 +90,7 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
     LineData lineData = getLineInfo(line);
     return new LogicalPosition(line, lineData.offsetToLogicalColumn(myDocument, line, myTabSize, offset));
   }
-  
+
   synchronized int offsetToLogicalColumn(int line, int intraLineOffset) {
     if (myUpdateInProgress) throw new IllegalStateException();
     if (line < 0 || line >= myDocument.getLineCount()) return 0;
@@ -108,20 +107,20 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
       // (use case - com.intellij.openapi.editor.impl.CaretImpl.PositionMarker.changedUpdateImpl())
       int lineStartOffset = myDocument.getLineStartOffset(line);
       int lineEndOffset = myDocument.getLineEndOffset(line);
-      return calcOffset(myDocument, column, 0, lineStartOffset, lineEndOffset, myTabSize);
+      return calcOffset(myDocument.getImmutableCharSequence(), column, 0, lineStartOffset, lineEndOffset, myTabSize);
     }
     LineData lineData = getLineInfo(line);
     return lineData.logicalColumnToOffset(myDocument, line, myTabSize, column);
   }
 
-  private static int calcOffset(@NotNull Document document, int column, int startColumn, int startOffset, int endOffset, int tabSize) {
+  static int calcOffset(@NotNull CharSequence text, int column, int startColumn, int startOffset, int endOffset, int tabSize) {
     int currentColumn = startColumn;
-    CharSequence text = document.getImmutableCharSequence();
     for (int i = startOffset; i < endOffset; i++) {
-      if (text.charAt(i) == '\t') {
+      char c = text.charAt(i);
+      if (c == '\t') {
         currentColumn = (currentColumn / tabSize + 1) * tabSize;
       }
-      else if (DocumentUtil.isSurrogatePair(document, i)) {
+      else if (i + 1 < text.length() && Character.isHighSurrogate(c) && Character.isLowSurrogate(text.charAt(i + 1))) {
         if (currentColumn == column) return i;
       }
       else {
@@ -220,12 +219,12 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
     }
   }
 
-  private static class LineData {
+  private static final class LineData {
     private static final LineData TRIVIAL = new LineData(null);
     private static final int CACHE_FREQUENCY = 1024; // logical column will be cached for each CACHE_FREQUENCY-th character on the line
-    
+
     private final int[] columnCache;
-    
+
     private LineData(int[] columnData) {
       columnCache = columnData;
     }
@@ -272,7 +271,7 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
       int startColumn = cacheIndex == 0 ? 0 : columnCache[cacheIndex - 1];
       return calcColumn(document.getImmutableCharSequence(), startOffset, startColumn, offset, tabSize);
     }
-    
+
     private int logicalColumnToOffset(@NotNull Document document, int line, int tabSize, int logicalColumn) {
       int lineStartOffset = document.getLineStartOffset(line);
       int lineEndOffset = document.getLineEndOffset(line);
@@ -288,7 +287,7 @@ class LogicalPositionCache implements PrioritizedDocumentListener, Disposable, D
       }
       int startOffset = lineStartOffset + (- pos - 1) * CACHE_FREQUENCY;
       int column = pos == -1 ? 0 : columnCache[- pos - 2];
-      return calcOffset(document, logicalColumn, column, startOffset, lineEndOffset, tabSize);
+      return calcOffset(document.getImmutableCharSequence(), logicalColumn, column, startOffset, lineEndOffset, tabSize);
     }
   }
 }

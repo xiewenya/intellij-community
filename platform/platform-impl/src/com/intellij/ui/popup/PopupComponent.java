@@ -1,43 +1,26 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.util.ReflectionUtil;
+import com.intellij.ui.ComponentUtil;
+import com.intellij.util.FieldAccessor;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
-import com.intellij.util.ui.accessibility.ScreenReader;
-import com.sun.awt.AWTUtilities;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.FocusEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 public interface PopupComponent {
-  Logger LOG = Logger.getInstance("#com.intellij.ui.popup.PopupComponent");
+  Logger LOG = Logger.getInstance(PopupComponent.class);
 
   void hide(boolean dispose);
 
@@ -55,18 +38,21 @@ public interface PopupComponent {
     boolean isNativePopup();
 
     class AwtDefault implements Factory {
+      @Override
       public PopupComponent getPopup(Component owner, Component content, int x, int y, JBPopup jbPopup) {
         final PopupFactory factory = PopupFactory.getSharedInstance();
         final Popup popup = factory.getPopup(owner, content, x, y);
         return new AwtPopupWrapper(popup, jbPopup);
       }
 
+      @Override
       public boolean isNativePopup() {
         return true;
       }
     }
 
     class AwtHeavyweight implements Factory {
+      @Override
       public PopupComponent getPopup(Component owner, Component content, int x, int y, JBPopup jbPopup) {
         if (OurHeavyWeightPopup.isEnabled()) {
           return new AwtPopupWrapper(new OurHeavyWeightPopup(owner, content, x, y), jbPopup);
@@ -81,16 +67,19 @@ public interface PopupComponent {
         return new AwtPopupWrapper(popup, jbPopup);
       }
 
+      @Override
       public boolean isNativePopup() {
         return true;
       }
     }
 
     class Dialog implements Factory {
+      @Override
       public PopupComponent getPopup(Component owner, Component content, int x, int y, JBPopup jbPopup) {
         return new DialogPopupWrapper(owner, content, x, y, jbPopup);
       }
 
+      @Override
       public boolean isNativePopup() {
         return false;
       }
@@ -101,6 +90,7 @@ public interface PopupComponent {
     private final JDialog myDialog;
     private boolean myRequestFocus = true;
 
+    @Override
     public void setRequestFocus(boolean requestFocus) {
       myRequestFocus = requestFocus;
     }
@@ -115,12 +105,14 @@ public interface PopupComponent {
         throw new IllegalArgumentException("Popup owner must be showing, owner " + owner.getClass());
       }
 
-      final Window wnd = UIUtil.getWindow(owner);
-      if (wnd instanceof Frame) {
-        myDialog = new JDialog((Frame)wnd);
-      } else if (wnd instanceof Dialog) {
-        myDialog = new JDialog((Dialog)wnd);
-      } else {
+      Window window = ComponentUtil.getWindow(owner);
+      if (window instanceof Frame) {
+        myDialog = new JDialog((Frame)window);
+      }
+      else if (window instanceof Dialog) {
+        myDialog = new JDialog((Dialog)window);
+      }
+      else {
         myDialog = new JDialog();
       }
 
@@ -134,10 +126,12 @@ public interface PopupComponent {
       myDialog.setLocation(x, y);
     }
 
+    @Override
     public Window getWindow() {
       return myDialog;
     }
 
+    @Override
     public void hide(boolean dispose) {
       myDialog.setVisible(false);
       if (dispose) {
@@ -146,8 +140,8 @@ public interface PopupComponent {
       }
     }
 
+    @Override
     public void show() {
-
       if (!myRequestFocus) {
         myDialog.setFocusableWindowState(false);
       }
@@ -162,7 +156,6 @@ public interface PopupComponent {
       });
       myDialog.setVisible(true);
       AwtPopupWrapper.fixFlickering(myDialog, true);
-
       SwingUtilities.invokeLater(() -> myDialog.setFocusableWindowState(true));
     }
   }
@@ -175,12 +168,7 @@ public interface PopupComponent {
     public AwtPopupWrapper(Popup popup, JBPopup jbPopup) {
       myPopup = popup;
       myJBPopup = jbPopup;
-
-      if (SystemInfo.isMac && UIUtil.isUnderAquaLookAndFeel()) {
-        final Component c = ReflectionUtil.getField(Popup.class, myPopup, Component.class, "component");
-        c.setBackground(UIUtil.getPanelBackground());
-      }
-      // TODO: should we call A11YFix.invokeFocusGained(getWindow()) on window closing?
+      //TODO[tav]: should we call A11YFix.invokeFocusGained(getWindow()) on window closing?
     }
 
     @Override
@@ -189,6 +177,7 @@ public interface PopupComponent {
       return wnd != null && wnd == window;
     }
 
+    @Override
     public void hide(boolean dispose) {
       myPopup.hide();
       if (!dispose) return;
@@ -199,105 +188,43 @@ public interface PopupComponent {
       DialogWrapper.cleanupWindowListeners(window);
     }
 
+    @Override
     public void show() {
-      Window wnd = getWindow();
-      
-      fixFlickering(wnd, false);
+      Window window = getWindow();
+
+      if (window != null) {
+        fixFlickering(window, false);
+      }
       myPopup.show();
-      fixFlickering(wnd, true);
-      
-      if (wnd instanceof JWindow) {
-        ((JWindow)wnd).getRootPane().putClientProperty(JBPopup.KEY, myJBPopup);
+      if (window != null) {
+        fixFlickering(window, true);
+        if (window instanceof JWindow) {
+          ((JWindow)window).getRootPane().putClientProperty(JBPopup.KEY, myJBPopup);
+        }
       }
     }
 
-    private static void fixFlickering(Window wnd, boolean opaque) {
+    private static void fixFlickering(@NotNull Window window, boolean opaque) {
       try {
-        if (UIUtil.isUnderDarcula() && SystemInfo.isMac && Registry.is("darcula.fix.native.flickering") && wnd != null) {
-          AWTUtilities.setWindowOpaque(wnd, opaque);
+        if (StartupUiUtil.isUnderDarcula() && SystemInfoRt.isMac && Registry.is("darcula.fix.native.flickering", false)) {
+          window.setOpacity(opaque ? 1.0f : 0.0f);
         }
-      } catch (Exception ignore) {}
+      }
+      catch (Exception ignore) {
+      }
     }
 
-    public Window getWindow() {
-      final Component c = ReflectionUtil.getField(Popup.class, myPopup, Component.class, "component");
+    @Override
+    public @Nullable Window getWindow() {
+      Component c = ourComponentField.get(myPopup);
       return c instanceof JWindow ? (JWindow)c : null;
     }
 
+    @Override
     public void setRequestFocus(boolean requestFocus) {
     }
-  }
-}
 
-/**
- * On Windows, AccessBridge loses a11y focus when a non-focusable popup window is closed.
- * At the same time, IDEA focus remains in, for instance, the editor and doesn't change.
- * As a workaround, {@link #invokeFocusGained} notifies AccessBridge that the current
- * focus owner gains focus. This doesn't affect IDEA focus management. See IDEA-152169
- */
-class A11YFix {
-  private static Class cAccessBridge;
-  private static Field fAccessBridge;
-  private static Method mFocusGained;
-  private static boolean initialized;
-  private static final boolean ENABLED = SystemInfo.isWindows && ScreenReader.isEnabled(ScreenReader.ACCESS_BRIDGE);
-
-  public static void invokeFocusGained(Window closingWindow) {
-    if (!ENABLED || !ScreenReader.isActive()) return;
-
-    IdeFocusManager manager = IdeFocusManager.findInstanceByComponent(closingWindow);
-    if (manager != null) {
-      Component focusOwner = manager.getFocusOwner();
-      if (focusOwner != null) {
-        Window focusedWindow = UIUtil.getWindow(focusOwner);
-        // Check if the focus owner is not in the closing window and notify AB it gains focus.
-        // In case focus owner changes, AB will catch up with it on its own.
-        if (focusedWindow != closingWindow) {
-          Object bridge = getAccessBridge();
-          if (bridge != null) {
-            FocusEvent fe = new FocusEvent(focusOwner, FocusEvent.FOCUS_GAINED);
-            try {
-              mFocusGained.invoke(bridge, fe, focusOwner.getAccessibleContext());
-            }
-            catch (Throwable ignore) {
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private static boolean checkInit() {
-    if (initialized) return fAccessBridge != null && mFocusGained != null;
-
-    try {
-      ClassLoader cl = ClassLoader.getSystemClassLoader();
-      cAccessBridge = cl.loadClass("com.sun.java.accessibility.AccessBridge");
-    }
-    catch (Throwable ignore) {
-    }
-    if (cAccessBridge != null) {
-      fAccessBridge = ReflectionUtil.getDeclaredField(cAccessBridge, "theAccessBridge");
-      if (fAccessBridge != null) {
-        fAccessBridge.setAccessible(true);
-        mFocusGained = ReflectionUtil.getDeclaredMethod(cAccessBridge, "focusGained", FocusEvent.class, AccessibleContext.class);
-        if (mFocusGained != null) {
-          mFocusGained.setAccessible(true);
-        }
-      }
-    }
-    initialized = true;
-    return fAccessBridge != null && mFocusGained != null;
-  }
-
-  private static Object getAccessBridge() {
-    if (!checkInit()) return null;
-    try {
-      return fAccessBridge.get(null);
-    }
-    catch (Throwable ignore) {
-    }
-    return null;
+    static final FieldAccessor<Popup, Component> ourComponentField = new FieldAccessor<>(Popup.class, "component", Component.class);
   }
 }
 

@@ -1,26 +1,32 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.messages;
 
+import com.intellij.BundleBase;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ArrayUtil;
+import com.intellij.ui.mac.TouchbarDataKeys;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.ui.ImageUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jdesktop.swingx.graphics.GraphicsUtilities;
 import org.jdesktop.swingx.graphics.ShadowRenderer;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -28,11 +34,7 @@ import java.net.URL;
 
 import static com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance;
 
-/**
- * Created by Denis Fokin
- */
-public class SheetController implements Disposable {
-
+public final class SheetController implements Disposable {
   private static final KeyStroke VK_ESC_KEYSTROKE = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
 
   private static final Logger LOG = Logger.getInstance(SheetController.class);
@@ -48,7 +50,7 @@ public class SheetController implements Disposable {
 
   private final JCheckBox doNotAskCheckBox = new JCheckBox();
 
-  public static int SHADOW_BORDER = 5;
+  public static final int SHADOW_BORDER = 5;
 
   private static final int RIGHT_OFFSET = 10 - SHADOW_BORDER;
 
@@ -60,7 +62,7 @@ public class SheetController implements Disposable {
 
   private static final int GAP_BETWEEN_BUTTONS = 5;
 
-  private static final String SPACE_OR_LINE_SEPARATOR_PATTERN = "[\\s" + System.getProperty("line.separator") + "]+";
+  @NonNls private static final String SPACE_OR_LINE_SEPARATOR_PATTERN = "([\\s" + System.getProperty("line.separator") + "]|(<br\\s*/?>))+";
 
   // SHEET
   public int SHEET_WIDTH = 400;
@@ -81,9 +83,11 @@ public class SheetController implements Disposable {
   private final JEditorPane messageTextPane = new JEditorPane();
   private final Dimension messageArea = new Dimension(250, Short.MAX_VALUE);
 
+  private final JEditorPane headerLabel = new JEditorPane();
+
   SheetController(final SheetMessage sheetMessage,
-                  final String title,
-                  final String message,
+                  @Nls final String title,
+                  @Nls final String message,
                   final Icon icon,
                   final String[] buttonTitles,
                   final String defaultButtonTitle,
@@ -110,8 +114,10 @@ public class SheetController implements Disposable {
       buttons[i].setOpaque(false);
       handleMnemonics(i, buttonTitle);
 
+      final TouchbarDataKeys.DlgButtonDesc bdesc = TouchbarDataKeys.putDialogButtonDescriptor(buttons[i], buttons.length - i).setMainGroup(true);
       if (buttonTitle.equals(defaultButtonTitle)) {
         defaultButtonIndex = i;
+        bdesc.setDefault(true);
       }
 
       if (buttonTitle.equals(focusedButtonTitle) && !focusedButtonTitle.equals("Cancel")) {
@@ -132,7 +138,7 @@ public class SheetController implements Disposable {
     myDefaultButton = (defaultButtonIndex == -1) ? buttons[0] : buttons[defaultButtonIndex];
 
     if (myResult == null) {
-      myResult = Messages.CANCEL_BUTTON;
+      myResult = Messages.getCancelButton();
     }
 
     mySheetPanel = createSheetPanel(title, message, buttons);
@@ -156,27 +162,34 @@ public class SheetController implements Disposable {
     myShadowImage = renderer.createShadow(mySheetStencil);
   }
 
-  private void handleMnemonics(int i, String buttonTitle) {
-    buttons[i].setName(buttonTitle);
-    buttons[i].setText(buttonTitle);
-    setMnemonicsFromChar('&', buttons[i]);
-    setMnemonicsFromChar('_', buttons[i]);
+  private void handleMnemonics(int i, @NlsContexts.Button String title) {
+    buttons[i].setName(title);
+
+    if (!setButtonTextAndMnemonic(i, title, '_') &&
+        !setButtonTextAndMnemonic(i, title, '&') &&
+        !setButtonTextAndMnemonic(i, title, BundleBase.MNEMONIC)) {
+      buttons[i].setText(title);
+    }
   }
 
-  private static void setMnemonicsFromChar(char mnemonicChar, JButton button) {
-    String buttonTitle = button.getText();
-    if (buttonTitle.indexOf(mnemonicChar) != -1) {
-      button.setMnemonic(buttonTitle.charAt(buttonTitle.indexOf(mnemonicChar) + 1));
-      button.setText(buttonTitle.replace(Character.toString(mnemonicChar), ""));
+  private boolean setButtonTextAndMnemonic(int i, @NlsContexts.Button String title, char mnemonics) {
+    int mIdx;
+    if ((mIdx = title.indexOf(mnemonics)) >= 0) {
+      String text = title.substring(0, mIdx) + title.substring(mIdx + 1);
+
+      buttons[i].setText(text);
+      buttons[i].setMnemonic(text.charAt(mIdx));
+      return true;
+    }
+    else {
+      return false;
     }
   }
 
   void requestFocus() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
+    getGlobalInstance().doWhenFocusSettlesDown(() -> {
       if (myFocusedComponent != null) {
-        getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          getGlobalInstance().requestFocus(myFocusedComponent, true);
-        });
+        getGlobalInstance().doWhenFocusSettlesDown(() -> getGlobalInstance().requestFocus(myFocusedComponent, true));
       } else {
         LOG.debug("My focused component is null for the next message: " + messageTextPane.getText());
       }
@@ -194,17 +207,20 @@ public class SheetController implements Disposable {
     }
   }
 
-  JPanel getPanel(final JDialog w) {
-    w.getRootPane().setDefaultButton(myDefaultButton);
+  private void setResultAndStartClose(String result) {
+    if (result != null)
+      myResult = result;
+    mySheetMessage.startAnimation(false);
+  }
 
+  JPanel getPanel(@NotNull RootPaneContainer container) {
+    container.getRootPane().setDefaultButton(myDefaultButton);
 
     ActionListener actionListener = new ActionListener() {
       @Override
       public void actionPerformed(@NotNull ActionEvent e) {
-        if (e.getSource() instanceof JButton) {
-          myResult = ((JButton)e.getSource()).getName();
-        }
-        mySheetMessage.startAnimation(false);
+        final String res = e.getSource() instanceof JButton ? ((JButton)e.getSource()).getName() : null;
+        setResultAndStartClose(res);
       }
     };
 
@@ -222,7 +238,7 @@ public class SheetController implements Disposable {
     return .95f;
   }
 
-  private JPanel createSheetPanel(String title, String message, JButton[] buttons) {
+  private JPanel createSheetPanel(@Nls String title, @Nls String message, JButton[] buttons) {
     JPanel sheetPanel = new JPanel() {
       @Override
       protected void paintComponent(@NotNull Graphics g2d) {
@@ -231,16 +247,22 @@ public class SheetController implements Disposable {
         g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, getSheetAlpha()));
 
         g.setColor(new JBColor(Gray._230, UIUtil.getPanelBackground()));
-        Rectangle2D dialog  = new Rectangle2D.Double(SHADOW_BORDER, 0, SHEET_WIDTH, SHEET_HEIGHT);
+        Rectangle dialog  = new Rectangle(SHADOW_BORDER, 0, SHEET_WIDTH, SHEET_HEIGHT);
 
         paintShadow(g);
         // draw the sheet background
-        if (UIUtil.isUnderDarcula()) {
+        if (StartupUiUtil.isUnderDarcula()) {
           g.fillRoundRect((int)dialog.getX(), (int)dialog.getY() - 5, (int)dialog.getWidth(), (int)(5 + dialog.getHeight()), 5, 5);
         } else {
           //todo make bottom corners
           g.fill(dialog);
         }
+
+        Border border = UIManager.getBorder("Window.border");
+        if (border != null) {
+          border.paintBorder(this, g, dialog.x, dialog.y, dialog.width, dialog.height);
+        }
+
         paintShadowFromParent(g);
       }
 
@@ -256,11 +278,6 @@ public class SheetController implements Disposable {
         myIcon.paintIcon(this, g, 0, 0);
       }
     };
-
-
-    JEditorPane headerLabel = new JEditorPane();
-
-
 
     headerLabel.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
     headerLabel.setFont(UIUtil.getLabelFont().deriveFont(Font.BOLD));
@@ -310,7 +327,7 @@ public class SheetController implements Disposable {
 
     int widestWordWidth = 250;
 
-    String [] words = (message == null) ? ArrayUtil.EMPTY_STRING_ARRAY : message.split(SPACE_OR_LINE_SEPARATOR_PATTERN);
+    String [] words = (message == null) ? ArrayUtilRt.EMPTY_STRING_ARRAY : message.split(SPACE_OR_LINE_SEPARATOR_PATTERN);
 
     for (String word : words) {
       widestWordWidth = Math.max(fontMetrics.stringWidth(word), widestWordWidth);
@@ -390,7 +407,7 @@ public class SheetController implements Disposable {
 
 
   private static float getShadowAlpha() {
-    return ((UIUtil.isUnderDarcula())) ? .85f : .35f;
+    return ((StartupUiUtil.isUnderDarcula())) ? .85f : .35f;
   }
 
   private void paintShadowFromParent(Graphics2D g2d) {
@@ -399,7 +416,6 @@ public class SheetController implements Disposable {
   }
 
   private void layoutButtons(final JButton[] buttons, JPanel panel) {
-
     //int widestButtonWidth = 0;
     int buttonWidth = 0;
     SHEET_HEIGHT += GAP_BETWEEN_LINES;
@@ -415,6 +431,7 @@ public class SheetController implements Disposable {
     int buttonsRowWidth = LEFT_SHEET_OFFSET + buttonWidth + RIGHT_OFFSET;
 
     // update the pane if the sheet is going to be wider
+    headerLabel.setSize(Math.max(headerLabel.getWidth(), buttonWidth), headerLabel.getHeight());
     messageTextPane.setSize(Math.max(messageTextPane.getWidth(), buttonWidth), messageTextPane.getHeight());
 
     SHEET_WIDTH = Math.max(buttonsRowWidth, SHEET_WIDTH);
@@ -467,7 +484,7 @@ public class SheetController implements Disposable {
     myOffScreenFrame.add(mySheetPanel);
     myOffScreenFrame.getRootPane().setDefaultButton(myDefaultButton);
 
-    BufferedImage image = UIUtil.createImage(SHEET_NC_WIDTH, SHEET_NC_HEIGHT, BufferedImage.TYPE_INT_ARGB);
+    BufferedImage image = ImageUtil.createImage(SHEET_NC_WIDTH, SHEET_NC_HEIGHT, BufferedImage.TYPE_INT_ARGB);
 
     Graphics g = image.createGraphics();
     mySheetPanel.paint(g);
@@ -480,6 +497,8 @@ public class SheetController implements Disposable {
     return image;
   }
 
+  JPanel getSheetPanel() { return mySheetPanel; }
+
   public boolean getDoNotAskResult () {
     return myDoNotAskResult;
   }
@@ -488,6 +507,7 @@ public class SheetController implements Disposable {
     return myResult;
   }
 
+  @Override
   public void dispose() {
     mySheetPanel.unregisterKeyboardAction(VK_ESC_KEYSTROKE);
     mySheetMessage = null;

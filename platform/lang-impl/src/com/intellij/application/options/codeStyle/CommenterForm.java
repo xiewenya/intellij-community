@@ -17,6 +17,7 @@ package com.intellij.application.options.codeStyle;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
@@ -43,7 +44,7 @@ public class CommenterForm implements CodeStyleSettingsCustomizable {
     this(language, ApplicationBundle.message("title.naming.comment.code"));
   }
 
-  public CommenterForm(Language language, @Nullable String title) {
+  public CommenterForm(Language language, @Nullable @NlsContexts.BorderTitle String title) {
     myLanguage = language;
     if (title != null) {
       myCommenterPanel.setBorder(IdeBorderFactory.createTitledBorder(title));
@@ -95,10 +96,10 @@ public class CommenterForm implements CodeStyleSettingsCustomizable {
       if (CommenterOption.LINE_COMMENT_ADD_SPACE.name().equals(optionName)) {
         myLineCommentAddSpaceCb.setVisible(true);
       }
-      else if (WrappingOrBraceOption.LINE_COMMENT_AT_FIRST_COLUMN.name().equals(optionName)) {
+      else if (CommenterOption.LINE_COMMENT_AT_FIRST_COLUMN.name().equals(optionName)) {
         myLineCommentAtFirstColumnCb.setVisible(true);
       }
-      else if (WrappingOrBraceOption.BLOCK_COMMENT_AT_FIRST_COLUMN.name().equals(optionName)) {
+      else if (CommenterOption.BLOCK_COMMENT_AT_FIRST_COLUMN.name().equals(optionName)) {
         myBlockCommentAtFirstJBCheckBox.setVisible(true);
       }
     }
@@ -114,8 +115,6 @@ public class CommenterForm implements CodeStyleSettingsCustomizable {
     setAllOptionsVisible(false);
     LanguageCodeStyleSettingsProvider settingsProvider = LanguageCodeStyleSettingsProvider.forLanguage(myLanguage);
     if (settingsProvider != null) {
-      // TODO<rv> Only commenter settings should be used, move from WRAPPING_AND_BRACES
-      settingsProvider.customizeSettings(this, LanguageCodeStyleSettingsProvider.SettingsType.WRAPPING_AND_BRACES_SETTINGS);
       settingsProvider.customizeSettings(this, LanguageCodeStyleSettingsProvider.SettingsType.COMMENTER_SETTINGS);
     }
     myCommenterPanel.setVisible(

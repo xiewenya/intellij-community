@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testGuiFramework.fixtures;
 
+import com.intellij.testGuiFramework.framework.GuiTestUtil;
+import com.intellij.testGuiFramework.framework.Timeouts;
 import org.fest.swing.core.Robot;
 import org.fest.swing.core.matcher.DialogMatcher;
 import org.fest.swing.fixture.DialogFixture;
@@ -24,20 +12,18 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-import static com.intellij.testGuiFramework.framework.GuiTestUtil.SHORT_TIMEOUT;
-import static com.intellij.testGuiFramework.framework.GuiTestUtil.findAndClickOkButton;
 import static org.fest.swing.core.matcher.DialogMatcher.withTitle;
 import static org.fest.swing.data.TableCell.row;
 import static org.fest.swing.finder.WindowFinder.findDialog;
 
-public class ConfigureProjectSubsetDialogFixture {
+public final class ConfigureProjectSubsetDialogFixture {
   @NotNull private final DialogFixture myDialog;
   @NotNull private final JTableFixture myModulesTable;
 
   @NotNull
   public static ConfigureProjectSubsetDialogFixture find(@NotNull Robot robot) {
     DialogMatcher matcher = withTitle("Select Modules to Include in Project Subset").andShowing();
-    DialogFixture dialog = findDialog(matcher).withTimeout(SHORT_TIMEOUT.duration()).using(robot);
+    DialogFixture dialog = findDialog(matcher).withTimeout(Timeouts.INSTANCE.getMinutes02().duration()).using(robot);
     return new ConfigureProjectSubsetDialogFixture(dialog);
   }
 
@@ -55,6 +41,6 @@ public class ConfigureProjectSubsetDialogFixture {
   }
 
   public void clickOk() {
-    findAndClickOkButton(myDialog);
+    GuiTestUtil.INSTANCE.findAndClickOkButton(myDialog);
   }
 }

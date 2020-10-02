@@ -14,7 +14,6 @@ package org.zmlx.hg4idea;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.ByteBackedContentRevision;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.vcsUtil.VcsUtil;
@@ -53,12 +52,14 @@ public class HgContentRevision implements ByteBackedContentRevision {
     return CharsetToolkit.bytesToString(HgUtil.loadContent(myProject, myRevisionNumber, fileToCat), getFile().getCharset());
   }
 
+  @Override
   public byte[] getContentAsBytes() {
     if (myRevisionNumber.isWorkingVersion()) return VcsUtil.getFileByteContent(myHgFile.getFile());
     final HgFile fileToCat = HgUtil.getFileNameInTargetRevision(myProject, myRevisionNumber, myHgFile);
     return HgUtil.loadContent(myProject, myRevisionNumber, fileToCat);
   }
 
+  @Override
   @NotNull
   public FilePath getFile() {
     if (filePath == null) {
@@ -67,6 +68,7 @@ public class HgContentRevision implements ByteBackedContentRevision {
     return filePath;
   }
 
+  @Override
   @NotNull
   public HgRevisionNumber getRevisionNumber() {
     return myRevisionNumber;

@@ -29,7 +29,7 @@ import org.jetbrains.uast.visitor.UastVisitor
 /**
  * An annotation wrapper to be used in [UastVisitor].
  */
-interface UAnnotation : UElement, UResolvable {
+interface UAnnotation : UElement, UResolvable, UAnchorOwner {
 
   override val javaPsi: PsiAnnotation?
   /**
@@ -51,7 +51,7 @@ interface UAnnotation : UElement, UResolvable {
 
   fun findDeclaredAttributeValue(name: String?): UExpression?
 
-  override fun asRenderString() = buildString {
+  override fun asRenderString(): String = buildString {
     append("@")
     append(qualifiedName)
     if (attributeValues.isNotEmpty()) {
@@ -63,7 +63,7 @@ interface UAnnotation : UElement, UResolvable {
     }
   }
 
-  override fun asLogString() = log("fqName = $qualifiedName")
+  override fun asLogString(): String = log("fqName = $qualifiedName")
 
   override fun accept(visitor: UastVisitor) {
     if (visitor.visitAnnotation(this)) return
@@ -71,7 +71,7 @@ interface UAnnotation : UElement, UResolvable {
     visitor.afterVisitAnnotation(this)
   }
 
-  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D) =
+  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D): R =
     visitor.visitAnnotation(this, data)
 }
 

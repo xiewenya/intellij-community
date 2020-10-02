@@ -16,6 +16,7 @@
 package com.intellij.profile;
 
 import com.intellij.openapi.options.ExternalizableScheme;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.SmartSerializer;
 import com.intellij.util.xmlb.annotations.OptionTag;
 import org.jetbrains.annotations.NotNull;
@@ -27,16 +28,11 @@ public abstract class ProfileEx implements Comparable, ExternalizableScheme {
 
   protected final SmartSerializer mySerializer;
 
-  @NotNull
-  protected String myName;
+  protected @NotNull @NlsSafe String myName;
 
   public ProfileEx(@NotNull String name) {
-    this(name, SmartSerializer.skipEmptySerializer());
-  }
-
-  protected ProfileEx(@NotNull String name, @NotNull SmartSerializer serializer) {
     myName = name;
-    mySerializer = serializer;
+    mySerializer = SmartSerializer.skipEmptySerializer();
   }
 
   @Override
@@ -52,10 +48,12 @@ public abstract class ProfileEx implements Comparable, ExternalizableScheme {
     myName = name;
   }
 
+  @Override
   public boolean equals(Object o) {
     return this == o || o instanceof ProfileEx && myName.equals(((ProfileEx)o).myName);
   }
 
+  @Override
   public int hashCode() {
     return myName.hashCode();
   }

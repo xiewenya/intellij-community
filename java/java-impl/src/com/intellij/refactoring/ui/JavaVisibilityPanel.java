@@ -16,6 +16,7 @@
 
 package com.intellij.refactoring.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiModifier;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.ui.IdeBorderFactory;
@@ -43,7 +44,7 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
 
   public JavaVisibilityPanel(boolean hasAsIs,
                              final boolean hasEscalate,
-                             String visibilityTitle) {
+                             @NlsContexts.BorderTitle String visibilityTitle) {
     setBorder(IdeBorderFactory.createTitledBorder(visibilityTitle, true,
                                                   JBUI.insets(IdeBorderFactory.TITLED_BORDER_TOP_INSET, UIUtil.DEFAULT_HGAP,
                                                               IdeBorderFactory.TITLED_BORDER_BOTTOM_INSET,
@@ -52,9 +53,10 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
     ButtonGroup bg = new ButtonGroup();
 
     ItemListener listener = new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (e.getStateChange() == ItemEvent.SELECTED) {
-          stateChanged(new ChangeEvent(this));
+          panelStateChanged(new ChangeEvent(this));
         }
       }
     };
@@ -105,7 +107,11 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
     bg.add(myRbPublic);
   }
 
+  private void panelStateChanged(ChangeEvent event) {
+    stateChanged(event);
+  }
 
+  @Override
   @Nullable
   public String getVisibility() {
     if (myRbPublic.isSelected()) {
@@ -127,6 +133,7 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
     return null;
   }
 
+  @Override
   public void setVisibility(@Nullable String visibility) {
     if (PsiModifier.PUBLIC.equals(visibility)) {
       myRbPublic.setSelected(true);

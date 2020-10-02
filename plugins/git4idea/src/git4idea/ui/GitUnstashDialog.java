@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.ui;
 
 import com.intellij.CommonBundle;
@@ -27,22 +13,28 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.ValidationInfo;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.DocumentAdapter;
+import com.intellij.vcs.log.Hash;
 import git4idea.GitRevisionNumber;
 import git4idea.GitUtil;
-import git4idea.branch.GitBranchUtil;
-import git4idea.commands.*;
+import git4idea.commands.Git;
+import git4idea.commands.GitCommand;
+import git4idea.commands.GitCommandResult;
+import git4idea.commands.GitLineHandler;
 import git4idea.i18n.GitBundle;
 import git4idea.merge.GitConflictResolver;
 import git4idea.repo.GitRepository;
+import git4idea.repo.GitRepositoryManager;
 import git4idea.stash.GitStashUtils;
 import git4idea.util.GitUIUtil;
-import git4idea.validators.GitBranchNameValidator;
+import git4idea.validators.GitBranchValidatorKt;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -54,14 +46,18 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+
+import static com.intellij.xml.util.XmlStringUtil.wrapInHtml;
+import static com.intellij.xml.util.XmlStringUtil.wrapInHtmlTag;
+import static java.util.Collections.singletonList;
 
 /**
  * The unstash dialog
  */
 public class GitUnstashDialog extends DialogWrapper {
-  private JComboBox myGitRootComboBox;
+  private JComboBox<VirtualFile> myGitRootComboBox;
   private JLabel myCurrentBranch;
   private JButton myViewButton;
   private JButton myDropButton;
@@ -69,12 +65,9 @@ public class GitUnstashDialog extends DialogWrapper {
   private JCheckBox myPopStashCheckBox;
   private JTextField myBranchTextField;
   private JPanel myPanel;
-  private JList myStashList;
+  private JList<StashInfo> myStashList;
+  private final DefaultListModel<StashInfo> myStashListModel;
   private JCheckBox myReinstateIndexCheckBox;
-  /**
-   * Set of branches for the current root
-   */
-  private final HashSet<String> myBranches = new HashSet<>();
 
   private final Project myProject;
   private static final Logger LOG = Logger.getInstance(GitUnstashDialog.class);
@@ -83,47 +76,53 @@ public class GitUnstashDialog extends DialogWrapper {
     super(project, true);
     setModal(false);
     myProject = project;
-    setTitle(GitBundle.getString("unstash.title"));
-    setOKButtonText(GitBundle.getString("unstash.button.apply"));
+    setTitle(GitBundle.message("unstash.title"));
+    setOKButtonText(GitBundle.message("unstash.button.apply"));
     setCancelButtonText(CommonBundle.getCloseButtonText());
     GitUIUtil.setupRootChooser(project, roots, defaultRoot, myGitRootComboBox, myCurrentBranch);
-    myStashList.setModel(new DefaultListModel());
+    myStashListModel = new DefaultListModel<>();
+    myStashList.setModel(myStashListModel);
     refreshStashList();
     myGitRootComboBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         refreshStashList();
         updateDialogState();
       }
     });
     myStashList.addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(final ListSelectionEvent e) {
         updateDialogState();
       }
     });
     myBranchTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull final DocumentEvent e) {
         updateDialogState();
       }
     });
     myPopStashCheckBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         updateDialogState();
       }
     });
     myClearButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         if (Messages.YES == Messages.showYesNoDialog(GitUnstashDialog.this.getContentPane(),
                                                      GitBundle.message("git.unstash.clear.confirmation.message"),
                                                      GitBundle.message("git.unstash.clear.confirmation.title"), Messages.getWarningIcon())) {
           GitLineHandler h = new GitLineHandler(myProject, getGitRoot(), GitCommand.STASH);
           h.addParameters("clear");
-          new Task.Modal(project, GitBundle.getString("unstash.clearing.stashes"), false) {
+          new Task.Modal(project, GitBundle.message("unstash.clearing.stashes"), false) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
               GitCommandResult result = Git.getInstance().runCommand(h);
               if (!result.success()) ApplicationManager.getApplication()
                 .invokeLater(() -> GitUIUtil.showOperationError(project,
-                                                                  GitBundle.getString("unstash.clearing.stashes"),
+                                                                  GitBundle.message("unstash.clearing.stashes"),
                                                                   result.getErrorOutputAsJoinedString()));
             }
 
@@ -137,21 +136,27 @@ public class GitUnstashDialog extends DialogWrapper {
       }
     });
     myDropButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         final StashInfo stash = getSelectedStash();
         if (Messages.YES == Messages.showYesNoDialog(GitUnstashDialog.this.getContentPane(),
                                                      GitBundle.message("git.unstash.drop.confirmation.message", stash.getStash(), stash.getMessage()),
                                                      GitBundle.message("git.unstash.drop.confirmation.title", stash.getStash()), Messages.getQuestionIcon())) {
           final ModalityState current = ModalityState.current();
-          ProgressManager.getInstance().run(new Task.Modal(myProject, "Removing stash " + stash.getStash(), true) {
+          ProgressManager.getInstance().run(new Task.Modal(
+            myProject,
+            GitBundle.message("unstash.dialog.remove.stash.progress.indicator.title", stash.getStash()),
+            true
+          ) {
             @Override
             public void run(@NotNull ProgressIndicator indicator) {
               final GitLineHandler h = dropHandler(stash.getStash());
               try {
-                Git.getInstance().runCommand(h).getOutputOrThrow();
+                Git.getInstance().runCommand(h).throwOnError();
               }
               catch (final VcsException ex) {
-                ApplicationManager.getApplication().invokeLater(() -> GitUIUtil.showOperationError(myProject, ex, h.printableCommandLine()), current);
+                ApplicationManager.getApplication()
+                  .invokeLater(() -> GitUIUtil.showOperationError(myProject, ex, h.printableCommandLine()), current);
               }
             }
           });
@@ -167,27 +172,36 @@ public class GitUnstashDialog extends DialogWrapper {
       }
     });
     myViewButton.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
-        final VirtualFile root = getGitRoot();
-        String resolvedStash;
+        VirtualFile root = getGitRoot();
         String selectedStash = getSelectedStash().getStash();
         try {
-          GitLineHandler h = new GitLineHandler(project, root, GitCommand.REV_LIST);
-          h.setSilent(true);
-          h.addParameters("--timestamp", "--max-count=1", selectedStash);
-          h.endOptions();
-          final String output = Git.getInstance().runCommand(h).getOutputOrThrow();
-          resolvedStash = GitRevisionNumber.parseRevlistOutputAsRevisionNumber(h, output).asString();
+          String hash = ProgressManager.getInstance().runProcessWithProgressSynchronously(
+            () -> resolveHashOfStash(root, selectedStash),
+            GitBundle.message("unstash.dialog.stash.details.load.progress.indicator.title"),
+            true,
+            project
+          );
+          GitUtil.showSubmittedFiles(myProject, hash, root, true, false);
         }
         catch (VcsException ex) {
-          GitUIUtil.showOperationError(myProject, ex, "resolving revision");
-          return;
+          GitUIUtil.showOperationError(myProject, ex, GitBundle.message("operation.name.resolving.revision"));
         }
-        GitUtil.showSubmittedFiles(myProject, resolvedStash, root, true, false);
       }
     });
     init();
     updateDialogState();
+  }
+
+  @NotNull
+  private String resolveHashOfStash(@NotNull VirtualFile root, @NotNull String stash) throws VcsException {
+    GitLineHandler h = new GitLineHandler(myProject, root, GitCommand.REV_LIST);
+    h.setSilent(true);
+    h.addParameters("--timestamp", "--max-count=1", stash);
+    h.endOptions();
+    String output = Git.getInstance().runCommand(h).getOutputOrThrow();
+    return  GitRevisionNumber.parseRevlistOutputAsRevisionNumber(h, output).asString();
   }
 
   /**
@@ -196,20 +210,19 @@ public class GitUnstashDialog extends DialogWrapper {
   private void updateDialogState() {
     String branch = myBranchTextField.getText();
     if (branch.length() != 0) {
-      setOKButtonText(GitBundle.getString("unstash.button.branch"));
+      setOKButtonText(GitBundle.message("unstash.button.branch"));
       myPopStashCheckBox.setEnabled(false);
       myPopStashCheckBox.setSelected(true);
       myReinstateIndexCheckBox.setEnabled(false);
       myReinstateIndexCheckBox.setSelected(true);
-      if (!GitBranchNameValidator.INSTANCE.checkInput(branch)) {
-        setErrorText(GitBundle.getString("unstash.error.invalid.branch.name"));
-        setOKActionEnabled(false);
-        return;
-      }
-      if (myBranches.contains(branch)) {
-        setErrorText(GitBundle.getString("unstash.error.branch.exists"));
-        setOKActionEnabled(false);
-        return;
+      GitRepository repository = GitUtil.getRepositoryManager(myProject).getRepositoryForRootQuick(getGitRoot());
+      if (repository != null) {
+        ValidationInfo branchValidationInfo = GitBranchValidatorKt.validateName(singletonList(repository), branch);
+        if (branchValidationInfo != null) {
+          setErrorText(branchValidationInfo.message, myBranchTextField);
+          setOKActionEnabled(false);
+          return;
+        }
       }
     }
     else {
@@ -218,7 +231,7 @@ public class GitUnstashDialog extends DialogWrapper {
       }
       myPopStashCheckBox.setEnabled(true);
       setOKButtonText(
-        myPopStashCheckBox.isSelected() ? GitBundle.getString("unstash.button.pop") : GitBundle.getString("unstash.button.apply"));
+        myPopStashCheckBox.isSelected() ? GitBundle.message("unstash.button.pop") : GitBundle.message("unstash.button.apply"));
       if (!myReinstateIndexCheckBox.isEnabled()) {
         myReinstateIndexCheckBox.setSelected(false);
       }
@@ -251,19 +264,25 @@ public class GitUnstashDialog extends DialogWrapper {
   }
 
   private void refreshStashList() {
-    final DefaultListModel listModel = (DefaultListModel)myStashList.getModel();
-    listModel.clear();
+    myStashListModel.clear();
     VirtualFile root = getGitRoot();
-    GitStashUtils.loadStashStack(myProject, root, stashInfo -> listModel.addElement(stashInfo));
-    myBranches.clear();
-    GitRepository repository = GitUtil.getRepositoryManager(myProject).getRepositoryForRoot(root);
-    if (repository != null) {
-      myBranches.addAll(GitBranchUtil.convertBranchesToNames(repository.getBranches().getLocalBranches()));
+    try {
+      List<StashInfo> listOfStashes = ProgressManager.getInstance().runProcessWithProgressSynchronously(
+        () -> GitStashUtils.loadStashStack(myProject, root),
+        GitBundle.message("unstash.dialog.stash.list.load.progress.indicator.title"),
+        true,
+        myProject
+      );
+
+      for (StashInfo info: listOfStashes) {
+        myStashListModel.addElement(info);
+      }
+      myStashList.setSelectedIndex(0);
     }
-    else {
-      LOG.error("Repository is null for root " + root);
+    catch (VcsException e) {
+      LOG.warn(e);
+      Messages.showErrorDialog(myProject, e.getMessage(), GitBundle.message("unstash.dialog.show.stashes.error.dialog.title"));
     }
-    myStashList.setSelectedIndex(0);
   }
 
   private VirtualFile getGitRoot() {
@@ -288,9 +307,10 @@ public class GitUnstashDialog extends DialogWrapper {
   }
 
   private StashInfo getSelectedStash() {
-    return (StashInfo)myStashList.getSelectedValue();
+    return myStashList.getSelectedValue();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
@@ -316,10 +336,17 @@ public class GitUnstashDialog extends DialogWrapper {
     GitLineHandler h = handler();
 
     boolean completed = ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
-      GitStashUtils.unstash(myProject, root, h, new UnstashConflictResolver(myProject, root, getSelectedStash()));
-    }, GitBundle.getString("unstash.unstashing"), true, myProject);
+      StashInfo stash = getSelectedStash();
+      //better to use quick to keep consistent state with ui
+      GitRepository repository = Objects.requireNonNull(GitRepositoryManager.getInstance(myProject).getRepositoryForRootQuick(root));
+      Hash hash = Git.getInstance().resolveReference(repository, stash.getStash());
+      GitStashUtils.unstash(myProject, Collections.singletonMap(root, hash), r -> h,
+                            new UnstashConflictResolver(myProject, root, stash));
+    }, GitBundle.message("unstash.unstashing"), true, myProject);
 
     if (completed) {
+      VcsNotifier.getInstance(myProject)
+        .notifySuccess("git.unstash.patch.applied", "", VcsBundle.message("patch.apply.success.applied.text"));
       super.doOKAction();
     }
   }
@@ -334,25 +361,25 @@ public class GitUnstashDialog extends DialogWrapper {
     private final VirtualFile myRoot;
     private final StashInfo myStashInfo;
 
-    public UnstashConflictResolver(Project project, VirtualFile root, StashInfo stashInfo) {
-      super(project, Git.getInstance(),
-            Collections.singleton(root), makeParams(stashInfo));
+    UnstashConflictResolver(Project project, VirtualFile root, StashInfo stashInfo) {
+      super(project, Collections.singleton(root), makeParams(project, stashInfo));
       myRoot = root;
       myStashInfo = stashInfo;
     }
-    
-    private static Params makeParams(StashInfo stashInfo) {
-      Params params = new Params();
-      params.setErrorNotificationTitle("Unstashed with conflicts");
+
+    private static Params makeParams(Project project, StashInfo stashInfo) {
+      Params params = new Params(project);
+      params.setErrorNotificationTitle(GitBundle.message("unstash.unstashed.with.conflicts.error.title"));
       params.setMergeDialogCustomizer(new UnstashMergeDialogCustomizer(stashInfo));
       return params;
     }
 
     @Override
     protected void notifyUnresolvedRemain() {
-      VcsNotifier.getInstance(myProject).notifyImportantWarning("Conflicts were not resolved during unstash",
-                                                                "Unstash is not complete, you have unresolved merges in your working tree<br/>" +
-                                                                "<a href='resolve'>Resolve</a> conflicts.", new NotificationListener() {
+      VcsNotifier.getInstance(myProject).notifyImportantWarning(
+        "git.unstash.with.unresolved.conflicts", GitBundle.message("unstash.dialog.unresolved.conflict.warning.notification.title"),
+        GitBundle.message("unstash.dialog.unresolved.conflict.warning.notification.message"),
+        new NotificationListener() {
           @Override
           public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
             if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
@@ -370,23 +397,31 @@ public class GitUnstashDialog extends DialogWrapper {
 
     private final StashInfo myStashInfo;
 
-    public UnstashMergeDialogCustomizer(StashInfo stashInfo) {
+    UnstashMergeDialogCustomizer(StashInfo stashInfo) {
       myStashInfo = stashInfo;
     }
 
+    @NotNull
     @Override
     public String getMultipleFileMergeDescription(@NotNull Collection<VirtualFile> files) {
-      return "<html>Conflicts during unstashing <code>" + myStashInfo.getStash() + "\"" + myStashInfo.getMessage() + "\"</code></html>";
+      return wrapInHtml(
+        GitBundle.message(
+          "unstash.conflict.dialog.description.label.text",
+          wrapInHtmlTag(myStashInfo.getStash() + "\"" + myStashInfo.getMessage() + "\"", "code")
+        )
+      );
     }
 
+    @NotNull
     @Override
     public String getLeftPanelTitle(@NotNull VirtualFile file) {
-      return "Local changes";
+      return GitBundle.message("unstash.conflict.diff.dialog.left.title");
     }
 
+    @NotNull
     @Override
     public String getRightPanelTitle(@NotNull VirtualFile file, VcsRevisionNumber revisionNumber) {
-      return "Changes from stash";
+      return GitBundle.message("unstash.conflict.diff.dialog.right.title");
     }
   }
 }

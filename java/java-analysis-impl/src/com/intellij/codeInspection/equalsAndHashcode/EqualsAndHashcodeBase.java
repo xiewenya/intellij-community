@@ -1,7 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.equalsAndHashcode;
 
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
+import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
@@ -14,9 +17,6 @@ import com.intellij.psi.util.MethodSignatureUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author max
- */
 public class EqualsAndHashcodeBase extends AbstractBaseJavaLocalInspectionTool {
   @Override
   @NotNull
@@ -61,8 +61,8 @@ public class EqualsAndHashcodeBase extends AbstractBaseJavaLocalInspectionTool {
           PsiIdentifier identifier = aClass.getNameIdentifier();
           holder.registerProblem(identifier != null ? identifier : aClass,
                                  hasEquals[0]
-                                  ? InspectionsBundle.message("inspection.equals.hashcode.only.one.defined.problem.descriptor", "<code>equals()</code>", "<code>hashCode()</code>")
-                                  : InspectionsBundle.message("inspection.equals.hashcode.only.one.defined.problem.descriptor","<code>hashCode()</code>", "<code>equals()</code>"),
+                                  ? JavaAnalysisBundle.message("inspection.equals.hashcode.only.one.defined.problem.descriptor", "<code>equals()</code>", "<code>hashCode()</code>")
+                                  : JavaAnalysisBundle.message("inspection.equals.hashcode.only.one.defined.problem.descriptor","<code>hashCode()</code>", "<code>equals()</code>"),
                                   buildFixes(isOnTheFly, hasEquals[0]));
         }
       }
@@ -75,19 +75,13 @@ public class EqualsAndHashcodeBase extends AbstractBaseJavaLocalInspectionTool {
                                    PsiMethod equals, PsiMethod hashcode) {
     final PsiMethod[] methods = aClass.getMethods();
     for (PsiMethod method : methods) {
-      if (MethodSignatureUtil.areSignaturesEqual(method, equals)) {
+      if (MethodSignatureUtil.areSignaturesEqual(method, equals) && !method.hasModifierProperty(PsiModifier.ABSTRACT)) {
         hasEquals[0] = true;
       }
-      else if (MethodSignatureUtil.areSignaturesEqual(method, hashcode)) {
+      else if (MethodSignatureUtil.areSignaturesEqual(method, hashcode) && !method.hasModifierProperty(PsiModifier.ABSTRACT)) {
         hasHashCode[0] = true;
       }
     }
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionsBundle.message("inspection.equals.hashcode.display.name");
   }
 
   @Override

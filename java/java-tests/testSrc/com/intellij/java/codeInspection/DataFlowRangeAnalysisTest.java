@@ -16,28 +16,14 @@
 package com.intellij.java.codeInspection;
 
 import com.intellij.JavaTestUtil;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
 public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
-  private static final DefaultLightProjectDescriptor PROJECT_DESCRIPTOR = new DefaultLightProjectDescriptor() {
-    @Override
-    public Sdk getSdk() {
-      return PsiTestUtil.addJdkAnnotations(IdeaTestUtil.getMockJdk18());
-    }
-  };
-
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
-    return PROJECT_DESCRIPTOR;
+    return JAVA_8_ANNOTATED;
   }
 
   @Override
@@ -59,10 +45,32 @@ public class DataFlowRangeAnalysisTest extends DataFlowInspectionTestCase {
   public void testLongRangeKnownMethods() {
     doTest();
   }
+  public void testStringSubstring() {
+    doTest();
+  }
 
   public void testLongRangeMod() { doTest(); }
   public void testLongRangeDivShift() { doTest(); }
 
   public void testLongRangePlusMinus() { doTest(); }
+  public void testLongRangeMul() { doTest(); }
   public void testFebruary31() { doTest(); }
+
+  public void testManyAdditionsDoNotCauseExponentialBlowUp() { doTest(); }
+  public void testBoxedRanges() { doTest(); }
+  public void testLongRangeDiff() { doTest(); }
+  public void testBackPropagation() { doTest(); }
+  public void testTwoArraysDiff() { doTest(); }
+  public void testModRange() { doTest(); }
+  public void testBackPropagationMod() { doTest(); }
+  public void testModPlus() { doTest(); }
+  public void testArithmeticNoOp() { doTest(); }
+  public void testStringConcat() { doTest(); }
+  public void testUnaryPlusMinus() { doTest(); }
+  public void testWidenPlusInLoop() { doTest(); }
+  public void testFloatLoop() { doTest(); }
+  public void testWidenMulInLoop() { doTest(); }
+  public void testReduceBinOpOnCast() { doTest(); }
+  public void testSuppressZeroReport() { doTest(); }
+  public void testCompareMethods() { doTest(); }
 }

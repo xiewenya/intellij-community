@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
@@ -21,25 +7,29 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
 public class Digester {
-  // CRC32 will only use the lower 32bits of long, never returning negative values.
+  /* CRC32 uses the lower 32bits of a long, never returning negative values */
   public static final long INVALID    = 0x8000_0000_0000_0000L;
   public static final long DIRECTORY  = 0x4000_0000_0000_0000L;
-  private static final long LINK_MASK = 0x2000_0000_0000_0000L;
-  private static final long FLAG_MASK = 0xFFFF_FFFF_0000_0000L;
+  public static final long SYM_LINK   = 0x2000_0000_0000_0000L;
+  public static final long EXECUTABLE = 0x1000_0000_0000_0000L;
+  public static final long FLAG_MASK  = 0xFFFF_FFFF_0000_0000L;
 
   public static boolean isFile(long digest) {
     return (digest & FLAG_MASK) == 0;
   }
 
   public static boolean isSymlink(long digest) {
-    return (digest & LINK_MASK) == LINK_MASK;
+    return (digest & SYM_LINK) == SYM_LINK;
   }
 
   public static long digestRegularFile(File file, boolean normalize) throws IOException {
@@ -48,14 +38,18 @@ public class Digester {
 
     if (attrs.isSymbolicLink()) {
       Path target = Files.readSymbolicLink(path);
-      if (target.isAbsolute()) throw new IOException("Absolute link: " + file + " -> " + target);
-      return digestStream(new ByteArrayInputStream(target.toString().getBytes(StandardCharsets.UTF_8))) | LINK_MASK;
+      if (target.isAbsolute()) throw new IOException("An absolute link: " + file + " -> " + target);
+      return digestStream(new ByteArrayInputStream(target.toString().getBytes(StandardCharsets.UTF_8))) | SYM_LINK;
     }
 
     if (attrs.isDirectory()) return DIRECTORY;
 
+    long executable = !Utils.IS_WINDOWS && file.canExecute() ? EXECUTABLE : 0;
     try (InputStream in = new BufferedInputStream(Utils.newFileInputStream(file, normalize))) {
-      return digestStream(in);
+      return digestStream(in) | executable;
+    }
+    catch (IOException e) {
+      throw new IOException(path.toString(), e);
     }
   }
 
@@ -79,7 +73,7 @@ public class Digester {
         }
       }
 
-      Collections.sort(sorted, Comparator.comparing(ZipEntry::getName));
+      sorted.sort(Comparator.comparing(ZipEntry::getName));
 
       CRC32 crc = new CRC32();
       for (ZipEntry each : sorted) {

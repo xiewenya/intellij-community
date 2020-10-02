@@ -1,3 +1,5 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+
 /*
  * Author: atotic
  * Created on Mar 23, 2004
@@ -18,6 +20,9 @@ import com.intellij.xdebugger.breakpoints.SuspendPolicy;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.console.pydev.PydevCompletionVariant;
 import com.jetbrains.python.debugger.*;
+import com.jetbrains.python.debugger.pydev.dataviewer.DataViewerCommand;
+import com.jetbrains.python.debugger.pydev.dataviewer.DataViewerCommandBuilder;
+import com.jetbrains.python.debugger.pydev.dataviewer.DataViewerCommandResult;
 import com.jetbrains.python.debugger.pydev.transport.ClientModeDebuggerTransport;
 import com.jetbrains.python.debugger.pydev.transport.DebuggerTransport;
 import com.jetbrains.python.debugger.pydev.transport.ServerModeDebuggerTransport;
@@ -35,9 +40,20 @@ import static com.jetbrains.python.debugger.pydev.transport.BaseDebuggerTranspor
 
 
 public class RemoteDebugger implements ProcessDebugger {
-  private static final int RESPONSE_TIMEOUT = 60000;
+  static final int RESPONSE_TIMEOUT = 60000;
+  static final int SHORT_TIMEOUT = 2000;
 
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.pydev.remote.RemoteDebugger");
+  /**
+   * The specific timeout for {@link VersionCommand} when IDE Python debugger
+   * runs in <em>client mode</em>, which is used when debugging Python
+   * applications run using Docker and Docker Compose.
+   *
+   * @see #handshake()
+   * @see ClientModeDebuggerTransport
+   */
+  private static final long CLIENT_MODE_HANDSHAKE_TIMEOUT_IN_MILLIS = 5000;
+
+  private static final Logger LOG = Logger.getInstance(RemoteDebugger.class);
 
   private static final String LOCAL_VERSION = "0.1";
   public static final String TEMP_VAR_PREFIX = "__py_debug_temp_var_";
@@ -59,19 +75,32 @@ public class RemoteDebugger implements ProcessDebugger {
 
   @NotNull private final DebuggerTransport myDebuggerTransport;
 
+  /**
+   * The timeout for {@link VersionCommand}, which is used for handshaking with
+   * the Python debugger script.
+   *
+   * @see #handshake()
+   * @see #CLIENT_MODE_HANDSHAKE_TIMEOUT_IN_MILLIS
+   * @see #RESPONSE_TIMEOUT
+   */
+  private final long myHandshakeTimeout;
+
   public RemoteDebugger(@NotNull IPyDebugProcess debugProcess, @NotNull String host, int port) {
     myDebugProcess = debugProcess;
     myDebuggerTransport = new ClientModeDebuggerTransport(this, host, port);
+    myHandshakeTimeout = CLIENT_MODE_HANDSHAKE_TIMEOUT_IN_MILLIS;
   }
 
   public RemoteDebugger(@NotNull IPyDebugProcess debugProcess, @NotNull ServerSocket socket, int timeout) {
     myDebugProcess = debugProcess;
     myDebuggerTransport = new ServerModeDebuggerTransport(this, socket, timeout);
+    myHandshakeTimeout = RESPONSE_TIMEOUT;
   }
 
   protected RemoteDebugger(@NotNull IPyDebugProcess debugProcess, @NotNull DebuggerTransport debuggerTransport) {
     myDebugProcess = debugProcess;
     myDebuggerTransport = debuggerTransport;
+    myHandshakeTimeout = RESPONSE_TIMEOUT;
   }
 
   public IPyDebugProcess getDebugProcess() {
@@ -101,7 +130,7 @@ public class RemoteDebugger implements ProcessDebugger {
 
   @Override
   public String handshake() throws PyDebuggerException {
-    final VersionCommand command = new VersionCommand(this, LOCAL_VERSION, SystemInfo.isUnix ? "UNIX" : "WIN");
+    final VersionCommand command = new VersionCommand(this, LOCAL_VERSION, SystemInfo.isUnix ? "UNIX" : "WIN", myHandshakeTimeout);
     command.execute();
     String version = command.getRemoteVersion();
     if (version != null) {
@@ -143,6 +172,14 @@ public class RemoteDebugger implements ProcessDebugger {
     return command.getVariables();
   }
 
+  @Override
+  public List<Pair<String, Boolean>> getSmartStepIntoVariants(String threadId, String frameId, int startContextLine, int endContextLine)
+    throws PyDebuggerException {
+    GetSmartStepIntoVariantsCommand command = new GetSmartStepIntoVariantsCommand(this, threadId, frameId, startContextLine, endContextLine);
+    command.execute();
+    return command.getVariants();
+  }
+
   // todo: don't generate temp variables for qualified expressions - just split 'em
   @Override
   public XValueChildrenList loadVariable(final String threadId, final String frameId, final PyDebugValue var) throws PyDebuggerException {
@@ -166,6 +203,14 @@ public class RemoteDebugger implements ProcessDebugger {
     return command.getArray();
   }
 
+  @Override
+  @NotNull
+  public DataViewerCommandResult executeDataViewerCommand(@NotNull DataViewerCommandBuilder builder) throws PyDebuggerException {
+    builder.setDebugger(this);
+    DataViewerCommand command = builder.build();
+    command.execute();
+    return command.getResult();
+  }
 
   @Override
   public void loadReferrers(final String threadId,
@@ -205,6 +250,7 @@ public class RemoteDebugger implements ProcessDebugger {
     return command.getNewValue();
   }
 
+  @Override
   public void loadFullVariableValues(@NotNull String threadId,
                                      @NotNull String frameId,
                                      @NotNull List<PyFrameAccessor.PyAsyncValue<String>> vars) throws PyDebuggerException {
@@ -237,6 +283,10 @@ public class RemoteDebugger implements ProcessDebugger {
   // todo: change variable in lists doesn't work - either fix in pydevd or format var name appropriately
   private void setTempVariable(final String threadId, final String frameId, final PyDebugValue var) {
     final PyDebugValue topVar = var.getTopParent();
+    if (topVar == null) {
+      LOG.error("Top parent is null");
+      return;
+    }
     if (!myDebugProcess.canSaveToTemp(topVar.getName())) {
       return;
     }
@@ -310,9 +360,9 @@ public class RemoteDebugger implements ProcessDebugger {
   }
 
   @Nullable
-  ProtocolFrame waitForResponse(final int sequence) {
+  ProtocolFrame waitForResponse(final int sequence, long timeout) {
     ProtocolFrame response;
-    long until = System.currentTimeMillis() + RESPONSE_TIMEOUT;
+    long until = System.currentTimeMillis() + timeout;
 
     synchronized (myResponseQueue) {
       boolean interrupted = false;
@@ -359,9 +409,12 @@ public class RemoteDebugger implements ProcessDebugger {
       }
     });
     if (command.isResponseExpected()) {
+      LOG.assertTrue(!ApplicationManager.getApplication().isDispatchThread(),
+                     "This operation is time consuming and must not be called on EDT");
+
       // Note: do not wait for result from UI thread
       try {
-        myLatch.await(RESPONSE_TIMEOUT, TimeUnit.MILLISECONDS);
+        myLatch.await(command.getResponseTimeout(), TimeUnit.MILLISECONDS);
       }
       catch (InterruptedException e) {
         // restore interrupted flag
@@ -409,8 +462,9 @@ public class RemoteDebugger implements ProcessDebugger {
   }
 
   @Override
-  public void smartStepInto(String threadId, String functionName) {
-    final SmartStepIntoCommand command = new SmartStepIntoCommand(this, threadId, functionName);
+  public void smartStepInto(String threadId, String frameId, String functionName, int callOrder, int contextStartLine, int contextEndLine) {
+    final SmartStepIntoCommand command = new SmartStepIntoCommand(this, threadId, frameId, functionName, callOrder,
+                                                                  contextStartLine, contextEndLine);
     execute(command);
   }
 
@@ -494,6 +548,12 @@ public class RemoteDebugger implements ProcessDebugger {
     execute(command);
   }
 
+  @Override
+  public void setUnitTestDebuggingMode() {
+    SetUnitTestDebuggingMode command = new SetUnitTestDebuggingMode(this);
+    execute(command);
+  }
+
   // for DebuggerReader only
   public void processResponse(@NotNull final String line) {
     try {
@@ -519,10 +579,11 @@ public class RemoteDebugger implements ProcessDebugger {
         myDebugProcess.consoleInputRequested(ProtocolParser.parseInputCommand(frame.getPayload()));
       }
       else if (ProcessCreatedCommand.isProcessCreatedCommand(frame.getCommand())) {
-        onProcessCreatedEvent();
+        onProcessCreatedEvent(frame.getSequence());
       }
       else if (AbstractCommand.isShowWarningCommand(frame.getCommand())) {
-        myDebugProcess.showCythonWarning();
+        final String warningId = ProtocolParser.parseWarning(frame.getPayload());
+        myDebugProcess.showWarning(warningId);
       }
       else {
         placeResponse(frame.getSequence(), frame);
@@ -663,6 +724,7 @@ public class RemoteDebugger implements ProcessDebugger {
     }
   }
 
+  @Override
   public void addCloseListener(RemoteDebuggerCloseListener listener) {
     myCloseListeners.add(listener);
   }
@@ -708,7 +770,7 @@ public class RemoteDebugger implements ProcessDebugger {
     }
   }
 
-  protected void onProcessCreatedEvent() {
+  protected void onProcessCreatedEvent(int commandSequence) {
   }
 
   protected void fireCloseEvent() {

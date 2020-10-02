@@ -1,44 +1,32 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.integrate;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.versionBrowser.ChangeBrowserSettings;
 import com.intellij.util.Consumer;
 import com.intellij.util.PairFunction;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.history.LogHierarchyNode;
 import org.jetbrains.idea.svn.history.SvnChangeList;
 import org.jetbrains.idea.svn.history.SvnCommittedChangesProvider;
 import org.jetbrains.idea.svn.history.SvnRepositoryLocation;
+import org.jetbrains.idea.svn.mergeinfo.MergeCheckResult;
 import org.jetbrains.idea.svn.mergeinfo.MergeChecker;
 import org.jetbrains.idea.svn.mergeinfo.OneShotMergeInfoHelper;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.intellij.openapi.progress.ProgressManager.progress;
 import static com.intellij.openapi.progress.ProgressManager.progress2;
-import static com.intellij.util.containers.ContainerUtil.newArrayList;
-import static java.lang.Math.min;
 import static org.jetbrains.idea.svn.SvnBundle.message;
-import static org.jetbrains.idea.svn.mergeinfo.SvnMergeInfoCache.MergeCheckResult;
 
 public class MergeCalculatorTask extends BaseMergeTask {
+  private static final Logger LOG = Logger.getInstance(MergeCalculatorTask.class);
 
   public static final String PROP_BUNCH_SIZE = "idea.svn.quick.merge.bunch.size";
   private final static int BUNCH_SIZE = 100;
@@ -55,7 +43,7 @@ public class MergeCalculatorTask extends BaseMergeTask {
     super(mergeProcess);
     myCopyPoint = copyPoint;
     myCallback = callback;
-    myChangeLists = newArrayList();
+    myChangeLists = new ArrayList<>();
     // TODO: Previously it was configurable - either to use OneShotMergeInfoHelper or BranchInfo as merge checker, but later that logic
     // TODO: was commented (in 80ebdbfea5210f6c998e67ddf28ca9c670fa4efe on 5/28/2010).
     // TODO: Still check if we need to preserve such configuration or it is sufficient to always use OneShotMergeInfoHelper.
@@ -78,7 +66,7 @@ public class MergeCalculatorTask extends BaseMergeTask {
 
   @Override
   public void run() throws VcsException {
-    progress("Collecting merge information");
+    progress(message("progress.text.collecting.merge.information"));
     myMergeChecker.prepare();
 
     if (myCopyPoint != null) {
@@ -96,7 +84,9 @@ public class MergeCalculatorTask extends BaseMergeTask {
       myCallback.consume(this);
     }
     else {
-      myMergeProcess.end("Everything is up-to-date", false);
+      LOG.info("Info: Everything is up-to-date");
+
+      myMergeProcess.end(message("notification.content.everything.is.up.to.date"), false);
     }
   }
 
@@ -111,9 +101,9 @@ public class MergeCalculatorTask extends BaseMergeTask {
 
   @NotNull
   private List<SvnChangeList> getNotMergedChangeLists(@NotNull List<Pair<SvnChangeList, LogHierarchyNode>> changeLists) {
-    List<SvnChangeList> result = newArrayList();
+    List<SvnChangeList> result = new ArrayList<>();
 
-    progress("Collecting not merged revisions");
+    progress(message("progress.text.collecting.not.merged.revisions"));
     for (Pair<SvnChangeList, LogHierarchyNode> pair : changeLists) {
       SvnChangeList changeList = pair.getFirst();
 
@@ -137,7 +127,7 @@ public class MergeCalculatorTask extends BaseMergeTask {
 
     List<SvnChangeList> changeLists = getChangeLists(mergeContext, settings, beforeRevision, size, (changeList, tree) -> changeList);
     return Pair.create(
-      changeLists.subList(0, min(size, changeLists.size())),
+      ContainerUtil.getFirstItems(changeLists, size),
       changeLists.size() < size + 1);
   }
 
@@ -153,10 +143,10 @@ public class MergeCalculatorTask extends BaseMergeTask {
                                             long revisionToExclude,
                                             int size,
                                             @NotNull PairFunction<SvnChangeList, LogHierarchyNode, T> resultProvider) throws VcsException {
-    List<T> result = newArrayList();
+    List<T> result = new ArrayList<>();
 
     ((SvnCommittedChangesProvider)mergeContext.getVcs().getCommittedChangesProvider())
-      .getCommittedChangesWithMergedRevisons(settings, new SvnRepositoryLocation(mergeContext.getSourceUrl().toString()),
+      .getCommittedChangesWithMergedRevisons(settings, new SvnRepositoryLocation(mergeContext.getSourceUrl()),
                                              size > 0 ? size + (revisionToExclude > 0 ? 2 : 1) : 0,
                                              (changeList, tree) -> {
                                                if (revisionToExclude != changeList.getNumber()) {

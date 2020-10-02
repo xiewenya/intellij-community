@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.openapi.vfs;
 
 import com.intellij.JavaTestUtil;
@@ -6,10 +6,10 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.impl.jrt.JrtFileSystemImpl;
 import com.intellij.openapi.vfs.jrt.JrtFileSystem;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
@@ -24,6 +24,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -33,44 +34,53 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.*;
 
 public class JrtFileSystemTest extends BareTestFixtureTestCase {
-  @Rule public TempDirectory myTempDir = new TempDirectory();
+  @Rule public TempDirectory tempDir = new TempDirectory();
 
   private final Disposable myDisposable = Disposer.newDisposable();
   private Path myTestData;
-  private Path myTempPath;
+  private Path myJrtPath;
   private VirtualFile myRoot;
 
   @Before
   public void setUp() throws IOException {
     myTestData = Paths.get(JavaTestUtil.getJavaTestDataPath(), "jrt");
-    myTempPath = myTempDir.newFolder("jrt").toPath();
+    myJrtPath = tempDir.newDirectory("jrt").toPath();
 
     setupJrtFileSystem();
-    myRoot = findRoot(myTempPath.toString());
-    assertThat(myRoot).isNotNull();
-    assertThat(JrtFileSystem.isRoot(myRoot)).isTrue();
+    myRoot = findRoot(myJrtPath.toString());
+    assertNotNull(myRoot);
+    assertTrue(JrtFileSystem.isRoot(myRoot));
   }
 
   @After
   public void tearDown() {
     Disposer.dispose(myDisposable);
+    releaseJrtFileSystem();
+    myRoot = null;
   }
 
   private void setupJrtFileSystem() throws IOException {
-    Files.createDirectories(myTempPath);
-    Files.write(myTempPath.resolve("release"), "JAVA_VERSION=9\n".getBytes(CharsetToolkit.UTF8_CHARSET));
-    Path lib = Files.createDirectory(myTempPath.resolve("lib"));
+    Files.createDirectories(myJrtPath);
+    Files.write(myJrtPath.resolve("release"), "JAVA_VERSION=9\n".getBytes(StandardCharsets.UTF_8));
+    Path lib = Files.createDirectory(myJrtPath.resolve("lib"));
     Files.copy(myTestData.resolve("jrt-fs.jar"), lib.resolve("jrt-fs.jar"));
     Files.copy(myTestData.resolve("image1"), lib.resolve("modules"));
-    LocalFileSystem.getInstance().refreshAndFindFileByPath(myTempPath.toString());
+    LocalFileSystem.getInstance().refreshAndFindFileByPath(myJrtPath.toString());
+  }
+
+  @SuppressWarnings("CallToSystemGC")
+  private void releaseJrtFileSystem() {
+    ((JrtFileSystemImpl)myRoot.getFileSystem()).release(FileUtil.toSystemIndependentName(myJrtPath.toString()));
+    System.gc();
   }
 
   @Test
   public void nonRoot() {
     VirtualFile root = findRoot(JavaTestUtil.getJavaTestDataPath());
-    assertThat(root).isNull();
+    assertNull(root);
   }
 
   @Test
@@ -93,18 +103,18 @@ public class JrtFileSystemTest extends BareTestFixtureTestCase {
   @Test
   public void refresh() throws IOException {
     assertThat(childNames(myRoot)).containsExactlyInAnyOrder("java.base", "test.a");
-    VirtualFile local = LocalFileSystem.getInstance().findFileByPath(myTempPath.toString());
+    VirtualFile local = LocalFileSystem.getInstance().refreshAndFindFileByPath(myJrtPath.toString());
     assertThat(local).isNotNull();
 
-    Path modules = myTempPath.resolve("lib/modules");
-    Files.move(modules, myTempPath.resolve("lib/modules.bak"), StandardCopyOption.ATOMIC_MOVE);
+    Path modules = myJrtPath.resolve("lib/modules");
+    Files.move(modules, myJrtPath.resolve("lib/modules.bak"), StandardCopyOption.ATOMIC_MOVE);
     Files.copy(myTestData.resolve("image2"), modules);
-    Files.write(myTempPath.resolve("release"), "JAVA_VERSION=9.0.1\n".getBytes(CharsetToolkit.UTF8_CHARSET));
+    Files.write(myJrtPath.resolve("release"), "JAVA_VERSION=9.0.1\n".getBytes(StandardCharsets.UTF_8));
     List<VFileEvent> events = VfsTestUtil.getEvents(() -> local.refresh(false, true));
     assertThat(childNames(myRoot)).describedAs("events=" + events).containsExactlyInAnyOrder("java.base", "test.a", "test.b");
 
     if (SystemInfo.isUnix) {
-      assertThat(FileUtil.delete(myTempPath.toFile())).isTrue();
+      FileUtil.delete(myJrtPath);
       events = VfsTestUtil.getEvents(() -> local.refresh(false, true));
       assertThat(myRoot.isValid()).describedAs("events=" + events).isFalse();
     }
@@ -112,26 +122,22 @@ public class JrtFileSystemTest extends BareTestFixtureTestCase {
 
   @Test
   public void filePointers() throws IOException {
-    VirtualFile vTemp = LocalFileSystem.getInstance().refreshAndFindFileByPath(myTempPath.toString());
-    assertThat(vTemp).isNotNull();
+    VirtualFile local = LocalFileSystem.getInstance().refreshAndFindFileByPath(myJrtPath.toString());
+    assertThat(local).isNotNull();
     VirtualFilePointerManager manager = VirtualFilePointerManager.getInstance();
-    VirtualFilePointer[] pointers = {manager.create(vTemp, myDisposable, null), manager.create(myRoot, myDisposable, null)};
+    VirtualFilePointer[] pointers = {manager.create(local, myDisposable, null), manager.create(myRoot, myDisposable, null)};
     assertPointers(pointers, true);
 
     if (SystemInfo.isUnix) {
-      VirtualFile testRoot = vTemp.getParent();
+      VirtualFile testRoot = local.getParent();
 
-      assertThat(FileUtil.delete(myTempPath.toFile())).isTrue();
+      FileUtil.delete(myJrtPath);
       testRoot.refresh(false, true);
       assertPointers(pointers, false);
 
       setupJrtFileSystem();
       testRoot.refresh(false, true);
       assertPointers(pointers, true);
-
-      assertThat(FileUtil.delete(myTempPath.toFile())).isTrue();
-      testRoot.refresh(false, true);
-      assertPointers(pointers, false);
     }
   }
 

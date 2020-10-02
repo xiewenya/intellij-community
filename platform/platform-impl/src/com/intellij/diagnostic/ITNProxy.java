@@ -1,66 +1,93 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
-import com.intellij.errorreport.bean.ErrorBean;
 import com.intellij.errorreport.error.InternalEAPException;
 import com.intellij.errorreport.error.NoSuchEAPUserException;
 import com.intellij.errorreport.error.UpdateAvailableException;
-import com.intellij.idea.IdeaLogger;
-import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.diagnostic.Attachment;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
+import com.intellij.openapi.diagnostic.IdeaLoggingEvent;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.updateSettings.impl.UpdateSettings;
+import com.intellij.openapi.util.AtomicNotNullLazyValue;
 import com.intellij.openapi.util.BuildNumber;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.security.CompositeX509TrustManager;
-import com.intellij.util.Consumer;
+import com.intellij.util.io.DigestUtil;
 import com.intellij.util.io.HttpRequests;
 import com.intellij.util.net.NetUtils;
 import com.intellij.util.net.ssl.CertificateUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.net.ssl.*;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.List;
+import java.util.*;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.util.zip.GZIPOutputStream;
 
-/**
- * @author stathik
- * @since Aug 4, 2003
- */
-class ITNProxy {
+final class ITNProxy {
   private static final String DEFAULT_USER = "idea_anonymous";
   private static final String DEFAULT_PASS = "guest";
   private static final String DEVELOPERS_LIST_URL = "https://ea-engine.labs.intellij.net/data?category=developers";
   private static final String NEW_THREAD_POST_URL = "https://ea-report.jetbrains.com/trackerRpc/idea/createScr";
   private static final String NEW_THREAD_VIEW_URL = "https://ea.jetbrains.com/browser/ea_reports/";
+
+  private static final NotNullLazyValue<Map<String, String>> TEMPLATE = AtomicNotNullLazyValue.createValue(() -> {
+    @NonNls Map<String, String> template = new LinkedHashMap<>();
+
+    template.put("protocol.version", "1.1");
+    template.put("os.name", SystemInfo.OS_NAME);
+    template.put("java.version", SystemInfo.JAVA_VERSION);
+    template.put("java.vm.vendor", SystemInfo.JAVA_VENDOR);
+
+    ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
+    ApplicationNamesInfo namesInfo = ApplicationNamesInfo.getInstance();
+    BuildNumber build = appInfo.getBuild();
+    String buildNumberWithAllDetails = build.asString();
+    if (StringUtil.startsWith(buildNumberWithAllDetails, build.getProductCode() + "-")) {
+      buildNumberWithAllDetails = buildNumberWithAllDetails.substring(build.getProductCode().length() + 1);
+    }
+
+    template.put("app.name", namesInfo.getProductName());
+    template.put("app.name.full", namesInfo.getFullProductName());
+    template.put("app.name.version", appInfo.getVersionName());
+    template.put("app.eap", Boolean.toString(appInfo.isEAP()));
+    template.put("app.internal", Boolean.toString(ApplicationManager.getApplication().isInternal()));
+    template.put("app.build", appInfo.getApiVersion());
+    template.put("app.version.major", appInfo.getMajorVersion());
+    template.put("app.version.minor", appInfo.getMinorVersion());
+    template.put("app.build.date", format(appInfo.getBuildDate()));
+    template.put("app.build.date.release", format(appInfo.getMajorReleaseBuildDate()));
+    template.put("app.product.code", build.getProductCode());
+    template.put("app.build.number", buildNumberWithAllDetails);
+
+    return template;
+  });
+
+  private static @Nullable String format(@Nullable Calendar calendar) {
+    return calendar == null ?  null : Long.toString(calendar.getTime().getTime());
+  }
 
   static @NotNull List<Developer> fetchDevelopers(@NotNull ProgressIndicator indicator) throws IOException {
     return HttpRequests.request(DEVELOPERS_LIST_URL).connect(request -> {
@@ -81,12 +108,32 @@ class ITNProxy {
     });
   }
 
+  static class ErrorBean {
+    final IdeaLoggingEvent event;
+    final String comment;
+    final String pluginId;
+    final String pluginName;
+    final String pluginVersion;
+    final String lastActionId;
+    final int previousException;
+
+    ErrorBean(IdeaLoggingEvent event, String comment, String pluginId, String pluginName, String pluginVersion, String lastActionId, int previousException) {
+      this.event = event;
+      this.comment = comment;
+      this.pluginId = pluginId;
+      this.pluginName = pluginName;
+      this.pluginVersion = pluginVersion;
+      this.lastActionId = lastActionId;
+      this.previousException = previousException;
+    }
+  }
+
   static void sendError(@Nullable Project project,
                         @Nullable String login,
                         @Nullable String password,
                         @NotNull ErrorBean error,
                         @NotNull IntConsumer onSuccess,
-                        @NotNull Consumer<Exception> onError) {
+                        @NotNull Consumer<? super Exception> onError) {
     if (StringUtil.isEmptyOrSpaces(login)) {
       login = DEFAULT_USER;
       password = DEFAULT_PASS;
@@ -96,24 +143,17 @@ class ITNProxy {
     }
 
     String _login = login, _password = password;
-    Task.Backgroundable task = new Task.Backgroundable(project, DiagnosticBundle.message("title.submitting.error.report")) {
+    new Task.Backgroundable(project, DiagnosticBundle.message("title.submitting.error.report")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
           onSuccess.accept(postNewThread(_login, _password, error));
         }
         catch (Exception ex) {
-          onError.consume(ex);
+          onError.accept(ex);
         }
       }
-    };
-
-    if (project == null) {
-      task.run(new EmptyProgressIndicator());
-    }
-    else {
-      ProgressManager.getInstance().run(task);
-    }
+    }.queue();
   }
 
   static @NotNull String getBrowseUrl(int threadId) {
@@ -153,76 +193,105 @@ class ITNProxy {
     }
   }
 
-  private static byte[] createRequest(String login, String password, ErrorBean error) throws UnsupportedEncodingException {
+  static @NotNull String getAppInfoString() {
+    StringBuilder builder = new StringBuilder();
+    appendAppInfo(builder);
+    return builder.toString();
+  }
+
+  private static void appendAppInfo(StringBuilder builder) {
+    for (Map.Entry<String, String> entry : TEMPLATE.getValue().entrySet()) {
+      append(builder, entry.getKey(), entry.getValue());
+    }
+  }
+
+  private static StringBuilder createRequest(String login, String password, ErrorBean error) {
     StringBuilder builder = new StringBuilder(8192);
 
-    append(builder, "protocol.version", "1");
+    Object eventData = error.event.getData();
+    String appInfo = eventData instanceof AbstractMessage ? ((AbstractMessage)eventData).getAppInfo() : null;
+    if (appInfo != null) {
+      builder.append(appInfo);
+    }
+    else {
+      appendAppInfo(builder);
+    }
 
     append(builder, "user.login", login);
     append(builder, "user.password", password);
-
-    append(builder, "os.name", SystemInfo.OS_NAME);
-    append(builder, "java.version", SystemInfo.JAVA_VERSION);
-    append(builder, "java.vm.vendor", SystemInfo.JAVA_VENDOR);
-
-    ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
-    ApplicationNamesInfo namesInfo = ApplicationNamesInfo.getInstance();
-    Application application = ApplicationManager.getApplication();
-    append(builder, "app.name", namesInfo.getProductName());
-    append(builder, "app.name.full", namesInfo.getFullProductName());
-    append(builder, "app.name.version", appInfo.getVersionName());
-    append(builder, "app.eap", Boolean.toString(appInfo.isEAP()));
-    append(builder, "app.internal", Boolean.toString(application.isInternal()));
-    append(builder, "app.build", appInfo.getApiVersion());
-    append(builder, "app.version.major", appInfo.getMajorVersion());
-    append(builder, "app.version.minor", appInfo.getMinorVersion());
-    append(builder, "app.build.date", format(appInfo.getBuildDate()));
-    append(builder, "app.build.date.release", format(appInfo.getMajorReleaseBuildDate()));
-    append(builder, "app.compilation.timestamp", IdeaLogger.getOurCompilationTimestamp());
-
-    BuildNumber build = appInfo.getBuild();
-    String buildNumberWithAllDetails = build.asString();
-    append(builder, "app.product.code", build.getProductCode());
-    if (StringUtil.startsWith(buildNumberWithAllDetails, build.getProductCode() + "-")) {
-      buildNumberWithAllDetails = buildNumberWithAllDetails.substring(build.getProductCode().length() + 1);
-    }
-    append(builder, "app.build.number", buildNumberWithAllDetails);
 
     UpdateSettings updateSettings = UpdateSettings.getInstance();
     append(builder, "update.channel.status", updateSettings.getSelectedChannelStatus().getCode());
     append(builder, "update.ignored.builds", StringUtil.join(updateSettings.getIgnoredBuildNumbers(), ","));
 
-    append(builder, "plugin.name", error.getPluginName());
-    append(builder, "plugin.version", error.getPluginVersion());
-
-    append(builder, "last.action", error.getLastAction());
-    append(builder, "previous.exception", error.getPreviousException() == null ? null : Integer.toString(error.getPreviousException()));
-
-    append(builder, "error.message", error.getMessage());
-    append(builder, "error.stacktrace", error.getStackTrace());
-    append(builder, "error.description", error.getDescription());
-
-    append(builder, "assignee.id", error.getAssigneeId() == null ? null : Integer.toString(error.getAssigneeId()));
-
-    for (Attachment attachment : error.getAttachments()) {
-      append(builder, "attachment.name", attachment.getName());
-      append(builder, "attachment.value", attachment.getEncodedBytes());
+    append(builder, "plugin.id", error.pluginId);
+    append(builder, "plugin.name", error.pluginName);
+    append(builder, "plugin.version", error.pluginVersion);
+    append(builder, "last.action", error.lastActionId);
+    if (error.previousException > 0) {
+      append(builder, "previous.exception", Integer.toString(error.previousException));
     }
 
-    return builder.toString().getBytes(StandardCharsets.UTF_8);
+    String message = StringUtil.notNullize(error.event.getMessage()).trim();
+    String stacktrace = error.event.getThrowableText();
+    boolean redacted = false;
+    if (error.event instanceof IdeaReportingEvent) {
+      String originalMessage = StringUtil.notNullize(((IdeaReportingEvent)error.event).getOriginalMessage()).trim();
+      String originalStacktrace = ((IdeaReportingEvent)error.event).getOriginalThrowableText();
+      boolean messagesDiffer = !Objects.equals(message, originalMessage);
+      boolean tracesDiffer = !Objects.equals(stacktrace, originalStacktrace);
+      if (messagesDiffer || tracesDiffer) {
+        String summary = "";
+        if (messagesDiffer) summary += "*** message was redacted (" + diff(originalMessage, message) + ")\n";
+        if (tracesDiffer) summary += "*** stacktrace was redacted (" + diff(originalStacktrace, stacktrace) + ")\n";
+        message = !message.isEmpty() ? summary + '\n' + message : summary.trim();
+        redacted = true;
+      }
+    }
+    append(builder, "error.message", message);
+    append(builder, "error.stacktrace", stacktrace);
+    append(builder, "error.description", error.comment);
+    if (redacted) {
+      append(builder, "error.redacted", Boolean.toString(true));
+    }
+
+    if (eventData instanceof AbstractMessage) {
+      AbstractMessage messageObj = (AbstractMessage)eventData;
+      for (Attachment attachment : messageObj.getIncludedAttachments()) {
+        append(builder, "attachment.name", attachment.getName());
+        append(builder, "attachment.value", attachment.getEncodedBytes());
+      }
+      if (messageObj.getAssigneeId() != null) {
+        append(builder, "assignee.id", Integer.toString(messageObj.getAssigneeId()));
+      }
+      append(builder, "assignee.list.visible", Boolean.toString(messageObj.isAssigneeVisible()));
+      if (messageObj.getDevelopersTimestamp() != null) {
+        append(builder, "assignee.list.timestamp", Long.toString(messageObj.getDevelopersTimestamp()));
+      }
+    }
+
+    return builder;
   }
 
-  private static void append(StringBuilder builder, String key, @Nullable String value) throws UnsupportedEncodingException {
-    if (StringUtil.isEmpty(value)) return;
-    if (builder.length() > 0) builder.append('&');
-    builder.append(key).append('=').append(URLEncoder.encode(value, StandardCharsets.UTF_8.name()));
+  private static void append(StringBuilder builder, @NonNls String key, @NonNls @Nullable String value) {
+    if (!StringUtil.isEmpty(value)) {
+      String encoded;
+      try { encoded = URLEncoder.encode(value, StandardCharsets.UTF_8.name()); }
+      catch (UnsupportedEncodingException e) { throw new IllegalStateException(e); }  // not expected to happen
+      if (builder.length() > 0) builder.append('&');
+      builder.append(key).append('=').append(encoded);
+    }
   }
 
-  private static @Nullable String format(@Nullable Calendar calendar) {
-    return calendar == null ?  null : Long.toString(calendar.getTime().getTime());
+  private static String diff(String original, String redacted) {
+    return "original:" + wc(original) + " submitted:" + wc(redacted);
   }
 
-  private static HttpURLConnection post(URL url, byte[] bytes) throws IOException {
+  private static String wc(String s) {
+    return s.isEmpty() ? "-" : StringUtil.splitByLines(s).length + "/" + s.split("[^\\w']+").length + "/" + s.length();
+  }
+
+  private static HttpURLConnection post(URL url, CharSequence formData) throws IOException {
     HttpsURLConnection connection = (HttpsURLConnection)url.openConnection();
 
     connection.setSSLSocketFactory(ourSslContext.getSocketFactory());
@@ -230,14 +299,22 @@ class ITNProxy {
       connection.setHostnameVerifier(new EaHostnameVerifier());
     }
 
+    BufferExposingByteArrayOutputStream compressed = new BufferExposingByteArrayOutputStream(formData.length());
+    try (Writer writer = new OutputStreamWriter(new GZIPOutputStream(compressed), StandardCharsets.UTF_8)) {
+      for (int i = 0; i < formData.length(); i++) {
+        writer.write(formData.charAt(i));
+      }
+    }
+
     connection.setRequestMethod("POST");
     connection.setDoInput(true);
     connection.setDoOutput(true);
     connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=" + StandardCharsets.UTF_8.name());
-    connection.setRequestProperty("Content-Length", Integer.toString(bytes.length));
+    connection.setRequestProperty("Content-Length", Integer.toString(compressed.size()));
+    connection.setRequestProperty("Content-Encoding", "gzip");
 
     try (OutputStream out = connection.getOutputStream()) {
-      out.write(bytes);
+      out.write(compressed.getInternalBuffer(), 0, compressed.size());
     }
 
     return connection;
@@ -278,7 +355,7 @@ class ITNProxy {
           Certificate ca = certificates[certificates.length - 1];
           if (ca instanceof X509Certificate) {
             String cn = CertificateUtil.getCommonName((X509Certificate)ca);
-            byte[] digest = MessageDigest.getInstance("SHA-1").digest(ca.getEncoded());
+            byte[] digest = DigestUtil.sha1().digest(ca.getEncoded());
             StringBuilder fp = new StringBuilder(2 * digest.length);
             for (byte b : digest) fp.append(Integer.toHexString(b & 0xFF));
             if (JB_CA_CN.equals(cn) && JB_CA_FP.equals(fp.toString())) {
@@ -287,13 +364,13 @@ class ITNProxy {
           }
         }
       }
-      catch (SSLPeerUnverifiedException | CertificateEncodingException | NoSuchAlgorithmException ignored) { }
+      catch (SSLPeerUnverifiedException | CertificateEncodingException ignored) { }
 
       return false;
     }
   }
 
-  @SuppressWarnings("SpellCheckingInspection") private static final String JB_CA_CERT =
+  @SuppressWarnings("SpellCheckingInspection") private static final @NonNls String JB_CA_CERT =
     "-----BEGIN CERTIFICATE-----\n" +
     "MIIFvjCCA6agAwIBAgIQMYHnK1dpIZVCoitWqBwhXjANBgkqhkiG9w0BAQsFADBn\n" +
     "MRMwEQYKCZImiZPyLGQBGRYDTmV0MRgwFgYKCZImiZPyLGQBGRYISW50ZWxsaUox\n" +

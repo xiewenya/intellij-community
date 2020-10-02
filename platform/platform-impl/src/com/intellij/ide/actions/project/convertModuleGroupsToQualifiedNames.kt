@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions.project
 
 import com.intellij.CommonBundle
@@ -6,9 +6,8 @@ import com.intellij.application.runInAllowSaveMode
 import com.intellij.codeInsight.intention.IntentionManager
 import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.codeInspection.ex.InspectionProfileWrapper
-import com.intellij.codeInspection.ex.InspectionToolWrapper
+import com.intellij.codeInspection.ex.InspectionToolsSupplier
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper
-import com.intellij.lang.StdLanguages
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.runWriteAction
@@ -19,6 +18,7 @@ import com.intellij.openapi.editor.SpellCheckingEditorCustomizationProvider
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.openapi.fileTypes.PlainTextLanguage
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.ModulePointerManager
@@ -38,9 +38,9 @@ import com.intellij.xml.util.XmlStringUtil
 import java.awt.Color
 import java.awt.Font
 import java.util.function.Function
-import java.util.function.Supplier
 import javax.swing.Action
 import javax.swing.JCheckBox
+import javax.swing.JComponent
 import javax.swing.JPanel
 
 class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWrapper(project) {
@@ -55,7 +55,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
     title = ProjectBundle.message("convert.module.groups.dialog.title")
     isModal = false
     setOKButtonText(ProjectBundle.message("convert.module.groups.button.text"))
-    editorArea = EditorTextFieldProvider.getInstance().getEditorField(StdLanguages.TEXT, project, listOf(EditorCustomization {
+    editorArea = EditorTextFieldProvider.getInstance().getEditorField(PlainTextLanguage.INSTANCE, project, listOf(EditorCustomization {
       it.settings.apply {
         isLineNumbersShown = false
         isLineMarkerAreaShown = false
@@ -70,7 +70,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
       setupHighlighting(it)
     }, MonospaceEditorCustomization.getInstance()))
     document.addDocumentListener(object: DocumentListener {
-      override fun documentChanged(event: DocumentEvent?) {
+      override fun documentChanged(event: DocumentEvent) {
         modified = true
       }
     }, disposable)
@@ -81,9 +81,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
 
   private fun setupHighlighting(editor: Editor) {
     editor.putUserData(IntentionManager.SHOW_INTENTION_OPTIONS_KEY, false)
-    val inspections = Supplier<List<InspectionToolWrapper<*, *>>> {
-      listOf(LocalInspectionToolWrapper(ModuleNamesListInspection()))
-    }
+    val inspections = InspectionToolsSupplier.Simple(listOf(LocalInspectionToolWrapper(ModuleNamesListInspection())))
     val file = PsiDocumentManager.getInstance(project).getPsiFile(document)
     file?.putUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY, Function {
       val profile = InspectionProfileImpl("Module names", inspections, null)
@@ -105,7 +103,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
       .addToBottom(recordPreviousNames)
   }
 
-  override fun getPreferredFocusedComponent() = editorArea.focusTarget
+  override fun getPreferredFocusedComponent(): JComponent = editorArea.focusTarget
 
   private fun generateLineExtension(line: Int): Collection<LineExtensionInfo> {
     val lineText = document.charsSequence.subSequence(document.getLineStartOffset(line), document.getLineEndOffset(line)).toString()
@@ -153,7 +151,7 @@ class ConvertModuleGroupsToQualifiedNamesDialog(val project: Project) : DialogWr
         }
       }
     }
-    
+
     super.doCancelAction()
   }
 

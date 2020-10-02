@@ -16,13 +16,20 @@
 package com.siyeh.ig.junit;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import com.siyeh.ig.testFrameworks.SimplifiableAssertionInspection;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class SimplifiableJUnitAssertionInspectionTest extends LightInspectionTestCase {
+public class SimplifiableJUnitAssertionInspectionTest extends LightJavaInspectionTestCase {
+  @Override
+  protected String getBasePath() {
+    return "/plugins/InspectionGadgets/test/com/siyeh/igtest/junit/simplifiable_junit_assertion";
+  }
 
   public void testSimplifiableJUnitAssertion() {
     doTest();
@@ -32,17 +39,23 @@ public class SimplifiableJUnitAssertionInspectionTest extends LightInspectionTes
     doTest();
   }
 
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_8;
+  }
+
   @Nullable
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new SimplifiableJUnitAssertionInspection();
+    return new SimplifiableAssertionInspection();
   }
 
   @Override
   protected String[] getEnvironmentClasses() {
     return new String[] {
       "package junit.framework;" +
-      "public abstract class TestCase extends Assert {" +
+      " /** @noinspection ALL*/ public abstract class TestCase extends Assert {" +
       "    protected void setUp() throws Exception {}" +
       "    protected void tearDown() throws Exception {}" +
       "    public static void assertTrue(boolean condition) {" +

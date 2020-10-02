@@ -20,27 +20,27 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.vcs.log.VcsFullCommitDetails;
-import com.intellij.vcs.log.data.VcsLogData;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.vcs.log.VcsCommitMetadata;
+import com.intellij.vcs.log.data.DataGetter;
+import java.util.List;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
-import java.util.List;
-
-public abstract class CommitSelectionListener implements ListSelectionListener {
+public abstract class CommitSelectionListener<T extends VcsCommitMetadata> implements ListSelectionListener {
   private final static Logger LOG = Logger.getInstance(CommitSelectionListener.class);
-  @NotNull private final VcsLogData myLogData;
   @NotNull protected final VcsLogGraphTable myGraphTable;
+  @NotNull private final DataGetter<? extends T> myCommitDetailsGetter;
 
   @Nullable private ListSelectionEvent myLastEvent;
   @Nullable private ProgressIndicator myLastRequest;
 
-  protected CommitSelectionListener(@NotNull VcsLogData data, @NotNull VcsLogGraphTable table) {
-    myLogData = data;
+  protected CommitSelectionListener(@NotNull VcsLogGraphTable table,
+                                    @NotNull DataGetter<? extends T> dataGetter) {
     myGraphTable = table;
+    myCommitDetailsGetter = dataGetter;
   }
 
   @Override
@@ -68,10 +68,11 @@ public abstract class CommitSelectionListener implements ListSelectionListener {
       myLastRequest = indicator;
 
       List<Integer> selectionToLoad = getSelectionToLoad();
-      myLogData.getCommitDetailsGetter().loadCommitsData(myGraphTable.getModel().convertToCommitIds(selectionToLoad), detailsList -> {
+      myCommitDetailsGetter.loadCommitsData(myGraphTable.getModel().convertToCommitIds(selectionToLoad), detailsList -> {
         if (myLastRequest == indicator && !(indicator.isCanceled())) {
-          LOG.assertTrue(selectionToLoad.size() == detailsList.size(),
-                         "Loaded incorrect number of details " + detailsList + " for selection " + selectionToLoad);
+          if (selectionToLoad.size() != detailsList.size()) {
+            LOG.error("Loaded incorrect number of details " + detailsList + " for selection " + selectionToLoad);
+          }
           myLastRequest = null;
           onDetailsLoaded(detailsList);
           stopLoading();
@@ -91,21 +92,21 @@ public abstract class CommitSelectionListener implements ListSelectionListener {
     return Ints.asList(myGraphTable.getSelectedRows());
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected abstract void startLoading();
 
-  @CalledInAwt
+  @RequiresEdt
   protected abstract void stopLoading();
 
-  @CalledInAwt
+  @RequiresEdt
   protected abstract void onError(@NotNull Throwable error);
 
-  @CalledInAwt
-  protected abstract void onDetailsLoaded(@NotNull List<VcsFullCommitDetails> detailsList);
+  @RequiresEdt
+  protected abstract void onDetailsLoaded(@NotNull List<? extends T> detailsList);
 
-  @CalledInAwt
-  protected abstract void onSelection(@NotNull int[] selection);
+  @RequiresEdt
+  protected abstract void onSelection(int @NotNull [] selection);
 
-  @CalledInAwt
+  @RequiresEdt
   protected abstract void onEmptySelection();
 }

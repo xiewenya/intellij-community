@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.wm.impl.status;
 
-import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.DumbAware;
@@ -29,15 +28,14 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 
+@SuppressWarnings("HardCodedStringLiteral")
 public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAware {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     new MyDialogWrapper(e.getProject()).show();
   }
 
   private static class MyDialogWrapper extends DialogWrapper {
-    private final boolean ORIGINAL_ALLOW_MERGE_BUTTONS;
-
     private final Wrapper mySouthPanel = new Wrapper();
 
     private final JButton myRefresh = new JButton("Refresh");
@@ -47,21 +45,18 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
     private final JCheckBox myHasOptionAction = new JCheckBox("Option action", false);
     private final JCheckBox myHasLeftAction = new JCheckBox("Left action", true);
     private final JCheckBox myHasDoNotShowCheckbox = new JCheckBox("'Do not show' checkbox", true);
-    private final JCheckBox myAllowMergeButtons = new JCheckBox("Allow merge buttons", false);
     private final JCheckBox myCompact = new JCheckBox("Compact style", false);
     private final JCheckBox myErrorText = new JCheckBox("Error text", false);
     private final JCheckBox myMoveErrorTextToButtons = new JCheckBox("Move error text to the buttons", false);
     private final JCheckBox myCenterButtons = new JCheckBox("Center buttons", false);
 
-    public MyDialogWrapper(Project project) {
+    MyDialogWrapper(Project project) {
       super(project);
-      ORIGINAL_ALLOW_MERGE_BUTTONS = UISettings.getShadowInstance().getAllowMergeButtons();
       init();
     }
 
     @Override
     protected void dispose() {
-      UISettings.getShadowInstance().setAllowMergeButtons(ORIGINAL_ALLOW_MERGE_BUTTONS);
       super.dispose();
     }
 
@@ -73,9 +68,6 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
 
       myRefresh.addActionListener(e -> refreshSouthPanel());
 
-      myAllowMergeButtons.setSelected(ORIGINAL_ALLOW_MERGE_BUTTONS);
-      myAllowMergeButtons.addActionListener(e -> UISettings.getShadowInstance().setAllowMergeButtons(myAllowMergeButtons.isSelected()));
-
       myErrorText.addActionListener(e -> setErrorText(myErrorText.isSelected() ? "Error text" : null, myErrorText));
       myCenterButtons.addActionListener(e -> setButtonsAlignment(myCenterButtons.isSelected() ? SwingUtilities.CENTER : SwingUtilities.RIGHT));
 
@@ -86,7 +78,6 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
       panel.add(myHasOptionAction);
       panel.add(myHasLeftAction);
       panel.add(myHasDoNotShowCheckbox);
-      panel.add(myAllowMergeButtons);
       panel.add(myCompact);
       panel.add(myErrorText);
       panel.add(myMoveErrorTextToButtons);
@@ -105,15 +96,8 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
       mySouthPanel.setContent(super.createSouthPanel());
     }
 
-    @Nullable
     @Override
-    protected String getHelpId() {
-      return "help.id";
-    }
-
-    @NotNull
-    @Override
-    protected Action[] createActions() {
+    protected Action @NotNull [] createActions() {
       return new Action[]{
         myHasOKAction.isSelected() ? getOKAction() : null,
         myHasCancelAction.isSelected() ? getCancelAction() : null,
@@ -122,9 +106,8 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
       };
     }
 
-    @NotNull
     @Override
-    protected Action[] createLeftSideActions() {
+    protected Action @NotNull [] createLeftSideActions() {
       return myHasLeftAction.isSelected() ? new Action[]{new MyAction("Left")} : new Action[0];
     }
 
@@ -148,7 +131,7 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
     private static class MyOptionAction extends MyAction implements OptionAction {
       private final Action[] myActions;
 
-      public MyOptionAction() {
+      MyOptionAction() {
         super("Option Button");
         myActions = new Action[]{
           new MyAction("Option #1"),
@@ -157,15 +140,14 @@ public class ShowSouthPanelTestDialogAction extends AnAction implements DumbAwar
         };
       }
 
-      @NotNull
       @Override
-      public Action[] getOptions() {
+      public Action @NotNull [] getOptions() {
         return myActions;
       }
     }
 
     private static class MyAction extends AbstractAction {
-      public MyAction(String name) {
+      MyAction(String name) {
         super(name);
       }
 

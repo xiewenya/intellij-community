@@ -17,7 +17,7 @@ package com.intellij.compiler.impl.javaCompiler.javac;
 
 import com.intellij.compiler.impl.javaCompiler.CompilerModuleOptionsComponent;
 import com.intellij.compiler.options.ComparingUtils;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
@@ -44,13 +44,15 @@ public class JavacConfigurable implements Configurable{
   public JavacConfigurable(Project project, final JpsJavaCompilerOptions javacSettings) {
     myProject = project;
     myJavacSettings = javacSettings;
-    myAdditionalOptionsField.setDialogCaption(CompilerBundle.message("java.compiler.option.additional.command.line.parameters"));
+    myAdditionalOptionsField.setDialogCaption(JavaCompilerBundle.message("java.compiler.option.additional.command.line.parameters"));
+    myAdditionalOptionsField.setDescriptor(null, false);
   }
 
   private void createUIComponents() {
     myOptionsOverride = new CompilerModuleOptionsComponent(myProject);
   }
 
+  @Override
   public String getDisplayName() {
     return null;
   }
@@ -60,10 +62,12 @@ public class JavacConfigurable implements Configurable{
     return null;
   }
 
+  @Override
   public JComponent createComponent() {
     return myPanel;
   }
 
+  @Override
   public boolean isModified() {
     boolean isModified = false;
     isModified |= ComparingUtils.isModified(myCbPreferTargetJdkCompiler, myJavacSettings.PREFER_TARGET_JDK_COMPILER);
@@ -76,6 +80,7 @@ public class JavacConfigurable implements Configurable{
     return isModified;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     myJavacSettings.PREFER_TARGET_JDK_COMPILER =  myCbPreferTargetJdkCompiler.isSelected();
     myJavacSettings.DEPRECATION =  myCbDeprecation.isSelected();
@@ -86,6 +91,7 @@ public class JavacConfigurable implements Configurable{
     myJavacSettings.ADDITIONAL_OPTIONS_OVERRIDE.putAll(myOptionsOverride.getModuleOptionsMap());
   }
 
+  @Override
   public void reset() {
     myCbPreferTargetJdkCompiler.setSelected(myJavacSettings.PREFER_TARGET_JDK_COMPILER);
     myCbDeprecation.setSelected(myJavacSettings.DEPRECATION);

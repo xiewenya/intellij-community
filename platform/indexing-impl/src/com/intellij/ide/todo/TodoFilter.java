@@ -16,12 +16,14 @@
 package com.intellij.ide.todo;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.PsiTodoSearchHelper;
 import com.intellij.psi.search.TodoPattern;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.SmartHashSet;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashSet;
@@ -30,13 +32,13 @@ import java.util.List;
 import java.util.Set;
 
 public class TodoFilter implements Cloneable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.todo.TodoFilter");
+  private static final Logger LOG = Logger.getInstance(TodoFilter.class);
 
-  private static final String ATTRIBUTE_NAME = "name";
-  private static final String ELEMENT_PATTERN = "pattern";
-  private static final String ATTRIBUTE_INDEX = "index";
+  private static final @NonNls String ATTRIBUTE_NAME = "name";
+  private static final @NonNls String ELEMENT_PATTERN = "pattern";
+  private static final @NonNls String ATTRIBUTE_INDEX = "index";
 
-  private String myName;
+  private @NlsSafe String myName;
   private Set<TodoPattern> myTodoPatterns;
 
   public TodoFilter() {
@@ -44,7 +46,7 @@ public class TodoFilter implements Cloneable {
     myTodoPatterns = new SmartHashSet<>();
   }
 
-  public TodoFilter(@NotNull Element element, @NotNull List<TodoPattern> patterns) {
+  public TodoFilter(@NotNull Element element, @NotNull List<? extends TodoPattern> patterns) {
     setName("");
     myTodoPatterns = new SmartHashSet<>();
     readExternal(element, patterns);
@@ -67,11 +69,13 @@ public class TodoFilter implements Cloneable {
   /**
    * @return filter's name. That is not {@code null} string.
    */
+  @NotNull
+  @NlsSafe
   public String getName() {
     return myName;
   }
 
-  public void setName(@NotNull String name) {
+  public void setName(@NotNull @NlsSafe String name) {
     myName = name;
   }
 
@@ -112,7 +116,7 @@ public class TodoFilter implements Cloneable {
     return myTodoPatterns.isEmpty();
   }
 
-  private void readExternal(@NotNull Element element, @NotNull List<TodoPattern> patterns) {
+  private void readExternal(@NotNull Element element, @NotNull List<? extends TodoPattern> patterns) {
     myName = element.getAttributeValue(ATTRIBUTE_NAME);
     if (myName == null) {
       throw new IllegalArgumentException();

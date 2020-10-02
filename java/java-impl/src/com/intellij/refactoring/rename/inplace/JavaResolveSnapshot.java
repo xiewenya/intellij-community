@@ -21,15 +21,15 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.refactoring.rename.RenameJavaMemberProcessor;
 import com.intellij.refactoring.rename.ResolveSnapshotProvider;
-import java.util.HashMap;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author ven
  */
 class JavaResolveSnapshot extends ResolveSnapshotProvider.ResolveSnapshot {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.rename.inplace.JavaResolveSnapshot");
+  private static final Logger LOG = Logger.getInstance(JavaResolveSnapshot.class);
 
   private final Map<SmartPsiElementPointer, SmartPsiElementPointer> myReferencesMap = new HashMap<>();
   private final Project myProject;
@@ -60,6 +60,7 @@ class JavaResolveSnapshot extends ResolveSnapshotProvider.ResolveSnapshot {
     });
   }
 
+  @Override
   public void apply(String hidingLocalName) {
     PsiDocumentManager.getInstance(myProject).commitDocument(myDocument);
     for (Map.Entry<SmartPsiElementPointer,SmartPsiElementPointer> entry : myReferencesMap.entrySet()) {

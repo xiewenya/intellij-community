@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.openapi.ui.impl;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.IdeFocusManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -26,8 +27,8 @@ import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 
 /**
-* @author Konstantin Bulenkov
-*/
+ * @author Konstantin Bulenkov
+ */
 interface AbstractDialog extends Disposable {
   void setUndecorated(boolean undecorated);
 
@@ -37,7 +38,10 @@ interface AbstractDialog extends Disposable {
 
   void addKeyListener(KeyListener listener);
 
-  @Deprecated // Use setModalityType instead
+  /**
+   * @deprecated use {@link #setModalityType(Dialog.ModalityType)}
+   */
+  @Deprecated
   void setModal(boolean b);
 
   void toFront();
@@ -64,7 +68,7 @@ interface AbstractDialog extends Disposable {
 
   Dimension getSize();
 
-  String getTitle();
+  @NlsContexts.DialogTitle String getTitle();
 
   void pack();
 
@@ -76,7 +80,7 @@ interface AbstractDialog extends Disposable {
 
   void setSize(int width, int height);
 
-  void setTitle(String title);
+  void setTitle(@NlsContexts.DialogTitle String title);
 
   boolean isResizable();
 
@@ -89,7 +93,10 @@ interface AbstractDialog extends Disposable {
 
   void setLocation(int x, int y);
 
-  @Deprecated // use getModalityTypeInstead
+  /**
+   * @deprecated use {@link #getModalityType()}
+   */
+  @Deprecated
   boolean isModal();
 
   void setModalityType(Dialog.ModalityType modalityType);
@@ -100,5 +107,4 @@ interface AbstractDialog extends Disposable {
 
   @NotNull
   IdeFocusManager getFocusManager();
-
 }

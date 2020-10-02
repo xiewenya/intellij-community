@@ -1,10 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.junit2.inspection;
 
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.visibility.EntryPointWithVisibilityLevel;
+import com.intellij.execution.JUnitBundle;
 import com.intellij.execution.junit.JUnitUtil;
 import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.InvalidDataException;
@@ -22,11 +23,13 @@ import org.jetbrains.annotations.NotNull;
 public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
   public boolean ADD_JUNIT_TO_ENTRIES = true;
 
+  @Override
   @NotNull
   public String getDisplayName() {
-    return "JUnit test cases";
+    return JUnitBundle.message("unused.declaration.junit.test.entry.point");
   }
 
+  @Override
   public boolean isEntryPoint(@NotNull RefElement refElement, @NotNull PsiElement psiElement) {
     return isEntryPoint(psiElement);
   }
@@ -56,7 +59,8 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     else if (psiElement instanceof PsiMethod) {
       final PsiMethod method = (PsiMethod)psiElement;
       if (method.isConstructor() && method.getParameterList().isEmpty()) {
-        return JUnitUtil.isTestClass(method.getContainingClass());
+        final PsiClass aClass = method.getContainingClass();
+        return aClass != null && JUnitUtil.isTestClass(aClass);
       }
       if (JUnitUtil.isTestMethodOrConfig(method)) return true;
     }
@@ -75,21 +79,24 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     else if (member instanceof PsiMethod) {
       container = member.getContainingClass();
     }
-    if (container != null && JUnitUtil.isJUnit5TestClass(container, false)) {
+    if (container != null && 
+        JUnitUtil.isJUnit5TestClass(container, false) && 
+        !JUnitUtil.isJUnit4TestClass(container, false) && 
+        !JUnitUtil.isJUnit3TestClass(container)) {
       return PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL;
     }
-    
-    if (member instanceof PsiField && 
+
+    if (member instanceof PsiField &&
         AnnotationUtil.isAnnotated(member, JUnitCommonClassNames.ORG_JUNIT_JUPITER_API_EXTENSION_REGISTER_EXTENSION, 0)) {
       return PsiUtil.ACCESS_LEVEL_PACKAGE_LOCAL;
     }
 
-    return -1;
+    return ACCESS_LEVEL_INVALID;
   }
 
   @Override
   public String getTitle() {
-    return "Suggest package-private visibility level for junit 5 tests";
+    return JUnitBundle.message("junit.entry.point.suggest.package.private.visibility.junit5");
   }
 
   @Override
@@ -97,18 +104,22 @@ public class JUnitEntryPoint extends EntryPointWithVisibilityLevel {
     return "junit";
   }
 
+  @Override
   public boolean isSelected() {
     return ADD_JUNIT_TO_ENTRIES;
   }
 
+  @Override
   public void setSelected(boolean selected) {
     ADD_JUNIT_TO_ENTRIES = selected;
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     if (!ADD_JUNIT_TO_ENTRIES) {
       DefaultJDOMExternalizer.writeExternal(this, element);

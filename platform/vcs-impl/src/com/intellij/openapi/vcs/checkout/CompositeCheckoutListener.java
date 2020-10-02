@@ -1,72 +1,61 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.checkout;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.CheckoutProvider;
 import com.intellij.openapi.vcs.VcsKey;
-import com.intellij.openapi.vfs.VfsUtilCore;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.util.List;
 
 /**
  * to be called after checkout - notifiers extenders on checkout completion
  */
-public class CompositeCheckoutListener implements CheckoutProvider.Listener {
+public final class CompositeCheckoutListener implements CheckoutProvider.Listener {
   private final Project myProject;
   private boolean myFoundProject = false;
-  private File myFirstDirectory;
+  private Path myFirstDirectory;
   private VcsKey myVcsKey;
 
-  public CompositeCheckoutListener(final Project project) {
+  public CompositeCheckoutListener(@NotNull Project project) {
     myProject = project;
   }
 
-  public void directoryCheckedOut(final File directory, VcsKey vcs) {
+  @Override
+  public void directoryCheckedOut(@NotNull File directory, VcsKey vcs) {
     myVcsKey = vcs;
     if (!myFoundProject && directory.isDirectory()) {
       if (myFirstDirectory == null) {
-        myFirstDirectory = directory;
+        myFirstDirectory = directory.toPath();
       }
-      notifyCheckoutListeners(directory, false);
+      notifyCheckoutListeners(directory.toPath(), false);
     }
   }
 
-  private void notifyCheckoutListeners(final File directory, boolean checkoutCompleted) {
+  private void notifyCheckoutListeners(@NotNull Path directory, boolean checkoutCompleted) {
     ExtensionPointName<CheckoutListener> epName = checkoutCompleted ? CheckoutListener.COMPLETED_EP_NAME : CheckoutListener.EP_NAME;
 
-    CheckoutListener[] listeners = Extensions.getExtensions(epName);
+    List<CheckoutListener> listeners = epName.getExtensionList();
     for (CheckoutListener listener: listeners) {
       myFoundProject = listener.processCheckedOutDirectory(myProject, directory);
-      if (myFoundProject) break;
+      if (myFoundProject) {
+        break;
+      }
     }
 
     if (!checkoutCompleted) {
-      final VcsAwareCheckoutListener[] vcsAwareExtensions = Extensions.getExtensions(VcsAwareCheckoutListener.EP_NAME);
-      for (VcsAwareCheckoutListener extension : vcsAwareExtensions) {
+      for (VcsAwareCheckoutListener extension : VcsAwareCheckoutListener.EP_NAME.getExtensionList()) {
         boolean processingCompleted = extension.processCheckedOutDirectory(myProject, directory, myVcsKey);
-        if (processingCompleted) break;
+        if (processingCompleted) {
+          break;
+        }
       }
     }
 
@@ -78,17 +67,17 @@ public class CompositeCheckoutListener implements CheckoutProvider.Listener {
     }
   }
 
+  @Override
   public void checkoutCompleted() {
     if (!myFoundProject && myFirstDirectory != null) {
       notifyCheckoutListeners(myFirstDirectory, true);
     }
   }
 
-  @Nullable
-  static Project findProjectByBaseDirLocation(@NotNull final File directory) {
+  static @Nullable Project findProjectByBaseDirLocation(@NotNull Path directory) {
     return ContainerUtil.find(ProjectManager.getInstance().getOpenProjects(), project -> {
-      VirtualFile baseDir = project.getBaseDir();
-      return baseDir != null && FileUtil.filesEqual(VfsUtilCore.virtualToIoFile(baseDir), directory);
+      String baseDir = project.getBasePath();
+      return baseDir != null && FileUtil.pathsEqual(baseDir, directory.toString());
     });
   }
 }

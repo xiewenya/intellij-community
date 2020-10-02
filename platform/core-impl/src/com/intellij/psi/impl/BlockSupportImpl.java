@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl;
 
@@ -9,11 +9,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.ex.DocumentBulkUpdateListener;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
@@ -26,8 +24,8 @@ import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.impl.source.tree.*;
 import com.intellij.psi.templateLanguages.ITemplateDataElementType;
 import com.intellij.psi.text.BlockSupport;
-import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.tree.IReparseableElementType;
+import com.intellij.psi.tree.*;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.CharTable;
 import com.intellij.util.IncorrectOperationException;
@@ -35,23 +33,18 @@ import com.intellij.util.diff.DiffTree;
 import com.intellij.util.diff.DiffTreeChangeBuilder;
 import com.intellij.util.diff.FlyweightCapableTreeStructure;
 import com.intellij.util.diff.ShallowNodeComparator;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class BlockSupportImpl extends BlockSupport {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.text.BlockSupportImpl");
+import java.util.function.Function;
 
-  public BlockSupportImpl(Project project) {
-    project.getMessageBus().connect().subscribe(DocumentBulkUpdateListener.TOPIC, new DocumentBulkUpdateListener.Adapter() {
-      @Override
-      public void updateStarted(@NotNull final Document doc) {
-        doc.putUserData(DO_NOT_REPARSE_INCREMENTALLY, Boolean.TRUE);
-      }
-    });
-  }
+public class BlockSupportImpl extends BlockSupport {
+  private static final Logger LOG = Logger.getInstance(BlockSupportImpl.class);
 
   @Override
-  public void reparseRange(@NotNull PsiFile file, int startOffset, int endOffset, @NotNull CharSequence newText) throws IncorrectOperationException {
+  public void reparseRange(@NotNull PsiFile file, int startOffset, int endOffset, @NotNull CharSequence newText)
+    throws IncorrectOperationException {
     LOG.assertTrue(file.isValid());
     final PsiFileImpl psiFile = (PsiFileImpl)file;
     final Document document = psiFile.getViewProvider().getDocument();
@@ -68,12 +61,10 @@ public class BlockSupportImpl extends BlockSupport {
                               @NotNull final CharSequence newFileText,
                               @NotNull final ProgressIndicator indicator,
                               @NotNull CharSequence lastCommittedText) {
-    try (ReparseResult result = reparse(file, oldFileNode, changedPsiRange, newFileText, indicator, lastCommittedText)) {
-      return result.log;
-    }
+    return reparse(file, oldFileNode, changedPsiRange, newFileText, indicator, lastCommittedText).log;
   }
 
-  static class ReparseResult implements AutoCloseable {
+  static class ReparseResult {
     final DiffLog log;
     final ASTNode oldRoot;
     final ASTNode newRoot;
@@ -84,9 +75,6 @@ public class BlockSupportImpl extends BlockSupport {
       this.newRoot = newRoot;
     }
 
-    @Override
-    public void close() {
-    }
   }
   // return diff log, old node to replace, new node (in dummy file)
   // MUST call .close() on the returned result
@@ -120,67 +108,139 @@ public class BlockSupportImpl extends BlockSupport {
                                                      @NotNull FileASTNode oldFileNode,
                                                      @NotNull TextRange changedPsiRange,
                                                      @NotNull CharSequence newFileText) {
-    Project project = file.getProject();
     final FileElement fileElement = (FileElement)oldFileNode;
     final CharTable charTable = fileElement.getCharTable();
     int lengthShift = newFileText.length() - fileElement.getTextLength();
 
-    if (fileElement.getElementType() instanceof ITemplateDataElementType || isTooDeep(file)) {
-      // unable to perform incremental reparse for template data in JSP, or in exceptionally deep trees
+    if (isTooDeep(file)) {
       return null;
     }
+
+    boolean isTemplateFile = fileElement.getElementType() instanceof ITemplateDataElementType;
 
     final ASTNode leafAtStart = fileElement.findLeafElementAt(Math.max(0, changedPsiRange.getStartOffset() - 1));
     final ASTNode leafAtEnd = fileElement.findLeafElementAt(Math.min(changedPsiRange.getEndOffset(), fileElement.getTextLength() - 1));
     ASTNode node = leafAtStart != null && leafAtEnd != null ? TreeUtil.findCommonParent(leafAtStart, leafAtEnd) : fileElement;
     Language baseLanguage = file.getViewProvider().getBaseLanguage();
 
-    while (node != null && !(node instanceof FileElement)) {
-      IElementType elementType = node.getElementType();
-      if (elementType instanceof IReparseableElementType) {
-        final TextRange textRange = node.getTextRange();
-        final IReparseableElementType reparseable = (IReparseableElementType)elementType;
+    Function<ASTNode, Couple<ASTNode>> reparseNodeFunction = astNode -> {
+      IElementType elementType = astNode.getElementType();
+      if (elementType instanceof IReparseableElementTypeBase || elementType instanceof IReparseableLeafElementType) {
+        final TextRange textRange = astNode.getTextRange();
 
-        if (baseLanguage.isKindOf(reparseable.getLanguage()) && textRange.getLength() + lengthShift > 0) {
+        if (textRange.getLength() + lengthShift > 0 &&
+            (baseLanguage.isKindOf(elementType.getLanguage()) || !TreeUtil.containsOuterLanguageElements(astNode))) {
           final int start = textRange.getStartOffset();
           final int end = start + textRange.getLength() + lengthShift;
           if (end > newFileText.length()) {
-            reportInconsistentLength(file, newFileText, node, start, end);
-            break;
+            reportInconsistentLength(file, newFileText, astNode, start, end);
+            return Couple.of(null, null);
           }
 
           CharSequence newTextStr = newFileText.subSequence(start, end);
 
-          if (reparseable.isParsable(node.getTreeParent(), newTextStr, baseLanguage, project)) {
-            ASTNode chameleon = reparseable.createNode(newTextStr);
-            if (chameleon != null) {
-              DummyHolder holder = DummyHolderFactory.createHolder(file.getManager(), null, node.getPsi(), charTable);
-              holder.getTreeElement().rawAddChildren((TreeElement)chameleon);
+          ASTNode newNode;
+          if (elementType instanceof IReparseableElementTypeBase) {
+            newNode =
+              tryReparseNode((IReparseableElementTypeBase)elementType, astNode, newTextStr, file.getManager(), baseLanguage, charTable);
+          }
+          else {
+            newNode = tryReparseLeaf((IReparseableLeafElementType)elementType, astNode, newTextStr);
+          }
 
-              if (holder.getTextLength() != newTextStr.length()) {
-                String details = ApplicationManager.getApplication().isInternal()
-                                 ? "text=" + newTextStr + "; treeText=" + holder.getText() + ";"
-                                 : "";
-                LOG.error("Inconsistent reparse: " + details + " type=" + elementType);
-              }
-
-              return Couple.of(node, chameleon);
+          if (newNode != null) {
+            if (newNode.getTextLength() != newTextStr.length()) {
+              String details = ApplicationManager.getApplication().isInternal()
+                               ? "text=" + newTextStr + "; treeText=" + newNode.getText() + ";"
+                               : "";
+              LOG.error("Inconsistent reparse: " + details + " type=" + elementType);
             }
+
+            return Couple.of(astNode, newNode);
           }
         }
+      }
+      return null;
+    };
+
+    TextRange startLeafRange = leafAtStart == null ? null : leafAtStart.getTextRange();
+    TextRange endLeafRange = leafAtEnd == null ? null : leafAtEnd.getTextRange();
+
+    IElementType startLeafType = PsiUtilCore.getElementType(leafAtStart);
+    if (startLeafType instanceof IReparseableLeafElementType &&
+        startLeafRange.getEndOffset() == changedPsiRange.getEndOffset() &&
+        (!isTemplateFile || startLeafType instanceof OuterLanguageElementType)) {
+      Couple<ASTNode> reparseResult = reparseNodeFunction.apply(leafAtStart);
+      if (reparseResult != null && reparseResult.first != null) {
+        return reparseResult;
+      }
+    }
+    IElementType endLeafType = PsiUtilCore.getElementType(leafAtEnd);
+    if (endLeafType instanceof IReparseableLeafElementType &&
+        endLeafRange.getStartOffset() == changedPsiRange.getStartOffset() &&
+        (!isTemplateFile || endLeafType instanceof OuterLanguageElementType)) {
+      Couple<ASTNode> reparseResult = reparseNodeFunction.apply(leafAtEnd);
+      if (reparseResult != null && reparseResult.first != null) {
+        return reparseResult;
+      }
+    }
+
+    while (node != null && !(node instanceof FileElement)) {
+      if (isTemplateFile && !(PsiUtilCore.getElementType(node) instanceof OuterLanguageElementType)) {
+        break;
+      }
+      Couple<ASTNode> couple = reparseNodeFunction.apply(node);
+      if (couple != null) {
+        if (couple.first == null) {
+          break;
+        }
+        return couple;
       }
       node = node.getTreeParent();
     }
     return null;
   }
 
+  @Nullable
+  protected static ASTNode tryReparseNode(@NotNull IReparseableElementTypeBase reparseable, @NotNull ASTNode node, @NotNull CharSequence newTextStr,
+                                          @NotNull PsiManager manager, @NotNull Language baseLanguage, @NotNull CharTable charTable) {
+    if (!reparseable.isReparseable(node, newTextStr, baseLanguage, manager.getProject())) {
+      return null;
+    }
+    ASTNode chameleon;
+    if (reparseable instanceof ICustomParsingType) {
+      chameleon = ((ICustomParsingType)reparseable).parse(newTextStr, SharedImplUtil.findCharTableByTree(node));
+    }
+    else if (reparseable instanceof ILazyParseableElementType) {
+      chameleon = ((ILazyParseableElementType)reparseable).createNode(newTextStr);
+    }
+    else {
+      throw new AssertionError(reparseable.getClass() + " must either implement ICustomParsingType or extend ILazyParseableElementType");
+    }
+    if (chameleon == null) {
+      return null;
+    }
+    DummyHolder holder = DummyHolderFactory.createHolder(manager, null, node.getPsi(), charTable);
+    holder.getTreeElement().rawAddChildren((TreeElement)chameleon);
+    if (!reparseable.isValidReparse(node, chameleon)) {
+      return null;
+    }
+    return chameleon;
+  }
+
+  @Nullable
+  @SuppressWarnings("unchecked")
+  protected static ASTNode tryReparseLeaf(@NotNull IReparseableLeafElementType reparseable, @NotNull ASTNode node, @NotNull CharSequence newTextStr) {
+    return reparseable.reparseLeaf(node, newTextStr);
+  }
+
   private static void reportInconsistentLength(PsiFile file, CharSequence newFileText, ASTNode node, int start, int end) {
-    String message = "Index out of bounds: type=" + node.getElementType() +
-                     "; file=" + file +
-                     "; file.class=" + file.getClass() +
-                     "; start=" + start +
-                     "; end=" + end +
-                     "; length=" + node.getTextLength();
+    @NonNls String message = "Index out of bounds: type=" + node.getElementType() +
+                             "; file=" + file +
+                             "; file.class=" + file.getClass() +
+                             "; start=" + start +
+                             "; end=" + end +
+                             "; length=" + node.getTextLength();
     String newTextBefore = newFileText.subSequence(0, start).toString();
     String oldTextBefore = file.getText().subSequence(0, start).toString();
     if (oldTextBefore.equals(newTextBefore)) {
@@ -209,13 +269,7 @@ public class BlockSupportImpl extends BlockSupport {
       DiffLog diffLog = new DiffLog();
       diffLog.appendReplaceFileElement(parent, (FileElement)holderElement.getFirstChildNode());
 
-      return new ReparseResult(diffLog, oldFileNode, holderElement) {
-        @Override
-        public void close() {
-          VirtualFile lightFile = dummyHolder.getViewProvider().getVirtualFile();
-          ((PsiManagerEx)fileImpl.getManager()).getFileManager().setViewProvider(lightFile, null);
-        }
-      };
+      return new ReparseResult(diffLog, oldFileNode, holderElement);
     }
     FileViewProvider viewProvider = fileImpl.getViewProvider();
     viewProvider.getLanguages();
@@ -243,12 +297,7 @@ public class BlockSupportImpl extends BlockSupport {
     }
     DiffLog diffLog = mergeTrees(fileImpl, oldFileElement, newFileElement, indicator, lastCommittedText);
 
-    return new ReparseResult(diffLog, oldFileElement, newFileElement) {
-      @Override
-      public void close() {
-        ((PsiManagerEx)fileImpl.getManager()).getFileManager().setViewProvider(lightFile, null);
-      }
-    };
+    return new ReparseResult(diffLog, oldFileElement, newFileElement);
   }
 
   @NotNull
@@ -274,7 +323,7 @@ public class BlockSupportImpl extends BlockSupport {
     return newFile;
   }
 
-  private static String details(FileViewProvider providerCopy, FileViewProvider viewProvider) {
+  private static @NonNls String details(FileViewProvider providerCopy, FileViewProvider viewProvider) {
     return "; languages: " + viewProvider.getLanguages() +
            "; base: " + viewProvider.getBaseLanguage() +
            "; copy: " + providerCopy +
@@ -287,9 +336,14 @@ public class BlockSupportImpl extends BlockSupport {
   }
 
   @NotNull
-  private static DiffLog replaceElementWithEvents(@NotNull CompositeElement oldRoot, @NotNull CompositeElement newRoot) {
+  private static DiffLog replaceElementWithEvents(@NotNull ASTNode oldRoot, @NotNull ASTNode newRoot) {
     DiffLog diffLog = new DiffLog();
-    diffLog.appendReplaceElementWithEvents(oldRoot, newRoot);
+    if (oldRoot instanceof CompositeElement) {
+      diffLog.appendReplaceElementWithEvents((CompositeElement)oldRoot, (CompositeElement)newRoot);
+    }
+    else {
+      diffLog.nodeReplaced(oldRoot, newRoot);
+    }
     return diffLog;
   }
 
@@ -299,14 +353,18 @@ public class BlockSupportImpl extends BlockSupport {
                                    @NotNull final ASTNode newRoot,
                                    @NotNull ProgressIndicator indicator,
                                    @NotNull CharSequence lastCommittedText) {
+    PsiUtilCore.ensureValid(fileImpl);
     if (newRoot instanceof FileElement) {
-      ((FileElement)newRoot).setCharTable(fileImpl.getTreeElement().getCharTable());
+      FileElement fileImplElement = fileImpl.getTreeElement();
+      if (fileImplElement != null) {
+        ((FileElement)newRoot).setCharTable(fileImplElement.getCharTable());
+      }
     }
 
     try {
       newRoot.putUserData(TREE_TO_BE_REPARSED, Pair.create(oldRoot, lastCommittedText));
       if (isReplaceWholeNode(fileImpl, newRoot)) {
-        DiffLog treeChangeEvent = replaceElementWithEvents((CompositeElement)oldRoot, (CompositeElement)newRoot);
+        DiffLog treeChangeEvent = replaceElementWithEvents(oldRoot, newRoot);
         fileImpl.putUserData(TREE_DEPTH_LIMIT_EXCEEDED, Boolean.TRUE);
 
         return treeChangeEvent;
@@ -335,7 +393,6 @@ public class BlockSupportImpl extends BlockSupport {
                                    @NotNull final FlyweightCapableTreeStructure<T> newTreeStructure,
                                    @NotNull ProgressIndicator indicator,
                                    @NotNull CharSequence lastCommittedText) {
-    TreeUtil.ensureParsedRecursivelyCheckingProgress(oldRoot, indicator);
     DiffTree.diff(createInterruptibleASTStructure(oldRoot, indicator), newTreeStructure, comparator, builder, lastCommittedText);
   }
 
@@ -366,38 +423,5 @@ public class BlockSupportImpl extends BlockSupport {
       fileImpl.putUserData(TREE_DEPTH_LIMIT_EXCEEDED, Boolean.TRUE);
     }
     return childTooDeep;
-  }
-
-  public static void sendBeforeChildrenChangeEvent(@NotNull PsiManagerImpl manager, @NotNull PsiElement scope, boolean isGenericChange) {
-    if (!scope.isPhysical()) {
-      manager.beforeChange(false);
-      return;
-    }
-    PsiTreeChangeEventImpl event = new PsiTreeChangeEventImpl(manager);
-    event.setParent(scope);
-    event.setFile(scope.getContainingFile());
-    TextRange range = scope.getTextRange();
-    event.setOffset(range == null ? 0 : range.getStartOffset());
-    event.setOldLength(scope.getTextLength());
-    // the "generic" event is being sent on every PSI change. It does not carry any specific info except the fact that "something has changed"
-    event.setGenericChange(isGenericChange);
-    manager.beforeChildrenChange(event);
-  }
-
-  public static void sendAfterChildrenChangedEvent(@NotNull PsiManagerImpl manager,
-                                                   @NotNull PsiFile scope,
-                                                   int oldLength,
-                                                   boolean isGenericChange) {
-    if (!scope.isPhysical()) {
-      manager.afterChange(false);
-      return;
-    }
-    PsiTreeChangeEventImpl event = new PsiTreeChangeEventImpl(manager);
-    event.setParent(scope);
-    event.setFile(scope);
-    event.setOffset(0);
-    event.setOldLength(oldLength);
-    event.setGenericChange(isGenericChange);
-    manager.childrenChanged(event);
   }
 }

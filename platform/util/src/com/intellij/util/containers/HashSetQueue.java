@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.AbstractCollection;
@@ -29,14 +16,14 @@ import java.util.Queue;
  * <li>The {@link #contains(Object)} method is O(1)</li>
  * <li>The {@link #remove(Object)} method is O(1)</li>
  * </ul>
- * Implementation is backed by {@link gnu.trove.THashSet} containing double-linked QueueEntry nodes holding elements themselves.
+ * Implementation is backed by {@link ObjectOpenHashSet} containing double-linked QueueEntry nodes holding elements themselves.
  */
-public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
-  private final OpenTHashSet<QueueEntry<T>> set = new OpenTHashSet<QueueEntry<T>>();
+public final class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
+  private final ObjectOpenHashSet<QueueEntry<T>> set = new ObjectOpenHashSet<>();
   // Entries in the queue are double-linked circularly, the TOMB serving as a sentinel.
   // TOMB.next is the first entry; TOMB.prev is the last entry;
   // TOMB.next == TOMB.prev == TOMB means the queue is empty
-  private final QueueEntry<T> TOMB = new QueueEntry<T>(cast(new Object()));
+  private final QueueEntry<T> TOMB = new QueueEntry<>(cast(new Object()));
 
   public HashSetQueue() {
     TOMB.next = TOMB.prev = TOMB;
@@ -47,7 +34,7 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
     private QueueEntry<T> next;
     private QueueEntry<T> prev;
 
-    public QueueEntry(@NotNull T t) {
+    QueueEntry(@NotNull T t) {
       this.t = t;
     }
 
@@ -58,7 +45,13 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
 
     @Override
     public boolean equals(Object obj) {
-      return obj instanceof QueueEntry && t.equals(((QueueEntry)obj).t);
+      //noinspection unchecked
+      return obj instanceof QueueEntry && t.equals(((QueueEntry<T>)obj).t);
+    }
+
+    @Override
+    public String toString() {
+      return t.toString();
     }
   }
 
@@ -69,7 +62,7 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
 
   @Override
   public boolean add(@NotNull T t) {
-    QueueEntry<T> newLast = new QueueEntry<T>(t);
+    QueueEntry<T> newLast = new QueueEntry<>(t);
     boolean added = set.add(newLast);
     if (!added) return false;
     QueueEntry<T> oldLast = TOMB.prev;
@@ -118,7 +111,7 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
   }
 
   private QueueEntry<T> findEntry(@NotNull T t) {
-    return set.get(new QueueEntry<T>(t));
+    return set.get(new QueueEntry<>(t));
   }
 
   @Override
@@ -178,12 +171,12 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
       @NotNull
       @Override
       public IteratorPosition<T> position() {
-        return new MyIteratorPosition<T>(cursor, count, TOMB);
+        return new MyIteratorPosition<>(cursor, count, TOMB);
       }
     };
   }
 
-  private static class MyIteratorPosition<T> implements PositionalIterator.IteratorPosition<T> {
+  private static final class MyIteratorPosition<T> implements PositionalIterator.IteratorPosition<T> {
     private final QueueEntry<T> cursor;
     private final long count;
     private final QueueEntry<T> TOMB;
@@ -204,16 +197,12 @@ public class HashSetQueue<T> extends AbstractCollection<T> implements Queue<T> {
 
     @Override
     public PositionalIterator.IteratorPosition<T> next() {
-      return cursor.next == TOMB ? null : new MyIteratorPosition<T>(cursor.next, count + 1, TOMB);
+      return cursor.next == TOMB ? null : new MyIteratorPosition<>(cursor.next, count + 1, TOMB);
     }
 
     @Override
     public int compareTo(@NotNull PositionalIterator.IteratorPosition<T> o) {
-      return compare(count, ((MyIteratorPosition)o).count);
-    }
-
-    private static int compare(long x, long y) {
-        return x < y ? -1 : x == y ? 0 : 1;
+      return Long.compare(count, ((MyIteratorPosition<T>)o).count);
     }
   }
 

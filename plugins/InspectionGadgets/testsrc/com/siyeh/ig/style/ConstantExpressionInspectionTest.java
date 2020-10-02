@@ -6,15 +6,12 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import org.jetbrains.annotations.NotNull;
 
 public class ConstantExpressionInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new ConstantExpressionInspection()
     };
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

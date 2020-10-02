@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.properties;
 
+import com.intellij.java.i18n.JavaI18nBundle;
 import com.intellij.lang.properties.references.PropertyReference;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -42,6 +43,7 @@ public class PrefixBasedPropertyReference extends PropertyReference {
     super(key, element, bundleName, soft);
   }
 
+  @Override
   @NotNull
   protected String getKeyText() {
     String keyText = super.getKeyText();
@@ -50,6 +52,7 @@ public class PrefixBasedPropertyReference extends PropertyReference {
     return keyText;
   }
 
+  @Override
   protected void addKey(Object property, Set<Object> variants) {
     String key = ((IProperty)property).getUnescapedKey();
     final String keyPrefix = getKeyPrefix();
@@ -61,14 +64,15 @@ public class PrefixBasedPropertyReference extends PropertyReference {
     super.addKey(property, variants);
   }
 
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  @Override
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final String keyPrefix = getKeyPrefix();
     if (keyPrefix != null) {
       if(newElementName.startsWith(keyPrefix)) {
         newElementName = newElementName.substring(keyPrefix.length());
       } else {
         throw new IncorrectOperationException(
-          PropertiesBundle.message("rename.prefix.based.property.key.error.message",keyPrefix,getCanonicalText(),newElementName)
+          JavaI18nBundle.message("rename.prefix.based.property.key.error.message",keyPrefix,getCanonicalText(),newElementName)
         );
       }
     }

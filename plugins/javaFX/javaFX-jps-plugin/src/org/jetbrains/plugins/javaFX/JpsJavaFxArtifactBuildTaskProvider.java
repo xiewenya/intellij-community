@@ -15,6 +15,7 @@
  */
 package org.jetbrains.plugins.javaFX;
 
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.artifacts.ArtifactBuildTaskProvider;
 import org.jetbrains.jps.incremental.BuildTask;
@@ -44,8 +45,6 @@ import java.util.Set;
 
 public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
 
-  public static final String COMPILER_NAME = "Java FX Packager";
-
   @NotNull
   @Override
   public List<? extends BuildTask> createArtifactBuildTasks(@NotNull JpsArtifact artifact,
@@ -71,7 +70,7 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     private final JpsJavaFxArtifactProperties myProps;
     private final JpsArtifact myArtifact;
 
-    public JavaFxJarDeployTask(JpsJavaFxArtifactProperties props, JpsArtifact artifact) {
+    JavaFxJarDeployTask(JpsJavaFxArtifactProperties props, JpsArtifact artifact) {
       myProps = props;
       myArtifact = artifact;
     }
@@ -88,7 +87,8 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
         }
       }
       if (javaSdk == null) {
-        context.processMessage(new CompilerMessage(COMPILER_NAME, BuildMessage.Kind.ERROR, "Java version 7 or higher is required to build JavaFX package"));
+        context.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.ERROR,
+                                                   JavaFXJpsBundle.message("java.version.7.or.higher.is.required.to.build.javafx.package")));
         return;
       }
       new JpsJavaFxPackager(myProps, context, myArtifact).buildJavaFxArtifact(javaSdk.getHomePath());
@@ -100,7 +100,7 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     private final CompileContext myCompileContext;
     private final JpsArtifact myArtifact;
 
-    public JpsJavaFxPackager(JpsJavaFxArtifactProperties properties, CompileContext compileContext, JpsArtifact artifact) {
+    JpsJavaFxPackager(JpsJavaFxArtifactProperties properties, CompileContext compileContext, JpsArtifact artifact) {
       myArtifact = artifact;
       myProperties = properties;
       myCompileContext = compileContext;
@@ -167,13 +167,13 @@ public class JpsJavaFxArtifactBuildTaskProvider extends ArtifactBuildTaskProvide
     }
 
     @Override
-    protected void registerJavaFxPackagerError(String message) {
-      myCompileContext.processMessage(new CompilerMessage(COMPILER_NAME, BuildMessage.Kind.ERROR, message));
+    protected void registerJavaFxPackagerError(@Nls String message) {
+      myCompileContext.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.ERROR, message));
     }
 
     @Override
-    protected void registerJavaFxPackagerInfo(String message) {
-      myCompileContext.processMessage(new CompilerMessage(COMPILER_NAME, BuildMessage.Kind.INFO, message));
+    protected void registerJavaFxPackagerInfo(@Nls String message) {
+      myCompileContext.processMessage(new CompilerMessage(JavaFXJpsBundle.message("java.fx.packager"), BuildMessage.Kind.INFO, message));
     }
 
     @Override

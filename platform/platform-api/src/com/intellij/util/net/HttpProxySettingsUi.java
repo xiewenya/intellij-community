@@ -1,14 +1,16 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net;
 
 import com.google.common.net.HostAndPort;
 import com.google.common.net.InetAddresses;
 import com.google.common.net.InternetDomainName;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.options.ConfigurableUi;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.PortField;
 import com.intellij.ui.RawCommandLineEditor;
@@ -23,6 +25,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.event.ActionListener;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
@@ -71,7 +75,7 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
            !Comparing.strEqual(settings.PROXY_HOST, myProxyHostTextField.getText());
   }
 
-  public HttpProxySettingsUi(@NotNull final HttpConfigurable settings) {
+  HttpProxySettingsUi(@NotNull final HttpConfigurable settings) {
     ButtonGroup group = new ButtonGroup();
     group.add(myUseHTTPProxyRb);
     group.add(myAutoDetectProxyRb);
@@ -101,7 +105,8 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
     myClearPasswordsButton.addActionListener(e -> {
       settings.clearGenericPasswords();
       //noinspection DialogTitleCapitalization
-      Messages.showMessageDialog(myMainPanel, "Proxy passwords were cleared.", "Auto-detected Proxy", Messages.getInformationIcon());
+      Messages.showMessageDialog(myMainPanel, IdeBundle.message("message.text.proxy.passwords.were.cleared"),
+                                 IdeBundle.message("dialog.title.auto.detected.proxy"), Messages.getInformationIcon());
     });
 
     configureCheckButton();
@@ -120,9 +125,10 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
         return;
       }
 
-      final String title = "Check Proxy Settings";
+      final String title = IdeBundle.message("dialog.title.check.proxy.settings");
       final String answer =
-        Messages.showInputDialog(myMainPanel, "Warning: your settings will be saved.\n\nEnter any URL to check connection to:",
+        Messages.showInputDialog(myMainPanel,
+                                 IdeBundle.message("message.text.enter.url.to.check.connection"),
                                  title, Messages.getQuestionIcon(), "http://", null);
       if (StringUtil.isEmptyOrSpaces(answer)) {
         return;
@@ -144,14 +150,13 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
         catch (IOException e) {
           exceptionReference.set(e);
         }
-      }, "Check Connection", true, null);
+      }, IdeBundle.message("progress.title.check.connection"), true, null);
 
       reset(settings);  // since password might have been set
 
-      //noinspection ThrowableResultOfMethodCallIgnored
       final IOException exception = exceptionReference.get();
       if (exception == null) {
-        Messages.showMessageDialog(myMainPanel, "Connection successful", title, Messages.getInformationIcon());
+        Messages.showMessageDialog(myMainPanel, IdeBundle.message("message.connection.successful"), title, Messages.getInformationIcon());
       }
       else {
         final String message = exception.getMessage();
@@ -161,10 +166,6 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
         Messages.showErrorDialog(myMainPanel, errorText(message));
       }
     });
-  }
-
-  private boolean canEnableConnectionCheck() {
-    return !myNoProxyRb.isSelected();
   }
 
   @Override
@@ -201,23 +202,36 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
     }
   }
 
+  private void createUIComponents() {
+    myProxyExceptions = new RawCommandLineEditor(text -> {
+      List<String> result = new ArrayList<>();
+      for (String token : text.split(",")) {
+        String trimmedToken = token.trim();
+        if (!trimmedToken.isEmpty()) {
+          result.add(trimmedToken);
+        }
+      }
+      return result;
+    }, strings -> StringUtil.join(strings, ", "));
+  }
+
   @NotNull
-  private static String errorText(@NotNull String s) {
-    return "Problem with connection: " + s;
+  private static @NlsContexts.DialogMessage String errorText(@NotNull String s) {
+    return IdeBundle.message("dialog.message.problem.with.connection", s);
   }
 
   @Nullable
-  private String isValid() {
+  private @NlsContexts.DialogMessage String isValid() {
     if (myUseHTTPProxyRb.isSelected()) {
       String host = getText(myProxyHostTextField);
       if (host == null) {
-        return "Host name is empty";
+        return IdeBundle.message("dialog.message.host.name.empty");
       }
 
       try {
         HostAndPort parsedHost = HostAndPort.fromString(host);
         if (parsedHost.hasPort()) {
-          return "Invalid host value";
+          return IdeBundle.message("dialog.message.invalid.host.value");
         }
         host = parsedHost.getHost();
 
@@ -232,15 +246,15 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
         InternetDomainName.from(host);
       }
       catch (IllegalArgumentException e) {
-        return "Invalid host value";
+        return IdeBundle.message("dialog.message.invalid.host.value");
       }
 
       if (myProxyAuthCheckBox.isSelected()) {
         if (StringUtil.isEmptyOrSpaces(myProxyLoginTextField.getText())) {
-          return "Login is empty";
+          return IdeBundle.message("dialog.message.login.empty");
         }
         if (myProxyPasswordTextField.getPassword().length == 0) {
-          return "Password is empty";
+          return IdeBundle.message("dialog.message.password.empty");
         }
       }
     }
@@ -292,7 +306,6 @@ class HttpProxySettingsUi implements ConfigurableUi<HttpConfigurable> {
 
     myProxyAuthCheckBox.setEnabled(enabled);
     enableProxyAuthentication(enabled && myProxyAuthCheckBox.isSelected());
-    myCheckButton.setEnabled(canEnableConnectionCheck());
 
     final boolean autoDetectProxy = myAutoDetectProxyRb.isSelected();
     myPacUrlCheckBox.setEnabled(autoDetectProxy);

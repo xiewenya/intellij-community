@@ -1,21 +1,21 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.updates
 
 import com.intellij.openapi.updateSettings.impl.ChannelStatus
 import com.intellij.openapi.updateSettings.impl.UpdateChannel
 import com.intellij.openapi.updateSettings.impl.UpdatesInfo
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase
-import com.intellij.util.loadElement
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.IOException
 import java.net.URL
 import java.text.SimpleDateFormat
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 
 class UpdateInfoParsingTest : BareTestFixtureTestCase() {
-  @Test fun liveJetbrainsUpdateFile() {
+  @Test fun liveJetBrainsUpdateFile() {
     try {
       val info = load(URL("https://www.jetbrains.com/updates/updates.xml").readText())
       assertNotNull(info["IC"])
@@ -77,7 +77,7 @@ class UpdateInfoParsingTest : BareTestFixtureTestCase() {
 
     val channel = product.channels.find { it.id == "IDEA10EAP" }!!
     assertEquals(ChannelStatus.EAP, channel.status)
-    assertEquals(UpdateChannel.LICENSING_EAP, channel.licensing)
+    assertEquals(UpdateChannel.Licensing.EAP, channel.licensing)
     assertEquals(1, channel.builds.size)
 
     val build = channel.builds[0]
@@ -121,5 +121,5 @@ class UpdateInfoParsingTest : BareTestFixtureTestCase() {
     assertEquals("162.99.2", buildInfo.patches[0].fromBuild.asStringWithoutProductCode())
   }
 
-  private fun load(text: String) = UpdatesInfo(loadElement(text))
+  private fun load(text: String) = UpdatesInfo(JDOMUtil.load(text))
 }

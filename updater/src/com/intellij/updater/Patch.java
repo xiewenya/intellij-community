@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
@@ -20,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.ZipFile;
 
 public class Patch {
@@ -52,7 +39,7 @@ public class Patch {
   }
 
   public Patch(InputStream patchIn) throws IOException {
-    @SuppressWarnings("IOResourceOpenedButNotSafelyClosed") DataInputStream in = new DataInputStream(patchIn);
+    DataInputStream in = new DataInputStream(patchIn);
     myOldBuild = in.readUTF();
     myNewBuild = in.readUTF();
     myRoot = in.readUTF();
@@ -70,9 +57,17 @@ public class Patch {
 
     File olderDir = new File(spec.getOldFolder());
     File newerDir = new File(spec.getNewFolder());
-    Map<String, Long> oldChecksums = digestFiles(olderDir, spec.getIgnoredFiles(), isNormalized());
-    Map<String, Long> newChecksums = digestFiles(newerDir, spec.getIgnoredFiles(), false);
-    DiffCalculator.Result diff = DiffCalculator.calculate(oldChecksums, newChecksums, spec.getCriticalFiles(), spec.getOptionalFiles(), true);
+
+    Set<String> ignored = new HashSet<>(spec.getIgnoredFiles());
+    Set<String> critical = new HashSet<>(spec.getCriticalFiles());
+    Set<String> optional = new HashSet<>(spec.getOptionalFiles());
+
+    Map<String, Long> oldChecksums = digestFiles(olderDir, ignored, isNormalized());
+    Map<String, Long> newChecksums = digestFiles(newerDir, ignored, false);
+    DiffCalculator.Result diff = DiffCalculator.calculate(oldChecksums, newChecksums, critical, optional, true);
+
+    Runner.logger().info("Preparing actions...");
+    ui.startProcess("Preparing actions...");
 
     List<PatchAction> tempActions = new ArrayList<>();
 
@@ -102,16 +97,13 @@ public class Patch {
       }
     }
 
-    Runner.logger().info("Preparing actions...");
-    ui.startProcess("Preparing actions...");
-
     List<PatchAction> actions = new ArrayList<>();
     for (PatchAction action : tempActions) {
       Runner.logger().info(action.getPath());
       if (action.calculate(olderDir, newerDir)) {
         actions.add(action);
-        action.setCritical(spec.getCriticalFiles().contains(action.getPath()));
-        action.setOptional(spec.getOptionalFiles().contains(action.getPath()));
+        action.setCritical(critical.contains(action.getPath()));
+        action.setOptional(optional.contains(action.getPath()));
       }
     }
     return actions;
@@ -122,7 +114,7 @@ public class Patch {
   }
 
   public void write(OutputStream out) throws IOException {
-    @SuppressWarnings("IOResourceOpenedButNotSafelyClosed") DataOutputStream dataOut = new DataOutputStream(out);
+    DataOutputStream dataOut = new DataOutputStream(out);
     try {
       dataOut.writeUTF(myOldBuild);
       dataOut.writeUTF(myNewBuild);
@@ -154,31 +146,17 @@ public class Patch {
     }
   }
 
-  private static void writeActions(DataOutputStream dataOut, List<PatchAction> actions) throws IOException {
+  private static void writeActions(DataOutputStream dataOut, List<? extends PatchAction> actions) throws IOException {
     dataOut.writeInt(actions.size());
-
     for (PatchAction each : actions) {
       int key;
-      Class clazz = each.getClass();
-
-      if (clazz == CreateAction.class) {
-        key = CREATE_ACTION_KEY;
-      }
-      else if (clazz == UpdateAction.class) {
-        key = UPDATE_ACTION_KEY;
-      }
-      else if (clazz == UpdateZipAction.class) {
-        key = UPDATE_ZIP_ACTION_KEY;
-      }
-      else if (clazz == DeleteAction.class) {
-        key = DELETE_ACTION_KEY;
-      }
-      else if (clazz == ValidateAction.class) {
-        key = VALIDATE_ACTION_KEY;
-      }
-      else {
-        throw new RuntimeException("Unknown action " + each);
-      }
+      Class<?> clazz = each.getClass();
+      if (clazz == CreateAction.class) key = CREATE_ACTION_KEY;
+      else if (clazz == UpdateAction.class) key = UPDATE_ACTION_KEY;
+      else if (clazz == UpdateZipAction.class) key = UPDATE_ZIP_ACTION_KEY;
+      else if (clazz == DeleteAction.class) key = DELETE_ACTION_KEY;
+      else if (clazz == ValidateAction.class) key = VALIDATE_ACTION_KEY;
+      else throw new RuntimeException("Unknown action " + each);
       dataOut.writeInt(key);
       each.write(dataOut);
     }
@@ -247,8 +225,7 @@ public class Patch {
     File toDir = toBaseDir(rootDir);
     boolean checkWarnings = true;
     while (checkWarnings) {
-      // always collect files and folders - to avoid cases such as IDEA-152249
-      files = Utils.collectRelativePaths(toDir);
+      files = Utils.collectRelativePaths(toDir.toPath());
       checkWarnings = false;
       for (String file : files) {
         String warning = myWarnings.get(file);
@@ -261,7 +238,7 @@ public class Patch {
     }
 
     if (myIsStrict) {
-      // in strict mode, add delete actions for unknown files
+      // in the strict mode, add delete actions for unknown files
       for (PatchAction action : myActions) {
         files.remove(action.getPath());
       }
@@ -272,19 +249,22 @@ public class Patch {
 
     List<ValidationResult> results = new ArrayList<>();
 
-    Set<String> deletedPaths = new HashSet<>();
+    Set<String> deletedPaths = new HashSet<>(), deletedLinks = new HashSet<>();
     forEach(myActions, "Validating installation...", ui, action -> {
       ValidationResult result = action.validate(toDir);
 
       if (action instanceof DeleteAction) {
-        deletedPaths.add(mapPath(action.getPath()));
+        String path = mapPath(action.getPath());
+        deletedPaths.add(path);
+        if (Digester.isSymlink(action.getChecksum())) {
+          deletedLinks.add(path);
+        }
       }
-      else if (action instanceof CreateAction &&
-               result != null &&
+      else if (result != null &&
+               action instanceof CreateAction &&
                ValidationResult.ALREADY_EXISTS_MESSAGE.equals(result.message) &&
-               deletedPaths.contains(mapPath(action.getPath()))) {
-        // do not warn about files which are going to be deleted
-        result = null;
+               toBeDeleted(mapPath(action.getPath()), deletedPaths, deletedLinks)) {
+        result = null;  // do not warn about files going to be deleted
       }
 
       if (result != null) results.add(result);
@@ -294,7 +274,24 @@ public class Patch {
   }
 
   private static String mapPath(String path) {
-    return Runner.isCaseSensitiveFs() ? path : path.toLowerCase(Locale.getDefault());
+    if (!Runner.isCaseSensitiveFs()) {
+      path = path.toLowerCase(Locale.getDefault());
+    }
+    if (path.endsWith("/")) {
+      path = path.substring(0, path.length() - 1);
+    }
+    return path;
+  }
+
+  private static boolean toBeDeleted(String path, Set<String> deletedPaths, Set<String> deletedLinks) {
+    if (deletedPaths.contains(path)) return true;
+    if (!deletedLinks.isEmpty()) {
+      int p = path.length();
+      while ((p = path.lastIndexOf('/', p - 1)) > 0) {
+        if (deletedLinks.contains(path.substring(0, p))) return true;
+      }
+    }
+    return false;
   }
 
   public PatchFileCreator.ApplicationResult apply(ZipFile patchFile,
@@ -319,7 +316,18 @@ public class Patch {
       }
 
       if (backupDir != null) {
-        forEach(actionsToApply, "Backing up files...", ui, action -> action.backup(toDir, backupDir));
+        File _backupDir = backupDir;
+        forEach(actionsToApply, "Backing up files...", ui, action -> action.backup(toDir, _backupDir));
+      }
+      else {
+        //noinspection SSBasedInspection
+        List<PatchAction> specialActions = actionsToApply.stream().filter(PatchAction::mandatoryBackup).collect(Collectors.toList());
+        if (!specialActions.isEmpty()) {
+          backupDir = Utils.getTempFile("partial_backup");
+          if (!backupDir.mkdir()) throw new IOException("Cannot create a backup directory: " + backupDir);
+          File _backupDir = backupDir;
+          forEach(specialActions, "Preparing update...", ui, action -> action.backup(toDir, _backupDir));
+        }
       }
     }
     catch (OperationCancelledException e) {
@@ -328,10 +336,9 @@ public class Patch {
     }
 
     List<PatchAction> appliedActions = new ArrayList<>(actionsToApply.size());
-    List<File> createdDirectories = new ArrayList<>();
-    Set<File> createdOptionalFiles = new HashSet<>();
 
     try {
+      File _backupDir = backupDir;
       forEach(actionsToApply, "Applying patch...", ui, action -> {
         if (action instanceof CreateAction && !new File(toDir, action.getPath()).getParentFile().exists()) {
           Runner.logger().info("Create action: " + action.getPath() + " skipped. The parent folder is absent.");
@@ -341,17 +348,7 @@ public class Patch {
         }
         else {
           appliedActions.add(action);
-          action.apply(patchFile, backupDir, toDir);
-
-          if (action instanceof CreateAction) {
-            File file = action.getFile(toDir);
-            if (file.isDirectory()) {
-              createdDirectories.add(0, file);
-            }
-            else if (action.isOptional()) {
-              createdOptionalFiles.add(file);
-            }
-          }
+          action.apply(patchFile, _backupDir, toDir);
         }
       });
     }
@@ -362,19 +359,6 @@ public class Patch {
     catch (Throwable t) {
       Runner.logger().error("apply failed", t);
       return new PatchFileCreator.ApplicationResult(false, appliedActions, t);
-    }
-
-    for (File directory : createdDirectories) {
-      File[] children = directory.listFiles();
-      if (children != null && createdOptionalFiles.containsAll(Arrays.asList(children))) {
-        Runner.logger().info("Pruning empty directory: " + directory);
-        try {
-          Utils.delete(directory);
-        }
-        catch (IOException e) {
-          Runner.logger().warn("pruning: " + directory, e);
-        }
-      }
     }
 
     try {
@@ -388,7 +372,7 @@ public class Patch {
     return new PatchFileCreator.ApplicationResult(true, appliedActions);
   }
 
-  public void revert(List<PatchAction> actions, File backupDir, File rootDir, UpdaterUI ui) throws IOException {
+  public void revert(List<? extends PatchAction> actions, File backupDir, File rootDir, UpdaterUI ui) throws IOException {
     Runner.logger().info("Reverting... [" + actions.size() + " actions]");
     ui.startProcess("Reverting...");
 
@@ -402,7 +386,7 @@ public class Patch {
     }
   }
 
-  private static void forEach(List<PatchAction> actions,
+  private static void forEach(List<? extends PatchAction> actions,
                               String title,
                               UpdaterUI ui,
                               ActionsProcessor processor) throws OperationCancelledException, IOException {
@@ -429,15 +413,19 @@ public class Patch {
     }
   }
 
-  public Map<String, Long> digestFiles(File dir, List<String> ignoredFiles, boolean normalize) throws IOException {
+  public Map<String, Long> digestFiles(File dir, Set<String> ignoredFiles, boolean normalize) throws IOException {
     Map<String, Long> result = new LinkedHashMap<>();
-    //always collect files and folders to avoid cases such as IDEA-152249
-    LinkedHashSet<String> paths = Utils.collectRelativePaths(dir);
-    for (String each : paths) {
-      if (!ignoredFiles.contains(each)) {
-        result.put(each, digestFile(new File(dir, each), normalize));
+    Utils.collectRelativePaths(dir.toPath()).parallelStream().forEachOrdered(path -> {
+      if (!ignoredFiles.contains(path)) {
+        try {
+          long hash = digestFile(new File(dir, path), normalize);
+          synchronized (result) {
+            result.put(path, hash);
+          }
+        }
+        catch (IOException e) { throw new UncheckedIOException(e); }
       }
-    }
+    });
     return result;
   }
 

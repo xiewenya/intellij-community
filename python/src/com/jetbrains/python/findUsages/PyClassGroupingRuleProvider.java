@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.findUsages;
 
 import com.intellij.openapi.project.Project;
@@ -22,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
  * @author yole
  */
 public class PyClassGroupingRuleProvider implements FileStructureGroupRuleProvider {
+  @Override
   public UsageGroupingRule getUsageGroupingRule(@NotNull Project project) {
     return new PyClassGroupingRule();
   }
@@ -29,7 +28,7 @@ public class PyClassGroupingRuleProvider implements FileStructureGroupRuleProvid
   private static class PyClassGroupingRule extends SingleParentUsageGroupingRule {
     @Nullable
     @Override
-    protected UsageGroup getParentGroupFor(@NotNull Usage usage, @NotNull UsageTarget[] targets) {
+    protected UsageGroup getParentGroupFor(@NotNull Usage usage, UsageTarget @NotNull [] targets) {
       if (!(usage instanceof PsiElementUsage)) return null;
       final PsiElement psiElement = ((PsiElementUsage)usage).getElement();
       final PyClass pyClass = PsiTreeUtil.getParentOfType(psiElement, PyClass.class);

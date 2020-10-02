@@ -21,7 +21,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.util.VisibilityUtil;
 import junit.framework.Assert;
@@ -32,7 +32,7 @@ import org.jetbrains.annotations.NotNull;
  * @author ven
  */
 @TestDataPath("$CONTENT_ROOT/testData")
-public class IntroduceConstantTest extends LightCodeInsightTestCase {
+public class IntroduceConstantTest extends LightJavaCodeInsightTestCase {
   @NonNls private static final String BASE_PATH = "/refactoring/introduceConstant/";
 
   @NotNull
@@ -97,7 +97,7 @@ public class IntroduceConstantTest extends LightCodeInsightTestCase {
     checkResultByFile(BASE_PATH + getTestName(false) + "_after.java");
   }
 
-  private static void convertLocal(final boolean makeEnumConstant) {
+  private void convertLocal(final boolean makeEnumConstant) {
     PsiLocalVariable local = PsiTreeUtil.getParentOfType(getFile().findElementAt(getEditor().getCaretModel().getOffset()), PsiLocalVariable.class);
     new MockLocalToFieldHandler(getProject(), true, makeEnumConstant).convertLocalToField(local, getEditor());
   }
@@ -160,6 +160,12 @@ public class IntroduceConstantTest extends LightCodeInsightTestCase {
     checkResultByFile(BASE_PATH + getTestName(false) + "_after.java");
   }
 
+  public void testWithMethodReferenceBySecondSearch() {
+    configureByFile(BASE_PATH + getTestName(false) + ".java");
+    new MockIntroduceConstantHandler(null).invoke(getProject(), getEditor(), getFile(), null);
+    checkResultByFile(BASE_PATH + getTestName(false) + "_after.java");
+  }
+
   public void testComments() {
     doTestExpr();
   }
@@ -171,6 +177,10 @@ public class IntroduceConstantTest extends LightCodeInsightTestCase {
   }
 
   public void testContainingClass() {
+    doTestExpr();
+  }
+
+  public void testConstantFromAnnotationOnFieldWithoutInitializer() {
     doTestExpr();
   }
 

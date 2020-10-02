@@ -25,7 +25,6 @@ import org.jetbrains.annotations.NotNull;
  * Action that toggles {@code 'show soft wraps at editor'} option and is expected to be used at various menus.
  *
  * @author Denis Zhdanov
- * @since Aug 19, 2010 3:15:26 PM
  */
 public class ToggleUseSoftWrapsMenuAction extends AbstractToggleUseSoftWrapsAction {
 
@@ -40,7 +39,7 @@ public class ToggleUseSoftWrapsMenuAction extends AbstractToggleUseSoftWrapsActi
       e.getPresentation().setIcon(null);
     }
     if (ActionPlaces.UNKNOWN.equals(e.getPlace())) {
-      e.getPresentation().setText(ActionsBundle.message("action.EditorGutterToggleLocalSoftWraps.gutterText"));
+      e.getPresentation().setText(ActionsBundle.messagePointer("action.EditorGutterToggleLocalSoftWraps.gutterText"));
     }
     e.getPresentation().setEnabled(getEditor(e) != null);
   }

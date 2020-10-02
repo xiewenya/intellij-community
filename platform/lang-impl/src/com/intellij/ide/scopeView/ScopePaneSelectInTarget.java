@@ -7,37 +7,41 @@ import com.intellij.ide.SelectInManager;
 import com.intellij.ide.StandardTargetWeights;
 import com.intellij.ide.impl.ProjectViewSelectInTarget;
 import com.intellij.ide.projectView.ProjectView;
-import com.intellij.ide.scratch.ScratchUtil;
+import com.intellij.notebook.editor.BackedVirtualFile;
+import com.intellij.openapi.extensions.AreaInstance;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.ui.tree.project.ProjectFileNode;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author cdr
- */
 public class ScopePaneSelectInTarget extends ProjectViewSelectInTarget {
   public ScopePaneSelectInTarget(final Project project) {
     super(project);
   }
 
   public String toString() {
-    return SelectInManager.SCOPE;
+    return SelectInManager.getScope();
   }
 
   @Override
   public boolean canSelect(PsiFileSystemItem fileSystemItem) {
-    if (!super.canSelect(fileSystemItem)) return false;
     if (!(fileSystemItem instanceof PsiFile)) return false;
+    VirtualFile file = PsiUtilCore.getVirtualFile(fileSystemItem);
+    if (file == null || !file.isValid()) return false;
+    file = BackedVirtualFile.getOriginFileIfBacked(file);
+    AreaInstance area = ProjectFileNode.findArea(file, myProject);
+    if (area == null) return false;
     return getContainingFilter((PsiFile)fileSystemItem) != null;
   }
 
   @Nullable
   private NamedScopeFilter getContainingFilter(@Nullable PsiFile file) {
     if (file == null) return null;
-    if (ScratchUtil.isScratch(file.getVirtualFile())) return null;
     ScopeViewPane pane = getScopeViewPane();
     if (pane == null) return null;
     for (NamedScopeFilter filter : pane.getFilters()) {

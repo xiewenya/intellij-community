@@ -20,15 +20,16 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.meta.model.Field;
 import org.jetbrains.yaml.meta.model.ModelAccess;
+import org.jetbrains.yaml.meta.model.YamlArrayType;
 import org.jetbrains.yaml.meta.model.YamlMetaType;
 import org.jetbrains.yaml.psi.*;
 
-@ApiStatus.Experimental
+@ApiStatus.Internal
 public class YamlMetaTypeProvider {
 
   private static final Logger LOG = Logger.getInstance(YamlMetaTypeProvider.class);
 
-  private static final Key<CachedValue<FieldAndRelation>> KEY = Key.create(YamlMetaTypeProvider.class.getName() + ":KEY");
+  private final Key<CachedValue<FieldAndRelation>> myKey;
 
   @NotNull
   private final ModelAccess myMetaModel;
@@ -37,6 +38,7 @@ public class YamlMetaTypeProvider {
 
   public YamlMetaTypeProvider(@NotNull final ModelAccess metaModel, @NotNull final ModificationTracker modificationTracker) {
     myMetaModel = metaModel;
+    myKey = Key.create(metaModel.getClass().getName() + ":KEY");
     myModificationTracker = modificationTracker;
   }
 
@@ -69,7 +71,7 @@ public class YamlMetaTypeProvider {
 
   @Nullable
   public MetaTypeProxy getValueMetaType(@NotNull YAMLValue typedValue) {
-    return CachedValuesManager.getCachedValue(typedValue, KEY, () -> {
+    return CachedValuesManager.getCachedValue(typedValue, myKey, () -> {
       debug(" >> computing type for : " + YamlDebugUtil.getDebugInfo(typedValue));
       FieldAndRelation computed = computeMetaType(typedValue);
       debug(" << finished for : " + YamlDebugUtil.getDebugInfo(typedValue) +
@@ -93,7 +95,17 @@ public class YamlMetaTypeProvider {
         return null;
       }
       FieldAndRelation sequenceMeta = (FieldAndRelation)getMetaTypeProxy(sequence);
-      return sequenceMeta == null ? null : FieldAndRelation.forNullable(sequenceMeta.getField(), Field.Relation.SEQUENCE_ITEM);
+
+      if (sequenceMeta != null) {
+        YamlMetaType sequenceMetaType = sequenceMeta.getMetaType();
+        Field resultField = value instanceof YAMLSequence && sequenceMetaType instanceof YamlArrayType ?
+                            new Field("<array>", sequenceMetaType) :  // unwind nested array
+                            sequenceMeta.getField();
+
+        return FieldAndRelation.forNullable(resultField, Field.Relation.SEQUENCE_ITEM);
+      }
+
+      return null;
     }
     if (typed instanceof YAMLKeyValue) {
       YAMLKeyValue keyValue = (YAMLKeyValue)typed;

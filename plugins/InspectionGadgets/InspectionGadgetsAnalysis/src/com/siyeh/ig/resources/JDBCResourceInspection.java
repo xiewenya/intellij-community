@@ -18,7 +18,6 @@ package com.siyeh.ig.resources;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.siyeh.InspectionGadgetsBundle;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -53,7 +52,6 @@ public class JDBCResourceInspection extends ResourceInspection {
       "getGeneratedKeys"
     };
 
-  @SuppressWarnings({"StaticCollection"})
   private static final Set<String> creationMethodNameSet = new HashSet<>(9);
 
   static {
@@ -67,11 +65,6 @@ public class JDBCResourceInspection extends ResourceInspection {
   }
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("jdbc.resource.opened.not.closed.display.name");
-  }
-
   protected boolean isResourceCreation(PsiExpression expression) {
     if (!(expression instanceof PsiMethodCallExpression)) {
       return false;

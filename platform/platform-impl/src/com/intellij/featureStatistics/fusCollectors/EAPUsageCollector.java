@@ -1,0 +1,88 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+package com.intellij.featureStatistics.fusCollectors;
+
+import com.intellij.idea.Main;
+import com.intellij.internal.statistic.beans.MetricEvent;
+import com.intellij.internal.statistic.beans.MetricEventFactoryKt;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector;
+import com.intellij.openapi.application.ex.ApplicationInfoEx;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.LicensingFacade;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * @author Eugene Zhuravlev
+ */
+public class EAPUsageCollector extends ApplicationUsagesCollector {
+  @NotNull
+  @Override
+  public String getGroupId() {
+    return "user.advanced.info";
+  }
+
+  @Override
+  public int getVersion() {
+    return 3;
+  }
+
+  @NotNull
+  @Override
+  public Set<MetricEvent> getMetrics() {
+    return collectMetrics();
+  }
+
+  @NotNull
+  private static Set<MetricEvent> collectMetrics() {
+    try {
+      if (!Main.isHeadless()) {
+        final Set<MetricEvent> result = new HashSet<>();
+        if (ApplicationInfoEx.getInstanceEx().isEAP()) {
+          result.add(MetricEventFactoryKt.newMetric("eap"));
+          result.add(newBuildMetric("eap"));
+        }
+        else {
+          result.add(MetricEventFactoryKt.newMetric("release"));
+          result.add(newBuildMetric("release"));
+        }
+        final LicensingFacade facade = LicensingFacade.getInstance();
+        if (facade != null) {
+          // non-eap commercial version
+          if (facade.isEvaluationLicense()) {
+            result.add(MetricEventFactoryKt.newMetric("evaluation"));
+            result.add(newLicencingMetric("evaluation", facade.metadata));
+          }
+          else if (!StringUtil.isEmpty(facade.getLicensedToMessage())){
+            result.add(MetricEventFactoryKt.newMetric("license"));
+            result.add(newLicencingMetric("license", facade.metadata));
+          }
+        }
+        return result;
+      }
+    }
+    catch (Throwable e) {
+      //ignore
+    }
+    return Collections.emptySet();
+  }
+
+  @NotNull
+  private static MetricEvent newLicencingMetric(@NotNull @NonNls String value, @Nullable String metadata) {
+    FeatureUsageData data = new FeatureUsageData();
+    if (StringUtil.isNotEmpty(metadata)) {
+      data.addData("metadata", metadata);
+    }
+    return MetricEventFactoryKt.newMetric("licencing", value, data);
+  }
+
+  @NotNull
+  private static MetricEvent newBuildMetric(@NotNull @NonNls String value) {
+    return MetricEventFactoryKt.newMetric("build", value);
+  }
+}

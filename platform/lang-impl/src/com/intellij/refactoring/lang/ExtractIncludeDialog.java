@@ -1,7 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.lang;
 
 import com.intellij.ide.util.DirectoryUtil;
@@ -10,12 +7,12 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.ui.VerticalFlowLayout;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.psi.PsiDirectory;
@@ -35,12 +32,20 @@ import java.io.File;
  * @author ven
  */
 public class ExtractIncludeDialog extends DialogWrapper {
+  private final PsiDirectory myCurrentDirectory;
+  protected final String myExtension;
+
   protected TextFieldWithBrowseButton myTargetDirectoryField;
   private JTextField myNameField;
-  private final PsiDirectory myCurrentDirectory;
-  private static final String REFACTORING_NAME = RefactoringBundle.message("extractIncludeFile.name");
-  protected final String myExtension;
   protected JLabel myTargetDirLabel;
+
+  public ExtractIncludeDialog(final PsiDirectory currentDirectory, final String extension) {
+    super(true);
+    myCurrentDirectory = currentDirectory;
+    myExtension = extension;
+    setTitle(getRefactoringName());
+    init();
+  }
 
   public PsiDirectory getTargetDirectory() {
     return myTargetDirectory;
@@ -51,14 +56,6 @@ public class ExtractIncludeDialog extends DialogWrapper {
   public String getTargetFileName () {
     String name = myNameField.getText().trim();
     return name.contains(".") ? name: name + "." + myExtension;
-  }
-
-  public ExtractIncludeDialog(final PsiDirectory currentDirectory, final String extension) {
-    super(true);
-    myCurrentDirectory = currentDirectory;
-    myExtension = extension;
-    setTitle(REFACTORING_NAME);
-    init();
   }
 
   @Override
@@ -77,7 +74,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
     nameLabel.setLabelFor(myNameField);
     myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         validateOKButton();
       }
     });
@@ -98,7 +95,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
 
     myTargetDirectoryField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent event) {
+      public void textChanged(@NotNull DocumentEvent event) {
         validateOKButton();
       }
     });
@@ -108,7 +105,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
     return panel;
   }
 
-  protected String getNameLabel() {
+  protected @NlsContexts.Label String getNameLabel() {
     return RefactoringBundle.message("name.for.extracted.include.file", myExtension);
   }
 
@@ -150,7 +147,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
           myTargetDirectory = webPath == null ? null : targetDirectory;
         }
         catch (IncorrectOperationException e) {
-          CommonRefactoringUtil.showErrorMessage(REFACTORING_NAME, e.getMessage(), null, project);
+          CommonRefactoringUtil.showErrorMessage(getRefactoringName(), e.getMessage(), null, project);
         }
       };
       ApplicationManager.getApplication().runWriteAction(action);
@@ -160,22 +157,16 @@ public class ExtractIncludeDialog extends DialogWrapper {
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(getHelpTopic());
-  }
-
-  protected String getHelpTopic() {
+  protected String getHelpId() {
     return ExtractIncludeFileBase.HELP_ID;
-  }
-
-  @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
   }
 
   protected void hideTargetDirectory() {
     myTargetDirectoryField.setVisible(false);
     myTargetDirLabel.setVisible(false);
+  }
+
+  private static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactoringBundle.message("extractIncludeFile.name");
   }
 }

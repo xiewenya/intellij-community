@@ -1,40 +1,27 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.options.OptionsBundle;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.JBColor;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.ui.IdeUICustomization;
 import com.intellij.ui.RelativeFont;
+import com.intellij.ui.components.ActionLink;
 import com.intellij.ui.components.breadcrumbs.Breadcrumbs;
 import com.intellij.ui.components.breadcrumbs.Crumb;
-import com.intellij.ui.components.labels.SwingActionLink;
+import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
-/**
- * @author Sergey.Malenkov
- */
 final class Banner extends SimpleBanner {
   private final JLabel myProjectIcon = new JLabel();
   private final Breadcrumbs myBreadcrumbs = new Breadcrumbs() {
+    @Override
     protected int getFontStyle(Crumb crumb) {
       return Font.BOLD;
     }
@@ -42,20 +29,20 @@ final class Banner extends SimpleBanner {
 
   Banner(Action action) {
     myProjectIcon.setMinimumSize(new Dimension(0, 0));
-    myProjectIcon.setIcon(AllIcons.General.ProjectConfigurableBanner);
-    myProjectIcon.setForeground(JBColor.GRAY);
+    myProjectIcon.setIcon(AllIcons.General.ProjectConfigurable);
+    myProjectIcon.setForeground(UIUtil.getContextHelpForeground());
     myProjectIcon.setVisible(false);
     myLeftPanel.add(myBreadcrumbs, 0);
     add(BorderLayout.CENTER, myProjectIcon);
-    add(BorderLayout.EAST, RelativeFont.BOLD.install(new SwingActionLink(action)));
-    setComponentPopupMenuTo(myBreadcrumbs);
+    add(BorderLayout.EAST, RelativeFont.BOLD.install(new ActionLink(action)));
   }
 
-  void setText(Collection<String> names) {
-    ArrayList<Crumb> crumbs = new ArrayList<>();
-    if (names != null) {
-      for (String name : names) {
-        crumbs.add(new Crumb.Impl(null, name, null));
+  void setText(@NotNull Collection<@NlsContexts.ConfigurableName String> names) {
+    List<Crumb> crumbs = new ArrayList<>();
+    if (!names.isEmpty()) {
+      List<Action> actions = CopySettingsPathAction.createSwingActions(() -> names);
+      for (@NlsContexts.ConfigurableName String name : names) {
+        crumbs.add(new Crumb.Impl(null, name, null, actions));
       }
     }
     myBreadcrumbs.setCrumbs(crumbs);
@@ -67,9 +54,9 @@ final class Banner extends SimpleBanner {
     }
     else {
       myProjectIcon.setVisible(true);
-      myProjectIcon.setText(OptionsBundle.message(project.isDefault()
-                                                  ? "configurable.default.project.tooltip"
-                                                  : "configurable.current.project.tooltip"));
+      myProjectIcon.setText(project.isDefault()
+                            ? IdeUICustomization.getInstance().projectMessage("configurable.default.project.tooltip")
+                            : IdeUICustomization.getInstance().projectMessage("configurable.current.project.tooltip"));
     }
   }
 
@@ -89,17 +76,12 @@ final class Banner extends SimpleBanner {
     myBreadcrumbs.setVisible(component == null);
   }
 
-  private static void setComponentPopupMenuTo(Breadcrumbs breadcrumbs) {
-    breadcrumbs.setComponentPopupMenu(new JPopupMenu() {
-      @Override
-      public void show(Component invoker, int x, int y) {
-        if (invoker != breadcrumbs) return;
-        super.show(invoker, x, invoker.getHeight());
-      }
+  @Override
+  void updateProgressBorder() {
+  }
 
-      {
-        add(new CopyAction(() -> CopyAction.createTransferable(breadcrumbs.getCrumbs())));
-      }
-    });
+  @Override
+  Component getBaselineTemplate() {
+    return myBreadcrumbs;
   }
 }

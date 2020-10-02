@@ -18,19 +18,21 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiMatcherImpl;
 import com.intellij.psi.util.PsiMatchers;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class InsertConstructorCallFix implements IntentionAction, HighPriorityAction {
   protected final PsiMethod myConstructor;
   private final String myCall;
 
-  public InsertConstructorCallFix(@NotNull PsiMethod constructor, String call) {
+  public InsertConstructorCallFix(@NotNull PsiMethod constructor, @NonNls String call) {
     myConstructor = constructor;
     myCall = call;
   }
@@ -50,9 +52,9 @@ public class InsertConstructorCallFix implements IntentionAction, HighPriorityAc
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     return myConstructor.isValid()
-        && myConstructor.getBody() != null
-        && myConstructor.getBody().getLBrace() != null
-        && myConstructor.getManager().isInProject(myConstructor)
+           && myConstructor.getBody() != null
+           && myConstructor.getBody().getLBrace() != null
+           && BaseIntentionAction.canModify(myConstructor)
     ;
   }
 
@@ -65,7 +67,7 @@ public class InsertConstructorCallFix implements IntentionAction, HighPriorityAc
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) {
     PsiStatement superCall =
-      JavaPsiFacade.getInstance(myConstructor.getProject()).getElementFactory().createStatementFromText(myCall,null);
+      JavaPsiFacade.getElementFactory(myConstructor.getProject()).createStatementFromText(myCall,null);
 
     PsiCodeBlock body = myConstructor.getBody();
     PsiJavaToken lBrace = body.getLBrace();

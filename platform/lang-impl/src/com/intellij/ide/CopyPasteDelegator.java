@@ -1,30 +1,15 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.psi.*;
@@ -32,6 +17,8 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.refactoring.copy.CopyHandler;
 import com.intellij.refactoring.move.MoveCallback;
 import com.intellij.refactoring.move.MoveHandler;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,7 +26,7 @@ import javax.swing.*;
 import java.io.File;
 import java.util.List;
 
-public abstract class CopyPasteDelegator implements CopyPasteSupport {
+public class CopyPasteDelegator implements CopyPasteSupport {
   private static final ExtensionPointName<PasteProvider> EP_NAME = ExtensionPointName.create("com.intellij.filePasteProvider");
   public static final Key<Boolean> SHOW_CHOOSER_KEY = Key.create("show.dirs.chooser");
 
@@ -47,17 +34,18 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
   private final JComponent myKeyReceiver;
   private final MyEditable myEditable;
 
-  public CopyPasteDelegator(Project project, JComponent keyReceiver) {
+  public CopyPasteDelegator(@NotNull Project project, @NotNull JComponent keyReceiver) {
     myProject = project;
     myKeyReceiver = keyReceiver;
     myEditable = new MyEditable();
   }
 
-  @NotNull
-  protected abstract PsiElement[] getSelectedElements();
+  protected PsiElement @NotNull [] getSelectedElements() {
+    DataContext dataContext = DataManager.getInstance().getDataContext(myKeyReceiver);
+    return ObjectUtils.notNull(LangDataKeys.PSI_ELEMENT_ARRAY.getData(dataContext), PsiElement.EMPTY_ARRAY);
+  }
 
-  @NotNull
-  private PsiElement[] getValidSelectedElements() {
+  private PsiElement @NotNull [] getValidSelectedElements() {
     PsiElement[] selectedElements = getSelectedElements();
     for (PsiElement element : selectedElements) {
       if (element == null || !element.isValid()) {
@@ -86,7 +74,7 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
     return myEditable;
   }
 
-  private class MyEditable implements CutProvider, CopyProvider, PasteProvider {
+  class MyEditable implements CutProvider, CopyProvider, PasteProvider {
     @Override
     public void performCopy(@NotNull DataContext dataContext) {
       PsiElement[] elements = getValidSelectedElements();
@@ -97,7 +85,8 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
     @Override
     public boolean isCopyEnabled(@NotNull DataContext dataContext) {
       PsiElement[] elements = getValidSelectedElements();
-      return CopyHandler.canCopy(elements) || PsiCopyPasteManager.asFileList(elements) != null;
+      return CopyHandler.canCopy(elements) ||
+             JBIterable.of(elements).filter(Conditions.instanceOf(PsiNamedElement.class)).isNotEmpty();
     }
 
     @Override
@@ -131,7 +120,7 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
     @Override
     public void performPaste(@NotNull DataContext dataContext) {
       if (!performDefaultPaste(dataContext)) {
-        for(PasteProvider provider: Extensions.getExtensions(EP_NAME)) {
+        for(PasteProvider provider: EP_NAME.getExtensionList()) {
           if (provider.isPasteEnabled(dataContext)) {
             provider.performPaste(dataContext);
             break;
@@ -140,30 +129,30 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
       }
     }
 
-    private boolean performDefaultPaste(final DataContext dataContext) {
+    boolean performDefaultPaste(@NotNull DataContext dataContext) {
       final boolean[] isCopied = new boolean[1];
       final PsiElement[] elements = PsiCopyPasteManager.getInstance().getElements(isCopied);
       if (elements == null) return false;
 
-      DumbService.getInstance(myProject).setAlternativeResolveEnabled(true);
-      try {
-        final Module module = LangDataKeys.MODULE.getData(dataContext);
-        PsiElement target = getPasteTarget(dataContext, module);
-        if (isCopied[0]) {
-          TransactionGuard.getInstance().submitTransactionAndWait(() -> pasteAfterCopy(elements, module, target, true));
+      return DumbService.getInstance(myProject).computeWithAlternativeResolveEnabled(() -> {
+        try {
+          final Module module = LangDataKeys.MODULE.getData(dataContext);
+          PsiElement target = getPasteTarget(dataContext, module);
+          if (isCopied[0]) {
+            pasteAfterCopy(elements, module, target, true);
+          }
+          else if (MoveHandler.canMove(elements, target)) {
+            pasteAfterCut(dataContext, elements, target);
+          }
+          else {
+            return false;
+          }
         }
-        else if (MoveHandler.canMove(elements, target)) {
-          TransactionGuard.getInstance().submitTransactionAndWait(() -> pasteAfterCut(dataContext, elements, target));
+        finally {
+          updateView();
         }
-        else {
-          return false;
-        }
-      }
-      finally {
-        DumbService.getInstance(myProject).setAlternativeResolveEnabled(false);
-        updateView();
-      }
-      return true;
+        return true;
+      });
     }
 
     private PsiElement getPasteTarget(@NotNull DataContext dataContext, @Nullable Module module) {
@@ -248,7 +237,7 @@ public abstract class CopyPasteDelegator implements CopyPasteSupport {
       if (isDefaultPasteEnabled(dataContext)) {
         return true;
       }
-      for(PasteProvider provider: Extensions.getExtensions(EP_NAME)) {
+      for(PasteProvider provider: EP_NAME.getExtensionList()) {
         if (provider.isPasteEnabled(dataContext)) {
           return true;
         }

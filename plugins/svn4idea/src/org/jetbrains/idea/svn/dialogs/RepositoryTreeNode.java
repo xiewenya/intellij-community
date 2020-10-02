@@ -1,12 +1,12 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.dialogs;
 
 import com.intellij.CommonBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.FilteringIterator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnVcs;
@@ -41,7 +41,7 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     myUserObject = userObject;
 
     myLoadState = state;
-    myChildren = ContainerUtil.newArrayList();
+    myChildren = new ArrayList<>();
     myChildrenLoadState = NodeLoadState.EMPTY;
   }
 
@@ -54,30 +54,37 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     return myUserObject;
   }
 
+  @Override
   public int getChildCount() {
     return getChildren().size();
   }
 
+  @Override
   public Enumeration children() {
     return Collections.enumeration(getChildren());
   }
 
+  @Override
   public TreeNode getChildAt(int childIndex) {
     return (TreeNode) getChildren().get(childIndex);
   }
 
+  @Override
   public int getIndex(TreeNode node) {
     return getChildren().indexOf(node);
   }
 
+  @Override
   public boolean getAllowsChildren() {
     return !isLeaf();
   }
 
+  @Override
   public boolean isLeaf() {
     return myUserObject instanceof DirectoryEntry && ((DirectoryEntry)myUserObject).isFile();
   }
 
+  @Override
   public TreeNode getParent() {
     return myParentNode;
   }
@@ -107,7 +114,7 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     if (removeCurrentChildren || NodeLoadState.EMPTY.equals(myChildrenLoadState)) {
       initChildren();
     }
-    
+
     myModel.getCacheLoader().load(this, expander);
   }
 
@@ -136,6 +143,7 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     return myUserObject instanceof DirectoryEntry ? (DirectoryEntry)myUserObject : null;
   }
 
+  @Override
   public void dispose() {
   }
 
@@ -149,12 +157,12 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
 
   @NotNull
   public List<TreeNode> getAllAlreadyLoadedChildren() {
-    return ContainerUtil.newArrayList(myChildren);
+    return new ArrayList<>(myChildren);
   }
 
   @NotNull
   public List<RepositoryTreeNode> getAlreadyLoadedChildren() {
-    return ContainerUtil.collect(myChildren.iterator(), FilteringIterator.instanceOf(RepositoryTreeNode.class));
+    return ContainerUtil.filterIsInstance(myChildren, RepositoryTreeNode.class);
   }
 
   public boolean isDisposed() {
@@ -200,7 +208,7 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     myModel.reload(this);
   }
 
-  public void setErrorNode(@NotNull String text) {
+  public void setErrorNode(@NlsContexts.Label @NotNull String text) {
     myChildren.clear();
     myChildren.add(new SimpleTextNode(text, true));
     myChildrenLoadState = NodeLoadState.ERROR;
@@ -228,7 +236,7 @@ public class RepositoryTreeNode implements TreeNode, Disposable {
     new SubTreeWalker(this, function).execute();
   }
 
-  private static class SubTreeWalker {
+  private static final class SubTreeWalker {
 
     @NotNull private final RepositoryTreeNode myNode;
     @NotNull private final NotNullFunction<RepositoryTreeNode, Object> myFunction;

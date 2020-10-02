@@ -25,11 +25,12 @@ import com.intellij.diff.tools.util.DiffDataKeys;
 import com.intellij.diff.tools.util.FocusTrackerSupport;
 import com.intellij.diff.tools.util.SimpleDiffPanel;
 import com.intellij.diff.tools.util.base.ListenerDiffViewerBase;
+import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.Side;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.pom.Navigatable;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -51,9 +52,9 @@ public abstract class TwosideDiffViewer<T extends EditorHolder> extends Listener
 
     myHolders = createEditorHolders(factory);
 
-    List<JComponent> titlePanels = createTitles();
     myFocusTrackerSupport = new FocusTrackerSupport.Twoside(myHolders);
-    myContentPanel = new TwosideContentPanel(myHolders, titlePanels);
+    myContentPanel = TwosideContentPanel.createFromHolders(myHolders);
+    myContentPanel.setTitles(createTitles());
 
     myPanel = new SimpleDiffPanel(myContentPanel, this, context);
   }
@@ -65,24 +66,30 @@ public abstract class TwosideDiffViewer<T extends EditorHolder> extends Listener
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onDispose() {
     destroyEditorHolders();
     super.onDispose();
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void processContextHints() {
     super.processContextHints();
     myFocusTrackerSupport.processContextHints(myRequest, myContext);
+
+    Float proportion = myContext.getUserData(DiffUserDataKeysEx.TWO_SIDE_SPLITTER_PROPORTION);
+    if (proportion != null && proportion >= 0.05 && proportion <= 0.95) myContentPanel.getSplitter().setProportion(proportion);
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void updateContextHints() {
     super.updateContextHints();
     myFocusTrackerSupport.updateContextHints(myRequest, myContext);
+
+    float proportion = myContentPanel.getSplitter().getProportion();
+    myContext.putUserData(DiffUserDataKeysEx.TWO_SIDE_SPLITTER_PROPORTION, proportion);
   }
 
   //
@@ -109,7 +116,7 @@ public abstract class TwosideDiffViewer<T extends EditorHolder> extends Listener
 
   @NotNull
   protected List<JComponent> createTitles() {
-    return DiffUtil.createSyncHeightComponents(DiffUtil.createSimpleTitles(myRequest));
+    return DiffUtil.createSimpleTitles(myRequest);
   }
 
   //
@@ -150,7 +157,7 @@ public abstract class TwosideDiffViewer<T extends EditorHolder> extends Listener
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (DiffDataKeys.CURRENT_CONTENT.is(dataId)) {
       return getCurrentSide().select(myRequest.getContents());
     }

@@ -1,22 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.hint.ParameterInfoController;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiType;
 import one.util.streamex.StreamEx;
@@ -24,13 +12,13 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
-
-import static com.intellij.util.ObjectUtils.assertNotNull;
+import java.util.Objects;
 
 /**
  * @author peter
  */
-public class JavaMethodMergingContributor extends CompletionContributor {
+public class JavaMethodMergingContributor extends CompletionContributor implements DumbAware {
+  static final Key<Boolean> MERGED_ELEMENT = Key.create("merged.element");
 
   @Override
   public AutoCompletionDecision handleAutoCompletionPossibility(@NotNull AutoCompletionContext context) {
@@ -66,10 +54,17 @@ public class JavaMethodMergingContributor extends CompletionContributor {
         JavaCompletionUtil.putAllMethods(item, allMethods);
       }
 
-      return AutoCompletionDecision.insertItem(findBestOverload(items));
+      LookupElement best = findBestOverload(items);
+      markAsMerged(best);
+      return AutoCompletionDecision.insertItem(best);
     }
 
     return super.handleAutoCompletionPossibility(context);
+  }
+
+  private static void markAsMerged(LookupElement element) {
+    JavaMethodCallElement methodCallElement = element.as(JavaMethodCallElement.CLASS_CONDITION_KEY);
+    if (methodCallElement != null) methodCallElement.putUserData(MERGED_ELEMENT, Boolean.TRUE);
   }
 
   public static String joinLookupStrings(LookupElement item) {
@@ -88,7 +83,7 @@ public class JavaMethodMergingContributor extends CompletionContributor {
   }
 
   private static int getPriority(LookupElement element) {
-    PsiMethod method = assertNotNull(getItemMethod(element));
+    PsiMethod method = Objects.requireNonNull(getItemMethod(element));
     return (PsiType.VOID.equals(method.getReturnType()) ? 0 : 1) +
            (method.getParameterList().isEmpty() ? 0 : 2);
   }

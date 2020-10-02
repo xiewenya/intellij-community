@@ -12,12 +12,13 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.AnnotatedMembersSearch;
 import com.intellij.util.ArrayUtil;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.configuration.TestNGConfiguration;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NotNull;
@@ -72,8 +73,8 @@ public abstract class TestNGTestObject {
   }
 
   public abstract void fillTestObjects(final Map<PsiClass, Map<PsiMethod, List<String>>> classes) throws CantRunException;
-  public abstract String getGeneratedName();
-  public abstract String getActionName();
+  public abstract @NlsActions.ActionText String getGeneratedName();
+  public abstract @NlsActions.ActionText String getActionName();
   public abstract void checkConfiguration() throws RuntimeConfigurationException;
 
   public boolean isConfiguredByElement(PsiElement element) {
@@ -83,7 +84,7 @@ public abstract class TestNGTestObject {
   protected static void calculateDependencies(PsiMethod[] methods,
                                               final Map<PsiClass, Map<PsiMethod, List<String>>> results,
                                               GlobalSearchScope searchScope,
-                                              @Nullable final PsiClass... classes) {
+                                              final PsiClass @Nullable ... classes) {
     calculateDependencies(methods, results, new LinkedHashSet<>(), searchScope, classes);
   }
 
@@ -91,7 +92,7 @@ public abstract class TestNGTestObject {
                                             final Map<PsiClass, Map<PsiMethod, List<String>>> results,
                                             final Set<PsiMember> alreadyMarkedToBeChecked,
                                             final GlobalSearchScope searchScope,
-                                            @Nullable final PsiClass... classes) {
+                                            final PsiClass @Nullable ... classes) {
     if (classes != null && classes.length > 0) {
       final Set<PsiMember> membersToCheckNow = new LinkedHashSet<>();
 
@@ -171,12 +172,7 @@ public abstract class TestNGTestObject {
     if (methods != null && methods.length > 0) {
       final Set<PsiClass> containingClasses = new LinkedHashSet<>();
       for (final PsiMethod method : methods) {
-        containingClasses.add(ApplicationManager.getApplication().runReadAction(new Computable<PsiClass>() {
-          @Override
-          public PsiClass compute() {
-            return method.getContainingClass();
-          }
-        }));
+        containingClasses.add(ReadAction.compute(() -> method.getContainingClass()));
       }
       psiClasses = containingClasses.toArray(PsiClass.EMPTY_ARRAY);
     } else {
@@ -281,7 +277,7 @@ public abstract class TestNGTestObject {
   }
 
   private static class UnknownTestNGTestObject extends TestNGTestObject {
-    public UnknownTestNGTestObject(TestNGConfiguration config) {
+    UnknownTestNGTestObject(TestNGConfiguration config) {
       super(config);
     }
 
@@ -295,7 +291,7 @@ public abstract class TestNGTestObject {
 
     @Override
     public String getActionName() {
-      return "Unknown";
+      return TestngBundle.message("action.text.unknown.test.object");
     }
 
     @Override

@@ -16,18 +16,43 @@
 package com.siyeh.ig.portability;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
-import junit.framework.TestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.siyeh.ig.LightJavaInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class HardcodedFileSeparatorsInspectionTest extends LightInspectionTestCase {
+public class HardcodedFileSeparatorsInspectionTest extends LightJavaInspectionTestCase {
+
+  @Override
+  protected @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_14;
+  }
+
+  @Override
+  protected String[] getEnvironmentClasses() {
+    return new String[] {
+      "package java.net;" +
+      "public final class URL implements java.io.Serializable { " +
+      "public URL(String spec) throws MalformedURLException { " +
+      " this(null, spec);" +
+      "}}",
+
+      "package java.net;" +
+      "public final class URI implements java.io.Serializable { " +
+      "public URI(String str) throws URISyntaxException { " +
+      " new Parser(str).parse(false);" +
+      "}}",
+    };
+  }
 
   public void testHardcodedFileSeparators() {
     doTest();
   }
+
+  public void testNoCrashOnUnclosedLiteral() { doTest();}
 
   @Nullable
   @Override

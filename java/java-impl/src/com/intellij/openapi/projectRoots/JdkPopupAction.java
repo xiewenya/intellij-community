@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots;
 
 import com.intellij.execution.ExecutionException;
@@ -20,6 +6,7 @@ import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.ProcessOutput;
 import com.intellij.execution.util.ExecUtil;
 import com.intellij.icons.AllIcons;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -27,6 +14,8 @@ import com.intellij.openapi.fileChooser.FileSystemTree;
 import com.intellij.openapi.fileChooser.actions.FileChooserAction;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.projectRoots.impl.JavaSdkImpl;
+import com.intellij.openapi.ui.JBPopupMenu;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VfsUtil;
@@ -44,27 +33,26 @@ import java.util.Collection;
 import java.util.List;
 
 public class JdkPopupAction extends AnAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileChooser.actions.JDKPopupAction");
+  private static final Logger LOG = Logger.getInstance(JdkPopupAction.class);
 
   public JdkPopupAction() {
-    super("Show Quick list", "", AllIcons.General.AddJdk);
+    super(JavaBundle.messagePointer("action.text.show.quick.list"), () -> "", AllIcons.General.AddJdk);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     boolean enabled = isEnabledInCurrentOS();
     if (enabled) {
-      FileSystemTree tree = FileSystemTree.DATA_KEY.getData(e.getDataContext());
+      FileSystemTree tree = e.getData(FileSystemTree.DATA_KEY);
       if (tree == null || Boolean.TRUE != tree.getData(JavaSdkImpl.KEY)) {
         enabled = false;
       }
     }
-    e.getPresentation().setEnabled(enabled);
-    e.getPresentation().setVisible(enabled);
+    e.getPresentation().setEnabledAndVisible(enabled);
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final JComponent component;
     final boolean showInMiddle;
     InputEvent inputEvent = e.getInputEvent();
@@ -89,7 +77,7 @@ public class JdkPopupAction extends AnAction {
       }
 
       ApplicationManager.getApplication().invokeLater(() -> showPopupMenu(e, jdkLocations, showInMiddle, component));
-    }, "Looking for JDK locations...", false, e.getProject(), component);
+    }, JavaBundle.message("progress.title.looking.for.jdk.locations"), false, e.getProject(), component);
   }
 
   private static boolean isEnabledInCurrentOS() {
@@ -97,16 +85,15 @@ public class JdkPopupAction extends AnAction {
   }
 
   private static void showPopupMenu(AnActionEvent e,
-                             final ArrayList<Pair<File, String>> jdkLocations,
+                             final ArrayList<? extends Pair<File, String>> jdkLocations,
                              boolean showInMiddle,
                              JComponent component) {
     ActionPopupMenu menu =
       ActionManager.getInstance().createActionPopupMenu(e.getPlace(), new ActionGroup() {
-        @NotNull
         @Override
-        public AnAction[] getChildren(@Nullable AnActionEvent e) {
+        public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
           List<AnAction> result = new ArrayList<>();
-          for (final Pair<File, String> homes : jdkLocations) {
+          for (final Pair<File, @NlsSafe String> homes : jdkLocations) {
             result.add(new FileChooserAction("", null, null) {
               @Override
               protected void update(FileSystemTree fileChooser, AnActionEvent e) {
@@ -116,7 +103,7 @@ public class JdkPopupAction extends AnAction {
                 if (selectedFile != null) {
                   selected = homes.getFirst().getAbsolutePath().equals(VfsUtilCore.virtualToIoFile(selectedFile).getAbsolutePath());
                 }
-                e.getPresentation().setIcon(selected ? AllIcons.Diff.CurrentLine : null);
+                e.getPresentation().setIcon(selected ? AllIcons.Actions.Forward : null);
               }
 
               @Override
@@ -135,7 +122,7 @@ public class JdkPopupAction extends AnAction {
               (component.getHeight() - menuComponent.getHeight()) / 2);
     }
     else {
-      menuComponent.show(component, 0, component.getHeight());
+      JBPopupMenu.showBelow(component, menuComponent);
     }
   }
 

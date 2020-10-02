@@ -30,6 +30,7 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,13 +51,13 @@ public class XmlImportOptimizer implements ImportOptimizer {
   };
 
   @Override
-  public boolean supports(PsiFile file) {
+  public boolean supports(@NotNull PsiFile file) {
     return file instanceof XmlFile;
   }
 
   @NotNull
   @Override
-  public CollectingInfoRunnable processFile(final PsiFile file) {
+  public CollectingInfoRunnable processFile(@NotNull final PsiFile file) {
     return new CollectingInfoRunnable() {
       int myRemovedNameSpaces = 0;
 
@@ -70,7 +71,7 @@ public class XmlImportOptimizer implements ImportOptimizer {
         final XmlElementVisitor visitor = (XmlElementVisitor)myInspection.buildVisitor(holder, false);
         new PsiRecursiveElementVisitor() {
           @Override
-          public void visitElement(PsiElement element) {
+          public void visitElement(@NotNull PsiElement element) {
             if (element instanceof XmlAttribute) {
               visitor.visitXmlAttribute((XmlAttribute)element);
             }
@@ -105,7 +106,7 @@ public class XmlImportOptimizer implements ImportOptimizer {
       @Override
       public String getUserNotificationInfo() {
         return myRemovedNameSpaces > 0
-               ? "Removed " + myRemovedNameSpaces + " namespace" + (myRemovedNameSpaces > 1 ? "s" : "")
+               ? XmlBundle.message("hint.text.removed.namespace", myRemovedNameSpaces, myRemovedNameSpaces > 1 ? 0 : 1)
                : null;
       }
     };

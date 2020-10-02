@@ -1,7 +1,8 @@
-from typing import Any, IO
-from . import _collections
-from . import exceptions
-from .connection import HTTPException as HTTPException, BaseSSLError as BaseSSLError
+import io
+from typing import Any
+
+from . import _collections, exceptions
+from .connection import BaseSSLError as BaseSSLError, HTTPException as HTTPException
 from .util import response
 
 HTTPHeaderDict = _collections.HTTPHeaderDict
@@ -22,16 +23,29 @@ class GzipDecoder:
     def __getattr__(self, name): ...
     def decompress(self, data): ...
 
-class HTTPResponse(IO[Any]):
-    CONTENT_DECODERS = ...  # type: Any
-    REDIRECT_STATUSES = ...  # type: Any
-    headers = ...  # type: Any
-    status = ...  # type: Any
-    version = ...  # type: Any
-    reason = ...  # type: Any
-    strict = ...  # type: Any
-    decode_content = ...  # type: Any
-    def __init__(self, body=..., headers=..., status=..., version=..., reason=..., strict=..., preload_content=..., decode_content=..., original_response=..., pool=..., connection=...) -> None: ...
+class HTTPResponse(io.IOBase):
+    CONTENT_DECODERS: Any
+    REDIRECT_STATUSES: Any
+    headers: Any
+    status: Any
+    version: Any
+    reason: Any
+    strict: Any
+    decode_content: Any
+    def __init__(
+        self,
+        body=...,
+        headers=...,
+        status=...,
+        version=...,
+        reason=...,
+        strict=...,
+        preload_content=...,
+        decode_content=...,
+        original_response=...,
+        pool=...,
+        connection=...,
+    ) -> None: ...
     def get_redirect_location(self): ...
     def release_conn(self): ...
     @property
@@ -40,7 +54,7 @@ class HTTPResponse(IO[Any]):
     def read(self, amt=..., decode_content=..., cache_content=...): ...
     def stream(self, amt=..., decode_content=...): ...
     @classmethod
-    def from_httplib(ResponseCls, r, **response_kw): ...
+    def from_httplib(cls, r, **response_kw): ...
     def getheaders(self): ...
     def getheader(self, name, default=...): ...
     def close(self): ...

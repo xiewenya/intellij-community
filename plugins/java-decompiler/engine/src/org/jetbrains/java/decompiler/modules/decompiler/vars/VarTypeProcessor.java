@@ -170,10 +170,9 @@ public class VarTypeProcessor {
       case Exprent.EXPRENT_VAR:
         VarVersionPair pair = null;
         if (exprent.type == Exprent.EXPRENT_CONST) {
-          pair = new VarVersionPair(((ConstExprent)exprent).id, -1);
+          pair = new VarVersionPair(exprent.id, -1);
         }
         else if (exprent.type == Exprent.EXPRENT_VAR) {
-          //noinspection ConstantConditions
           pair = new VarVersionPair((VarExprent)exprent);
         }
 
@@ -192,7 +191,6 @@ public class VarTypeProcessor {
 
           mapExprentMinTypes.put(pair, newMinType);
           if (exprent.type == Exprent.EXPRENT_CONST) {
-            //noinspection ConstantConditions
             ((ConstExprent)exprent).setConstType(newMinType);
           }
 

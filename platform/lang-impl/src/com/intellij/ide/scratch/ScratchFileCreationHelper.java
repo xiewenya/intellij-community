@@ -3,6 +3,7 @@
  */
 package com.intellij.ide.scratch;
 
+import com.intellij.ide.IdeView;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageExtension;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -26,8 +27,11 @@ public abstract class ScratchFileCreationHelper {
   public static final LanguageExtension<ScratchFileCreationHelper> EXTENSION = new LanguageExtension<>(
     "com.intellij.scratch.creationHelper", new ScratchFileCreationHelper() {
   });
-  
-  
+
+  /**
+   * Override to change the default initial text for a scratch file stored in {@link Context#text} field.
+   * Return true if the text is set up as needed and no further considerations are necessary.
+   */
   public boolean prepareText(@NotNull Project project, @NotNull Context context, @NotNull DataContext dataContext) {
     return false;
   }
@@ -46,6 +50,7 @@ public abstract class ScratchFileCreationHelper {
     public String fileExtension;
     
     public ScratchFileService.Option createOption = ScratchFileService.Option.create_new_always;
+    public IdeView ideView;
   }
 
   @Nullable

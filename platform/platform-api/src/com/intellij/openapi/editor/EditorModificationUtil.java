@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
 import com.intellij.codeInsight.hint.HintManager;
@@ -11,12 +9,15 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Producer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.event.HyperlinkListener;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
@@ -24,9 +25,10 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Supplier;
 
-public class EditorModificationUtil {
-  public static final Key<String> READ_ONLY_VIEW_MESSAGE_KEY = Key.create("READ_ONLY_VIEW_MESSAGE_KEY");
+public final class EditorModificationUtil {
+  private static final Key<ReadOnlyHint> READ_ONLY_VIEW_HINT_KEY = Key.create("READ_ONLY_VIEW_HINT_KEY");
 
   private EditorModificationUtil() { }
 
@@ -50,12 +52,7 @@ public class EditorModificationUtil {
   }
 
   public static void deleteSelectedTextForAllCarets(@NotNull final Editor editor) {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        deleteSelectedText(editor);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(__ -> deleteSelectedText(editor));
   }
 
   public static void zeroWidthBlockSelectionAtCaretColumn(final Editor editor, final int startLine, final int endLine) {
@@ -129,7 +126,7 @@ public class EditorModificationUtil {
     return offset;
   }
 
-  public static void pasteTransferableAsBlock(Editor editor, @Nullable Producer<Transferable> producer) {
+  public static void pasteTransferableAsBlock(Editor editor, @Nullable Supplier<? extends Transferable> producer) {
     Transferable content = getTransferable(producer);
     if (content == null) return;
     String text = getStringContent(content);
@@ -154,7 +151,7 @@ public class EditorModificationUtil {
   }
 
   @Nullable
-  public static Transferable getContentsToPasteToEditor(@Nullable Producer<Transferable> producer) {
+  public static Transferable getContentsToPasteToEditor(@Nullable Producer<? extends Transferable> producer) {
     if (producer == null) {
       CopyPasteManager manager = CopyPasteManager.getInstance();
       return manager.areDataFlavorsAvailable(DataFlavor.stringFlavor) ? manager.getContents() : null;
@@ -162,7 +159,7 @@ public class EditorModificationUtil {
     else {
       return producer.produce();
     }
-  } 
+  }
 
   @Nullable
   public static String getStringContent(@NotNull Transferable content) {
@@ -177,10 +174,10 @@ public class EditorModificationUtil {
     return null;
   }
 
-  private static Transferable getTransferable(Producer<Transferable> producer) {
+  private static Transferable getTransferable(Supplier<? extends Transferable> producer) {
     Transferable content = null;
     if (producer != null) {
-      content = producer.produce();
+      content = producer.get();
     }
     else {
       CopyPasteManager manager = CopyPasteManager.getInstance();
@@ -281,6 +278,16 @@ public class EditorModificationUtil {
           buf.append(properIndent.charAt(i));
           if (afterLineEnd == 0) break;
         }
+      } else {
+        EditorSettings editorSettings = editor.getSettings();
+        boolean useTab = editorSettings.isUseTabCharacter(editor.getProject());
+        if (useTab) {
+          int tabSize = editorSettings.getTabSize(project);
+          while (afterLineEnd >= tabSize) {
+            buf.append('\t');
+            afterLineEnd -= tabSize;
+          }
+        }
       }
     }
 
@@ -309,22 +316,12 @@ public class EditorModificationUtil {
   public static void typeInStringAtCaretHonorMultipleCarets(final Editor editor, @NotNull final String str, final boolean toProcessOverwriteMode, final int caretShift)
     throws ReadOnlyFragmentModificationException
   {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(__ -> insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift));
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
   }
 
   public static void moveAllCaretsRelatively(@NotNull Editor editor, final int caretShift) {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        caret.moveToOffset(caret.getOffset() + caretShift);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(caret -> caret.moveToOffset(caret.getOffset() + caretShift));
   }
 
   public static void moveCaretRelatively(@NotNull Editor editor, final int caretShift) {
@@ -333,7 +330,7 @@ public class EditorModificationUtil {
   }
 
   /**
-   * This method is safe to run both in and out of {@link com.intellij.openapi.editor.CaretModel#runForEachCaret(CaretAction)} context.
+   * This method is safe to run both in and out of {@link CaretModel#runForEachCaret(CaretAction)} context.
    * It scrolls to primary caret in both cases, and, in the former case, avoids performing excessive scrolling in case of large number
    * of carets.
    */
@@ -342,9 +339,9 @@ public class EditorModificationUtil {
       editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
     }
   }
-  
+
   @NotNull
-  public static List<CaretState> calcBlockSelectionState(@NotNull Editor editor, 
+  public static List<CaretState> calcBlockSelectionState(@NotNull Editor editor,
                                                          @NotNull LogicalPosition blockStart, @NotNull LogicalPosition blockEnd) {
     int startLine = Math.max(Math.min(blockStart.line, editor.getDocument().getLineCount() - 1), 0);
     int endLine = Math.max(Math.min(blockEnd.line, editor.getDocument().getLineCount() - 1), 0);
@@ -387,8 +384,10 @@ public class EditorModificationUtil {
   }
 
   public static boolean requestWriting(@NotNull Editor editor) {
-    if (!FileDocumentManager.getInstance().requestWriting(editor.getDocument(), editor.getProject())) {
-      HintManager.getInstance().showInformationHint(editor, EditorBundle.message("editing.read.only.file.hint"));
+    FileDocumentManager.WriteAccessStatus writeAccess =
+      FileDocumentManager.getInstance().requestWritingStatus(editor.getDocument(), editor.getProject());
+    if (!writeAccess.hasWriteAccess()) {
+      HintManager.getInstance().showInformationHint(editor, writeAccess.getReadOnlyMessage());
       return false;
     }
     return true;
@@ -402,8 +401,36 @@ public class EditorModificationUtil {
     if (!editor.isViewer()) return true;
     if (ApplicationManager.getApplication().isHeadlessEnvironment() || editor instanceof TextComponentEditor) return false;
 
-    String data = READ_ONLY_VIEW_MESSAGE_KEY.get(editor);
-    HintManager.getInstance().showInformationHint(editor, data == null ? EditorBundle.message("editing.viewer.hint") : data);
+    ReadOnlyHint hint = ObjectUtils.chooseNotNull(READ_ONLY_VIEW_HINT_KEY.get(editor), new ReadOnlyHint(EditorBundle.message("editing.viewer.hint"), null));
+    HintManager.getInstance().showInformationHint(editor, hint.message, hint.linkListener);
     return false;
+  }
+
+  /**
+   * @see #setReadOnlyHint(Editor, String, HyperlinkListener)
+   */
+  public static void setReadOnlyHint(@NotNull Editor editor, @Nullable @NlsContexts.HintText String message) {
+    setReadOnlyHint(editor, message, null);
+  }
+
+  /**
+   * Change hint that is displayed on attempt to modify text when editor is in view mode.
+   *
+   * @param message      New hint message or {@code null} if default message should be used instead.
+   * @param linkListener Callback for html hyperlinks that can be used in hint message.
+   */
+  public static void setReadOnlyHint(@NotNull Editor editor, @Nullable @NlsContexts.HintText String message, @Nullable HyperlinkListener linkListener) {
+    editor.putUserData(READ_ONLY_VIEW_HINT_KEY, message != null ? new ReadOnlyHint(message, linkListener) : null);
+  }
+
+  private static final class ReadOnlyHint {
+
+    @NotNull public final @NlsContexts.HintText String message;
+    @Nullable public final HyperlinkListener linkListener;
+
+    private ReadOnlyHint(@NotNull @NlsContexts.HintText String message, @Nullable HyperlinkListener linkListener) {
+      this.message = message;
+      this.linkListener = linkListener;
+    }
   }
 }

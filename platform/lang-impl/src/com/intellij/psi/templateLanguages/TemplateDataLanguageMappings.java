@@ -52,14 +52,14 @@ public class TemplateDataLanguageMappings extends LanguagePerFileMappings<Langua
   }
 
   @Override
-  public List<Language> getAvailableValues() {
+  public @NotNull List<Language> getAvailableValues() {
     return getTemplateableLanguages();
   }
 
   @Nullable
   @Override
   public Language getMapping(@Nullable VirtualFile file) {
-    final Language t = getMappingInner(file, getMappings(), myPropertyPusher.getFileDataKey());
+    Language t = getConfiguredMapping(file);
     return t == null || t == Language.ANY ? getDefaultMapping(file) : t;
   }
 
@@ -73,7 +73,7 @@ public class TemplateDataLanguageMappings extends LanguagePerFileMappings<Langua
     return file == null? null : TemplateDataLanguagePatterns.getInstance().getTemplateDataLanguageByFileName(file);
   }
 
-  public static List<Language> getTemplateableLanguages() {
+  public static @NotNull List<Language> getTemplateableLanguages() {
     return ContainerUtil.findAll(Language.getRegisteredLanguages(), new Condition<Language>() {
       @Override
       public boolean value(final Language language) {

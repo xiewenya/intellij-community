@@ -20,7 +20,7 @@
  */
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
@@ -39,13 +39,14 @@ class UnaryExpressionEvaluator implements Evaluator {
   private final Evaluator myOperandEvaluator;
   private final String myOperationText;
 
-  public UnaryExpressionEvaluator(IElementType operationType, String expectedType, Evaluator operandEvaluator, final String operationText) {
+  UnaryExpressionEvaluator(IElementType operationType, String expectedType, Evaluator operandEvaluator, final String operationText) {
     myOperationType = operationType;
     myExpectedType = expectedType;
     myOperandEvaluator = operandEvaluator;
     myOperationText = operationText;
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     Value operand = (Value)myOperandEvaluator.evaluate(context);
     VirtualMachineProxyImpl vm = context.getDebugProcess().getVirtualMachineProxy();
@@ -53,7 +54,7 @@ class UnaryExpressionEvaluator implements Evaluator {
       if (DebuggerUtils.isNumeric(operand)) {
         return operand;
       }
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.numeric.expected"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.numeric.expected"));
     }
     else if (myOperationType == JavaTokenType.MINUS) {
       if (DebuggerUtils.isInteger(operand)) {
@@ -64,25 +65,25 @@ class UnaryExpressionEvaluator implements Evaluator {
         double v = ((PrimitiveValue)operand).doubleValue();
         return DebuggerUtilsEx.createValue(vm, myExpectedType, -v);
       }
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.numeric.expected"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.numeric.expected"));
     }
     else if (myOperationType == JavaTokenType.TILDE) {
       if (DebuggerUtils.isInteger(operand)) {
         long v = ((PrimitiveValue)operand).longValue();
         return DebuggerUtilsEx.createValue(vm, myExpectedType, ~v);
       }
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.integer.expected"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.integer.expected"));
     }
     else if (myOperationType == JavaTokenType.EXCL) {
       if (operand instanceof BooleanValue) {
         boolean v = ((BooleanValue)operand).booleanValue();
         return DebuggerUtilsEx.createValue(vm, myExpectedType, !v);
       }
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.boolean.expected"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.boolean.expected"));
     }
-    
+
     throw EvaluateExceptionUtil.createEvaluateException(
-      DebuggerBundle.message("evaluation.error.operation.not.supported", myOperationText)
+      JavaDebuggerBundle.message("evaluation.error.operation.not.supported", myOperationText)
     );
   }
 }

@@ -15,11 +15,13 @@
  */
 package com.intellij.application.options;
 
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.ui.components.fields.IntegerField;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -31,8 +33,6 @@ import static com.intellij.psi.codeStyle.CodeStyleConstraints.MIN_INDENT_SIZE;
  * @author yole
  */
 public class JavaIndentOptionsEditor extends SmartIndentOptionsEditor {
-  private static final String LABEL_INDENT_LABEL = ApplicationBundle.message("editbox.indent.label.indent");
-
   private IntegerField myLabelIndent;
   private JLabel myLabelIndentLabel;
 
@@ -40,23 +40,25 @@ public class JavaIndentOptionsEditor extends SmartIndentOptionsEditor {
   private JCheckBox myCbDontIndentTopLevelMembers;
   private JCheckBox myCbUseRelativeIndent;
 
+  @Override
   protected void addComponents() {
     super.addComponents();
 
-    myLabelIndent = new IntegerField(LABEL_INDENT_LABEL, MIN_INDENT_SIZE, MAX_INDENT_SIZE);
+    myLabelIndent = new IntegerField(getLabelIndentLabel(), MIN_INDENT_SIZE, MAX_INDENT_SIZE);
     myLabelIndent.setColumns(4);
-    add(myLabelIndentLabel = new JLabel(LABEL_INDENT_LABEL), myLabelIndent);
+    add(myLabelIndentLabel = new JLabel(getLabelIndentLabel()), myLabelIndent);
 
     myLabelIndentAbsolute = new JCheckBox(ApplicationBundle.message("checkbox.indent.absolute.label.indent"));
     add(myLabelIndentAbsolute, true);
 
-    myCbDontIndentTopLevelMembers = new JCheckBox(ApplicationBundle.message("checkbox.do.not.indent.top.level.class.members"));
+    myCbDontIndentTopLevelMembers = new JCheckBox(JavaBundle.message("checkbox.do.not.indent.top.level.class.members"));
     add(myCbDontIndentTopLevelMembers);
 
     myCbUseRelativeIndent = new JCheckBox(ApplicationBundle.message("checkbox.use.relative.indents"));
     add(myCbUseRelativeIndent);
   }
 
+  @Override
   public boolean isModified(final CodeStyleSettings settings, final CommonCodeStyleSettings.IndentOptions options) {
     boolean isModified = super.isModified(settings, options);
     CommonCodeStyleSettings javaSettings = settings.getCommonSettings(JavaLanguage.INSTANCE);
@@ -69,6 +71,7 @@ public class JavaIndentOptionsEditor extends SmartIndentOptionsEditor {
     return isModified;
   }
 
+  @Override
   public void apply(final CodeStyleSettings settings, final CommonCodeStyleSettings.IndentOptions options) {
     super.apply(settings, options);
     options.LABEL_INDENT_SIZE = myLabelIndent.getValue();
@@ -79,6 +82,7 @@ public class JavaIndentOptionsEditor extends SmartIndentOptionsEditor {
     options.USE_RELATIVE_INDENTS = myCbUseRelativeIndent.isSelected();
   }
 
+  @Override
   public void reset(@NotNull final CodeStyleSettings settings, @NotNull final CommonCodeStyleSettings.IndentOptions options) {
     super.reset(settings, options);
     myLabelIndent.setValue(options.LABEL_INDENT_SIZE);
@@ -88,10 +92,15 @@ public class JavaIndentOptionsEditor extends SmartIndentOptionsEditor {
     myCbUseRelativeIndent.setSelected(options.USE_RELATIVE_INDENTS);
   }
 
+  @Override
   public void setEnabled(final boolean enabled) {
     super.setEnabled(enabled);
     myLabelIndent.setEnabled(enabled);
     myLabelIndentLabel.setEnabled(enabled);
     myLabelIndentAbsolute.setEnabled(enabled);
+  }
+
+  private static @Nls String getLabelIndentLabel() {
+    return ApplicationBundle.message("editbox.indent.label.indent");
   }
 }

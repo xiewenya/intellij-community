@@ -1,8 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.RoamingType
 import com.intellij.util.containers.ContainerUtil
-
 import java.io.InputStream
 
 class CompoundStreamProvider : StreamProvider {
@@ -10,6 +10,12 @@ class CompoundStreamProvider : StreamProvider {
 
   override val enabled: Boolean
     get() = providers.any { it.enabled }
+
+  override val isExclusive: Boolean
+    get() = providers.any { it.isExclusive }
+
+  val isExclusivelyEnabled: Boolean
+    get() = enabled && isExclusive
 
   override fun isApplicable(fileSpec: String, roamingType: RoamingType) = providers.any { it.isApplicable(fileSpec, roamingType) }
 

@@ -26,11 +26,13 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrLambdaBody;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrCondition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
@@ -46,19 +48,21 @@ import org.jetbrains.plugins.groovy.lang.psi.api.util.GrStatementOwner;
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.AfterCallInstruction;
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.Instruction;
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.ReadWriteVariableInstruction;
-import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.ControlFlowBuilder;
-import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.IfEndInstruction;
-import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.MaybeReturnInstruction;
-import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.ThrowingInstruction;
+import org.jetbrains.plugins.groovy.lang.psi.controlFlow.VariableDescriptor;
+import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.*;
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.DFAEngine;
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.DfaInstance;
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.Semilattice;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+import static org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.VariableDescriptorFactory.createDescriptor;
 
 @SuppressWarnings({"OverlyComplexClass"})
-public class ControlFlowUtils {
+public final class ControlFlowUtils {
   private static final Logger LOG = Logger.getInstance(ControlFlowUtils.class);
 
   public static boolean statementMayCompleteNormally(@Nullable GrStatement statement) {
@@ -420,7 +424,7 @@ public class ControlFlowUtils {
 
   @NotNull
   public static List<GrStatement> collectReturns(@Nullable PsiElement element) {
-    return collectReturns(element, element instanceof GrCodeBlock || element instanceof GroovyFile);
+    return collectReturns(element, element instanceof GrCodeBlock || element instanceof GroovyFile || element instanceof GrLambdaBody);
   }
 
   @NotNull
@@ -432,13 +436,13 @@ public class ControlFlowUtils {
       flow = ((GrControlFlowOwner)element).getControlFlow();
     }
     else {
-      flow = new ControlFlowBuilder(element.getProject()).buildControlFlow((GroovyPsiElement)element);
+      flow = new ControlFlowBuilder().buildControlFlow((GroovyPsiElement)element);
     }
     return collectReturns(flow, allExitPoints);
   }
 
   @NotNull
-  public static List<GrStatement> collectReturns(@NotNull Instruction[] flow, final boolean allExitPoints) {
+  public static List<GrStatement> collectReturns(Instruction @NotNull [] flow, final boolean allExitPoints) {
     boolean[] visited = new boolean[flow.length];
     final List<GrStatement> res = new ArrayList<>();
     visitAllExitPointsInner(flow[flow.length - 1], flow[0], visited, new ExitPointVisitor() {
@@ -505,7 +509,7 @@ public class ControlFlowUtils {
     }
     if (applicable.isEmpty()) return null;
 
-    Collections.sort(applicable, (o1, o2) -> {
+    applicable.sort((o1, o2) -> {
       PsiElement e1 = o1.getElement();
       PsiElement e2 = o2.getElement();
       LOG.assertTrue(e1 != null);
@@ -549,7 +553,7 @@ public class ControlFlowUtils {
     }
   }
 
-  private static class BreakFinder extends GroovyRecursiveElementVisitor {
+  private static final class BreakFinder extends GroovyRecursiveElementVisitor {
     private boolean m_found = false;
     private final GrStatement m_target;
 
@@ -578,7 +582,7 @@ public class ControlFlowUtils {
     }
   }
 
-  private static class ContinueFinder extends GroovyRecursiveElementVisitor {
+  private static final class ContinueFinder extends GroovyRecursiveElementVisitor {
     private boolean m_found = false;
     private final GrStatement m_target;
 
@@ -645,7 +649,7 @@ public class ControlFlowUtils {
       visited[last.num()] = true;
       return visitAllExitPointsInner(((AfterCallInstruction)last).myCall, first, visited, visitor);
     }
-    
+
     if (last instanceof MaybeReturnInstruction) {
       return visitor.visitExitPoint(last, (GrExpression)last.getElement());
     }
@@ -721,8 +725,6 @@ public class ControlFlowUtils {
   }
 
   public static List<ReadWriteVariableInstruction> findAccess(GrVariable local, boolean ahead, boolean writeAccessOnly, Instruction cur) {
-    String name = local.getName();
-
     final ArrayList<ReadWriteVariableInstruction> result = new ArrayList<>();
     final HashSet<Instruction> visited = new HashSet<>();
 
@@ -742,7 +744,7 @@ public class ControlFlowUtils {
 
       if (instruction instanceof ReadWriteVariableInstruction) {
         ReadWriteVariableInstruction rw = (ReadWriteVariableInstruction)instruction;
-        if (name.equals(rw.getVariableName())) {
+        if (createDescriptor(local).equals(rw.getDescriptor())) {
           if (rw.isWrite()) {
             result.add(rw);
             continue;
@@ -764,32 +766,60 @@ public class ControlFlowUtils {
     return result;
   }
 
+  public static @NotNull @Unmodifiable Set<@NotNull ResolvedVariableDescriptor>
+  getForeignVariableDescriptors(@NotNull GrControlFlowOwner owner) {
+    return CachedValuesManager.getCachedValue(owner, () -> {
+      Set<ResolvedVariableDescriptor> foreignDescriptors = getForeignVariableDescriptors(owner, __ -> true);
+      return CachedValueProvider.Result.create(foreignDescriptors, owner);
+    });
+  }
+
+  public static @NotNull @Unmodifiable Set<@NotNull ResolvedVariableDescriptor>
+  getForeignVariableDescriptors(@NotNull GrControlFlowOwner owner,
+                                @NotNull Predicate<? super ReadWriteVariableInstruction> instructionFilter) {
+    Set<ResolvedVariableDescriptor> usedDescriptors = new LinkedHashSet<>();
+    for (Instruction instruction : owner.getControlFlow()) {
+      PsiElement element = instruction.getElement();
+      if (instruction instanceof ReadWriteVariableInstruction && instructionFilter.test((ReadWriteVariableInstruction)instruction)) {
+        VariableDescriptor immediateDescriptor = ((ReadWriteVariableInstruction)instruction).getDescriptor();
+        if (immediateDescriptor instanceof ResolvedVariableDescriptor) {
+          usedDescriptors.add((ResolvedVariableDescriptor)immediateDescriptor);
+        }
+      }
+      if (!(instruction instanceof ReadWriteVariableInstruction) && element instanceof GrControlFlowOwner) {
+        usedDescriptors.addAll(getForeignVariableDescriptors((GrControlFlowOwner)element, instructionFilter));
+      }
+    }
+    return usedDescriptors.stream()
+      .filter(descriptor -> descriptor.getVariable().getContext() != owner &&
+                            PsiTreeUtil.getParentOfType(descriptor.getVariable(), GrControlFlowOwner.class) != owner)
+      .collect(Collectors.toUnmodifiableSet());
+  }
+
   @Nullable
   public static Instruction findInstruction(final PsiElement place, Instruction[] controlFlow) {
     return ContainerUtil.find(controlFlow, instruction -> instruction.getElement() == place);
-  }
-
-  public static List<Instruction> findAllInstructions(final PsiElement place, Instruction[] controlFlow) {
-    return ContainerUtil.findAll(controlFlow, instruction -> instruction.getElement() == place);
   }
 
   @NotNull
   public static List<BitSet> inferWriteAccessMap(final Instruction[] flow, final GrVariable var) {
 
     final Semilattice<BitSet> sem = new Semilattice<BitSet>() {
+
       @NotNull
       @Override
-      public BitSet join(@NotNull List<BitSet> ins) {
+      public BitSet initial() {
+        return new BitSet(flow.length);
+      }
+
+      @NotNull
+      @Override
+      public BitSet join(@NotNull List<? extends BitSet> ins) {
         BitSet result = new BitSet(flow.length);
         for (BitSet set : ins) {
           result.or(set);
         }
         return result;
-      }
-
-      @Override
-      public boolean eq(@NotNull BitSet e1, @NotNull BitSet e2) {
-        return e1.equals(e2);
       }
     };
 
@@ -807,18 +837,12 @@ public class ControlFlowUtils {
             return;
           }
         }
-        if (!((ReadWriteVariableInstruction)instruction).getVariableName().equals(var.getName())) {
+        if (!((ReadWriteVariableInstruction)instruction).getDescriptor().equals(createDescriptor(var))) {
           return;
         }
 
         bitSet.clear();
         bitSet.set(instruction.num());
-      }
-
-      @NotNull
-      @Override
-      public BitSet initial() {
-        return new BitSet(flow.length);
       }
     };
 

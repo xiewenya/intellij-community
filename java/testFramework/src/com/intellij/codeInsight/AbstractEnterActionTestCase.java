@@ -3,31 +3,14 @@
  */
 package com.intellij.codeInsight;
 
-import com.intellij.application.options.CodeStyle;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import org.jetbrains.annotations.NonNls;
 
-import java.io.IOException;
-
-public abstract class AbstractEnterActionTestCase extends LightCodeInsightTestCase {
+public abstract class AbstractEnterActionTestCase extends LightJavaCodeInsightTestCase {
   private static final String TEST_PATH = "/codeInsight/enterAction/";
-
-  protected static CodeStyleSettings getCodeStyleSettings() {
-    return CodeStyle.getSettings(getProject()).clone();
-  }
-  protected static void setCodeStyleSettings(CodeStyleSettings settings) {
-    CodeStyle.setTemporarySettings(getProject(), settings);
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    CodeStyle.dropTemporarySettings(getProject());
-    super.tearDown();
-  }
 
   protected void doGetIndentTest(final PsiFile file, final int lineNum, final String expected) {
     final int offset = PsiDocumentManager.getInstance(getProject()).getDocument(file).getLineEndOffset(lineNum);
@@ -39,7 +22,7 @@ public abstract class AbstractEnterActionTestCase extends LightCodeInsightTestCa
     doTest("java");
   }
 
-  protected void doTextTest(@NonNls String ext, @NonNls String before, @NonNls String after) throws IOException {
+  protected void doTextTest(@NonNls String ext, @NonNls String before, @NonNls String after) {
     configureFromFileText("a." + ext, before);
     performAction();
     checkResultByText(null, after, false);

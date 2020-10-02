@@ -1,28 +1,15 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.configurable;
 
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.scopeChooser.ScopeChooserConfigurable;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.ex.Settings;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsConfiguration;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
@@ -37,21 +24,22 @@ import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
+import java.util.Objects;
 
 /**
  * @author Kirill Likhodedov
  */
-class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesHolder.ScopeListener {
+class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesHolder.ScopeListener, Disposable {
   private final JCheckBox myCheckbox;
   private final JComboBox myComboBox;
   private final VcsConfiguration myVcsConfiguration;
   private final NamedScopesHolder[] myNamedScopeHolders;
 
-  VcsUpdateInfoScopeFilterConfigurable(Project project, VcsConfiguration vcsConfiguration) {
+  VcsUpdateInfoScopeFilterConfigurable(@NotNull Project project, VcsConfiguration vcsConfiguration) {
     myVcsConfiguration = vcsConfiguration;
     myCheckbox = new JCheckBox(VcsBundle.getString("settings.filter.update.project.info.by.scope"));
     myComboBox = new ComboBox();
-    
+
     myComboBox.setEnabled(myCheckbox.isSelected());
     myCheckbox.addChangeListener(new ChangeListener() {
       @Override
@@ -62,15 +50,15 @@ class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesH
 
     myNamedScopeHolders = NamedScopesHolder.getAllNamedScopeHolders(project);
     for (NamedScopesHolder holder : myNamedScopeHolders) {
-      holder.addScopeListener(this);
+      holder.addScopeListener(this, this);
     }
   }
-  
+
   @Override
   public void scopesChanged() {
     reset();
   }
-  
+
   @Nls
   @Override
   public String getDisplayName() {
@@ -84,7 +72,7 @@ class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesH
     panel.add(myCheckbox);
     panel.add(myComboBox);
     panel.add(Box.createHorizontalStrut(UIUtil.DEFAULT_HGAP));
-    panel.add(LinkLabel.create("Manage Scopes", () -> {
+    panel.add(LinkLabel.create(VcsBundle.message("configurable.vcs.manage.scopes"), () -> {
       Settings settings = Settings.KEY.getData(DataManager.getInstance().getDataContext(panel));
       if (settings != null) {
         settings.select(settings.find(ScopeChooserConfigurable.PROJECT_SCOPES));
@@ -95,7 +83,7 @@ class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesH
 
   @Override
   public boolean isModified() {
-    return !Comparing.equal(myVcsConfiguration.UPDATE_FILTER_SCOPE_NAME, getScopeFilterName());
+    return !Objects.equals(myVcsConfiguration.UPDATE_FILTER_SCOPE_NAME, getScopeFilterName());
   }
 
   @Override
@@ -109,8 +97,9 @@ class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesH
     boolean selection = false;
     for (NamedScopesHolder holder : myNamedScopeHolders) {
       for (NamedScope scope : holder.getEditableScopes()) {
-        myComboBox.addItem(scope.getName());
-        if (!selection && scope.getName().equals(myVcsConfiguration.UPDATE_FILTER_SCOPE_NAME)) {
+        @NlsSafe String name = scope.getScopeId();
+        myComboBox.addItem(name);
+        if (!selection && name.equals(myVcsConfiguration.UPDATE_FILTER_SCOPE_NAME)) {
           selection = true;
         }
       }
@@ -122,17 +111,18 @@ class VcsUpdateInfoScopeFilterConfigurable implements Configurable, NamedScopesH
   }
 
   @Override
-  public void disposeUIResources() {
-    for (NamedScopesHolder holder : myNamedScopeHolders) {
-      holder.removeScopeListener(this);
-    }
+  public void dispose() {
   }
-  
+
+  @Override
+  public void disposeUIResources() {
+    Disposer.dispose(this);
+  }
+
   private String getScopeFilterName() {
     if (!myCheckbox.isSelected()) {
       return null;
     }
     return (String)myComboBox.getSelectedItem();
   }
-
 }

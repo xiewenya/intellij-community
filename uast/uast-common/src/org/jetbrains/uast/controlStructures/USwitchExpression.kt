@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.uast
 
 import org.jetbrains.uast.internal.acceptList
@@ -51,18 +37,18 @@ interface USwitchExpression : UExpression {
 
   override fun accept(visitor: UastVisitor) {
     if (visitor.visitSwitchExpression(this)) return
-    annotations.acceptList(visitor)
+    uAnnotations.acceptList(visitor)
     expression?.accept(visitor)
     body.accept(visitor)
     visitor.afterVisitSwitchExpression(this)
   }
 
-  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D) =
+  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D): R =
     visitor.visitSwitchExpression(this, data)
 
-  override fun asLogString() = log<USwitchExpression>()
+  override fun asLogString(): String = log<USwitchExpression>()
 
-  override fun asRenderString() = buildString {
+  override fun asRenderString(): String = buildString {
     val expr = expression?.let { "(" + it.asRenderString() + ") " } ?: ""
     appendln("switch $expr")
     appendln(body.asRenderString())
@@ -83,17 +69,17 @@ interface USwitchClauseExpression : UExpression {
 
   override fun accept(visitor: UastVisitor) {
     if (visitor.visitSwitchClauseExpression(this)) return
-    annotations.acceptList(visitor)
+    uAnnotations.acceptList(visitor)
     caseValues.acceptList(visitor)
     visitor.afterVisitSwitchClauseExpression(this)
   }
 
-  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D) =
+  override fun <D, R> accept(visitor: UastTypedVisitor<D, R>, data: D): R =
     visitor.visitSwitchClauseExpression(this, data)
 
-  override fun asRenderString() = caseValues.joinToString { it.asRenderString() } + " -> "
+  override fun asRenderString(): String = caseValues.joinToString { it.asRenderString() } + " -> "
 
-  override fun asLogString() = "USwitchClauseExpression"
+  override fun asLogString(): String = "USwitchClauseExpression"
 }
 
 /**
@@ -110,13 +96,13 @@ interface USwitchClauseExpressionWithBody : USwitchClauseExpression {
 
   override fun accept(visitor: UastVisitor) {
     if (visitor.visitSwitchClauseExpression(this)) return
-    annotations.acceptList(visitor)
+    uAnnotations.acceptList(visitor)
     caseValues.acceptList(visitor)
     body.accept(visitor)
     visitor.afterVisitSwitchClauseExpression(this)
   }
 
-  override fun asRenderString() = caseValues.joinToString { it.asRenderString() } + " -> " + body.asRenderString()
+  override fun asRenderString(): String = caseValues.joinToString { it.asRenderString() } + " -> " + body.asRenderString()
 
-  override fun asLogString() = log()
+  override fun asLogString(): String = log()
 }

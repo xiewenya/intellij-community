@@ -15,6 +15,7 @@
  */
 package com.intellij.util.xml.ui;
 
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.ide.actions.ContextHelpAction;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.Project;
@@ -30,8 +31,10 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.ListTableModel;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.MatteBorder;
@@ -54,8 +57,8 @@ import java.util.List;
  */
 public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDataProvider {
   private final MyTableView myTable = new MyTableView();
-  private final String myHelpID;
-  private final String myEmptyPaneText;
+  @NonNls private final String myHelpID;
+  @Nls(capitalization = Nls.Capitalization.Sentence) private final String myEmptyPaneText;
   private final JPanel myInnerPanel;
   private final Project myProject;
   private TableCellRenderer[][] myCachedRenderers;
@@ -69,7 +72,9 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
     this(project, null, null);
   }
 
-  public AbstractTableView(final Project project, final String emptyPaneText, final String helpID) {
+  public AbstractTableView(final Project project,
+                           @Nls(capitalization = Nls.Capitalization.Sentence) @Nullable final String emptyPaneText,
+                           @NonNls @Nullable final String helpID) {
     super(new BorderLayout());
     myProject = project;
     myTableModel.setSortable(false);
@@ -101,7 +106,6 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
     myInnerPanel = new JPanel(new CardLayout());
     myInnerPanel.add(ScrollPaneFactory.createScrollPane(myTable), TREE);
     if (getEmptyPaneText() != null) {
-      //noinspection HardCodedStringLiteral
       myEmptyPane = new EmptyPane(XmlStringUtil.wrapInHtml(getEmptyPaneText()));
       final JComponent emptyPanel = myEmptyPane.getComponent();
       myInnerPanel.add(emptyPanel, EMPTY_PANE);
@@ -112,7 +116,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
     ToolTipManager.sharedInstance().registerComponent(myTable);
   }
   protected TableCellRenderer getTableCellRenderer(final int row, final int column, final TableCellRenderer superRenderer, final Object value) {
-    return getTableModel().getColumnInfos()[column].getCustomizedRenderer(value, new StripeTableCellRenderer(superRenderer));
+    return getTableModel().getColumnInfos()[column].getCustomizedRenderer(value, superRenderer);
   }
 
   protected final void installPopup(final String place, final DefaultActionGroup group) {
@@ -147,11 +151,11 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
     add(toolbarComponent, position.getPosition());
   }
 
-  protected final void setErrorMessages(String[] messages) {
+  protected final void setErrorMessages(@InspectionMessage String[] messages) {
     final boolean empty = messages.length == 0;
     final String tooltipText = TooltipUtils.getTooltipText(messages);
     if (myEmptyPane != null) {
-      myEmptyPane.getComponent().setBackground(empty ? UIUtil.getTreeTextBackground() : BaseControl.ERROR_BACKGROUND);
+      myEmptyPane.getComponent().setBackground(empty ? UIUtil.getTreeBackground() : BaseControl.ERROR_BACKGROUND);
       myEmptyPane.getComponent().setToolTipText(tooltipText);
     }
     final JViewport viewport = (JViewport)myTable.getParent();
@@ -199,6 +203,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
     return width;
   }
 
+  @Nls(capitalization = Nls.Capitalization.Sentence)
   protected String getEmptyPaneText() {
     return myEmptyPaneText;
   }
@@ -226,7 +231,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
   }
 
   @Override
-  public void calcData(DataKey key, DataSink sink) {
+  public void calcData(@NotNull DataKey key, @NotNull DataSink sink) {
     if (PlatformDataKeys.HELP_ID.equals(key)) {
       sink.put(PlatformDataKeys.HELP_ID, getHelpId());
     }
@@ -295,7 +300,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
 
     private Object[][] myTableData;
 
-    public MyListTableModel() {
+    MyListTableModel() {
       super(ColumnInfo.EMPTY_ARRAY);
       setSortable(false);
     }
@@ -328,7 +333,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
 
   }
 
-  protected static enum ToolbarPosition {
+  protected enum ToolbarPosition {
     TOP(BorderLayout.NORTH),
     LEFT(BorderLayout.WEST),
     RIGHT(BorderLayout.EAST),
@@ -336,7 +341,7 @@ public abstract class AbstractTableView<T> extends JPanel implements TypeSafeDat
 
     private final String myPosition;
 
-    private ToolbarPosition(final String position) {
+    ToolbarPosition(final String position) {
       myPosition = position;
     }
 

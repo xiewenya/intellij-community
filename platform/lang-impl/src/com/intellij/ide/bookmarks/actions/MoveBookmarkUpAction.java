@@ -16,6 +16,7 @@
 package com.intellij.ide.bookmarks.actions;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.bookmarks.BookmarkItem;
 import com.intellij.ide.bookmarks.BookmarkManager;
 import com.intellij.ide.ui.UISettings;
@@ -24,6 +25,7 @@ import com.intellij.openapi.actionSystem.CommonShortcuts;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.ListUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
@@ -32,7 +34,7 @@ class MoveBookmarkUpAction extends DumbAwareAction {
   private final JList<BookmarkItem> myList;
 
   MoveBookmarkUpAction(Project project, JList<BookmarkItem> list) {
-    super("Up", "Move current bookmark up", AllIcons.Actions.PreviousOccurence);
+    super(IdeBundle.message("action.bookmark.move.up"), null, AllIcons.Actions.MoveUp);
     setEnabledInModalContext(true);
     myProject = project;
     myList = list;
@@ -40,7 +42,7 @@ class MoveBookmarkUpAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(
       !UISettings.getInstance().getSortBookmarks() &&
       BookmarksAction.notFiltered(myList)
@@ -49,7 +51,7 @@ class MoveBookmarkUpAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     ListUtil.moveSelectedItemsUp(myList);
     BookmarkManager.getInstance(myProject).moveBookmarkUp(BookmarksAction.getSelectedBookmarks(myList).get(0));
   }

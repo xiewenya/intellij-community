@@ -1,24 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.serialization;
 
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.io.FileUtil;
-import org.jdom.Element;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.JpsDummyElement;
 import org.jetbrains.jps.model.JpsEncodingConfigurationService;
 import org.jetbrains.jps.model.JpsEncodingProjectConfiguration;
@@ -29,30 +13,30 @@ import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.library.JpsOrderRootType;
 import org.jetbrains.jps.model.library.sdk.JpsSdkReference;
 import org.jetbrains.jps.model.module.*;
-import org.jetbrains.jps.model.serialization.library.JpsLibraryTableSerializer;
-import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
-import static com.intellij.testFramework.assertions.Assertions.assertThat;
-
-/**
- * @author nik
- */
 public class JpsProjectSerializationTest extends JpsSerializationTestCase {
   public static final String SAMPLE_PROJECT_PATH = "/jps/model-serialization/testData/sampleProject";
+  public static final String SAMPLE_PROJECT_IPR_PATH = "/jps/model-serialization/testData/sampleProject-ipr/sampleProject.ipr";
 
   public void testLoadProject() {
     loadProject(SAMPLE_PROJECT_PATH);
-    File baseDirPath = getTestDataAbsoluteFile(SAMPLE_PROJECT_PATH).toFile();
-    assertTrue(FileUtil.filesEqual(baseDirPath, JpsModelSerializationDataService.getBaseDirectory(myProject)));
     assertEquals("sampleProjectName", myProject.getName());
+    checkSampleProjectConfiguration(getTestDataAbsoluteFile(SAMPLE_PROJECT_PATH).toFile());
+  }
+
+  public void testLoadIprProject() {
+    loadProject(SAMPLE_PROJECT_IPR_PATH);
+    assertEquals("sampleProject", myProject.getName());
+    checkSampleProjectConfiguration(getTestDataAbsoluteFile(SAMPLE_PROJECT_IPR_PATH).toFile().getParentFile());
+  }
+
+  private void checkSampleProjectConfiguration(File baseDirPath) {
+    assertTrue(FileUtil.filesEqual(baseDirPath, JpsModelSerializationDataService.getBaseDirectory(myProject)));
     List<JpsModule> modules = myProject.getModules();
     assertEquals(3, modules.size());
     JpsModule main = modules.get(0);
@@ -123,6 +107,19 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
     assertSame(productionModule, testModuleProperties.getProductionModule());
   }
 
+  public void testInvalidLanguageLevel() {
+    loadProject("/jps/model-serialization/testData/testInvalidLanguageLevel/testInvalidLanguageLevel.ipr");
+    List<JpsModule> modules = myProject.getModules();
+    assertEquals(1, modules.size());
+    JpsModule testModule = modules.get(0);
+    assertEquals("testModule", testModule.getName());
+
+    JpsJavaModuleExtension moduleExtension = JpsJavaExtensionService.getInstance().getModuleExtension(testModule);
+    assertNull(moduleExtension.getLanguageLevel());
+    JpsJavaProjectExtension projectExtension = JpsJavaExtensionService.getInstance().getProjectExtension(myProject);
+    assertEquals(LanguageLevel.JDK_1_6, projectExtension.getLanguageLevel());
+  }
+
   public void testExcludePatterns() {
     String projectPath = "/jps/model-serialization/testData/excludePatterns";
     loadProject(projectPath + "/excludePatterns.ipr");
@@ -130,7 +127,6 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
     JpsExcludePattern pattern = assertOneElement(module.getExcludePatterns());
     assertEquals("*.class", pattern.getPattern());
     assertEquals(assertOneElement(module.getContentRootsList().getUrls()), pattern.getBaseDirUrl());
-    doTestSaveModule(module, projectPath + "/excludePatterns.iml");
   }
 
   public void testProjectSdkWithoutType() {
@@ -173,6 +169,15 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
 
   public void testLoadEncoding() {
     loadProject(SAMPLE_PROJECT_PATH);
+    checkEncodingConfigurationInSampleProject();
+  }
+
+  public void testLoadEncodingIpr() {
+    loadProject(SAMPLE_PROJECT_IPR_PATH);
+    checkEncodingConfigurationInSampleProject();
+  }
+
+  private void checkEncodingConfigurationInSampleProject() {
     JpsEncodingConfigurationService service = JpsEncodingConfigurationService.getInstance();
     assertEquals("UTF-8", service.getProjectEncoding(myModel));
     JpsEncodingProjectConfiguration configuration = service.getEncodingConfiguration(myProject);
@@ -192,7 +197,6 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
     checkResourceRoot(roots.get(1), false, "");
     checkResourceRoot(roots.get(2), true, "");
     checkResourceRoot(roots.get(3), true, "foo");
-    doTestSaveModule(module, projectPath + "resourceRoots.iml");
   }
 
   public void testMissingModuleSourcesOrderEntry() {
@@ -212,24 +216,6 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
     assertEquals(relativeOutput, properties.getRelativeOutputPath());
   }
 
-  public void testSaveProject() throws IOException {
-    loadProject(SAMPLE_PROJECT_PATH);
-    List<JpsModule> modules = myProject.getModules();
-    doTestSaveModule(modules.get(0), SAMPLE_PROJECT_PATH + "/main.iml");
-    doTestSaveModule(modules.get(1), SAMPLE_PROJECT_PATH + "/util/util.iml");
-    //tod[nik] remember that test output root wasn't specified and doesn't save it to avoid unnecessary modifications of iml files
-    //doTestSaveModule(modules.get(2), "xxx/xxx.iml");
-
-    List<Path> libs = Files.list(getFileInSampleProject(".idea/libraries")).collect(Collectors.toList());
-    assertNotNull(libs);
-    for (Path libFile : libs) {
-      String libName = FileUtil.getNameWithoutExtension(libFile.getFileName().toString());
-      JpsLibrary library = myProject.getLibraryCollection().findLibrary(libName);
-      assertNotNull(libName, library);
-      doTestSaveLibrary(libFile, libName, library);
-    }
-  }
-
   public void testUnloadedModule() {
     String projectPath = "/jps/model-serialization/testData/unloadedModule";
     loadProject(projectPath);
@@ -241,37 +227,17 @@ public class JpsProjectSerializationTest extends JpsSerializationTestCase {
     assertEmpty(myProject.getModules());
   }
 
-  private void doTestSaveLibrary(@NotNull Path libFile, String libName, JpsLibrary library) {
-    Element actual = new Element("library");
-    JpsLibraryTableSerializer.saveLibrary(library, actual, libName);
-    JpsMacroExpander
-      macroExpander = JpsProjectLoader.createProjectMacroExpander(Collections.emptyMap(), getFileInSampleProject(""));
-    Element rootElement = JpsLoaderBase.loadRootElement(libFile, macroExpander);
-    assertThat(actual).isEqualTo(rootElement.getChild("library"));
-  }
-
-  private void doTestSaveModule(JpsModule module, final String moduleFilePath) {
-    try {
-      Element actual = JDomSerializationUtil.createComponentElement("NewModuleRootManager");
-      JpsModuleRootModelSerializer.saveRootModel(module, actual);
-      Path imlFile = getTestDataAbsoluteFile(moduleFilePath);
-      Element rootElement = loadModuleRootTag(imlFile);
-      assertThat(actual).isEqualTo(JDomSerializationUtil.findComponent(rootElement, "NewModuleRootManager"));
-    }
-    catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  public Path getFileInSampleProject(String relativePath) {
-    return getTestDataAbsoluteFile(SAMPLE_PROJECT_PATH + "/" + relativePath);
+  public void testMissingContentUrlAttribute() {
+    loadProject("/jps/model-serialization/testData/missingContentUrlAttribute/missingContentUrlAttribute.ipr");
+    JpsModule module = assertOneElement(myProject.getModules());
+    assertEquals("missingContentUrlAttribute", module.getName());
   }
 
   public void testLoadIdeaProject() {
-    long start = System.currentTimeMillis();
+    long start = System.nanoTime();
     loadProjectByAbsolutePath(PathManager.getHomePath());
     assertTrue(myProject.getModules().size() > 0);
     System.out.println("JpsProjectSerializationTest: " + myProject.getModules().size() + " modules, " + myProject.getLibraryCollection().getLibraries().size() + " libraries and " +
-                       JpsArtifactService.getInstance().getArtifacts(myProject).size() + " artifacts loaded in " + (System.currentTimeMillis() - start) + "ms");
+                       JpsArtifactService.getInstance().getArtifacts(myProject).size() + " artifacts loaded in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) + "ms");
   }
 }

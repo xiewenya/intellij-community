@@ -1,44 +1,32 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.bookmarks.actions;
 
 import com.intellij.ide.bookmarks.Bookmark;
 import com.intellij.ide.bookmarks.BookmarkItem;
 import com.intellij.ide.bookmarks.BookmarkManager;
 import com.intellij.ide.bookmarks.BookmarksListener;
+import com.intellij.internal.statistic.BookmarkCounterCollector;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.DimensionService;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.popup.util.DetailViewImpl;
 import com.intellij.ui.popup.util.ItemWrapper;
 import com.intellij.ui.popup.util.MasterDetailPopupBuilder;
 import com.intellij.ui.speedSearch.FilteringListModel;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,12 +34,9 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-/**
- * @author max
- */
 public class BookmarksAction extends AnAction implements DumbAware, MasterDetailPopupBuilder.Delegate {
   private static final String DIMENSION_SERVICE_KEY = "bookmarks";
 
@@ -102,7 +87,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
 
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         for (BookmarkItem item : list.getSelectedValuesList()) {
           if (item != null) {
             itemChosen(item, project, popup, true);
@@ -129,7 +114,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
       popup.showInBestPositionFor(e.getDataContext());
     }
 
-    list.getEmptyText().setText("No Bookmarks");
+    list.getEmptyText().setText(LangBundle.message("status.text.no.bookmarks"));
     list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
     project.getMessageBus().connect(popup).subscribe(BookmarksListener.TOPIC, new BookmarksListener() {
@@ -172,15 +157,26 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
 
   @Override
   public String getTitle() {
-    return "Bookmarks";
+    return LangBundle.message("popup.title.bookmarks");
   }
 
   @Override
   public void handleMnemonic(KeyEvent e, Project project, JBPopup popup) {
-    char mnemonic = e.getKeyChar();
+    char mnemonic = Character.toUpperCase(e.getKeyChar());
     final Bookmark bookmark = BookmarkManager.getInstance(project).findBookmarkForMnemonic(mnemonic);
     if (bookmark != null) {
       popup.cancel();
+      BookmarkCounterCollector.MnemonicType mnemonicType;
+      if (mnemonic >= '0' && mnemonic <= '9') {
+        mnemonicType = BookmarkCounterCollector.MnemonicType.Number;
+      }
+      else if (mnemonic >= 'A' && mnemonic <= 'Z') {
+        mnemonicType = BookmarkCounterCollector.MnemonicType.Letter;
+      }
+      else {
+        mnemonicType = BookmarkCounterCollector.MnemonicType.None;
+      }
+      BookmarkCounterCollector.bookmarkNavigate.log(mnemonicType, bookmark.getLine() >= 0);
       IdeFocusManager.getInstance(project).doWhenFocusSettlesDown(() -> bookmark.navigate(true));
     }
   }
@@ -192,16 +188,28 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
       return null;
     }
 
-    JLabel mnemonicLabel = new JLabel();
+    JLabel mnemonicLabel = new JLabel() {
+      @Override
+      public void setFont(Font font) {
+        super.setFont(font);
+        String oldText = getText();
+        try {
+          setPreferredSize(null);
+          setText("W.");
+          setPreferredSize(getPreferredSize());
+        } finally {
+          setText(oldText);
+        }
+      }
+    };
     mnemonicLabel.setFont(Bookmark.getBookmarkFont());
-    mnemonicLabel.setPreferredSize(new JLabel("W.").getPreferredSize());
     mnemonicLabel.setOpaque(false);
     return mnemonicLabel;
   }
 
   @Override
   public Object[] getSelectedItemsInTree() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
+    return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
@@ -209,6 +217,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
     if (item instanceof BookmarkItem && withEnterOrDoubleClick) {
       Bookmark bookmark = ((BookmarkItem)item).getBookmark();
       popup.cancel();
+      BookmarkCounterCollector.bookmarkNavigate.log(BookmarkCounterCollector.MnemonicType.None, bookmark.getLine() >= 0);
       bookmark.navigate(true);
     }
   }
@@ -247,23 +256,19 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
 
       BookmarkManager bookmarkManager = BookmarkManager.getInstance(myProject);
       Editor editor = CommonDataKeys.EDITOR.getData(myDataContext);
-      if (editor != null) {
-        if (ToolWindowManager.getInstance(myProject).isEditorComponentActive()) {
-          Document document = editor.getDocument();
-          myLine = editor.getCaretModel().getLogicalPosition().line;
-          myFile = FileDocumentManager.getInstance().getFile(document);
-          myBookmarkAtPlace = bookmarkManager.findEditorBookmark(document, myLine);
+      if (editor == null) {
+        editor = CommonDataKeys.EDITOR_EVEN_IF_INACTIVE.getData(myDataContext);
+      }
+      if (editor != null && !editor.isOneLineMode()) {
+        Document document = editor.getDocument();
+        myFile = FileDocumentManager.getInstance().getFile(document);
+        if (myFile instanceof LightVirtualFile) {
+          myFile = null;
+          return this;
         }
-        else {
-          myFile = CommonDataKeys.VIRTUAL_FILE.getData(myDataContext);
-          if (myFile != null) {
-            Document document = editor.getDocument();
-            if (Comparing.equal(myFile, FileDocumentManager.getInstance().getFile(document))) {
-              myLine = editor.getCaretModel().getLogicalPosition().line;
-              myBookmarkAtPlace = bookmarkManager.findEditorBookmark(document, myLine);
-            }
-          }
-        }
+        Integer gutterLineAtCursor = EditorGutterComponentEx.LOGICAL_LINE_AT_CURSOR.getData(myDataContext);
+        myLine = gutterLineAtCursor != null ? gutterLineAtCursor : editor.getCaretModel().getLogicalPosition().line;
+        myBookmarkAtPlace = bookmarkManager.findEditorBookmark(document, myLine);
       }
 
       if (myFile == null) {
@@ -278,7 +283,7 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
     }
   }
 
-  static List<Bookmark> getSelectedBookmarks(JList<BookmarkItem> list) {
+  static List<Bookmark> getSelectedBookmarks(JList<? extends BookmarkItem> list) {
     List<Bookmark> answer = new ArrayList<>();
 
     for (BookmarkItem value : list.getSelectedValuesList()) {
@@ -296,11 +301,11 @@ public class BookmarksAction extends AnAction implements DumbAware, MasterDetail
   static boolean notFiltered(JList<BookmarkItem> list) {
     ListModel<BookmarkItem> model = list.getModel();
     return !(model instanceof FilteringListModel) ||
-           ((FilteringListModel)model).getOriginalModel().getSize() == model.getSize();
+           ((FilteringListModel<BookmarkItem>)model).getOriginalModel().getSize() == model.getSize();
   }
 
   private static class MyDetailView extends DetailViewImpl {
-    public MyDetailView(Project project) {
+    MyDetailView(Project project) {
       super(project);
     }
 

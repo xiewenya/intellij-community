@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl;
 
 import com.intellij.ide.projectView.PresentationData;
@@ -12,35 +12,34 @@ import com.intellij.openapi.util.Key;
 import com.intellij.packageDependencies.ui.PackageDependenciesNode;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Consumer;
 
 /**
  * This class is intended to combine all decorators for batch usages.
- *
- * @author Sergey Malenkov
  */
 public final class CompoundProjectViewNodeDecorator implements ProjectViewNodeDecorator {
-  private static final ProjectViewNodeDecorator EMPTY = new CompoundProjectViewNodeDecorator();
+  private static final ProjectViewNodeDecorator EMPTY = new CompoundProjectViewNodeDecorator(null);
   private static final Key<ProjectViewNodeDecorator> KEY = Key.create("ProjectViewNodeDecorator");
   private static final Logger LOG = Logger.getInstance(CompoundProjectViewNodeDecorator.class);
-  private final ProjectViewNodeDecorator[] decorators;
+  private final Project myProject;
 
   /**
    * @return a shared instance for the specified project
    */
   @NotNull
-  public static ProjectViewNodeDecorator get(@NotNull Project project) {
-    if (project.isDisposed()) return EMPTY;
+  public static ProjectViewNodeDecorator get(@Nullable Project project) {
+    if (project == null || project.isDisposed() || project.isDefault()) return EMPTY;
     ProjectViewNodeDecorator provider = project.getUserData(KEY);
     if (provider != null) return provider;
-    provider = new CompoundProjectViewNodeDecorator(EP_NAME.getExtensions(project));
+    provider = new CompoundProjectViewNodeDecorator(project);
     project.putUserData(KEY, provider);
     return provider;
   }
 
-  public CompoundProjectViewNodeDecorator(@NotNull ProjectViewNodeDecorator... decorators) {
-    this.decorators = decorators;
+  private CompoundProjectViewNodeDecorator(@Nullable Project project) {
+    myProject = project;
   }
 
   @Override
@@ -53,8 +52,9 @@ public final class CompoundProjectViewNodeDecorator implements ProjectViewNodeDe
     forEach(decorator -> decorator.decorate(node, cellRenderer));
   }
 
-  private void forEach(@NotNull Consumer<ProjectViewNodeDecorator> consumer) {
-    for (ProjectViewNodeDecorator decorator : decorators) {
+  private void forEach(@NotNull Consumer<? super ProjectViewNodeDecorator> consumer) {
+    if (myProject == null || myProject.isDisposed()) return; // empty or disposed
+    for (ProjectViewNodeDecorator decorator : EP.getExtensions(myProject)) {
       try {
         consumer.accept(decorator);
       }

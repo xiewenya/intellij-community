@@ -22,7 +22,6 @@ import com.intellij.psi.stubs.IndexSink;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -47,8 +46,9 @@ public abstract class FunctionalExpressionElementType<T extends PsiFunctionalExp
   public void indexStub(@NotNull FunctionalExpressionStub<T> stub, @NotNull IndexSink sink) {
   }
 
+  @NotNull
   @Override
-  public FunctionalExpressionStub<T> createStub(LighterAST tree, LighterASTNode funExpr, StubElement parentStub) {
+  public FunctionalExpressionStub<T> createStub(@NotNull LighterAST tree, @NotNull LighterASTNode funExpr, @NotNull StubElement parentStub) {
     return new FunctionalExpressionStub<>(parentStub, this, getPresentableText(tree, funExpr));
   }
 

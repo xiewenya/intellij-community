@@ -1,31 +1,31 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.light.LightRecordCanonicalConstructor;
+import com.intellij.psi.impl.light.LightRecordMember;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
-import com.intellij.psi.search.searches.FunctionalExpressionSearch;
 import com.intellij.psi.util.*;
 import com.intellij.util.BitUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
 public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implements TargetElementUtilExtender{
-  public static final int NEW_AS_CONSTRUCTOR = 0x04;
-  public static final int THIS_ACCEPTED = 0x10;
-  public static final int SUPER_ACCEPTED = 0x20;
+  private static final int NEW_AS_CONSTRUCTOR = 0x04;
+  private static final int THIS_ACCEPTED = 0x10;
+  private static final int SUPER_ACCEPTED = 0x20;
 
   @Override
   public int getAllAdditionalFlags() {
@@ -71,13 +71,12 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
 
   @Override
   public boolean isAcceptableNamedParent(@NotNull PsiElement parent) {
-    return !(parent instanceof PsiDocTag);
+    return !(parent instanceof PsiDocTag) && !(parent instanceof PsiAnonymousClass);
   }
 
   @Override
   @NotNull
   public ThreeState isAcceptableReferencedElement(@NotNull final PsiElement element, final PsiElement referenceOrReferencedElement) {
-    if (referenceOrReferencedElement instanceof SyntheticElement) return ThreeState.NO;
     if (isEnumConstantReference(element, referenceOrReferencedElement)) return ThreeState.NO;
     return super.isAcceptableReferencedElement(element, referenceOrReferencedElement);
   }
@@ -85,20 +84,13 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
   private static boolean isEnumConstantReference(final PsiElement element, final PsiElement referenceOrReferencedElement) {
     return element != null &&
            element.getParent() instanceof PsiEnumConstant &&
-           referenceOrReferencedElement instanceof PsiMethod &&
-           ((PsiMethod)referenceOrReferencedElement).isConstructor();
+           referenceOrReferencedElement instanceof PsiMethod && ((PsiMethod)referenceOrReferencedElement).isConstructor();
   }
 
   @Nullable
   @Override
-  public PsiElement getElementByReference(@NotNull PsiReference ref, int flags) {
-    return null;
-  }
-
-  @Nullable
-  @Override
-  public PsiElement adjustReferenceOrReferencedElement(PsiFile file,
-                                                       Editor editor,
+  public PsiElement adjustReferenceOrReferencedElement(@NotNull PsiFile file,
+                                                       @NotNull Editor editor,
                                                        int offset,
                                                        int flags,
                                                        @Nullable PsiElement refElement) {
@@ -112,8 +104,14 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
         final PsiElement element = file.findElementAt(offset);
         if (element != null) {
           final PsiElement parent = element.getParent();
-          if (parent instanceof PsiFunctionalExpression) {
-            refElement = PsiUtil.resolveClassInType(((PsiFunctionalExpression)parent).getFunctionalInterfaceType());
+          if (parent instanceof PsiFunctionalExpression && 
+              (PsiUtil.isJavaToken(element, JavaTokenType.ARROW) || PsiUtil.isJavaToken(element, JavaTokenType.DOUBLE_COLON))) {
+            refElement = LambdaUtil.resolveFunctionalInterfaceClass((PsiFunctionalExpression)parent);
+          }
+          else if (element instanceof PsiKeyword && 
+                   parent instanceof PsiTypeElement && 
+                   ((PsiTypeElement)parent).isInferredType()) {
+            refElement = PsiUtil.resolveClassInType(((PsiTypeElement)parent).getType());
           }
         } 
       }
@@ -151,6 +149,14 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
           if (qualifiedName == null) return null;
           return JavaPsiFacade.getInstance(refElement.getProject()).findClass(qualifiedName, refElement.getResolveScope());
         }
+      }
+
+      if (refElement instanceof LightRecordMember) {
+        return ((LightRecordMember)refElement).getRecordComponent();
+      }
+
+      if (refElement instanceof LightRecordCanonicalConstructor) {
+        return ((LightRecordCanonicalConstructor)refElement).getContainingClass();
       }
     }
     return super.adjustReferenceOrReferencedElement(file, editor, offset, flags, refElement);
@@ -205,9 +211,8 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
   @Nullable
   public Collection<PsiElement> getTargetCandidates(@NotNull PsiReference reference) {
     PsiElement parent = reference.getElement().getParent();
-    if (parent instanceof PsiMethodCallExpression || parent instanceof PsiNewExpression && 
-                                                     ((PsiNewExpression)parent).getArrayDimensions().length == 0 &&
-                                                     ((PsiNewExpression)parent).getArrayInitializer() == null) {
+    if (parent instanceof PsiMethodCallExpression ||
+        parent instanceof PsiNewExpression && !((PsiNewExpression)parent).isArrayCreation()) {
       PsiCallExpression callExpr = (PsiCallExpression)parent;
       boolean allowStatics = false;
       PsiExpression qualifier = callExpr instanceof PsiMethodCallExpression ? ((PsiMethodCallExpression)callExpr).getMethodExpression().getQualifierExpression()
@@ -269,9 +274,8 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
     return super.acceptImplementationForReference(reference, element);
   }
 
-  @Nullable
-  private static PsiClass[] getClassesWithMember(final PsiReference reference, final PsiMember member) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<PsiClass[]>() {
+  private static PsiClass @Nullable [] getClassesWithMember(final PsiReference reference, final PsiMember member) {
+    return ApplicationManager.getApplication().runReadAction(new Computable<>() {
       @Override
       public PsiClass[] compute() {
         PsiClass containingClass = member.getContainingClass();
@@ -290,7 +294,8 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
             if (resolve instanceof PsiClass) {
               containingClass = (PsiClass)resolve;
             }
-          } else {
+          }
+          else {
             psiClass = PsiTreeUtil.getParentOfType((PsiReferenceExpression)reference, PsiClass.class);
           }
         }
@@ -303,7 +308,7 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
         return null;
       }
 
-      private PsiClass[] getInheritors(PsiClass containingClass, PsiClass psiClass, Set<PsiClass> visited) {
+      private PsiClass[] getInheritors(PsiClass containingClass, PsiClass psiClass, Set<? super PsiClass> visited) {
         if (psiClass instanceof PsiTypeParameter) {
           List<PsiClass> result = new ArrayList<>();
           for (PsiClassType classType : psiClass.getExtendsListTypes()) {
@@ -320,7 +325,7 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
           if (!processor1.process(psiClass) ||
               !ClassInheritorsSearch.search(containingClass).forEach(new PsiElementFindProcessor<>(psiClass)) ||
               !ClassInheritorsSearch.search(psiClass).forEach(processor1)) {
-            return new PsiClass[] {psiClass};
+            return new PsiClass[]{psiClass};
           }
           psiClass = psiClass.getContainingClass();
         }
@@ -340,31 +345,51 @@ public class JavaTargetElementEvaluator extends TargetElementEvaluatorEx2 implem
        }
       final PsiClass[] memberClass = getClassesWithMember(referenceExpression, (PsiMember)element);
       if (memberClass != null && memberClass.length == 1) {
-        return CachedValuesManager.getCachedValue(memberClass[0], () -> {
-          final List<PsiClass> classesToSearch = ContainerUtil.newArrayList(memberClass);
-          classesToSearch.addAll(ClassInheritorsSearch.search(memberClass[0]).findAll());
-
-          final Set<PsiClass> supers = new HashSet<>();
-          for (PsiClass psiClass : classesToSearch) {
-            supers.addAll(InheritanceUtil.getSuperClasses(psiClass));
-          }
-
-          final List<PsiElement> elements = new ArrayList<>();
-          elements.addAll(classesToSearch);
-          elements.addAll(supers);
-          elements.addAll(FunctionalExpressionSearch.search(memberClass[0]).findAll());
-
-          return new CachedValueProvider.Result<SearchScope>(new LocalSearchScope(PsiUtilCore.toPsiElementArray(elements)), PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+        PsiClass aClass = memberClass[0];
+        return CachedValuesManager.getCachedValue(aClass, () -> {
+          return new CachedValueProvider.Result<>(getHierarchyScope(aClass, aClass.getUseScope(), true),
+                                                  PsiModificationTracker.MODIFICATION_COUNT);
         });
       }
     }
     return super.getSearchScope(editor, element);
   }
 
+  /**
+   * Narrow given scope to include only those places where methods called on given class qualifier could be defined.
+   * 
+   * @param aClass qualifier type class
+   * @param scope a scope to narrow
+   * @param areFunctionalInheritorsExpected true, iff scope should be ignored for functional interfaces to avoid eager functional expressions search           
+   * @return narrowed scope or null if <code>aClass</code> is a functional interface and functional expressions can be processed by the caller
+   */
+  @Contract("_,_,false->!null")
+  public @Nullable static SearchScope getHierarchyScope(@NotNull PsiClass aClass, 
+                                                        @NotNull SearchScope scope, 
+                                                        boolean areFunctionalInheritorsExpected) {
+    final List<PsiClass> classesToSearch = new ArrayList<>();
+    classesToSearch.add(aClass);
+    classesToSearch.addAll(ClassInheritorsSearch.search(aClass, scope, true).findAll());
+
+    final Set<PsiClass> supers = new HashSet<>();
+    for (PsiClass psiClass : classesToSearch) {
+      if (areFunctionalInheritorsExpected && LambdaUtil.isFunctionalClass(psiClass)) {
+        return null;
+      }
+      supers.addAll(InheritanceUtil.getSuperClasses(psiClass));
+    }
+
+    final List<PsiElement> elements = new ArrayList<>();
+    elements.addAll(classesToSearch);
+    elements.addAll(supers);
+
+    return new LocalSearchScope(PsiUtilCore.toPsiElementArray(elements));
+  }
+
   private static class PsiElementFindProcessor<T extends PsiClass> implements Processor<T> {
     private final T myElement;
 
-    public PsiElementFindProcessor(T t) {
+    PsiElementFindProcessor(T t) {
       myElement = t;
     }
 

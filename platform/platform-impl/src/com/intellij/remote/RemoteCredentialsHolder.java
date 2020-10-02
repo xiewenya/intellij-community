@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remote;
 
 import com.google.common.collect.ImmutableMap;
@@ -20,60 +6,69 @@ import com.intellij.credentialStore.CredentialAttributes;
 import com.intellij.credentialStore.CredentialAttributesKt;
 import com.intellij.credentialStore.Credentials;
 import com.intellij.ide.passwordSafe.PasswordSafe;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.PasswordUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author michael.golubev
  */
 public class RemoteCredentialsHolder implements MutableRemoteCredentials {
-  private static final String SERVICE_NAME_PREFIX = CredentialAttributesKt.SERVICE_NAME_PREFIX + " Remote Credentials ";
+  private static final @NonNls String SERVICE_NAME_PREFIX = CredentialAttributesKt.SERVICE_NAME_PREFIX + " Remote Credentials ";
 
-  public static final String HOST = "HOST";
-  public static final String PORT = "PORT";
-  public static final String ANONYMOUS = "ANONYMOUS";
-  public static final String USERNAME = "USERNAME";
-  public static final String PASSWORD = "PASSWORD";
-  public static final String USE_KEY_PAIR = "USE_KEY_PAIR";
-  public static final String USE_AUTH_AGENT = "USE_AUTH_AGENT";
-  public static final String PRIVATE_KEY_FILE = "PRIVATE_KEY_FILE";
-  public static final String PASSPHRASE = "PASSPHRASE";
+  @NonNls public static final String HOST = "HOST";
+  @NonNls public static final String PORT = "PORT";
+  @NonNls public static final String ANONYMOUS = "ANONYMOUS";
+  @NonNls public static final String USERNAME = "USERNAME";
+  @NonNls public static final String PASSWORD = "PASSWORD";
+  @NonNls public static final String USE_KEY_PAIR = "USE_KEY_PAIR";
+  @NonNls public static final String USE_AUTH_AGENT = "USE_AUTH_AGENT";
+  @NonNls public static final String PRIVATE_KEY_FILE = "PRIVATE_KEY_FILE";
+  @NonNls public static final String PASSPHRASE = "PASSPHRASE";
 
-  public static final String SSH_PREFIX = "ssh://";
+  @NonNls public static final String SSH_PREFIX = "ssh://";
 
-  private static final Map<AuthType, String> CREDENTIAL_ATTRIBUTES_QUALIFIERS = ImmutableMap.of(AuthType.PASSWORD, "password",
-                                                                                                AuthType.KEY_PAIR, "passphrase",
-                                                                                                AuthType.OPEN_SSH, "empty");
+  private static final Map<AuthType, @NonNls String> CREDENTIAL_ATTRIBUTES_QUALIFIERS = ImmutableMap.of(AuthType.PASSWORD, "password",
+                                                                                                        AuthType.KEY_PAIR, "passphrase",
+                                                                                                        AuthType.OPEN_SSH, "empty");
 
-  private String myHost;
+  private @NotNull String myHost = "";
   private int myPort;//will always be equal to myLiteralPort, if it's valid, or equal to 0 otherwise
-  private String myLiteralPort;
-  private String myUserName;
-  private String myPassword;
-  private String myPrivateKeyFile;
-  private String myKnownHostsFile;
-  private String myPassphrase;
+  private @NotNull String myLiteralPort = "";
+  private @Nullable String myUserName;
+  private @Nullable String myPassword;
+  private @NotNull String myPrivateKeyFile = "";
+  private @Nullable String myPassphrase;
   private boolean myStorePassword;
   private boolean myStorePassphrase;
-  @NotNull
-  private AuthType myAuthType = AuthType.PASSWORD;
+  private @NotNull AuthType myAuthType = AuthType.PASSWORD;
 
-  public static String getCredentialsString(@NotNull RemoteCredentials cred) {
+  public RemoteCredentialsHolder() {}
+
+  public RemoteCredentialsHolder(@NotNull RemoteCredentials credentials) {
+    copyFrom(credentials);
+  }
+
+  public static @NlsSafe String getCredentialsString(@NotNull RemoteCredentials cred) {
     return SSH_PREFIX + cred.getUserName() + "@" + cred.getHost() + ":" + cred.getLiteralPort();
   }
 
   @Override
-  public String getHost() {
+  public @NotNull String getHost() {
     return myHost;
   }
 
-  public void setHost(String host) {
-    myHost = host;
+  @Override
+  public void setHost(@Nullable @NlsSafe String host) {
+    myHost = StringUtil.notNullize(host);
   }
 
   @Override
@@ -91,7 +86,7 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
   }
 
   @Override
-  public String getLiteralPort() {
+  public @NotNull String getLiteralPort() {
     return myLiteralPort;
   }
 
@@ -100,34 +95,39 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
    * and is 0 otherwise.
    */
   @Override
-  public void setLiteralPort(String portText) {
-    myLiteralPort = portText;
+  public void setLiteralPort(@Nullable String portText) {
+    myLiteralPort = StringUtil.notNullize(portText);
     myPort = StringUtil.parseInt(portText, 0);
   }
 
   @Override
+  @Nullable
   @Transient
   public String getUserName() {
     return myUserName;
   }
 
-  public void setUserName(String userName) {
-    myUserName = userName;
+  @Override
+  public void setUserName(@Nullable String userName) {
+    myUserName = StringUtil.notNullize(userName);
   }
 
   @Override
-  public String getPassword() {
+  public @Nullable String getPassword() {
     return myPassword;
   }
 
-  public void setPassword(String password) {
-    myPassword = password;
+  @Override
+  public void setPassword(@Nullable String password) {
+    myPassword = StringUtil.notNullize(password);
   }
 
+  @Override
   public void setStorePassword(boolean storePassword) {
     myStorePassword = storePassword;
   }
 
+  @Override
   public void setStorePassphrase(boolean storePassphrase) {
     myStorePassphrase = storePassphrase;
   }
@@ -143,22 +143,24 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
   }
 
   @Override
-  public String getPrivateKeyFile() {
+  public @NotNull String getPrivateKeyFile() {
     return myPrivateKeyFile;
   }
 
-  public void setPrivateKeyFile(String privateKeyFile) {
-    myPrivateKeyFile = privateKeyFile;
+  @Override
+  public void setPrivateKeyFile(@Nullable String privateKeyFile) {
+    myPrivateKeyFile = StringUtil.notNullize(privateKeyFile);
   }
 
   @Override
   @Transient
-  public String getPassphrase() {
+  public @Nullable String getPassphrase() {
     return myPassphrase;
   }
 
-  public void setPassphrase(String passphrase) {
-    myPassphrase = passphrase;
+  @Override
+  public void setPassphrase(@Nullable String passphrase) {
+    myPassphrase = StringUtil.notNullize(passphrase);
   }
 
   @NotNull
@@ -172,34 +174,12 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
     myAuthType = authType;
   }
 
-  @Deprecated
-  @Override
-  public boolean isUseKeyPair() {
-    return myAuthType == AuthType.KEY_PAIR;
-  }
-
-  @Deprecated
-  public void setUseKeyPair(boolean useKeyPair) {
-    if (useKeyPair) {
-      myAuthType = AuthType.KEY_PAIR;
-    }
-    else {
-      if (myAuthType == AuthType.KEY_PAIR) {
-        myAuthType = AuthType.PASSWORD;
-      }
-      else {
-        // do nothing
-      }
-    }
-  }
-
   @NotNull
   public String getSerializedUserName() {
-    if (myUserName == null) return "";
-    return myUserName;
+    return StringUtil.notNullize(myUserName);
   }
 
-  private void setSerializedUserName(String userName) {
+  private void setSerializedUserName(@NonNls String userName) {
     if (StringUtil.isEmpty(userName)) {
       myUserName = null;
     }
@@ -208,8 +188,9 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
     }
   }
 
-  private void setSerializedPassword(String serializedPassword) {
+  private void setSerializedPassword(@NonNls @Nullable String serializedPassword) {
     if (!StringUtil.isEmpty(serializedPassword)) {
+      //noinspection deprecation
       myPassword = PasswordUtil.decodePassword(serializedPassword);
       myStorePassword = true;
     }
@@ -218,36 +199,15 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
     }
   }
 
-  private void setSerializedPassphrase(String serializedPassphrase) {
+  private void setSerializedPassphrase(@Nullable String serializedPassphrase) {
     if (!StringUtil.isEmpty(serializedPassphrase)) {
+      //noinspection deprecation
       myPassphrase = PasswordUtil.decodePassword(serializedPassphrase);
       myStorePassphrase = true;
     }
     else {
-      myPassphrase = null;
+      myPassphrase = "";
       myStorePassphrase = false;
-    }
-  }
-
-  @Deprecated
-  @Override
-  public boolean isUseAuthAgent() {
-    return myAuthType == AuthType.OPEN_SSH;
-  }
-
-  @Deprecated
-  @Override
-  public void setUseAuthAgent(boolean useAuthAgent) {
-    if (useAuthAgent) {
-      myAuthType = AuthType.OPEN_SSH;
-    }
-    else {
-      if (myAuthType == AuthType.OPEN_SSH) {
-        myAuthType = AuthType.PASSWORD;
-      }
-      else {
-        // do nothing
-      }
     }
   }
 
@@ -264,6 +224,7 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
     to.setLiteralPort(from.getLiteralPort());//then port is copied
     to.setUserName(from.getUserName());
     to.setPassword(from.getPassword());
+    to.setPassphrase(from.getPassphrase());
     to.setAuthType(from.getAuthType());
     to.setPrivateKeyFile(from.getPrivateKeyFile());
     to.setStorePassword(from.isStorePassword());
@@ -277,8 +238,8 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
     setSerializedPassword(element.getAttributeValue(PASSWORD));
     setPrivateKeyFile(StringUtil.nullize(element.getAttributeValue(PRIVATE_KEY_FILE)));
     setSerializedPassphrase(element.getAttributeValue(PASSPHRASE));
-    boolean useKeyPair = StringUtil.parseBoolean(element.getAttributeValue(USE_KEY_PAIR), false);
-    boolean useAuthAgent = StringUtil.parseBoolean(element.getAttributeValue(USE_AUTH_AGENT), false);
+    boolean useKeyPair = Boolean.parseBoolean(element.getAttributeValue(USE_KEY_PAIR));
+    boolean useAuthAgent = Boolean.parseBoolean(element.getAttributeValue(USE_AUTH_AGENT));
     if (useKeyPair) {
       myAuthType = AuthType.KEY_PAIR;
     }
@@ -314,7 +275,7 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
       }
     }
 
-    boolean isAnonymous = StringUtil.parseBoolean(element.getAttributeValue(ANONYMOUS), false);
+    boolean isAnonymous = Boolean.parseBoolean(element.getAttributeValue(ANONYMOUS));
     if (isAnonymous) {
       setSerializedUserName("anonymous");
       setSerializedPassword("user@example.com");
@@ -366,15 +327,14 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
 
     RemoteCredentialsHolder holder = (RemoteCredentialsHolder)o;
 
-    if (myLiteralPort != null ? !myLiteralPort.equals(holder.myLiteralPort) : holder.myLiteralPort != null) return false;
+    if (!myLiteralPort.equals(holder.myLiteralPort)) return false;
     if (myStorePassword != holder.myStorePassword) return false;
     if (myStorePassphrase != holder.myStorePassphrase) return false;
-    if (myHost != null ? !myHost.equals(holder.myHost) : holder.myHost != null) return false;
-    if (myUserName != null ? !myUserName.equals(holder.myUserName) : holder.myUserName != null) return false;
-    if (myPassword != null ? !myPassword.equals(holder.myPassword) : holder.myPassword != null) return false;
-    if (myPrivateKeyFile != null ? !myPrivateKeyFile.equals(holder.myPrivateKeyFile) : holder.myPrivateKeyFile != null) return false;
-    if (myKnownHostsFile != null ? !myKnownHostsFile.equals(holder.myKnownHostsFile) : holder.myKnownHostsFile != null) return false;
-    if (myPassphrase != null ? !myPassphrase.equals(holder.myPassphrase) : holder.myPassphrase != null) return false;
+    if (!myHost.equals(holder.myHost)) return false;
+    if (!Objects.equals(myUserName, holder.myUserName)) return false;
+    if (!Objects.equals(myPassword, holder.myPassword)) return false;
+    if (!myPrivateKeyFile.equals(holder.myPrivateKeyFile)) return false;
+    if (!Objects.equals(myPassphrase, holder.myPassphrase)) return false;
     if (myAuthType != holder.myAuthType) return false;
 
     return true;
@@ -382,12 +342,11 @@ public class RemoteCredentialsHolder implements MutableRemoteCredentials {
 
   @Override
   public int hashCode() {
-    int result = myHost != null ? myHost.hashCode() : 0;
-    result = 31 * result + (myLiteralPort != null ? myLiteralPort.hashCode() : 0);
+    int result = myHost.hashCode();
+    result = 31 * result + myLiteralPort.hashCode();
     result = 31 * result + (myUserName != null ? myUserName.hashCode() : 0);
     result = 31 * result + (myPassword != null ? myPassword.hashCode() : 0);
-    result = 31 * result + (myPrivateKeyFile != null ? myPrivateKeyFile.hashCode() : 0);
-    result = 31 * result + (myKnownHostsFile != null ? myKnownHostsFile.hashCode() : 0);
+    result = 31 * result + myPrivateKeyFile.hashCode();
     result = 31 * result + (myPassphrase != null ? myPassphrase.hashCode() : 0);
     result = 31 * result + (myStorePassword ? 1 : 0);
     result = 31 * result + (myStorePassphrase ? 1 : 0);

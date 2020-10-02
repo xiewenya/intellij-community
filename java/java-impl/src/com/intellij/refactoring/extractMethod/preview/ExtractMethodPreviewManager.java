@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod.preview;
 
 import com.intellij.ide.impl.ContentManagerWatcher;
@@ -9,6 +9,7 @@ import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.refactoring.extractMethod.ExtractMethodProcessor;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentManager;
@@ -16,7 +17,7 @@ import com.intellij.ui.content.ContentManager;
 /**
  * @author Pavel.Dolgov
  */
-public class ExtractMethodPreviewManager {
+public final class ExtractMethodPreviewManager {
   private final Project myProject;
   private ContentManager myContentManager;
 
@@ -28,12 +29,13 @@ public class ExtractMethodPreviewManager {
       ToolWindow toolWindow = toolWindowManager.registerToolWindow(ToolWindowId.EXTRACT_METHOD,
                                                                    true, ToolWindowAnchor.BOTTOM, myProject);
       myContentManager = toolWindow.getContentManager();
-      new ContentManagerWatcher(toolWindow, myContentManager);
+      ContentManagerWatcher.watchContentManager(toolWindow, myContentManager);
     });
   }
 
   public void showPreview(ExtractMethodProcessor processor) {
-    String title = processor.getMethodName() + "()";
+    PsiFile psiFile = processor.getElements()[0].getContainingFile();
+    String title = (psiFile != null ? psiFile.getName() + ": " : "") + processor.getMethodName() + "()";
     PreviewPanel panel = new PreviewPanel(processor);
     Content content = myContentManager.getFactory().createContent(panel, title, true);
     myContentManager.addContent(content);

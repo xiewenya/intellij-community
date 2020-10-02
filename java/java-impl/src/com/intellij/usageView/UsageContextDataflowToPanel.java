@@ -17,6 +17,7 @@
 package com.intellij.usageView;
 
 import com.intellij.analysis.AnalysisScope;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -39,7 +40,6 @@ import java.awt.*;
 import java.util.List;
 
 public class UsageContextDataflowToPanel extends UsageContextPanelBase {
-  @NotNull private final UsageViewPresentation myPresentation;
   private JComponent myPanel;
 
   public static class Provider implements UsageContextPanel.Provider {
@@ -64,13 +64,12 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
     @NotNull
     @Override
     public String getTabTitle() {
-      return "Dataflow to Here";
+      return JavaBundle.message("dataflow.to.here");
     }
   }
 
   public UsageContextDataflowToPanel(@NotNull Project project, @NotNull UsageViewPresentation presentation) {
     super(project, presentation);
-    myPresentation = presentation;
   }
 
   @Override
@@ -80,12 +79,11 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
   }
 
   @Override
-  public void updateLayoutLater(@Nullable final List<UsageInfo> infos) {
+  public void updateLayoutLater(@Nullable final List<? extends UsageInfo> infos) {
     if (infos == null) {
       removeAll();
       JComponent titleComp = new JLabel(UsageViewBundle.message("select.the.usage.to.preview", myPresentation.getUsagesWord()), SwingConstants.CENTER);
       add(titleComp, BorderLayout.CENTER);
-      revalidate();
     }
     else {
       PsiElement element = getElementToSliceOn(infos);
@@ -99,8 +97,8 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
       Disposer.register(this, (Disposable)panel);
       removeAll();
       add(panel, BorderLayout.CENTER);
-      revalidate();
     }
+    revalidate();
   }
 
   protected boolean isDataflowToThis() {
@@ -135,11 +133,6 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
       }
 
       @Override
-      public boolean isToShowCloseButton() {
-        return false;
-      }
-
-      @Override
       public boolean isAutoScroll() {
         return false;
       }
@@ -159,7 +152,7 @@ public class UsageContextDataflowToPanel extends UsageContextPanelBase {
     };
   }
 
-  private static PsiElement getElementToSliceOn(@NotNull List<UsageInfo> infos) {
+  private static PsiElement getElementToSliceOn(@NotNull List<? extends UsageInfo> infos) {
     UsageInfo info = infos.get(0);
     return info.getElement();
   }

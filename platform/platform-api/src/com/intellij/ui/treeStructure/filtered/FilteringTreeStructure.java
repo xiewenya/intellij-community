@@ -123,34 +123,35 @@ public class FilteringTreeStructure extends AbstractTreeStructure {
     return myDescriptors2Nodes.get(nodeObject);
   }
 
+  @NotNull
   @Override
   public FilteringNode getRootElement() {
     return myRoot;
   }
 
   @Override
-  public Object[] getChildElements(Object element) {
+  public Object @NotNull [] getChildElements(@NotNull Object element) {
     return ((FilteringNode) element).getChildren();
   }
 
   @Override
-  public Object getParentElement(Object element) {
+  public Object getParentElement(@NotNull Object element) {
     return ((FilteringNode) element).getParent();
   }
 
   @Override
-  public boolean isAlwaysLeaf(Object element) {
+  public boolean isAlwaysLeaf(@NotNull Object element) {
     return element instanceof FilteringNode && ((FilteringNode)element).isAlwaysLeaf();
   }
 
   @Override
-  public boolean isToBuildChildrenInBackground(Object element) {
+  public boolean isToBuildChildrenInBackground(@NotNull Object element) {
     return myBaseStructure.isToBuildChildrenInBackground(element);
   }
 
   @Override
   @NotNull
-  public NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+  public NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
     return element instanceof FilteringNode ? (FilteringNode)element : new FilteringNode((SimpleNode)parentDescriptor, element);
   }
 
@@ -211,7 +212,7 @@ public class FilteringTreeStructure extends AbstractTreeStructure {
     }
 
     @Override
-    public boolean isHighlightableContentNode(final PresentableNodeDescriptor kid) {
+    public boolean isHighlightableContentNode(@NotNull final PresentableNodeDescriptor kid) {
       return myDelegate instanceof PresentableNodeDescriptor && ((PresentableNodeDescriptor)myDelegate).isHighlightableContentNode(kid);
     }
 
@@ -238,7 +239,7 @@ public class FilteringTreeStructure extends AbstractTreeStructure {
     }
 
     @Override
-    public SimpleNode[] getChildren() {
+    public SimpleNode @NotNull [] getChildren() {
       List<FilteringNode> nodes = myNodesCache.get(this);
       if (nodes == null) {
         return myDelegate instanceof SimpleNode ? ContainerUtil.map(((SimpleNode)myDelegate).getChildren(),
@@ -256,15 +257,14 @@ public class FilteringTreeStructure extends AbstractTreeStructure {
 
     @Override
     public int getWeight() {
-      if (getDelegate() instanceof SimpleNode) {
-        return ((SimpleNode)getDelegate()).getWeight();
+      if (getDelegate() instanceof NodeDescriptor) {
+        return ((NodeDescriptor<?>)getDelegate()).getWeight();
       }
       return super.getWeight();
     }
 
     @Override
-    @NotNull
-    public Object[] getEqualityObjects() {
+    public Object @NotNull [] getEqualityObjects() {
       return new Object[]{myDelegate};
     }
 

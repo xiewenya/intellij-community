@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.roots.ui.configuration;
 
@@ -50,6 +36,7 @@ import com.intellij.ui.JBColor;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.JBUI;
@@ -98,12 +85,14 @@ public class ContentEntryTreeEditor {
 
     JPanel excludePatternsPanel = new JPanel(new GridBagLayout());
     excludePatternsPanel.setBorder(JBUI.Borders.empty(5));
-    GridBag gridBag = new GridBag().setDefaultWeightX(1, 1.0).setDefaultPaddingX(JBUI.scale(5));
-    excludePatternsPanel.add(new JLabel(ProjectBundle.message("module.paths.exclude.patterns")), gridBag.nextLine().next());
+    GridBag gridBag = new GridBag().setDefaultWeightX(1, 1.0).setDefaultPaddingX(JBUIScale.scale(5));
+    JLabel myExcludePatternsLabel = new JLabel(ProjectBundle.message("module.paths.exclude.patterns"));
+    excludePatternsPanel.add(myExcludePatternsLabel, gridBag.nextLine().next());
     myExcludePatternsField = new JTextField();
+    myExcludePatternsLabel.setLabelFor(myExcludePatternsField);
     myExcludePatternsField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         if (myContentEntryEditor != null) {
           ContentEntry entry = myContentEntryEditor.getContentEntry();
           if (entry != null) {
@@ -116,7 +105,8 @@ public class ContentEntryTreeEditor {
       }
     });
     excludePatternsPanel.add(myExcludePatternsField, gridBag.next().fillCellHorizontally());
-    JBLabel excludePatternsLegendLabel = new JBLabel(XmlStringUtil.wrapInHtml("Use <b>;</b> to separate name patterns, <b>*</b> for any number of symbols, <b>?</b> for one."));
+    JBLabel excludePatternsLegendLabel =
+      new JBLabel(XmlStringUtil.wrapInHtml(ProjectBundle.message("label.content.entry.separate.name.patterns")));
     excludePatternsLegendLabel.setForeground(JBColor.GRAY);
     excludePatternsPanel.add(excludePatternsLegendLabel, gridBag.nextLine().next().next().fillCellHorizontally());
     myTreePanel = new MyPanel(new BorderLayout());
@@ -146,8 +136,8 @@ public class ContentEntryTreeEditor {
     return myEditHandlers;
   }
 
-  protected TreeCellRenderer getContentEntryCellRenderer() {
-    return new ContentEntryTreeCellRenderer(this, myEditHandlers);
+  protected TreeCellRenderer getContentEntryCellRenderer(@NotNull ContentEntry contentEntry) {
+    return new ContentEntryTreeCellRenderer(this, contentEntry, myEditHandlers);
   }
 
   /**
@@ -190,15 +180,14 @@ public class ContentEntryTreeEditor {
     myExcludePatternsField.setText(StringUtil.join(entry.getExcludePatterns(), ";"));
 
     final Runnable init = () -> {
-      //noinspection ConstantConditions
       myFileSystemTree.updateTree();
       myFileSystemTree.select(file, null);
     };
 
-    myFileSystemTree = new FileSystemTreeImpl(myProject, myDescriptor, myTree, getContentEntryCellRenderer(), init, null) {
+    myFileSystemTree = new FileSystemTreeImpl(myProject, myDescriptor, myTree, getContentEntryCellRenderer(entry), init, null) {
       @Override
       protected AbstractTreeBuilder createTreeBuilder(JTree tree, DefaultTreeModel treeModel, AbstractTreeStructure treeStructure,
-                                                      Comparator<NodeDescriptor> comparator, FileChooserDescriptor descriptor,
+                                                      Comparator<NodeDescriptor<?>> comparator, FileChooserDescriptor descriptor,
                                                       final Runnable onInitialized) {
         return new MyFileTreeBuilder(tree, treeModel, treeStructure, comparator, descriptor, onInitialized);
       }
@@ -235,13 +224,15 @@ public class ContentEntryTreeEditor {
   }
 
   public void requestFocus() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(myTree, true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
   }
 
   public void update() {
     if (myFileSystemTree != null) {
+      ContentEntry entry = myContentEntryEditor == null ? null : myContentEntryEditor.getContentEntry();
+      if (entry != null) {
+        myFileSystemTree.getTree().setCellRenderer(getContentEntryCellRenderer(entry));
+      }
       myFileSystemTree.updateTree();
       final DefaultTreeModel model = (DefaultTreeModel)myTree.getModel();
       final int visibleRowCount = TreeUtil.getVisibleRowCount(myTree);
@@ -284,26 +275,27 @@ public class ContentEntryTreeEditor {
     }
   }
 
-  private static class MyNewFolderAction extends NewFolderAction implements CustomComponentAction {
+  private static final class MyNewFolderAction extends NewFolderAction implements CustomComponentAction {
     private MyNewFolderAction() {
-      super(ActionsBundle.message("action.FileChooser.NewFolder.text"),
-            ActionsBundle.message("action.FileChooser.NewFolder.description"),
+      super(ActionsBundle.messagePointer("action.FileChooser.NewFolder.text"),
+            ActionsBundle.messagePointer("action.FileChooser.NewFolder.description"),
             AllIcons.Actions.NewFolder);
     }
 
+    @NotNull
     @Override
-    public JComponent createCustomComponent(Presentation presentation) {
-      return IconWithTextAction.createCustomComponentImpl(this, presentation);
+    public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
+      return IconWithTextAction.createCustomComponentImpl(this, presentation, place);
     }
   }
 
   private static class MyFileTreeBuilder extends FileTreeBuilder {
-    public MyFileTreeBuilder(JTree tree,
-                             DefaultTreeModel treeModel,
-                             AbstractTreeStructure treeStructure,
-                             Comparator<NodeDescriptor> comparator,
-                             FileChooserDescriptor descriptor,
-                             @Nullable Runnable onInitialized) {
+    MyFileTreeBuilder(JTree tree,
+                      DefaultTreeModel treeModel,
+                      AbstractTreeStructure treeStructure,
+                      Comparator<? super NodeDescriptor<?>> comparator,
+                      FileChooserDescriptor descriptor,
+                      @Nullable Runnable onInitialized) {
       super(tree, treeModel, treeStructure, comparator, descriptor, onInitialized);
     }
 
@@ -313,14 +305,14 @@ public class ContentEntryTreeEditor {
     }
   }
 
-  private class MyPanel extends JPanel implements DataProvider {
+  private final class MyPanel extends JPanel implements DataProvider {
     private MyPanel(final LayoutManager layout) {
       super(layout);
     }
 
     @Override
     @Nullable
-    public Object getData(@NonNls final String dataId) {
+    public Object getData(@NotNull @NonNls final String dataId) {
       if (FileSystemTree.DATA_KEY.is(dataId)) {
         return myFileSystemTree;
       }

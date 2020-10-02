@@ -33,19 +33,20 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts.NotificationContent;
+import com.intellij.openapi.util.NlsContexts.NotificationTitle;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.PyFromImportStatement;
-import com.jetbrains.python.psi.PyImportElement;
-import com.jetbrains.python.sdk.PythonSdkType;
-import org.intellij.lang.annotations.Language;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -58,18 +59,18 @@ import java.util.List;
  */
 public class PyCompatibilityInspectionAdvertiser implements Annotator {
 
-  private static final String NOTIFICATIONS_TITLE = "Python Versions Compatibility";
-  private static final NotificationGroup BALLOON_NOTIFICATIONS = new NotificationGroup("Python Compatibility Inspection Advertiser",
-                                                                                       NotificationDisplayType.STICKY_BALLOON, false);
+  private static final NotificationGroup BALLOON_NOTIFICATIONS = new NotificationGroup(
+    "Python Compatibility Inspection Advertiser",
+    NotificationDisplayType.STICKY_BALLOON,
+    false,
+    null,
+    null,
+    PyBundle.message("python.compatibility.inspection.advertiser.notifications.group.title"),
+    null);
   private static final Key<Boolean> DONT_SHOW_BALLOON = Key.create("showingPyCompatibilityAdvertiserBalloon");
 
   // Allow to show declined suggestion multiple times to ease debugging
   private static final boolean SHOW_ONCE_FOR_VERSION = true;
-
-  @Language("HTML")
-  private static final String YES_NO_REFS = "<a href=\"#yes\">Yes</a>&nbsp;&nbsp;<a href=\"#no\">No</a>";
-  private static final String USING_FUTURE_IMPORTS = "Your source code contains __future__ imports";
-  private static final String USING_SIX = "Your source code imports the 'six' package";
 
   @Override
   public void annotate(@NotNull PsiElement element, @NotNull AnnotationHolder holder) {
@@ -82,7 +83,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
       if (vFile != null && FileIndexFacade.getInstance(project).isInLibraryClasses(vFile)) {
         return;
       }
-      
+
       final Boolean showingFlag = project.getUserData(DONT_SHOW_BALLOON);
       if (showingFlag != null && showingFlag.booleanValue()) {
         return;
@@ -101,10 +102,12 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
           }
         }
         else if (containsFutureImports(pyFile)) {
-          showInspectionAdvertisement(project, USING_FUTURE_IMPORTS);
+          showSingletonNotification(
+            project, PyBundle.message("python.compatibility.inspection.advertiser.using.future.imports.warning.message"));
         }
-        else if (containsSixImport(pyFile)) {
-          showInspectionAdvertisement(project, USING_SIX);
+        else if (PyPsiUtils.containsImport(pyFile, "six")) {
+          showSingletonNotification(
+            project, PyBundle.message("python.compatibility.inspection.advertiser.using.six.warning.message"));
         }
       }
     }
@@ -113,7 +116,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   private static boolean moduleUsesPythonSdk(@NotNull PyFile file) {
     final Module module = ModuleUtilCore.findModuleForFile(file.getVirtualFile(), file.getProject());
     if (module != null) {
-      return PythonSdkType.findPythonSdk(module) != null;
+      return PythonSdkUtil.findPythonSdk(module) != null;
     }
     return false;
   }
@@ -124,15 +127,21 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
     return latestVersion != null && !latestVersion.isPython2() ? latestVersion : null;
   }
 
-  private static void showStalePython3VersionWarning(@NotNull PyFile file, 
-                                                     @NotNull Project project, 
+  private static void showStalePython3VersionWarning(@NotNull PyFile file,
+                                                     @NotNull Project project,
                                                      @NotNull LanguageLevel latestConfiguredVersion) {
     final List<LanguageLevel> versionsToEnable = getVersionsNewerThan(latestConfiguredVersion);
     final String versionsList = StringUtil.join(versionsToEnable, ",&nbsp;");
     final String message =
-      String.format("Code compatibility inspection is configured for Python versions up to %s.<br/>" +
-                    "Would you like to enable it for Python %s?<br/>" + YES_NO_REFS, latestConfiguredVersion, versionsList);
-    showSingletonNotification(project, NOTIFICATIONS_TITLE, message, NotificationType.INFORMATION, (notification, event) -> {
+      PyBundle.message("python.compatibility.inspection.advertiser.version.stale.python3.version.warning.message",
+                       latestConfiguredVersion,
+                       versionsList);
+    showSingletonNotification(
+      project,
+      PyBundle.message("python.compatibility.inspection.advertiser.notifications.title"),
+      message,
+      NotificationType.INFORMATION,
+      (notification, event) -> {
         final boolean enabled = "#yes".equals(event.getDescription());
         if (enabled) {
           enableVersions(project, file, versionsToEnable);
@@ -147,7 +156,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   private static List<LanguageLevel> getVersionsNewerThan(@NotNull LanguageLevel version) {
     final List<LanguageLevel> result = new ArrayList<>();
     final LanguageLevel latest = LanguageLevel.getLatest();
-    for (LanguageLevel level : LanguageLevel.SUPPORTED_LEVELS) {
+    for (LanguageLevel level : PyCompatibilityInspection.SUPPORTED_LEVELS) {
       if (version.isOlderThan(level) && latest.isAtLeast(level)) {
         result.add(level);
       }
@@ -168,9 +177,13 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
     }
   }
 
-  private static void showInspectionAdvertisement(@NotNull Project project, @NotNull String message) {
-    final String msg = message + ".<br/>Would you like to enable Code compatibility inspection?<br/>" + YES_NO_REFS;
-    showSingletonNotification(project, NOTIFICATIONS_TITLE, msg, NotificationType.INFORMATION, (notification, event) -> {
+  private static void showSingletonNotification(@NotNull Project project, @NotificationContent String msg) {
+    showSingletonNotification(
+      project,
+      PyBundle.message("python.compatibility.inspection.advertiser.notifications.title"),
+      msg,
+      NotificationType.INFORMATION,
+      (notification, event) -> {
         final boolean enabled = "#yes".equals(event.getDescription());
         if (enabled) {
           enableCompatibilityInspection(project);
@@ -180,10 +193,10 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
         }
       });
   }
-  
-  private static void showSingletonNotification(@NotNull Project project, 
-                                                @NotNull String title, 
-                                                @NotNull String htmlContent, 
+
+  private static void showSingletonNotification(@NotNull Project project,
+                                                @NotNull @NotificationTitle String title,
+                                                @NotNull @NotificationContent String htmlContent,
                                                 @NotNull NotificationType type,
                                                 @NotNull NotificationListener listener) {
     project.putUserData(DONT_SHOW_BALLOON, true);
@@ -195,22 +208,6 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
         notification.expire();
       }
     }).notify(project);
-  }
-
-  private static boolean containsSixImport(@NotNull PyFile file) {
-    for (PyFromImportStatement importStatement : file.getFromImports()) {
-      final QualifiedName name = importStatement.getImportSourceQName();
-      if (name != null && "six".equals(name.toString())) {
-        return true;
-      }
-    }
-    for (PyImportElement importElement : file.getImportTargets()) {
-      final QualifiedName name = importElement.getImportedQName();
-      if (name != null && "six".equals(name.getFirstComponent())) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private static boolean containsFutureImports(@NotNull PyFile file) {
@@ -236,7 +233,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
       EditInspectionToolsSettingsAction.editToolSettings(project, profile, getCompatibilityInspectionShortName());
     }
   }
-  
+
   @Nullable
   private static LanguageLevel getLatestConfiguredCompatiblePythonVersion(@NotNull PsiElement anchor) {
     final InspectionProfile profile = InspectionProfileManager.getInstance(anchor.getProject()).getCurrentProfile();
@@ -253,7 +250,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   private static String getCompatibilityInspectionShortName() {
     return PyCompatibilityInspection.class.getSimpleName();
   }
-  
+
   @NotNull
   private static PyCompatibilityInspectionAdvertiserSettings getSettings(@NotNull Project project) {
     return ServiceManager.getService(project, PyCompatibilityInspectionAdvertiserSettings.class);

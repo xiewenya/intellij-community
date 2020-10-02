@@ -23,19 +23,16 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class SliceForwardAction extends CodeInsightAction {
 
   @NotNull
   @Override
   protected CodeInsightActionHandler getHandler() {
-    return new SliceForwardHandler();
+    return SliceHandler.create(false);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     if (LanguageSlicing.hasAnyProviders()) super.update(e);
     else e.getPresentation().setEnabledAndVisible(false);
   }

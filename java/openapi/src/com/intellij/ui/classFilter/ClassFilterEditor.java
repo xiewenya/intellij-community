@@ -20,43 +20,44 @@
  */
 package com.intellij.ui.classFilter;
 
+import com.intellij.CommonBundle;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.*;
+import com.intellij.ui.AnActionButton;
+import com.intellij.ui.AnActionButtonRunnable;
+import com.intellij.ui.TableUtil;
+import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.IconUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.ComponentWithEmptyText;
-import com.intellij.util.ui.ItemRemovable;
-import com.intellij.util.ui.StatusText;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.*;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
 public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText {
-  private static final String IS_ACTIVE = "Is Active";
-  private static final String INCLUDE_EXCLUDE = "Include/Exclude";
-  protected JBTable myTable = null;
-  protected FilterTableModel myTableModel = null;
+  protected JBTable myTable;
+  protected FilterTableModel myTableModel;
   protected final Project myProject;
   private final ClassFilter myChooserFilter;
   @Nullable
   private final String myPatternsHelpId;
-  private final boolean myExcludeAllowed;
   private String classDelimiter = "$";
 
   public ClassFilterEditor(Project project) {
@@ -68,24 +69,24 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
   }
 
   public ClassFilterEditor(Project project, ClassFilter classFilter, @Nullable String patternsHelpId) {
-    this(project, classFilter, patternsHelpId, false);
-  }
-
-  public ClassFilterEditor(Project project, ClassFilter classFilter, @Nullable String patternsHelpId, boolean excludeAllowed) {
     super(new BorderLayout());
     myPatternsHelpId = patternsHelpId;
-    myExcludeAllowed = excludeAllowed;
     myTable = new JBTable();
 
     final ToolbarDecorator decorator = ToolbarDecorator.createDecorator(myTable)
       .addExtraAction(new AnActionButton(getAddButtonText(), getAddButtonIcon()) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           addClassFilter();
         }
 
         @Override
-        public void updateButton(AnActionEvent e) {
+        public boolean isDumbAware() {
+          return true;
+        }
+
+        @Override
+        public void updateButton(@NotNull AnActionEvent e) {
           super.updateButton(e);
           setEnabled(!myProject.isDefault());
         }
@@ -93,12 +94,17 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     if (addPatternButtonVisible()) {
       decorator.addExtraAction(new AnActionButton(getAddPatternButtonText(), getAddPatternButtonIcon()) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           addPatternFilter();
         }
 
         @Override
-        public void updateButton(AnActionEvent e) {
+        public boolean isDumbAware() {
+          return true;
+        }
+
+        @Override
+        public void updateButton(@NotNull AnActionEvent e) {
           super.updateButton(e);
           setEnabled(!myProject.isDefault());
         }
@@ -109,7 +115,7 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
       public void run(AnActionButton button) {
         TableUtil.removeSelectedItems(myTable);
       }
-    }).setButtonComparator(getAddButtonText(), getAddPatternButtonText(), "Remove")
+    }).setButtonComparator(getAddButtonText(), getAddPatternButtonText(), CommonBundle.message("button.remove"))
           .disableUpDownActions().createPanel(), BorderLayout.CENTER);
 
     myChooserFilter = classFilter;
@@ -121,29 +127,19 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     myTable.setIntercellSpacing(new Dimension(0, 0));
     myTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
     myTable.setColumnSelectionAllowed(false);
-    myTable.setPreferredScrollableViewportSize(new Dimension(200, myTable.getRowHeight() * JBTable.PREFERRED_SCROLLABLE_VIEWPORT_HEIGHT_IN_ROWS));
+    myTable.setPreferredScrollableViewportSize(JBUI.size(200, -1));
+    myTable.setVisibleRowCount(JBTable.PREFERRED_SCROLLABLE_VIEWPORT_HEIGHT_IN_ROWS);
 
     TableColumnModel columnModel = myTable.getColumnModel();
     TableColumn column = columnModel.getColumn(FilterTableModel.CHECK_MARK);
     int preferredWidth;
-    if (!excludeAllowed) {
-      myTable.setTableHeader(null);
-      preferredWidth = 0;
-    }
-    else {
-      JTableHeader tableHeader = myTable.getTableHeader();
-      final FontMetrics fontMetrics = tableHeader.getFontMetrics(tableHeader.getFont());
-      preferredWidth = fontMetrics.stringWidth(IS_ACTIVE) + 20;
-
-      TableColumn includeColumn = columnModel.getColumn(FilterTableModel.INCLUDE_MARK);
-      includeColumn.setCellRenderer(new EnabledCellRenderer(myTable.getDefaultRenderer(Boolean.class)));
-      TableUtil.setupCheckboxColumn(includeColumn, fontMetrics.stringWidth(INCLUDE_EXCLUDE) + 20);
-    }
+    myTable.setTableHeader(null);
+    preferredWidth = 0;
     TableUtil.setupCheckboxColumn(column, preferredWidth);
     column.setCellRenderer(new EnabledCellRenderer(myTable.getDefaultRenderer(Boolean.class)));
     columnModel.getColumn(FilterTableModel.FILTER).setCellRenderer(new FilterCellRenderer());
 
-    getEmptyText().setText(UIBundle.message("no.patterns"));
+    getEmptyText().setText(JavaBundle.message("no.patterns"));
   }
 
   @NotNull
@@ -152,12 +148,12 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     return myTable.getEmptyText();
   }
 
-  protected String getAddButtonText() {
-    return UIBundle.message("button.add.class");
+  protected @Nls String getAddButtonText() {
+    return JavaBundle.message("button.add.class");
   }
 
-  protected String getAddPatternButtonText() {
-    return UIBundle.message("button.add.pattern");
+  protected @Nls String getAddPatternButtonText() {
+    return JavaBundle.message("button.add.pattern");
   }
 
   protected Icon getAddButtonIcon() {
@@ -180,6 +176,7 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     return myTableModel.getFilters();
   }
 
+  @Override
   public void setEnabled(boolean enabled) {
     super.setEnabled(enabled);
     myTable.setEnabled(enabled);
@@ -194,11 +191,14 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     }
   }
 
+  public void setupEasyFocusTraversing() {
+    myTable.setupEasyFocusTraversing();
+  }
+
   protected final class FilterTableModel extends AbstractTableModel implements ItemRemovable {
     private final List<com.intellij.ui.classFilter.ClassFilter> myFilters = new LinkedList<>();
     public static final int CHECK_MARK = 0;
     public static final int FILTER = 1;
-    public static final int INCLUDE_MARK = 2;
 
     public final void setFilters(com.intellij.ui.classFilter.ClassFilter[] filters) {
       myFilters.clear();
@@ -209,13 +209,7 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
     }
 
     public com.intellij.ui.classFilter.ClassFilter[] getFilters() {
-      for (Iterator<com.intellij.ui.classFilter.ClassFilter> it = myFilters.iterator(); it.hasNext(); ) {
-        com.intellij.ui.classFilter.ClassFilter filter = it.next();
-        String pattern = filter.getPattern();
-        if (pattern == null || "".equals(pattern)) {
-          it.remove();
-        }
-      }
+      myFilters.removeIf(filter -> StringUtil.isEmpty(filter.getPattern()));
       return myFilters.toArray(com.intellij.ui.classFilter.ClassFilter.EMPTY_ARRAY);
     }
 
@@ -233,28 +227,25 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
       fireTableRowsInserted(row, row);
     }
 
+    @Override
     public int getRowCount() {
       return myFilters.size();
     }
 
+    @Override
     public int getColumnCount() {
-      if (myExcludeAllowed) {
-        return 3;
-      }
       return 2;
     }
 
     @Override
-    public String getColumnName(int column) {
+    public @NlsContexts.ColumnName String getColumnName(int column) {
       if (column == FILTER) {
-        return "Pattern";
+        return JavaBundle.message("class.filter.editor.table.model.column.name.pattern");
       }
-      if (column == INCLUDE_MARK) {
-        return INCLUDE_EXCLUDE;
-      }
-      return IS_ACTIVE;
+      return JavaBundle.message("class.filter.editor.table.model.column.name.isActive");
     }
 
+    @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
       com.intellij.ui.classFilter.ClassFilter filter = myFilters.get(rowIndex);
       if (columnIndex == FILTER) {
@@ -263,12 +254,10 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
       if (columnIndex == CHECK_MARK) {
         return filter.isEnabled();
       }
-      if (columnIndex == INCLUDE_MARK) {
-        return filter.isInclude();
-      }
       return null;
     }
 
+    @Override
     public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
       com.intellij.ui.classFilter.ClassFilter filter = myFilters.get(rowIndex);
       if (columnIndex == FILTER) {
@@ -277,24 +266,24 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
       else if (columnIndex == CHECK_MARK) {
         filter.setEnabled(aValue == null || ((Boolean)aValue).booleanValue());
       }
-      else if (columnIndex == INCLUDE_MARK) {
-        filter.setInclude(aValue == null || ((Boolean)aValue).booleanValue());
-      }
 //      fireTableCellUpdated(rowIndex, columnIndex);
       fireTableRowsUpdated(rowIndex, rowIndex);
     }
 
+    @Override
     public Class getColumnClass(int columnIndex) {
-      if (columnIndex == CHECK_MARK || columnIndex == INCLUDE_MARK) {
+      if (columnIndex == CHECK_MARK) {
         return Boolean.class;
       }
       return super.getColumnClass(columnIndex);
     }
 
+    @Override
     public boolean isCellEditable(int rowIndex, int columnIndex) {
       return isEnabled();
     }
 
+    @Override
     public void removeRow(final int idx) {
       myFilters.remove(idx);
       fireTableRowsDeleted(idx, idx);
@@ -302,6 +291,7 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
   }
 
   private class FilterCellRenderer extends DefaultTableCellRenderer {
+    @Override
     public Component getTableCellRendererComponent(JTable table, Object value,
                                                    boolean isSelected, boolean hasFocus, int row, int column) {
       Color color = UIUtil.getTableFocusCellBackground();
@@ -321,10 +311,11 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
   private class EnabledCellRenderer extends DefaultTableCellRenderer {
     private final TableCellRenderer myDelegate;
 
-    public EnabledCellRenderer(TableCellRenderer delegate) {
+    EnabledCellRenderer(TableCellRenderer delegate) {
       myDelegate = delegate;
     }
 
+    @Override
     public Component getTableCellRendererComponent(JTable table, Object value,
                                                    boolean isSelected, boolean hasFocus, int row, int column) {
       Component component = myDelegate.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
@@ -349,16 +340,14 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
         myTable.getSelectionModel().setSelectionInterval(row, row);
         myTable.scrollRectToVisible(myTable.getCellRect(row, 0, true));
 
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(myTable, true);
-        });
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTable, true));
       }
     }
   }
 
   protected void addClassFilter() {
     TreeClassChooser chooser = TreeClassChooserFactory.getInstance(myProject).createNoInnerClassesScopeChooser(
-      UIBundle.message("class.filter.editor.choose.class.title"), GlobalSearchScope.allScope(myProject), myChooserFilter, null);
+      JavaBundle.message("class.filter.editor.choose.class.title"), GlobalSearchScope.allScope(myProject), myChooserFilter, null);
     chooser.showDialog();
     PsiClass selectedClass = chooser.getSelected();
     if (selectedClass != null) {
@@ -368,9 +357,7 @@ public class ClassFilterEditor extends JPanel implements ComponentWithEmptyText 
       myTable.getSelectionModel().setSelectionInterval(row, row);
       myTable.scrollRectToVisible(myTable.getCellRect(row, 0, true));
 
-      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-        IdeFocusManager.getGlobalInstance().requestFocus(myTable, true);
-      });
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTable, true));
     }
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.committed;
 
 import com.intellij.ide.impl.TypeSafeDataProviderAdapter;
@@ -27,62 +13,39 @@ import com.intellij.openapi.vcs.changes.ChangeList;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.ui.ChangesBrowser;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * @deprecated Use {@link CommittedChangesBrowser}
  */
+@Deprecated
 public class RepositoryChangesBrowser extends ChangesBrowser implements DataProvider {
-
-  private CommittedChangesBrowserUseCase myUseCase;
-
-  @Deprecated
-  public RepositoryChangesBrowser(final Project project, final List<CommittedChangeList> changeLists) {
-    this(project);
+  public RepositoryChangesBrowser(final Project project, final List<? extends CommittedChangeList> changeLists) {
+    this(project, changeLists, null, null);
   }
 
-  @Deprecated
   public RepositoryChangesBrowser(final Project project, final List<? extends ChangeList> changeLists, final List<Change> changes,
                                   final ChangeList initialListSelection) {
-    this(project, initialListSelection, null);
+    super(project, null, Collections.emptyList(), initialListSelection, false, false, null, MyUseCase.COMMITTED_CHANGES, null);
   }
 
-
-  public RepositoryChangesBrowser(@NotNull Project project) {
-    this(project, null, null);
-  }
-
-  public RepositoryChangesBrowser(@NotNull Project project,
-                                  @Nullable ChangeList initialListSelection,
-                                  @Nullable VirtualFile toSelect) {
-    super(project, null, Collections.emptyList(), initialListSelection, false, false, null, MyUseCase.COMMITTED_CHANGES, toSelect);
-  }
-
+  @Override
   protected void buildToolBar(final DefaultActionGroup toolBarGroup) {
     super.buildToolBar(toolBarGroup);
 
     toolBarGroup.add(ActionManager.getInstance().getAction("Vcs.RepositoryChangesBrowserToolbar"));
   }
 
-  public void setUseCase(final CommittedChangesBrowserUseCase useCase) {
-    myUseCase = useCase;
-  }
-
-  public Object getData(@NonNls final String dataId) {
-    if (CommittedChangesBrowserUseCase.DATA_KEY.is(dataId)) {
-      return myUseCase;
-    }
-
-    else if (VcsDataKeys.SELECTED_CHANGES.is(dataId)) {
+  @Override
+  public Object getData(@NotNull @NonNls final String dataId) {
+    if (VcsDataKeys.SELECTED_CHANGES.is(dataId)) {
       final List<Change> list = myViewer.getSelectedChanges();
       return list.toArray(new Change[0]);
     }
@@ -92,7 +55,7 @@ public class RepositoryChangesBrowser extends ChangesBrowser implements DataProv
     }
     else if (VcsDataKeys.VCS.is(dataId)) {
       Set<AbstractVcs> abstractVcs = ChangesUtil.getAffectedVcses(myViewer.getSelectedChanges(), myProject);
-      if (abstractVcs.size() == 1) return ObjectUtils.assertNotNull(ContainerUtil.getFirstItem(abstractVcs)).getKeyInstanceMethod();
+      if (abstractVcs.size() == 1) return Objects.requireNonNull(ContainerUtil.getFirstItem(abstractVcs)).getKeyInstanceMethod();
       return null;
     }
     else {

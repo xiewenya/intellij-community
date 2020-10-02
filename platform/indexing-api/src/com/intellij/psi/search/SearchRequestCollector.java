@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
 import com.intellij.codeInsight.ContainerProvider;
@@ -24,13 +10,9 @@ import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.util.Processor;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
 * @author peter
@@ -41,7 +23,7 @@ public class SearchRequestCollector {
   private final Object lock = new Object();
   private final List<PsiSearchRequest> myWordRequests = new ArrayList<>();
   private final List<QuerySearchRequest> myQueryRequests = new ArrayList<>();
-  private final List<Processor<Processor<PsiReference>>> myCustomSearchActions = new ArrayList<>();
+  private final List<Processor<Processor<? super PsiReference>>> myCustomSearchActions = new ArrayList<>();
   private final SearchSession mySession;
 
   public SearchRequestCollector(@NotNull SearchSession session) {
@@ -73,15 +55,16 @@ public class SearchRequestCollector {
                           short searchContext,
                           boolean caseSensitive,
                           String containerName,
-                          PsiElement searchTarget, @NotNull RequestResultProcessor processor) {
+                          PsiElement searchTarget,
+                          @NotNull RequestResultProcessor processor) {
     if (!makesSenseToSearch(word, searchScope)) return;
 
-    Collection<PsiSearchRequest> requests = null;
     if (searchTarget != null &&
         searchScope instanceof GlobalSearchScope &&
         ((searchContext & UsageSearchContext.IN_CODE) != 0 || searchContext == UsageSearchContext.ANY)) {
 
-      SearchScope restrictedCodeUsageSearchScope = ReadAction.compute(() -> ScopeOptimizer.calculateOverallRestrictedUseScope(CODE_USAGE_SCOPE_OPTIMIZER_EP_NAME.getExtensions(), searchTarget));
+      SearchScope restrictedCodeUsageSearchScope = ReadAction.compute(() -> ScopeOptimizer.calculateOverallRestrictedUseScope(
+        CODE_USAGE_SCOPE_OPTIMIZER_EP_NAME.getExtensions(), searchTarget));
       if (restrictedCodeUsageSearchScope != null) {
         short exceptCodeSearchContext = searchContext == UsageSearchContext.ANY
                                         ? UsageSearchContext.IN_COMMENTS |
@@ -90,16 +73,22 @@ public class SearchRequestCollector {
                                           UsageSearchContext.IN_PLAIN_TEXT
                                         : (short)(searchContext ^ UsageSearchContext.IN_CODE);
         SearchScope searchCodeUsageEffectiveScope = searchScope.intersectWith(restrictedCodeUsageSearchScope);
-        requests = ContainerUtil.list(new PsiSearchRequest(searchCodeUsageEffectiveScope, word, UsageSearchContext.IN_CODE, caseSensitive, containerName, processor),
-                                      new PsiSearchRequest(searchScope, word, exceptCodeSearchContext, caseSensitive, containerName, processor));
+
+        PsiSearchRequest inCode =
+          new PsiSearchRequest(searchCodeUsageEffectiveScope, word, UsageSearchContext.IN_CODE, caseSensitive, containerName,
+                               getSearchSession(), processor);
+        PsiSearchRequest outsideCode =
+          new PsiSearchRequest(searchScope, word, exceptCodeSearchContext, caseSensitive, containerName, getSearchSession(), processor);
+        synchronized (lock) {
+          myWordRequests.add(inCode);
+          myWordRequests.add(outsideCode);
+        }
+        return;
       }
     }
-    if (requests == null) {
-      requests = Collections.singleton(new PsiSearchRequest(searchScope, word, searchContext, caseSensitive, containerName, processor));
-    }
-
+    PsiSearchRequest request = new PsiSearchRequest(searchScope, word, searchContext, caseSensitive, containerName, getSearchSession(), processor);
     synchronized (lock) {
-      myWordRequests.addAll(requests);
+      myWordRequests.add(request);
     }
   }
   public void searchWord(@NotNull String word,
@@ -129,8 +118,8 @@ public class SearchRequestCollector {
     return null;
   }
 
-  /** use {@link #searchWord(String, SearchScope, short, boolean, PsiElement)}
-   * instead
+  /**
+   * @deprecated use {@link #searchWord(String, SearchScope, short, boolean, PsiElement)}
    */
   @Deprecated
   public void searchWord(@NotNull String word,
@@ -156,7 +145,7 @@ public class SearchRequestCollector {
     }
   }
 
-  public void searchCustom(@NotNull Processor<Processor<PsiReference>> searchAction) {
+  public void searchCustom(@NotNull Processor<Processor<? super PsiReference>> searchAction) {
     synchronized (lock) {
       myCustomSearchActions.add(searchAction);
     }
@@ -168,7 +157,7 @@ public class SearchRequestCollector {
   }
 
   @NotNull
-  private <T> List<T> takeRequests(@NotNull List<T> list) {
+  private <T> List<T> takeRequests(@NotNull List<? extends T> list) {
     synchronized (lock) {
       final List<T> requests = new ArrayList<>(list);
       list.clear();
@@ -182,7 +171,7 @@ public class SearchRequestCollector {
   }
 
   @NotNull
-  public List<Processor<Processor<PsiReference>>> takeCustomSearchActions() {
+  public List<Processor<Processor<? super PsiReference>>> takeCustomSearchActions() {
     return takeRequests(myCustomSearchActions);
   }
 

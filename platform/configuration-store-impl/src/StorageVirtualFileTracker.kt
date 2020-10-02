@@ -1,5 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.openapi.components.ComponentManager
 import com.intellij.openapi.components.StateStorage
 import com.intellij.openapi.components.impl.stores.FileStorageCoreUtil
 import com.intellij.openapi.vfs.VfsUtil
@@ -7,15 +9,16 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.*
-import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.messages.MessageBus
 import java.nio.file.Paths
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 class StorageVirtualFileTracker(private val messageBus: MessageBus) {
-  private val filePathToStorage: ConcurrentMap<String, TrackedStorage> = ContainerUtil.newConcurrentMap()
-  private @Volatile var hasDirectoryBasedStorages = false
+  private val filePathToStorage: ConcurrentMap<String, TrackedStorage> = ConcurrentHashMap()
+  @Volatile
+  private var hasDirectoryBasedStorages = false
 
   private val vfsListenerAdded = AtomicBoolean()
 
@@ -49,7 +52,8 @@ class StorageVirtualFileTracker(private val messageBus: MessageBus) {
 
   private fun addVfsChangesListener() {
     messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
-      override fun after(events: MutableList<out VFileEvent>) {
+      override fun after(events: List<VFileEvent>) {
+        var storageEvents: LinkedHashMap<ComponentManager, LinkedHashSet<StateStorage>>? = null
         eventLoop@ for (event in events) {
           var storage: StateStorage?
           if (event is VFilePropertyChangeEvent && VirtualFile.PROP_NAME == event.propertyName) {
@@ -63,7 +67,7 @@ class StorageVirtualFileTracker(private val messageBus: MessageBus) {
               // we don't support DirectoryBasedStorage renaming
 
               // StoragePathMacros.MODULE_FILE -> old path, we must update value
-              storage.storageManager.pathRenamed(oldPath, event.path, event)
+              (storage.storageManager as? RenameableStateStorageManager)?.pathRenamed(Paths.get(event.path), event)
             }
           }
           else {
@@ -89,7 +93,7 @@ class StorageVirtualFileTracker(private val messageBus: MessageBus) {
               }
             }
             is VFileCreateEvent -> {
-              if (storage is FileBasedStorage && event.requestor !is StateStorage.SaveSession) {
+              if (storage is FileBasedStorage && event.requestor !is SaveSession) {
                 storage.setFile(event.file, null)
               }
             }
@@ -104,8 +108,17 @@ class StorageVirtualFileTracker(private val messageBus: MessageBus) {
             is VFileCopyEvent -> continue@eventLoop
           }
 
-          val componentManager = storage.storageManager.componentManager!!
-          componentManager.messageBus.syncPublisher(STORAGE_TOPIC).storageFileChanged(event, storage, componentManager)
+          if (isFireStorageFileChangedEvent(event)) {
+            val componentManager = storage.storageManager.componentManager!!
+            if (storageEvents == null) {
+              storageEvents = LinkedHashMap()
+            }
+            storageEvents.computeIfAbsent(componentManager) { LinkedHashSet() }.add(storage)
+          }
+        }
+
+        if (storageEvents != null) {
+          StoreReloadManager.getInstance().storageFilesChanged(storageEvents)
         }
       }
     })

@@ -162,13 +162,16 @@ public class RenameCollisionsTest extends LightRefactoringTestCase {
   public void testRenameVarParamToOuterConst() {
     doTest("STATIC_FIELD");
   }
+  public void testRenameConflictNoQualification() {
+    BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts(() -> doTest("f"));
+  }
 
   public void testRenameLocalVariableHidesFieldInAnonymous() {
     try {
       doTest("y");
     }
     catch (BaseRefactoringProcessor.ConflictsInTestsException e) {
-      Assert.assertEquals("There is already a field <b><code>y</code></b>. It will conflict with the renamed variable", e.getMessage());
+      Assert.assertEquals("There is already a field <b><code>y</code></b>. It will conflict with the renamed local variable", e.getMessage());
       return;
     }
     fail("Conflicts were not found");
@@ -250,7 +253,7 @@ public class RenameCollisionsTest extends LightRefactoringTestCase {
   private void doTestImpossibleToRename() {
     configureByFile(BASE_PATH + getTestName(false) + ".java");
     PsiElement element = TargetElementUtil
-      .findTargetElement(myEditor, TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
+      .findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertNotNull(element);
     assertTrue(PsiElementRenameHandler.isVetoed(element));
   }
@@ -277,7 +280,7 @@ public class RenameCollisionsTest extends LightRefactoringTestCase {
   private void doTest(final String newName) {
     configureByFile(BASE_PATH + getTestName(false) + ".java");
     PsiElement element = TargetElementUtil
-        .findTargetElement(myEditor, TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
+        .findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertNotNull(element);
     new RenameProcessor(getProject(), element, newName, true, true).run();
     checkResultByFile(BASE_PATH + getTestName(false) + ".java.after");
@@ -286,7 +289,7 @@ public class RenameCollisionsTest extends LightRefactoringTestCase {
   public void testAllUsagesInCode() {
     configureByFile(BASE_PATH + getTestName(false) + ".java");
     PsiElement element = TargetElementUtil
-        .findTargetElement(myEditor, TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
+        .findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertNotNull(element);
     final UsageInfo[] usageInfos = RenameUtil.findUsages(element, "newName", true, true, new HashMap<>());
     assertSize(1, usageInfos);

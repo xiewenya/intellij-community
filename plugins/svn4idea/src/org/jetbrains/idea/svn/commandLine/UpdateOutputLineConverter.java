@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnUtil;
@@ -26,22 +12,19 @@ import org.jetbrains.idea.svn.api.ProgressEvent;
 import org.jetbrains.idea.svn.status.StatusType;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class UpdateOutputLineConverter {
+public final class UpdateOutputLineConverter {
+  private final static @NonNls String MERGING = "--- Merging";
+  private final static @NonNls String RECORDING_MERGE_INFO = "--- Recording mergeinfo";
 
-  private final static String MERGING = "--- Merging";
-  private final static String RECORDING_MERGE_INFO = "--- Recording mergeinfo";
+  private final static @NonNls String UPDATING = "Updating";
+  private final static @NonNls String SKIPPED = "Skipped";
+  private final static @NonNls String RESTORED = "Restored";
 
-  private final static String UPDATING = "Updating";
-  private final static String SKIPPED = "Skipped";
-  private final static String RESTORED = "Restored";
-
-  private final static String FETCHING_EXTERNAL = "Fetching external";
+  private final static @NonNls String FETCHING_EXTERNAL = "Fetching external";
 
   private final static Pattern ourAtRevision = Pattern.compile("At revision (\\d+)\\.");
   private final static Pattern ourUpdatedToRevision = Pattern.compile("Updated to revision (\\d+)\\.");
@@ -67,7 +50,7 @@ public class UpdateOutputLineConverter {
 
   public UpdateOutputLineConverter(File base) {
     myBase = base;
-    myRootsUnderProcessing = ContainerUtil.newStack();
+    myRootsUnderProcessing = new Stack<>();
   }
 
   @Nullable
@@ -113,7 +96,7 @@ public class UpdateOutputLineConverter {
     return new ProgressEvent(file, revision, null, null, action, error, null);
   }
 
-  private final static Set<Character> ourActions = new HashSet<>(Arrays.asList(new Character[]{'A', 'D', 'U', 'C', 'G', 'E', 'R'}));
+  private final static Set<Character> ourActions = Set.of('A', 'D', 'U', 'C', 'G', 'E', 'R');
 
   @Nullable
   private ProgressEvent parseNormalString(final String line) {
@@ -136,7 +119,7 @@ public class UpdateOutputLineConverter {
       // obstructed
       return new ProgressEvent(file, -1, contentsStatus, propertiesStatus, EventAction.UPDATE_SKIP_OBSTRUCTION, null, null);
     }
-    
+
     EventAction action;
     EventAction expectedAction;
     if (StatusType.STATUS_ADDED.equals(contentsStatus)) {
@@ -166,7 +149,7 @@ public class UpdateOutputLineConverter {
       try {
         return Long.parseLong(group);
       } catch (NumberFormatException e) {
-        //                                                                                    
+        //
       }
     }
     return -1;

@@ -23,28 +23,20 @@ import com.intellij.pom.java.LanguageLevel;
 import com.intellij.testFramework.IdeaTestUtil;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
 public class Java9CollectionFactoryInspectionTest extends LightQuickFixParameterizedTestCase {
   @Override
-  protected LanguageLevel getLanguageLevel() {
+  protected LanguageLevel getDefaultLanguageLevel() {
     return LanguageLevel.JDK_1_9;
   }
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new Java9CollectionFactoryInspection()};
   }
 
   @Override
   protected Sdk getProjectJDK() {
     return IdeaTestUtil.getMockJdk9();
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   @Override

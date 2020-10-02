@@ -1,21 +1,26 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.builtInWebServer
 
 import com.intellij.openapi.project.Project
 import com.intellij.util.PathUtilRt
 import io.netty.buffer.ByteBufUtf8Writer
 import io.netty.channel.Channel
-import io.netty.channel.ChannelFutureListener
-import io.netty.handler.codec.http.*
+import io.netty.handler.codec.http.FullHttpRequest
+import io.netty.handler.codec.http.HttpHeaders
+import io.netty.handler.codec.http.HttpMethod
+import io.netty.handler.codec.http.HttpUtil
 import io.netty.handler.stream.ChunkedStream
 import org.jetbrains.builtInWebServer.ssi.SsiExternalResolver
 import org.jetbrains.builtInWebServer.ssi.SsiProcessor
 import org.jetbrains.io.FileResponses
-import org.jetbrains.io.addKeepAliveIfNeed
+import org.jetbrains.io.addKeepAliveIfNeeded
+import org.jetbrains.io.flushChunkedResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
 private class StaticFileHandler : WebServerFileHandler() {
+  @Suppress("HardCodedStringLiteral")
   override val pageFileExtensions = arrayOf("html", "htm", "shtml", "stm", "shtm")
 
   private var ssiProcessor: SsiProcessor? = null
@@ -31,43 +36,39 @@ private class StaticFileHandler : WebServerFileHandler() {
       }
 
       FileResponses.sendFile(request, channel, ioFile, extraHeaders)
-    }
-    else {
-      val file = pathInfo.file!!
-      val response = FileResponses.prepareSend(request, channel, file.timeStamp, file.name, extraHeaders) ?: return true
-
-      val keepAlive = response.addKeepAliveIfNeed(request)
-      if (request.method() != HttpMethod.HEAD) {
-        HttpUtil.setContentLength(response, file.length)
-      }
-
-      channel.write(response)
-
-      if (request.method() != HttpMethod.HEAD) {
-        channel.write(ChunkedStream(file.inputStream))
-      }
-
-      val future = channel.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-      if (!keepAlive) {
-        future.addListener(ChannelFutureListener.CLOSE)
-      }
+      return true
     }
 
+    val file = pathInfo.file!!
+    val response = FileResponses.prepareSend(request, channel, file.timeStamp, file.name, extraHeaders) ?: return true
+
+    val isKeepAlive = response.addKeepAliveIfNeeded(request)
+    if (request.method() != HttpMethod.HEAD) {
+      HttpUtil.setContentLength(response, file.length)
+    }
+
+    channel.write(response)
+
+    if (request.method() != HttpMethod.HEAD) {
+      channel.write(ChunkedStream(file.inputStream))
+    }
+
+    flushChunkedResponse(channel, isKeepAlive)
     return true
   }
 
   private fun processSsi(file: Path, path: String, project: Project, request: FullHttpRequest, channel: Channel, extraHeaders: HttpHeaders) {
     if (ssiProcessor == null) {
-      ssiProcessor = SsiProcessor(false)
+      ssiProcessor = SsiProcessor()
     }
 
     val buffer = channel.alloc().ioBuffer()
-    val keepAlive: Boolean
+    val isKeepAlive: Boolean
     var releaseBuffer = true
     try {
       val lastModified = ssiProcessor!!.process(SsiExternalResolver(project, request, path, file.parent), file, ByteBufUtf8Writer(buffer))
       val response = FileResponses.prepareSend(request, channel, lastModified, file.fileName.toString(), extraHeaders) ?: return
-      keepAlive = response.addKeepAliveIfNeed(request)
+      isKeepAlive = response.addKeepAliveIfNeeded(request)
       if (request.method() != HttpMethod.HEAD) {
         HttpUtil.setContentLength(response, buffer.readableBytes().toLong())
       }
@@ -85,10 +86,7 @@ private class StaticFileHandler : WebServerFileHandler() {
       }
     }
 
-    val future = channel.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-    if (!keepAlive) {
-      future.addListener(ChannelFutureListener.CLOSE)
-    }
+    flushChunkedResponse(channel, isKeepAlive)
   }
 }
 

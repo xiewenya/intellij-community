@@ -16,12 +16,13 @@
 package com.intellij.refactoring.removemiddleman;
 
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.presentation.java.SymbolPresentationUtil;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.refactoring.RefactorJBundle;
 import com.intellij.refactoring.removemiddleman.usageInfo.DeleteMethod;
@@ -55,12 +56,14 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     myDelegateMethodInfos = memberInfos;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usageInfos) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usageInfos) {
     return new RemoveMiddlemanUsageViewDescriptor(field);
   }
 
 
+  @Override
   public void findUsages(@NotNull List<FixableUsageInfo> usages) {
     for (final MemberInfo memberInfo : myDelegateMethodInfos) {
       if (!memberInfo.isChecked()) continue;
@@ -80,7 +83,8 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
       if (memberInfo.isChecked() && memberInfo.isToAbstract()) {
         final PsiMember psiMember = memberInfo.getMember();
         if (psiMember instanceof PsiMethod && ((PsiMethod)psiMember).findDeepestSuperMethods().length > 0) {
-          conflicts.putValue(psiMember, SymbolPresentationUtil.getSymbolPresentableText(psiMember) + " will be deleted. Hierarchy will be broken");
+          conflicts.putValue(psiMember, JavaRefactoringBundle
+            .message("remove.middleman.deleted.hierarchy.conflict", SymbolPresentationUtil.getSymbolPresentableText(psiMember)));
         }
       }
     }
@@ -108,7 +112,8 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     }
   }
 
-  protected void performRefactoring(@NotNull UsageInfo[] usageInfos) {
+  @Override
+  protected void performRefactoring(UsageInfo @NotNull [] usageInfos) {
     if (getter != null) {
       try {
         if (containingClass.findMethodBySignature(getter, false) == null) {
@@ -123,8 +128,9 @@ public class RemoveMiddlemanProcessor extends FixableUsagesRefactoringProcessor 
     super.performRefactoring(usageInfos);
   }
 
+  @Override
   @NotNull
   protected String getCommandName() {
-    return RefactorJBundle.message("exposed.delegation.command.name", containingClass.getName(), '.', field.getName());
+    return RefactorJBundle.message("exposed.delegation.command.name", StringUtil.getQualifiedName(containingClass.getName(), field.getName()));
   }
 }

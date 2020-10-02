@@ -1,31 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.codeStyleSettings;
 
-import com.intellij.openapi.options.SchemeFactory;
 import com.intellij.openapi.options.SchemeImportException;
-import com.intellij.openapi.vfs.VfsUtil;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.codeStyle.CodeStyleScheme;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.impl.source.codeStyle.CodeStyleSchemeImpl;
-import com.intellij.psi.impl.source.codeStyle.CodeStyleSchemeXmlImporter;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class CodeStyleXmlImporterTest extends CodeStyleTestCase {
   public void testStandardCodeStyleXml() throws SchemeImportException {
@@ -33,7 +13,7 @@ public class CodeStyleXmlImporterTest extends CodeStyleTestCase {
     assertEquals(false, settings.AUTODETECT_INDENTS);
     assertEquals(60, settings.getDefaultRightMargin());
   }
-  
+
   public void testProjectCodeStyleSettings() throws SchemeImportException {
     CodeStyleSettings settings= importSettings();
     assertEquals(40, settings.getDefaultRightMargin());
@@ -43,24 +23,9 @@ public class CodeStyleXmlImporterTest extends CodeStyleTestCase {
   }
 
   public void testNewProjectSettings() throws SchemeImportException {
-    CodeStyleSettings settings= importSettings();
-    assertEquals(140, settings.getDefaultRightMargin());
-    assertEquals(true, settings.FORMATTER_TAGS_ENABLED);
-  }
-  
-  private CodeStyleSettings importSettings() throws SchemeImportException {
-    final CodeStyleScheme targetScheme = new CodeStyleSchemeImpl("Test", false, null);
-    SchemeFactory<CodeStyleScheme> schemeFactory = new SchemeFactory<CodeStyleScheme>() {
-      @Override
-      public CodeStyleScheme createNewScheme(@Nullable String name) {
-        return targetScheme;
-      }
-    };
-    File ioFile = new File(getTestDataPath() + getTestName(true) + ".xml");
-    assertExists(ioFile);
-    VirtualFile vFile = VfsUtil.findFileByIoFile(ioFile, true);
-    CodeStyleSchemeXmlImporter importer = new CodeStyleSchemeXmlImporter();
-    return importer.importScheme(getProject(), vFile, targetScheme, schemeFactory).getCodeStyleSettings();
+    CodeStyleSettings settings = importSettings();
+    assertThat(settings.getDefaultRightMargin()).isEqualTo(140);
+    assertThat(settings.FORMATTER_TAGS_ENABLED).isTrue();
   }
 
   @Nullable

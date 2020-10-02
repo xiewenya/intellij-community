@@ -1,12 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
 import com.intellij.openapi.application.ApplicationInfo;
-import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.updateSettings.UpdateStrategyCustomization;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.net.NetUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -16,30 +14,16 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@State(
-  name = "UpdatesConfigurable",
-  storages = {
-    @Storage(value = "updates.xml", roamingType = RoamingType.DISABLED),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
-public class UpdateSettings implements PersistentStateComponent<UpdateOptions>, UserUpdateSettings {
+@State(name = "UpdatesConfigurable", storages = @Storage(value = "updates.xml", roamingType = RoamingType.DISABLED, exportable = true))
+public class UpdateSettings implements PersistentStateComponent<UpdateOptions> {
   public static UpdateSettings getInstance() {
     return ServiceManager.getService(UpdateSettings.class);
   }
 
-  private final String myPackageManager = System.getProperty("ide.no.platform.update");
   private UpdateOptions myState = new UpdateOptions();
 
   public boolean isPlatformUpdateEnabled() {
-    return getPackageManagerName() == null;
-  }
-
-  @Nullable
-  public String getPackageManagerName() {
-    return "true".equalsIgnoreCase(myPackageManager) ? "Toolbox" :
-           PathManager.isSnap() ? "Snap" :
-           myPackageManager;
+    return ExternalUpdateManager.ACTUAL == null;
   }
 
   @NotNull
@@ -71,6 +55,14 @@ public class UpdateSettings implements PersistentStateComponent<UpdateOptions>, 
     myState.setCheckNeeded(value);
   }
 
+  public boolean isKeepPluginsArchive() {
+    return myState.isKeepPluginsArchive();
+  }
+
+  public void setKeepPluginsArchive(boolean value) {
+    myState.setKeepPluginsArchive(value);
+  }
+
   public List<String> getEnabledExternalUpdateSources() {
     return myState.getEnabledExternalComponentSources();
   }
@@ -83,26 +75,16 @@ public class UpdateSettings implements PersistentStateComponent<UpdateOptions>, 
     return myState.getExternalUpdateChannels();
   }
 
-  public boolean isSecureConnection() {
-    return myState.isUseSecureConnection();
-  }
-
-  public void setSecureConnection(boolean value) {
-    myState.setUseSecureConnection(value);
-  }
-
   public long getLastTimeChecked() {
     return myState.getLastTimeChecked();
   }
 
   @NotNull
-  @Override
   public List<String> getIgnoredBuildNumbers() {
     return myState.getIgnoredBuildNumbers();
   }
 
   @NotNull
-  @Override
   public ChannelStatus getSelectedChannelStatus() {
     return ChannelStatus.fromCode(myState.getUpdateChannelType());
   }
@@ -135,6 +117,9 @@ public class UpdateSettings implements PersistentStateComponent<UpdateOptions>, 
     if (pluginHosts != null) {
       ContainerUtil.addAll(hosts, pluginHosts.split(";"));
     }
+
+    UpdateSettingsProviderHelper.addPluginRepositories(hosts);
+    ContainerUtil.removeDuplicates(hosts);
     return hosts;
   }
 
@@ -147,21 +132,11 @@ public class UpdateSettings implements PersistentStateComponent<UpdateOptions>, 
     myState.setLastBuildChecked(ApplicationInfo.getInstance().getBuild().asString());
   }
 
-  public boolean canUseSecureConnection() {
-    return myState.isUseSecureConnection() && NetUtils.isSniEnabled();
+  public boolean isThirdPartyPluginsAllowed() {
+    return myState.isThirdPartyPluginsAllowed();
   }
 
-  //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link #getSelectedChannelStatus()} (to be removed in IDEA 2018) */
-  @SuppressWarnings("unused")
-  public String getUpdateChannelType() {
-    return myState.getUpdateChannelType();
+  public void setThirdPartyPluginsAllowed(boolean value) {
+    myState.setThirdPartyPluginsAllowed(value);
   }
-
-  /** @deprecated use {@link #setSelectedChannelStatus(ChannelStatus)} (to be removed in IDEA 2018) */
-  @SuppressWarnings("unused")
-  public void setUpdateChannelType(@NotNull String value) {
-    myState.setUpdateChannelType(value);
-  }
-  //</editor-fold>
 }

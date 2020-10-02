@@ -15,8 +15,8 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.completion.CompletionMemory;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -38,7 +38,7 @@ public class IntroduceVariableIntentionAction extends BaseRefactoringIntentionAc
   @NotNull
   @Override
   public String getText() {
-    return CodeInsightBundle.message("intention.introduce.variable.text");
+    return JavaBundle.message("intention.introduce.variable.text");
   }
 
   @NotNull
@@ -55,12 +55,10 @@ public class IntroduceVariableIntentionAction extends BaseRefactoringIntentionAc
 
     if (getTypeOfUnfilledParameter(editor, element) != null) return true;
 
-    final PsiExpressionStatement statement = detectExpressionStatement(element);
-    if (statement == null){
+    final PsiExpression expression = detectExpressionStatement(element);
+    if (expression == null) {
       return false;
     }
-
-    final PsiExpression expression = statement.getExpression();
 
     final PsiType expressionType = expression.getType();
     return expressionType != null && !PsiType.VOID.equals(expressionType) && !(expression instanceof PsiAssignmentExpression);
@@ -74,12 +72,12 @@ public class IntroduceVariableIntentionAction extends BaseRefactoringIntentionAc
       return;
     }
 
-    final PsiExpressionStatement statement = detectExpressionStatement(element);
-    if (statement == null){
+    final PsiExpression expression = detectExpressionStatement(element);
+    if (expression == null){
       return;
     }
 
-    new IntroduceVariableHandler().invoke(project, editor, statement.getExpression());
+    new IntroduceVariableHandler().invoke(project, editor, expression);
   }
 
   @Override
@@ -93,10 +91,29 @@ public class IntroduceVariableIntentionAction extends BaseRefactoringIntentionAc
     return currentFile;
   }
 
-  private static PsiExpressionStatement detectExpressionStatement(@NotNull PsiElement element) {
+  private static PsiExpression detectExpressionStatement(@NotNull PsiElement element) {
     final PsiElement prevSibling = PsiTreeUtil.skipWhitespacesBackward(element);
-    return prevSibling instanceof PsiExpressionStatement ? (PsiExpressionStatement)prevSibling
-                                                         : PsiTreeUtil.getParentOfType(element, PsiExpressionStatement.class);
+    if (prevSibling instanceof PsiStatement) {
+      return getExpression((PsiStatement)prevSibling);
+    }
+    else {
+      while(!(element instanceof PsiExpressionStatement) && !(element instanceof PsiReturnStatement)) {
+        element = element.getParent();
+        if (element == null || element instanceof PsiCodeBlock) return null;
+      }
+      return getExpression(((PsiStatement)element));
+    }
+  }
+
+  private static PsiExpression getExpression(PsiStatement statement) {
+    if (statement instanceof PsiExpressionStatement) {
+      return ((PsiExpressionStatement)statement).getExpression();
+    }
+
+    if (statement instanceof PsiReturnStatement) {
+      return ((PsiReturnStatement)statement).getReturnValue();
+    }
+    return null;
   }
 
   @Nullable

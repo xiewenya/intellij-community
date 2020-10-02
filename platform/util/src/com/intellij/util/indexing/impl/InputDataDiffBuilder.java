@@ -16,7 +16,6 @@
 package com.intellij.util.indexing.impl;
 
 import com.intellij.util.indexing.StorageException;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -24,7 +23,6 @@ import java.util.Map;
 /**
  * A class intended to make a diff between existing forward index data and new one.
  */
-@ApiStatus.Experimental
 public abstract class InputDataDiffBuilder<Key, Value> {
   protected final int myInputId;
 
@@ -34,7 +32,7 @@ public abstract class InputDataDiffBuilder<Key, Value> {
    * @return false if there is no difference and true otherwise
    */
   public abstract boolean differentiate(@NotNull Map<Key, Value> newData,
-                                     @NotNull KeyValueUpdateProcessor<Key, Value> addProcessor,
-                                     @NotNull KeyValueUpdateProcessor<Key, Value> updateProcessor,
-                                     @NotNull RemovedKeyProcessor<Key> removeProcessor) throws StorageException;
+                                        @NotNull KeyValueUpdateProcessor<? super Key, ? super Value> addProcessor,
+                                        @NotNull KeyValueUpdateProcessor<? super Key, ? super Value> updateProcessor,
+                                        @NotNull RemovedKeyProcessor<? super Key> removeProcessor) throws StorageException;
 }

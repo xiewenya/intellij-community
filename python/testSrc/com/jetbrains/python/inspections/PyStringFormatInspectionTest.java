@@ -124,6 +124,19 @@ public class PyStringFormatInspectionTest extends PyInspectionTestCase {
   public void testNewStyleCallExpressionArgument() {
     doTest();
   }
+
+  // PY-27601
+  public void testNewStylePositionalSubstitutionAfterKeywordSubstitution() {
+    doTest();
+  }
+
+  public void testNewStyleAutomaticAfterManualNumbering() {
+    doTest();
+  }
+
+  public void testNewStyleManualAfterAutomaticNumbering() {
+    doTest();
+  }
   
   public void testPercentStringWithFormatStringReplacementSymbols() {
     doTest();
@@ -203,6 +216,11 @@ public class PyStringFormatInspectionTest extends PyInspectionTestCase {
 
   // PY-26028
   public void testSOEOnReassignedFormatArgument() {
+    doTest();
+  }
+
+  // PY-33218
+  public void testNoTypeMismatchOnElementsOfTupleDeclaration() {
     doTest();
   }
 

@@ -35,6 +35,7 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.Consumer;
 import com.jetbrains.commandInterface.commandLine.CommandLineLanguage;
 import com.jetbrains.commandInterface.commandLine.psi.CommandLineFile;
+import com.jetbrains.python.PyDisposable;
 import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.toolWindowWithActions.ConsoleWithProcess;
 import kotlin.jvm.functions.Function1;
@@ -70,7 +71,7 @@ import java.util.Collection;
  *
  * @author Ilya.Kazakevich
  */
-@SuppressWarnings({"DeserializableClassInSecureContext", "SerializableClassInSecureContext"}) // Nobody will serialize console
+@SuppressWarnings("SerializableClassInSecureContext") // Nobody will serialize console
 final class CommandConsole extends LanguageConsoleImpl implements Consumer<String>, Condition<LanguageConsoleView>, ConsoleWithProcess {
   /**
    * Width of border to create around console
@@ -160,7 +161,7 @@ final class CommandConsole extends LanguageConsoleImpl implements Consumer<Strin
     console.switchToCommandMode();
     console.getComponent(); // For some reason console does not have component until this method is called which leads to some errros.
     console.getConsoleEditor().getSettings().setAdditionalLinesCount(2); // to prevent PY-15583
-    Disposer.register(module.getProject(), console); // To dispose console when project disposes
+    Disposer.register(PyDisposable.getInstance(module.getProject()), console); // To dispose console when project disposes
     console.addMessageFilter(new UrlFilter());
     return console;
   }
@@ -171,7 +172,7 @@ final class CommandConsole extends LanguageConsoleImpl implements Consumer<Strin
    * @param editors editors to enable/disable border
    * @param enable  whether border should be enabled
    */
-  private static void configureLeftBorder(final boolean enable, @NotNull final EditorEx... editors) {
+  private static void configureLeftBorder(final boolean enable, final EditorEx @NotNull ... editors) {
     for (final EditorEx editor : editors) {
       final Color backgroundColor = editor.getBackgroundColor(); // Border have the same color console background has
       final int thickness = enable ? BORDER_SIZE_PX : 0;
@@ -181,7 +182,7 @@ final class CommandConsole extends LanguageConsoleImpl implements Consumer<Strin
   }
 
   @Override
-  public void attachToProcess(final ProcessHandler processHandler) {
+  public void attachToProcess(final @NotNull ProcessHandler processHandler) {
     super.attachToProcess(processHandler);
     processHandler.addProcessListener(new MyProcessListener());
   }

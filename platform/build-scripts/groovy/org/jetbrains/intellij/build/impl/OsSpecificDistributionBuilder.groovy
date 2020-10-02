@@ -15,23 +15,24 @@
  */
 package org.jetbrains.intellij.build.impl
 
+import groovy.transform.CompileStatic
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.intellij.build.BuildContext
-
-/**
- * @author nik
- */
+import org.jetbrains.intellij.build.OsFamily
+@CompileStatic
 abstract class OsSpecificDistributionBuilder {
-  final String osTargetId;
-  final String osName;
   protected final BuildContext buildContext
 
-  OsSpecificDistributionBuilder(String osTargetId, String osName, BuildContext buildContext) {
-    this.osTargetId = osTargetId
-    this.osName = osName
+  OsSpecificDistributionBuilder(BuildContext buildContext) {
     this.buildContext = buildContext
   }
 
-  abstract String copyFilesForOsDistribution()
+  @NotNull
+  abstract OsFamily getTargetOs();
+
+  abstract void copyFilesForOsDistribution(String targetPath)
 
   abstract void buildArtifacts(String osSpecificDistPath)
+
+  List<String> generateExecutableFilesPatterns(boolean includeJre) { [] }
 }

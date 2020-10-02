@@ -21,10 +21,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class EmptyProgressIndicator implements StandardProgressIndicator {
-  @NotNull private final ModalityState myModalityState;
+  @NotNull
+  private final ModalityState myModalityState;
 
-  private volatile boolean myIsRunning;
+  @NotNull
+  private volatile RunState myRunState = RunState.VIRGIN;
+  private enum RunState {
+    VIRGIN, STARTED, STOPPED
+  }
   private volatile boolean myIsCanceled;
+  private volatile int myNonCancelableSectionCount;
 
   public EmptyProgressIndicator() {
     this(ModalityState.defaultModalityState());
@@ -36,18 +42,29 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public void start() {
-    myIsRunning = true;
+    if (myRunState == RunState.STARTED) {
+      throw new IllegalStateException("Indicator already started");
+    }
+    myRunState = RunState.STARTED;
     myIsCanceled = false;
   }
 
   @Override
   public void stop() {
-    myIsRunning = false;
+    switch (myRunState) {
+      case VIRGIN:
+        throw new IllegalStateException("Indicator can't be stopped because it wasn't started");
+      case STARTED:
+        myRunState = RunState.STOPPED;
+        break;
+      case STOPPED:
+        throw new IllegalStateException("Indicator already stopped");
+    }
   }
 
   @Override
   public boolean isRunning() {
-    return myIsRunning;
+    return myRunState == RunState.STARTED;
   }
 
   @Override
@@ -63,7 +80,7 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public final void checkCanceled() {
-    if (myIsCanceled) {
+    if (myIsCanceled && myNonCancelableSectionCount == 0) {
       throw new ProcessCanceledException();
     }
   }
@@ -105,10 +122,12 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public void startNonCancelableSection() {
+    myNonCancelableSectionCount++;
   }
 
   @Override
   public void finishNonCancelableSection() {
+    myNonCancelableSectionCount--;
   }
 
   @Override
@@ -124,6 +143,9 @@ public class EmptyProgressIndicator implements StandardProgressIndicator {
 
   @Override
   public void setModalityProgress(ProgressIndicator modalityProgress) {
+    if (isRunning()) {
+      throw new IllegalStateException("Can't change modality progress for already running indicator");
+    }
   }
 
   @Override

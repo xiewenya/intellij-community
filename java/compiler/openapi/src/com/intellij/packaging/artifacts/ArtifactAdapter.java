@@ -17,16 +17,16 @@ package com.intellij.packaging.artifacts;
 
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class ArtifactAdapter implements ArtifactListener {
+  @Override
   public void artifactAdded(@NotNull Artifact artifact) {
   }
 
+  @Override
   public void artifactRemoved(@NotNull Artifact artifact) {
   }
 
+  @Override
   public void artifactChanged(@NotNull Artifact artifact, @NotNull String oldName) {
   }
 }

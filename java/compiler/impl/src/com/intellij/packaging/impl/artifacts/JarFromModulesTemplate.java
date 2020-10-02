@@ -17,6 +17,7 @@ package com.intellij.packaging.impl.artifacts;
 
 import com.intellij.CommonBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
@@ -37,16 +38,14 @@ import com.intellij.packaging.impl.elements.ProductionModuleOutputElementType;
 import com.intellij.packaging.impl.elements.TestModuleOutputElementType;
 import com.intellij.util.CommonProcessors;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
 
-/**
- * @author nik
- */
 public class JarFromModulesTemplate extends ArtifactTemplate {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.packaging.impl.artifacts.JarFromModulesTemplate");
+  private static final Logger LOG = Logger.getInstance(JarFromModulesTemplate.class);
 
   private final PackagingElementResolvingContext myContext;
 
@@ -75,16 +74,12 @@ public class JarFromModulesTemplate extends ArtifactTemplate {
     if (mainClassName != null && !mainClassName.isEmpty() || !extractLibrariesToJar) {
       final VirtualFile directory;
       try {
-        directory = ApplicationManager.getApplication().runWriteAction(new ThrowableComputable<VirtualFile, IOException>() {
-          @Override
-          public VirtualFile compute() throws IOException {
-            return VfsUtil.createDirectoryIfMissing(directoryForManifest);
-          }
-        });
+        directory = ApplicationManager.getApplication().runWriteAction(
+          (ThrowableComputable<VirtualFile, IOException>)() -> VfsUtil.createDirectoryIfMissing(directoryForManifest));
       }
       catch (IOException e) {
         LOG.info(e);
-        Messages.showErrorDialog(project, "Cannot create directory '" + directoryForManifest + "': " + e.getMessage(),
+        Messages.showErrorDialog(project, JavaCompilerBundle.message("cannot.create.directory.0.1", directoryForManifest, e.getMessage()),
                                  CommonBundle.getErrorTitle());
         return null;
       }
@@ -141,8 +136,8 @@ public class JarFromModulesTemplate extends ArtifactTemplate {
     }
   }
 
-  private void addLibraries(Set<Library> libraries, ArtifactRootElement<?> root, CompositePackagingElement<?> archive,
-                            List<String> classpath) {
+  private void addLibraries(Set<? extends Library> libraries, ArtifactRootElement<?> root, CompositePackagingElement<?> archive,
+                            List<? super String> classpath) {
     PackagingElementFactory factory = PackagingElementFactory.getInstance();
     for (Library library : libraries) {
       if (LibraryPackagingElement.getKindForLibrary(library).containsDirectoriesWithClasses()) {
@@ -166,7 +161,7 @@ public class JarFromModulesTemplate extends ArtifactTemplate {
     }
   }
 
-  private static void addExtractedLibrariesToJar(CompositePackagingElement<?> archive, PackagingElementFactory factory, Set<Library> libraries) {
+  private static void addExtractedLibrariesToJar(CompositePackagingElement<?> archive, PackagingElementFactory factory, Set<? extends Library> libraries) {
     for (Library library : libraries) {
       if (LibraryPackagingElement.getKindForLibrary(library).containsJarFiles()) {
         for (VirtualFile classesRoot : library.getFiles(OrderRootType.CLASSES)) {
@@ -186,7 +181,7 @@ public class JarFromModulesTemplate extends ArtifactTemplate {
   }
 
   @Override
-  public String getPresentableName() {
-    return "From modules with dependencies...";
+  public @Nls String getPresentableName() {
+    return JavaCompilerBundle.message("jar.from.modules.presentable.name");
   }
 }

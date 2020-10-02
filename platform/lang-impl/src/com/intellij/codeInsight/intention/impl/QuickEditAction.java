@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.injected.editor.DocumentWindow;
@@ -25,10 +26,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Segment;
-import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.ElementManipulators;
 import com.intellij.psi.PsiElement;
@@ -37,7 +35,6 @@ import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,19 +42,19 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * "Quick Edit Language" intention action that provides an editor which shows an injected language
  * fragment's complete prefix and suffix in non-editable areas and allows to edit the fragment
  * without having to consider any additional escaping rules (e.g. when editing regexes in String
  * literals).
- * 
+ *
  * @author Gregory Shrago
  * @author Konstantin Bulenkov
  */
-public class QuickEditAction implements IntentionAction, LowPriorityAction {
+public class QuickEditAction extends QuickEditActionKeys implements IntentionAction, LowPriorityAction {
   public static final Key<QuickEditHandler> QUICK_EDIT_HANDLER = Key.create("QUICK_EDIT_HANDLER");
-  public static final Key<Boolean> EDIT_ACTION_AVAILABLE = Key.create("EDIT_ACTION_AVAILABLE");
   private String myLastLanguageName;
 
   @Override
@@ -93,7 +90,7 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
 
   public QuickEditHandler invokeImpl(@NotNull final Project project, final Editor editor, PsiFile file) throws IncorrectOperationException {
     int offset = editor.getCaretModel().getOffset();
-    Pair<PsiElement, TextRange> pair = ObjectUtils.assertNotNull(getRangePair(file, editor));
+    Pair<PsiElement, TextRange> pair = Objects.requireNonNull(getRangePair(file, editor));
 
     PsiFile injectedFile = (PsiFile)pair.first;
     QuickEditHandler handler = getHandler(project, injectedFile, editor, file);
@@ -101,7 +98,7 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
     if (!ApplicationManager.getApplication().isUnitTestMode()) {
       DocumentWindow documentWindow = InjectedLanguageUtil.getDocumentWindow(injectedFile);
       if (documentWindow != null) {
-        handler.navigate(documentWindow.hostToInjectedUnescaped(offset));
+        handler.navigate(InjectedLanguageUtil.hostToInjectedUnescaped(documentWindow, offset));
       }
     }
     return handler;
@@ -119,6 +116,7 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
       return handler;
     }
     handler = new QuickEditHandler(project, injectedFile, origFile, editor, this);
+    Disposer.register(project, handler);
     if (ApplicationManager.getApplication().isUnitTestMode()) {
       // todo remove and hide QUICK_EDIT_HANDLER
       injectedFile.putUserData(QUICK_EDIT_HANDLER, handler);
@@ -134,9 +132,8 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
     TextRange hostRange = TextRange.create(hostRanges[0].getStartOffset(),
                                            hostRanges[hostRanges.length - 1].getEndOffset());
     for (Editor editor : EditorFactory.getInstance().getAllEditors()) {
-      if (editor.getDocument() != documentWindow.getDelegate()) continue;
       QuickEditHandler handler = editor.getUserData(QUICK_EDIT_HANDLER);
-      if (handler != null && handler.changesRange(hostRange)) return handler;
+      if (handler != null && handler.tryReuse(injectedFile, hostRange)) return handler;
     }
     return null;
   }
@@ -144,7 +141,7 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
   protected boolean isShowInBalloon() {
     return false;
   }
-  
+
   @Nullable
   protected JComponent createBalloonComponent(@NotNull PsiFile file) {
     return null;
@@ -153,13 +150,13 @@ public class QuickEditAction implements IntentionAction, LowPriorityAction {
   @Override
   @NotNull
   public String getText() {
-    return "Edit "+ StringUtil.notNullize(myLastLanguageName, "Injected")+" Fragment";
+    return CodeInsightBundle.message("intention.text.edit.0.fragment", StringUtil.notNullize(myLastLanguageName, "Injected"));
   }
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return "Edit Injected Fragment";
+    return CodeInsightBundle.message("intention.family.edit.injected.fragment");
   }
 
   public static Balloon.Position getBalloonPosition(Editor editor) {

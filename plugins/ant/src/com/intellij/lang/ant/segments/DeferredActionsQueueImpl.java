@@ -20,10 +20,11 @@ import com.intellij.openapi.diagnostic.Logger;
 import java.awt.*;
 
 public class DeferredActionsQueueImpl implements DeferredActionsQueue {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.execution.junit2.segments.DeferedActionsQueueImpl");
+  private static final Logger LOG = Logger.getInstance(DeferredActionsQueueImpl.class);
   private DispatchListener myListener = DispatchListener.DEAF;
   private int myCounter = 0;
 
+  @Override
   public void addLast(final Runnable runnable) {
     checkIsDispatchThread();
     myListener.onStarted();
@@ -42,6 +43,7 @@ public class DeferredActionsQueueImpl implements DeferredActionsQueue {
     }
   }
 
+  @Override
   public void setDispactchListener(final DispatchListener listener) {
     myListener = listener;
   }

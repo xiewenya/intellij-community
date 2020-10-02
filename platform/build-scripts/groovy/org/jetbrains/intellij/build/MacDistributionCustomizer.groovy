@@ -17,9 +17,6 @@ package org.jetbrains.intellij.build
 
 import groovy.transform.CompileStatic
 
-/**
- * @author nik
- */
 @CompileStatic
 abstract class MacDistributionCustomizer {
   /**
@@ -70,6 +67,14 @@ abstract class MacDistributionCustomizer {
   String additionalDocTypes = ""
 
   /**
+   * Note that users won't be able to switch off some of these associations during installation
+   * so include only types of files which users will definitely prefer to open by the product.
+   *
+   * @see FileAssociation
+   */
+  List<FileAssociation> fileAssociations = []
+
+  /**
    * Specify &lt;scheme&gt; here if you want product to be able to open urls like <scheme>://open?file=/some/file/path&line=0
    */
   List<String> urlSchemes = []
@@ -84,11 +89,6 @@ abstract class MacDistributionCustomizer {
    */
   boolean associateIpr = false
 
-  /**
-   * If {@code true} YourKit agent will be automatically attached when an EAP build of the product starts under macOS. This property is
-   * taken into account only if {@link ProductProperties#enableYourkitAgentInEAP} is {@code true}.
-   */
-  boolean enableYourkitAgentInEAP = true
 
   /**
    * Relative paths to files in macOS distribution which should take 'executable' permissions
@@ -106,6 +106,10 @@ abstract class MacDistributionCustomizer {
   String dmgImagePathForEAP = null
 
   /**
+   * If {@code true} will publish sit archive as artifact
+   */
+  boolean publishArchive = false
+  /**
    * Application bundle name: &lt;name&gt;.app. Current convention is to have ProductName.app for release and ProductName Version EAP.app.
    * @param applicationInfo application info that can be used to check for EAP and building version
    * @param buildNumber current build number
@@ -122,20 +126,6 @@ abstract class MacDistributionCustomizer {
    * @return map propertyName-&gt;propertyValue
    */
   Map<String, String> getCustomIdeaProperties(ApplicationInfoProperties applicationInfo) { [:] }
-
-  /**
-   * Help bundle identifier for bundle in <a href="https://developer.apple.com/library/mac/documentation/Carbon/Conceptual/ProvidingUserAssitAppleHelp/authoring_help/authoring_help_book.html">Apple Help Bundle</a> format.
-   * If this field has non-null value, {@link #getPathToHelpZip} must be overriden to specify path to archive with help files.
-   */
-  String helpId = null
-
-  /**
-   * Override this method if you need to bundle help with macOS distribution of the product.
-   * @return path to zip archive containing directory "{@link #helpId}.help" with bundled help files inside.
-   */
-  String getPathToHelpZip(BuildContext context) {
-    null
-  }
 
   /**
    * Additional files to be copied to the distribution, e.g. help bundle or debugger binaries

@@ -50,10 +50,11 @@ public class CompilerEncodingConfigurationTest extends JpsEncodingConfigurationS
 
   @Override
   protected void tearDown() throws Exception {
-    super.tearDown();
     FileUtil.delete(myDataStorageRoot);
+    super.tearDown();
   }
 
+  @Override
   public void test() {
     loadProject("/jps/jps-builders/testData/compilerEncoding/compilerEncoding.ipr");
     JpsEncodingProjectConfiguration projectConfig = JpsEncodingConfigurationService.getInstance().getEncodingConfiguration(myProject);

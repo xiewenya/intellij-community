@@ -1,30 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.lang.regexp.inspection;
 
-import com.intellij.codeInspection.LocalInspectionTool;
-import com.intellij.codeInspection.LocalQuickFix;
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.*;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
+import org.intellij.lang.regexp.RegExpBundle;
 import org.intellij.lang.regexp.RegExpTT;
-import org.intellij.lang.regexp.psi.RegExpBranch;
 import org.intellij.lang.regexp.psi.RegExpChar;
 import org.intellij.lang.regexp.psi.RegExpElementVisitor;
 import org.jetbrains.annotations.Nls;
@@ -34,13 +17,6 @@ import org.jetbrains.annotations.NotNull;
  * @author Bas Leijdekkers
  */
 public class EscapedMetaCharacterInspection extends LocalInspectionTool {
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return "Escaped meta character";
-  }
 
   @NotNull
   @Override
@@ -52,7 +28,7 @@ public class EscapedMetaCharacterInspection extends LocalInspectionTool {
 
     private final ProblemsHolder myHolder;
 
-    public EscapedMetaCharacterVisitor(ProblemsHolder holder) {
+    EscapedMetaCharacterVisitor(ProblemsHolder holder) {
       myHolder = holder;
     }
 
@@ -73,7 +49,7 @@ public class EscapedMetaCharacterInspection extends LocalInspectionTool {
       if (node != null && node.getElementType() == RegExpTT.REDUNDANT_ESCAPE) {
         return;
       }
-      myHolder.registerProblem(ch, "Escaped meta character <code>" + c + "</code>", new EscapedMetaCharacterFix(c));
+      myHolder.registerProblem(ch, RegExpBundle.message("inspection.warning.escaped.meta.character.0", c), new EscapedMetaCharacterFix(c));
     }
   }
 
@@ -89,14 +65,14 @@ public class EscapedMetaCharacterInspection extends LocalInspectionTool {
     @NotNull
     @Override
     public String getName() {
-      return "Replace with '[" + myC + "]'";
+      return CommonQuickFixBundle.message("fix.replace.with.x", "[" + myC + ']');
     }
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace with character inside class";
+      return RegExpBundle.message("inspection.quick.fix.replace.with.character.inside.class");
     }
 
     @Override
@@ -105,8 +81,7 @@ public class EscapedMetaCharacterInspection extends LocalInspectionTool {
       if (!(element instanceof RegExpChar)) {
         return;
       }
-      final RegExpBranch branch = RegExpFactory.createBranchFromText("[" + myC + ']', element);
-      element.replace(branch.getFirstChild());
+      RegExpReplacementUtil.replaceInContext(element, "[" + myC + ']');
     }
   }
 }

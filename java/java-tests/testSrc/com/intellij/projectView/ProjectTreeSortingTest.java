@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.projectView;
 
 import com.intellij.ide.projectView.*;
@@ -54,6 +54,9 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
       myProjectView.removeProjectPane(myPane);
       myProjectView = null;
       myPane = null;
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
@@ -237,6 +240,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
   }
 
   private void assertTree(String expected) {
+    PlatformTestUtil.waitWhileBusy(myPane.getTree());
     TreePath path = PlatformTestUtil.waitForPromise(myPane.promisePathToElement(getContentDirectory()));
     PlatformTestUtil.waitWhileBusy(myPane.getTree());
     Object element = path.getLastPathComponent();
@@ -248,7 +252,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
     private final Project myProject;
     private final Map<String, Integer> myOrder = new LinkedHashMap<>();
 
-    public MyOrderProvider(Project project) {
+    MyOrderProvider(Project project) {
       myProject = project;
     }
 
@@ -261,10 +265,10 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
 
     @NotNull
     @Override
-    public Collection<AbstractTreeNode> modify(@NotNull AbstractTreeNode parent,
-                                               @NotNull Collection<AbstractTreeNode> children,
+    public Collection<AbstractTreeNode<?>> modify(@NotNull AbstractTreeNode<?> parent,
+                                               @NotNull Collection<AbstractTreeNode<?>> children,
                                                ViewSettings settings) {
-      ArrayList<AbstractTreeNode> result = new ArrayList<>();
+      ArrayList<AbstractTreeNode<?>> result = new ArrayList<>();
 
       for (final AbstractTreeNode child : children) {
         ProjectViewNode treeNode = (ProjectViewNode)child;
@@ -272,10 +276,10 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
         if (o instanceof PsiFileSystemItem) {
           final Integer order = myOrder.get(((PsiFileSystemItem)o).getVirtualFile().getName());
 
-          treeNode = new ProjectViewNode<PsiFileSystemItem>(myProject, (PsiFileSystemItem)o, settings) {
+          treeNode = new ProjectViewNode<>(myProject, (PsiFileSystemItem)o, settings) {
             @Override
             @NotNull
-            public Collection<AbstractTreeNode> getChildren() {
+            public Collection<AbstractTreeNode<?>> getChildren() {
               return child.getChildren();
             }
 
@@ -329,7 +333,7 @@ public class ProjectTreeSortingTest extends BaseProjectViewTestCase {
             }
 
             @Override
-            public void update(PresentationData presentation) {
+            public void update(@NotNull PresentationData presentation) {
             }
 
             @Override

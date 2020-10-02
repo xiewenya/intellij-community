@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectWizard;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.newProjectWizard.SelectTemplateSettings;
 import com.intellij.ide.util.projectWizard.*;
 import com.intellij.openapi.components.StorageScheme;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.platform.templates.TemplateModuleBuilder;
 import com.intellij.projectImport.ProjectFormatPanel;
 import com.intellij.ui.HideableDecorator;
@@ -70,7 +58,9 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
     }
     myModuleNameLocationComponent.bindModuleSettings(myNamePathComponent);
 
-    myExpertDecorator = new HideableDecorator(myExpertPlaceholder, "Mor&e Settings", false);
+    myExpertDecorator = new HideableDecorator(myExpertPlaceholder,
+                                              JavaUiBundle.message("projects.settings.wizard.expert.decorator.separator.title"),
+                                              false);
     myExpertPanel.setBorder(JBUI.Borders.empty(0, IdeBorderFactory.TITLED_BORDER_INDENT, 5, 0));
     myExpertDecorator.setContentComponent(myExpertPanel);
 
@@ -88,7 +78,7 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   }
 
   private void addProjectFormat(JPanel panel) {
-    addField("Project \u001bformat:", myFormatPanel.getStorageFormatComboBox(), panel);
+    addField(JavaUiBundle.message("project.settings.wizard.label.project.format"), myFormatPanel.getStorageFormatComboBox(), panel);
   }
 
   @Override
@@ -127,6 +117,9 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   public void onStepLeaving() {
     SelectTemplateSettings settings = SelectTemplateSettings.getInstance();
     settings.EXPERT_MODE = myExpertDecorator.isExpanded();
+    if (mySettingsStep != null) {
+      mySettingsStep.onStepLeaving();
+    }
   }
 
   @Override
@@ -182,12 +175,12 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   }
 
   @Override
-  public void addSettingsField(@NotNull String label, @NotNull JComponent field) {
+  public void addSettingsField(@NotNull @NlsContexts.Label String label, @NotNull JComponent field) {
     JPanel panel = myWizardContext.isCreatingNewProject() ? myNamePathComponent : getModulePanel();
     addField(label, field, panel);
   }
 
-  static void addField(String label, JComponent field, JPanel panel) {
+  static void addField(@NlsContexts.Label String label, JComponent field, JPanel panel) {
     JLabel jLabel = new JBLabel(label);
     jLabel.setLabelFor(field);
     jLabel.setVerticalAlignment(SwingConstants.TOP);
@@ -211,11 +204,12 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   }
 
   @Override
-  public void addExpertField(@NotNull String label, @NotNull JComponent field) {
+  public void addExpertField(@NotNull @NlsContexts.Label String label, @NotNull JComponent field) {
     JPanel panel = myWizardContext.isCreatingNewProject() ? getModulePanel() : myExpertPanel;
     addField(label, field, panel);
   }
 
+  @Override
   @NotNull
   public JTextField getModuleNameField() {
     return getNameComponent();
@@ -226,6 +220,16 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   public ModuleNameLocationSettings getModuleNameLocationSettings() {
     return myWizardContext.isCreatingNewProject() ? new NewProjectNameLocationSettings(myNamePathComponent, myModuleNameLocationComponent)
                                                   : myModuleNameLocationComponent;
+  }
+
+  @TestOnly
+  public void setPath(String path) {
+    myNamePathComponent.setPath(path);
+  }
+
+  @TestOnly
+  public void setNameValue(String name) {
+    myNamePathComponent.setNameValue(name);
   }
 
   @TestOnly

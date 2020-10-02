@@ -15,6 +15,7 @@
  */
 package com.intellij.lang.ant.dom;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.xml.reflect.DomAttributeChildDescription;
 import org.jetbrains.annotations.NonNls;
@@ -69,6 +70,7 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     return myIncludePatterns.size() > 0;
   }
 
+  @Override
   public void visitAntDomElement(AntDomElement element) {
     // todo: add support to includefile and excludefile
     if ("include".equals(element.getXmlElementName()) && !(element instanceof AntDomInclude)) {
@@ -106,7 +108,7 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
   }
 
   @Nullable
-  private static String getAttributeValue(AntDomElement element, final String attributeName) {
+  private static @NlsSafe String getAttributeValue(AntDomElement element, final @NonNls String attributeName) {
     final DomAttributeChildDescription description = element.getGenericInfo().getAttributeChildDescription(attributeName);
     if (description == null) {
       return null;
@@ -220,12 +222,12 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     if (strIdxStart > strIdxEnd) {
       // String is exhausted
       return true;
-    } 
+    }
 
     if (patIdxStart > patIdxEnd) {
       // String not exhausted, but pattern is. Failure.
       return false;
-    } 
+    }
 
     // pattern now holds ** while string is not exhausted
     // this will generate false positives but we can live with that.
@@ -238,11 +240,11 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     }
     return myCouldBeIncludedPatterns.stream().anyMatch(couldBeIncludedPattern -> matchPatternStart(couldBeIncludedPattern, relativePath));
   }
-  
+
   private class PrefixItem {
     private final String myStrPattern;
     private Pattern myCompiledPattern;
-    public PrefixItem(String strPattern) {
+    PrefixItem(String strPattern) {
       myStrPattern = strPattern;
     }
 

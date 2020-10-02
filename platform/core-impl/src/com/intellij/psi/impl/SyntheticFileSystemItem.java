@@ -1,6 +1,4 @@
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.ASTNode;
@@ -12,24 +10,24 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.search.PsiFileSystemItemProcessor;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract class SyntheticFileSystemItem extends PsiElementBase implements PsiFileSystemItem {
-  private static final Logger LOG = Logger.getInstance("#" + SyntheticFileSystemItem.class.getPackage().getName());
+  private static final Logger LOG = Logger.getInstance(SyntheticFileSystemItem.class);
 
   protected final Project myProject;
   protected final PsiManager myManager;
 
-  public SyntheticFileSystemItem(Project project) {
+  public SyntheticFileSystemItem(@NotNull Project project) {
     myProject = project;
     myManager = PsiManager.getInstance(myProject);
   }
 
-  protected static boolean processFileSystemItem(PsiElementProcessor<PsiFileSystemItem> processor, PsiFileSystemItem element) {
+  protected static boolean processFileSystemItem(PsiElementProcessor<? super PsiFileSystemItem> processor, PsiFileSystemItem element) {
     if (processor instanceof PsiFileSystemItemProcessor && !((PsiFileSystemItemProcessor)processor).acceptItem(element.getName(), true)) {
       return true;
     }
@@ -84,8 +82,7 @@ public abstract class SyntheticFileSystemItem extends PsiElementBase implements 
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getChildren() {
+  public PsiElement @NotNull [] getChildren() {
     final PsiElementProcessor.CollectElements<PsiFileSystemItem> collector = new PsiElementProcessor.CollectElements<>();
     processChildren(collector);
     return collector.toArray(new PsiFileSystemItem[0]);
@@ -155,9 +152,8 @@ public abstract class SyntheticFileSystemItem extends PsiElementBase implements 
   }
 
   @Override
-  @NotNull
-  public char[] textToCharArray() {
-    return ArrayUtil.EMPTY_CHAR_ARRAY; // TODO throw new InsupportedOperationException()
+  public char @NotNull [] textToCharArray() {
+    return ArrayUtilRt.EMPTY_CHAR_ARRAY; // TODO throw new InsupportedOperationException()
   }
 
   @Override

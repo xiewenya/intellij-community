@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.BoolUtils;
@@ -27,16 +27,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 public class GroovyNegatedConditionalInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Negated conditional expression";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Negated conditional expression #loc";
+    return GroovyBundle.message("inspection.message.negated.conditional.expression");
 
   }
 

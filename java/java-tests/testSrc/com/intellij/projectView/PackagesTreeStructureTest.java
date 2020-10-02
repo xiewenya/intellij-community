@@ -21,20 +21,26 @@ import com.intellij.ide.projectView.impl.ProjectAbstractTreeStructureBase;
 import com.intellij.ide.projectView.impl.ProjectViewImpl;
 import com.intellij.lang.properties.projectView.ResourceBundleGrouper;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.module.impl.ModuleManagerImpl;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.module.ModifiableModuleModel;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestSourceBasedTestCase;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.io.IOException;
 
 public class PackagesTreeStructureTest extends TestSourceBasedTestCase {
   public void testPackageView() {
-    ModuleManagerImpl.getInstanceImpl(myProject).setModuleGroupPath(myModule, new String[]{"Group"});
+    ModifiableModuleModel moduleModel = ModuleManager.getInstance(myProject).getModifiableModel();
+    moduleModel.setModuleGroupPath(myModule, new String[]{"Group"});
+    WriteAction.runAndWait(() -> moduleModel.commit());
+
     final VirtualFile srcFile = getSrcDirectory().getVirtualFile();
     if (srcFile.findChild("empty") == null){
       ApplicationManager.getApplication().runWriteAction(new Runnable() {
@@ -205,15 +211,16 @@ public class PackagesTreeStructureTest extends TestSourceBasedTestCase {
   private void doTest(final boolean showModules, final boolean showLibraryContents, boolean flattenPackages, boolean abbreviatePackageNames, @NonNls final String expected, final int levels) {
     final ProjectViewImpl projectView = (ProjectViewImpl)ProjectView.getInstance(myProject);
 
-    projectView.setShowModules(showModules, PackageViewPane.ID);
+    projectView.setShowModules(PackageViewPane.ID, showModules);
 
-    projectView.setShowLibraryContents(showLibraryContents, PackageViewPane.ID);
+    projectView.setShowLibraryContents(PackageViewPane.ID, showLibraryContents);
 
-    projectView.setFlattenPackages(flattenPackages, PackageViewPane.ID);
-    projectView.setAbbreviatePackageNames(abbreviatePackageNames, PackageViewPane.ID);
-    projectView.setHideEmptyPackages(true, PackageViewPane.ID);
+    projectView.setFlattenPackages(PackageViewPane.ID, flattenPackages);
+    projectView.setAbbreviatePackageNames(PackageViewPane.ID, abbreviatePackageNames);
+    projectView.setHideEmptyPackages(PackageViewPane.ID, true);
 
     PackageViewPane packageViewPane = new PackageViewPane(myProject) {
+      @NotNull
       @Override
       protected ProjectAbstractTreeStructureBase createStructure() {
         ProjectAbstractTreeStructureBase structure = super.createStructure();

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.util;
 
 import com.intellij.codeInsight.hint.HintManager;
@@ -20,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -34,7 +21,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,13 +29,19 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 
+import static com.intellij.openapi.util.NlsContexts.DialogMessage;
+import static com.intellij.openapi.util.NlsContexts.DialogTitle;
+
 /**
  * @author ven
  */
-public class CommonRefactoringUtil {
+public final class CommonRefactoringUtil {
   private CommonRefactoringUtil() { }
 
-  public static void showErrorMessage(String title, String message, @Nullable String helpId, @NotNull Project project) {
+  public static void showErrorMessage(@DialogTitle String title,
+                                      @DialogMessage String message,
+                                      @NonNls @Nullable String helpId,
+                                      @NotNull Project project) {
     if (ApplicationManager.getApplication().isUnitTestMode()) throw new RuntimeException(message);
     RefactoringMessageDialog dialog = new RefactoringMessageDialog(title, message, helpId, "OptionPane.errorIcon", false, project);
     dialog.show();
@@ -76,10 +69,12 @@ public class CommonRefactoringUtil {
 
   public static void showErrorHint(@NotNull Project project,
                                    @Nullable Editor editor,
-                                   @NotNull @Nls String message,
-                                   @NotNull @Nls String title,
+                                   @NotNull @DialogMessage String message,
+                                   @NotNull @DialogTitle String title,
                                    @Nullable String helpId) {
-    if (ApplicationManager.getApplication().isUnitTestMode()) throw new RefactoringErrorHintException(message);
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      throw new RefactoringErrorHintException(message);
+    }
 
     ApplicationManager.getApplication().invokeLater(() -> {
       if (editor == null || editor.getComponent().getRootPane() == null) {
@@ -97,14 +92,14 @@ public class CommonRefactoringUtil {
 
   public static boolean checkReadOnlyStatus(@NotNull PsiElement element) {
     final VirtualFile file = element.getContainingFile().getVirtualFile();
-    return file != null && !ReadonlyStatusHandler.getInstance(element.getProject()).ensureFilesWritable(file).hasReadonlyFiles();
+    return file != null && !ReadonlyStatusHandler.getInstance(element.getProject()).ensureFilesWritable(Collections.singletonList(file)).hasReadonlyFiles();
   }
 
   public static boolean checkReadOnlyStatus(@NotNull Project project, @NotNull PsiElement element) {
     return checkReadOnlyStatus(element, project, RefactoringBundle.message("refactoring.cannot.be.performed"));
   }
 
-  public static boolean checkReadOnlyStatus(@NotNull Project project, @NotNull PsiElement... elements) {
+  public static boolean checkReadOnlyStatus(@NotNull Project project, PsiElement @NotNull ... elements) {
     return checkReadOnlyStatus(project, Collections.emptySet(), Arrays.asList(elements), RefactoringBundle.message("refactoring.cannot.be.performed"), true);
   }
 
@@ -146,7 +141,7 @@ public class CommonRefactoringUtil {
     ContainerUtil.addAll(failed, status.getReadonlyFiles());
 
     if (notifyOnFail && (!failed.isEmpty() || seenNonWritablePsiFilesWithoutVirtualFile && readonly.isEmpty())) {
-      StringBuilder message = new StringBuilder(messagePrefix).append('\n');
+      @NlsSafe StringBuilder message = new StringBuilder(messagePrefix).append('\n');
       int i = 0;
       for (VirtualFile virtualFile : failed) {
         String subj = RefactoringBundle.message(virtualFile.isDirectory() ? "directory.description" : "file.description", virtualFile.getPresentableUrl());
@@ -170,8 +165,8 @@ public class CommonRefactoringUtil {
 
   private static boolean checkReadOnlyStatus(Collection<? extends PsiElement> elements,
                                              boolean recursively,
-                                             Collection<VirtualFile> readonly,
-                                             Collection<VirtualFile> failed) {
+                                             Collection<? super VirtualFile> readonly,
+                                             Collection<? super VirtualFile> failed) {
     boolean seenNonWritablePsiFilesWithoutVirtualFile = false;
 
     for (PsiElement element : elements) {
@@ -230,10 +225,10 @@ public class CommonRefactoringUtil {
     return seenNonWritablePsiFilesWithoutVirtualFile;
   }
 
-  public static void collectReadOnlyFiles(@NotNull VirtualFile vFile, @NotNull final Collection<VirtualFile> list) {
+  public static void collectReadOnlyFiles(@NotNull VirtualFile vFile, @NotNull final Collection<? super VirtualFile> list) {
     final FileTypeManager fileTypeManager = FileTypeManager.getInstance();
 
-    VfsUtilCore.visitChildrenRecursively(vFile, new VirtualFileVisitor(VirtualFileVisitor.NO_FOLLOW_SYMLINKS) {
+    VfsUtilCore.visitChildrenRecursively(vFile, new VirtualFileVisitor<Void>(VirtualFileVisitor.NO_FOLLOW_SYMLINKS) {
       @Override
       public boolean visitFile(@NotNull VirtualFile file) {
         final boolean ignored = fileTypeManager.isFileIgnored(file);
@@ -245,6 +240,10 @@ public class CommonRefactoringUtil {
     });
   }
 
+  /**
+   * @deprecated use {@link StringUtil#capitalize(String)}
+   */
+  @Deprecated
   public static String capitalize(@NotNull String text) {
     return StringUtil.capitalize(text);
   }

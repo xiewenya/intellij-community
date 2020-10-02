@@ -1,53 +1,48 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.application;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightClassUtil;
 import com.intellij.execution.lineMarker.ExecutorAction;
 import com.intellij.execution.lineMarker.RunLineMarkerContributor;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiIdentifier;
-import com.intellij.psi.PsiMethod;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiMethodUtil;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Dmitry Avdeev
- */
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
 public class ApplicationRunLineMarkerProvider extends RunLineMarkerContributor {
-  @Nullable
   @Override
-  public Info getInfo(@NotNull final PsiElement e) {
-    if (isIdentifier(e)) {
-      PsiElement element = e.getParent();
-      if (element instanceof PsiClass && PsiMethodUtil.findMainInClass((PsiClass)element) != null ||
-          element instanceof PsiMethod && "main".equals(((PsiMethod)element).getName()) && PsiMethodUtil.isMainMethod((PsiMethod)element)) {
-        final AnAction[] actions = ExecutorAction.getActions();
-        return new Info(AllIcons.RunConfigurations.TestState.Run, actions, element1 -> StringUtil.join(ContainerUtil.mapNotNull(actions, action -> getText(action, element1)), "\n"));
+  public final @Nullable Info getInfo(@NotNull final PsiElement e) {
+    if (Registry.is("ide.jvm.run.marker") || !isIdentifier(e)) {
+      return null;
+    }
+
+    PsiElement element = e.getParent();
+    PsiFile containingFile = element.getContainingFile();
+    if (element instanceof PsiClass && PsiMethodUtil.findMainInClass((PsiClass)element) != null ||
+        element instanceof PsiMethod && "main".equals(((PsiMethod)element).getName()) && PsiMethodUtil.isMainMethod((PsiMethod)element)) {
+      if (HighlightClassUtil.isJavaHashBangScript(containingFile)) {
+        return null;
       }
+
+      AnAction[] actions = ExecutorAction.getActions();
+      return new Info(AllIcons.RunConfigurations.TestState.Run, actions, element1 -> {
+        return Arrays.stream(actions)
+          .map(action -> getText(action, element1))
+          .filter(Objects::nonNull)
+          .collect(Collectors.joining("\n"));
+      });
     }
     return null;
   }
 
-  protected boolean isIdentifier(PsiElement e) {
+  protected boolean isIdentifier(@NotNull PsiElement e) {
     return e instanceof PsiIdentifier;
   }
 }

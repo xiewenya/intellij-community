@@ -26,7 +26,6 @@ import java.io.File;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/17/14
  */
 public class GradleConsoleProperties extends SMTRunnerConsoleProperties {
   public static final BooleanProperty SHOW_INTERNAL_TEST_NODES = new BooleanProperty("showInternalTestNodes", false);
@@ -73,6 +72,11 @@ public class GradleConsoleProperties extends SMTRunnerConsoleProperties {
   @Override
   public SMTestLocator getTestLocator() {
     return GRADLE_TEST_LOCATOR;
+  }
+
+  @Override
+  public boolean isEditable() {
+    return true;
   }
 
   @NotNull

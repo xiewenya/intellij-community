@@ -16,31 +16,40 @@
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.VcsBundle;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.PropertyKey;
 
 import java.util.List;
+
+import static com.intellij.openapi.vcs.VcsBundle.BUNDLE;
 
 /**
  * @author Konstantin Bulenkov
  */
 public enum ShortNameType {
-  LASTNAME("lastname", "Last Name"),
-  FIRSTNAME("firstname", "First Name"),
-  NONE("full", "Full name");
+  INITIALS("initials", "annotations.short.name.type.initials"),
+  LASTNAME("lastname", "annotations.short.name.type.last.name"),
+  FIRSTNAME("firstname", "annotations.short.name.type.first.name"),
+  NONE("full", "annotations.short.name.type.full.name");
 
-  private static final String KEY = "annotate.short.names.type";
+  private static final String KEY = "annotate.short.names.type"; // NON-NLS
   private final String myId;
-  private final String myDescription;
+  private final String myDescriptionKey;
 
-  ShortNameType(String id, String description) {
+  ShortNameType(@NotNull @NonNls String id,
+                @NotNull @PropertyKey(resourceBundle = BUNDLE) String descriptionKey) {
     myId = id;
-    myDescription = description;
+    myDescriptionKey = descriptionKey;
   }
 
+  @NlsActions.ActionText
   public String getDescription() {
-    return myDescription;
+    return VcsBundle.message(myDescriptionKey);
   }
 
   boolean isSet() {
@@ -69,6 +78,11 @@ public enum ShortNameType {
     name = name.replace('.', ' ').replace('_', ' ').replace('-', ' ');
 
     final List<String> strings = StringUtil.split(name, " ");
+
+    if (type == INITIALS) {
+      return StringUtil.join(strings, it -> String.valueOf(StringUtil.toUpperCase(it.charAt(0))), "");
+    }
+
     if (strings.size() < 2) return name;
 
     String shortName;

@@ -1,22 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.actions;
 
+import com.intellij.featureStatistics.FeatureUsageTracker;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.IdeEventQueue;
+import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager;
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.ide.util.gotoByName.*;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
@@ -28,17 +20,19 @@ import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.terminal.JBTerminalWidget;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.SearchTextField;
 import com.intellij.ui.speedSearch.SpeedSearchSupply;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,22 +40,22 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
 import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Author: msk
  */
 public abstract class GotoActionBase extends AnAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.actions.GotoActionBase");
+  private static final Logger LOG = Logger.getInstance(GotoActionBase.class);
 
   protected static Class myInAction;
-  private static final Map<Class, Pair<String, Integer>> ourLastStrings = ContainerUtil.newHashMap();
-  private static final Map<Class, List<String>> ourHistory = ContainerUtil.newHashMap();
+  private static final Map<Class, Pair<String, Integer>> ourLastStrings = new HashMap<>();
+  private static final Map<Class, List<String>> ourHistory = new HashMap<>();
   private int myHistoryIndex;
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
-    LOG.assertTrue(!getClass().equals(myInAction));
+    LOG.assertTrue(!getClass().equals(myInAction), "Action should be disabled if it's already in progress: " + getClass());
     try {
       myInAction = getClass();
       List<String> strings = ourHistory.get(myInAction);
@@ -77,7 +71,7 @@ public abstract class GotoActionBase extends AnAction {
     }
   }
 
-  protected abstract void gotoActionPerformed(AnActionEvent e);
+  protected abstract void gotoActionPerformed(@NotNull AnActionEvent e);
 
   @Override
   public void update(@NotNull final AnActionEvent event) {
@@ -89,7 +83,7 @@ public abstract class GotoActionBase extends AnAction {
     presentation.setVisible(hasContributors);
   }
 
-  protected boolean hasContributors(final DataContext dataContext) {
+  protected boolean hasContributors(@NotNull DataContext dataContext) {
     return true;
   }
 
@@ -129,7 +123,7 @@ public abstract class GotoActionBase extends AnAction {
       return Pair.create(predefined, 0);
     }
     if (useEditorSelection) {
-      String selectedText = getInitialTextForNavigation(e.getData(CommonDataKeys.EDITOR));
+      String selectedText = getInitialTextForNavigation(e);
       if (selectedText != null) return new Pair<>(selectedText, 0);
     }
 
@@ -157,14 +151,13 @@ public abstract class GotoActionBase extends AnAction {
   }
 
   @Nullable
-  static String getInitialTextForNavigation(@Nullable Editor editor) {
-    if (editor != null) {
-      final String selectedText = editor.getSelectionModel().getSelectedText();
-      if (selectedText != null && !selectedText.contains("\n")) {
-        return selectedText;
-      }
+  public static String getInitialTextForNavigation(@NotNull AnActionEvent e) {
+    Editor editor = e.getData(CommonDataKeys.EDITOR);
+    String selectedText = editor != null ? editor.getSelectionModel().getSelectedText() : null;
+    if (selectedText == null) {
+      selectedText = e.getData(JBTerminalWidget.SELECTED_TEXT_DATA_KEY);
     }
-    return null;
+    return selectedText != null && !selectedText.contains("\n") ? selectedText : null;
   }
 
   protected <T> void showNavigationPopup(AnActionEvent e, ChooseByNameModel model, final GotoActionCallback<T> callback) {
@@ -181,7 +174,7 @@ public abstract class GotoActionBase extends AnAction {
   protected <T> void showNavigationPopup(AnActionEvent e,
                                          ChooseByNameModel model,
                                          final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          boolean useSelectionFromEditor) {
     showNavigationPopup(e, model, callback, findUsagesTitle, useSelectionFromEditor, true);
   }
@@ -189,18 +182,21 @@ public abstract class GotoActionBase extends AnAction {
   protected <T> void showNavigationPopup(AnActionEvent e,
                                          ChooseByNameModel model,
                                          final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          boolean useSelectionFromEditor,
                                          final boolean allowMultipleSelection) {
     showNavigationPopup(e, model, callback, findUsagesTitle, useSelectionFromEditor, allowMultipleSelection,
                         ChooseByNameModelEx.getItemProvider(model, getPsiContext(e)));
   }
 
+  /**
+   * @deprecated use other overloaded methods
+   */
   @Deprecated
   protected <T> void showNavigationPopup(AnActionEvent e,
                                          ChooseByNameModel model,
                                          final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          boolean useSelectionFromEditor,
                                          final boolean allowMultipleSelection,
                                          final DefaultChooseByNameItemProvider itemProvider) {
@@ -210,7 +206,7 @@ public abstract class GotoActionBase extends AnAction {
   protected <T> void showNavigationPopup(AnActionEvent e,
                                          ChooseByNameModel model,
                                          final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          boolean useSelectionFromEditor,
                                          final boolean allowMultipleSelection,
                                          final ChooseByNameItemProvider itemProvider) {
@@ -226,13 +222,13 @@ public abstract class GotoActionBase extends AnAction {
   }
 
   protected <T> void showNavigationPopup(final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          final ChooseByNamePopup popup) {
     showNavigationPopup(callback, findUsagesTitle, popup, true);
   }
 
   protected <T> void showNavigationPopup(final GotoActionCallback<T> callback,
-                                         @Nullable final String findUsagesTitle,
+                                         @Nullable @Nls final String findUsagesTitle,
                                          final ChooseByNamePopup popup,
                                          final boolean allowMultipleSelection) {
 
@@ -244,10 +240,9 @@ public abstract class GotoActionBase extends AnAction {
     final ChooseByNameFilter<T> filter = callback.createFilter(popup);
 
     if (historyEnabled() && popup.getAdText() == null) {
-      popup.setAdText("Press " +
-                      KeymapUtil.getKeystrokeText(SearchTextField.ALT_SHOW_HISTORY_KEYSTROKE) + " or " +
-                      KeymapUtil.getKeystrokeText(SearchTextField.SHOW_HISTORY_KEYSTROKE) +
-                      " to navigate through the search history");
+      popup.setAdText(IdeBundle.message("searcheverywhere.history.shortcuts.hint",
+                                        KeymapUtil.getKeystrokeText(SearchTextField.ALT_SHOW_HISTORY_KEYSTROKE),
+                                        KeymapUtil.getKeystrokeText(SearchTextField.SHOW_HISTORY_KEYSTROKE)));
     }
 
     popup.invoke(new ChooseByNamePopupComponent.Callback() {
@@ -268,7 +263,7 @@ public abstract class GotoActionBase extends AnAction {
       private void updateHistory(@Nullable String text) {
         if (!StringUtil.isEmptyOrSpaces(text)) {
           List<String> history = ourHistory.get(myInAction);
-          if (history == null) history = ContainerUtil.newArrayList();
+          if (history == null) history = new ArrayList<>();
           if (!text.equals(ContainerUtil.getFirstItem(history))) {
             history.add(0, text);
           }
@@ -286,7 +281,7 @@ public abstract class GotoActionBase extends AnAction {
 
     final DocumentAdapter historyResetListener = new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         myHistoryIndex = 0;
       }
     };
@@ -299,7 +294,7 @@ public abstract class GotoActionBase extends AnAction {
 
       void setText(@NotNull List<String> strings) {
         String text = strings.get(myHistoryIndex);
-        if (Comparing.equal(text, editor.getText())) {//don't rebuild popup list, it blinks
+        if (Objects.equals(text, editor.getText())) {//don't rebuild popup list, it blinks
           return;
         }
         javax.swing.text.Document document = editor.getDocument();
@@ -332,6 +327,45 @@ public abstract class GotoActionBase extends AnAction {
     }.registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, editor);
   }
 
+  /**
+   * @deprecated if you have to use this method perhaps your Action better should extend
+   * {@link SearchEverywhereBaseAction} instead of {@link GotoActionBase}.
+   * Method is going to be removed in 2021.1
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @Deprecated
+  protected void showInSearchEverywherePopup(@NotNull String searchProviderID,
+                                             @NotNull AnActionEvent event,
+                                             boolean useEditorSelection,
+                                             boolean sendStatistics) {
+    Project project = event.getProject();
+    SearchEverywhereManager seManager = SearchEverywhereManager.getInstance(project);
+    FeatureUsageTracker.getInstance().triggerFeatureUsed(IdeActions.ACTION_SEARCH_EVERYWHERE);
+
+    if (seManager.isShown()) {
+      if (searchProviderID.equals(seManager.getSelectedContributorID())) {
+        seManager.toggleEverywhereFilter();
+      }
+      else {
+        seManager.setSelectedContributor(searchProviderID);
+        if (sendStatistics) {
+          FeatureUsageData data = SearchEverywhereUsageTriggerCollector
+            .createData(searchProviderID)
+            .addInputEvent(event);
+          SearchEverywhereUsageTriggerCollector.trigger(project, SearchEverywhereUsageTriggerCollector.TAB_SWITCHED, data);
+        }
+      }
+      return;
+    }
+
+    if (sendStatistics) {
+      FeatureUsageData data = SearchEverywhereUsageTriggerCollector.createData(searchProviderID).addInputEvent(event);
+      SearchEverywhereUsageTriggerCollector.trigger(project, SearchEverywhereUsageTriggerCollector.DIALOG_OPEN, data);
+    }
+    IdeEventQueue.getInstance().getPopupManager().closeAllPopups(false);
+    String searchText = StringUtil.nullize(getInitialText(useEditorSelection, event).first);
+    seManager.show(searchProviderID, searchText, event);
+  }
 
   private static boolean historyEnabled() {
     return !ContainerUtil.isEmpty(ourHistory.get(myInAction));

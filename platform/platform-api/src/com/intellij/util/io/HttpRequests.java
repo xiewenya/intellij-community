@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.Patches;
@@ -11,22 +11,18 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.Url;
 import com.intellij.util.net.HttpConfigurable;
 import com.intellij.util.net.NetUtils;
 import com.intellij.util.net.ssl.CertificateManager;
-import com.intellij.util.net.ssl.UntrustedCertificateStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.*;
 import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
@@ -36,18 +32,35 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Handy class for reading data from HTTP connections with built-in support for HTTP redirects and gzipped content and automatic cleanup.
+ * <p>Handy class for reading data from URL connections with built-in support for HTTP redirects and gzipped content and automatic cleanup.</p>
  *
- * Usage: <pre>{@code
- * int firstByte = HttpRequests.request(url).connect(request -> request.getInputStream().read());
- * }</pre>
+ * <h3>Examples</h3>
+ *
+ * <p>Reading the whole response into a string:<br>
+ * {@code HttpRequests.request("https://example.com").readString(progressIndicator)}</p>
+ *
+ * <p>Downloading a file:<br>
+ * {@code HttpRequests.request("https://example.com/file.zip").saveToFile(new File(downloadDir, "temp.zip"), progressIndicator)}</p>
+ *
+ * <p>Tuning a connection:<br>
+ * {@code HttpRequests.request(url).userAgent("IntelliJ").readString()}<br>
+ * {@code HttpRequests.request(url).tuner(connection -> connection.setRequestProperty("X-Custom", value)).readString()}</p>
+ *
+ * <p>Using the input stream to implement custom reading logic:<br>
+ * {@code int firstByte = HttpRequests.request("file:///dev/random").connect(request -> request.getInputStream().read())}<br>
+ * {@code String firstLine = HttpRequests.request("https://example.com").connect(request -> new BufferedReader(request.getReader()).readLine())}</p>
+ *
+ * @see HttpStatusException a sublass of IOException, which includes an actual URL and HTTP response code
  * @see URLUtil
- * @see <a href="https://github.com/JetBrains/intellij-community/tree/master/platform/platform-api/src/com/intellij/util/io#httprequests">docs</a>
  */
 public final class HttpRequests {
   private static final Logger LOG = Logger.getInstance(HttpRequests.class);
 
   public static final String JSON_CONTENT_TYPE = "application/json; charset=utf-8";
+
+  public static final int CONNECTION_TIMEOUT = SystemProperties.getIntProperty("idea.connection.timeout", 10000);
+  public static final int READ_TIMEOUT = SystemProperties.getIntProperty("idea.read.timeout", 60000);
+  public static final int REDIRECT_LIMIT = SystemProperties.getIntProperty("idea.redirect.limit", 10);
 
   private static final int[] REDIRECTS = {
     // temporary redirects
@@ -56,10 +69,7 @@ public final class HttpRequests {
     HttpURLConnection.HTTP_MOVED_PERM, HttpURLConnection.HTTP_SEE_OTHER, 308 /* permanent redirect */
   };
 
-  private static final int PERMANENT_IDX = ArrayUtil.indexOf(REDIRECTS, HttpURLConnection.HTTP_MOVED_PERM);
-
   private HttpRequests() { }
-
 
   public interface Request {
     @NotNull
@@ -78,13 +88,13 @@ public final class HttpRequests {
     BufferedReader getReader(@Nullable ProgressIndicator indicator) throws IOException;
 
     /** @deprecated Called automatically on open connection. Use {@link RequestBuilder#tryConnect()} to get response code */
+    @Deprecated
     boolean isSuccessful() throws IOException;
 
     @NotNull
     File saveToFile(@NotNull File file, @Nullable ProgressIndicator indicator) throws IOException;
 
-    @NotNull
-    byte[] readBytes(@Nullable ProgressIndicator indicator) throws IOException;
+    byte @NotNull [] readBytes(@Nullable ProgressIndicator indicator) throws IOException;
 
     @NotNull
     String readString(@Nullable ProgressIndicator indicator) throws IOException;
@@ -101,7 +111,7 @@ public final class HttpRequests {
       write(data.getBytes(StandardCharsets.UTF_8));
     }
 
-    default void write(@NotNull byte[] data) throws IOException {
+    default void write(byte @NotNull [] data) throws IOException {
       HttpURLConnection connection = (HttpURLConnection)getConnection();
       connection.setFixedLengthStreamingMode(data.length);
       try (OutputStream stream = connection.getOutputStream()) {
@@ -159,15 +169,57 @@ public final class HttpRequests {
   }
 
   @NotNull
+  public static RequestBuilder delete(@NotNull String url) {
+    return new RequestBuilderImpl(url, connection -> ((HttpURLConnection)connection).setRequestMethod("DELETE"));
+  }
+
+  @NotNull
+  public static RequestBuilder delete(@NotNull String url, @Nullable String contentType) {
+    return requestWithBody(url, "DELETE", contentType, null);
+  }
+
+  @NotNull
   public static RequestBuilder post(@NotNull String url, @Nullable String contentType) {
+    return requestWithBody(url, "POST", contentType, null);
+  }
+
+  @NotNull
+  public static RequestBuilder put(@NotNull String url, @Nullable String contentType) {
+    return requestWithBody(url, "PUT", contentType, null);
+  }
+
+  /**
+   * Java does not support "newer" HTTP methods, so we have to rely on server-side support of `X-HTTP-Method-Override` header to invoke PATCH
+   * For reasoning see {@link HttpURLConnection#setRequestMethod(String)}
+   * <p>
+   * TODO: either fiddle with reflection or patch JDK to avoid server reliance
+   */
+  @NotNull
+  public static RequestBuilder patch(@NotNull String url, @Nullable String contentType) {
+    return requestWithBody(url, "POST", contentType,
+                           connection -> connection.setRequestProperty("X-HTTP-Method-Override", "PATCH"));
+  }
+
+  @NotNull
+  private static RequestBuilder requestWithBody(@NotNull String url,
+                                                @NotNull String requestMethod,
+                                                @Nullable String contentType,
+                                                @Nullable ConnectionTuner tuner) {
     return new RequestBuilderImpl(url, rawConnection -> {
       HttpURLConnection connection = (HttpURLConnection)rawConnection;
-      connection.setRequestMethod("POST");
+      connection.setRequestMethod(requestMethod);
       connection.setDoOutput(true);
       if (contentType != null) {
         connection.setRequestProperty("Content-Type", contentType);
       }
+      if (tuner != null) tuner.tune(connection);
     });
+  }
+
+  public static RequestBuilder requestWithRange(@NotNull String url,
+                                                @NotNull String bytes){
+    return requestWithBody(url, "GET", null,
+                           connection -> connection.setRequestProperty("Range", "bytes="+bytes));
   }
 
   @NotNull
@@ -191,11 +243,11 @@ public final class HttpRequests {
     return builder.toString();
   }
 
-  private static class RequestBuilderImpl extends RequestBuilder {
+  private static final class RequestBuilderImpl extends RequestBuilder {
     private final String myUrl;
-    private int myConnectTimeout = HttpConfigurable.CONNECTION_TIMEOUT;
-    private int myTimeout = HttpConfigurable.READ_TIMEOUT;
-    private int myRedirectLimit = HttpConfigurable.REDIRECT_LIMIT;
+    private int myConnectTimeout = CONNECTION_TIMEOUT;
+    private int myTimeout = READ_TIMEOUT;
+    private int myRedirectLimit = REDIRECT_LIMIT;
     private boolean myGzip = true;
     private boolean myForceHttps;
     private boolean myUseProxy = true;
@@ -205,7 +257,7 @@ public final class HttpRequests {
     private String myAccept;
     private ConnectionTuner myTuner;
     private final ConnectionTuner myInternalTuner;
-    private UntrustedCertificateStrategy myUntrustedCertificateStrategy = null;
+    private boolean myThrowStatusCodeException = true;
 
     private RequestBuilderImpl(@NotNull String url, @Nullable ConnectionTuner internalTuner) {
       myUrl = url;
@@ -293,8 +345,8 @@ public final class HttpRequests {
 
     @NotNull
     @Override
-    public RequestBuilder untrustedCertificateStrategy(@NotNull UntrustedCertificateStrategy strategy) {
-      myUntrustedCertificateStrategy = strategy;
+    public RequestBuilder throwStatusCodeException(boolean shouldThrow) {
+      myThrowStatusCodeException = shouldThrow;
       return this;
     }
 
@@ -304,7 +356,7 @@ public final class HttpRequests {
     }
   }
 
-  private static class RequestImpl implements Request, AutoCloseable {
+  private static final class RequestImpl implements Request, AutoCloseable {
     private final RequestBuilderImpl myBuilder;
     private String myUrl;
     private URLConnection myConnection;
@@ -357,7 +409,6 @@ public final class HttpRequests {
         if (indicator != null) {
           int contentLength = getConnection().getContentLength();
           if (contentLength > 0) {
-            //noinspection IOResourceOpenedButNotSafelyClosed
             inputStream = new ProgressMonitorInputStream(indicator, inputStream, contentLength);
           }
         }
@@ -378,8 +429,7 @@ public final class HttpRequests {
     }
 
     @Override
-    @NotNull
-    public byte[] readBytes(@Nullable ProgressIndicator indicator) throws IOException {
+    public byte @NotNull [] readBytes(@Nullable ProgressIndicator indicator) throws IOException {
       return doReadBytes(indicator).toByteArray();
     }
 
@@ -399,7 +449,7 @@ public final class HttpRequests {
     public CharSequence readChars(@Nullable ProgressIndicator indicator) throws IOException {
       BufferExposingByteArrayOutputStream byteStream = doReadBytes(indicator);
       if (byteStream.size() == 0) {
-        return ArrayUtil.EMPTY_CHAR_SEQUENCE;
+        return Strings.EMPTY_CHAR_SEQUENCE;
       }
       else {
         return getCharset().decode(ByteBuffer.wrap(byteStream.getInternalBuffer(), 0, byteStream.size()));
@@ -416,6 +466,9 @@ public final class HttpRequests {
         NetUtils.copyStreamContent(indicator, getInputStream(), out, getConnection().getContentLength());
         deleteFile = false;
       }
+      catch (HttpStatusException e) {
+        throw e;
+      }
       catch (IOException e) {
         throw new IOException(createErrorMessage(e, this, false), e);
       }
@@ -429,19 +482,20 @@ public final class HttpRequests {
     }
 
     @Override
-    public void close() {
-      StreamUtil.closeStream(myInputStream);
-      StreamUtil.closeStream(myReader);
-      if (myConnection instanceof HttpURLConnection) {
-        ((HttpURLConnection)myConnection).disconnect();
+    public void close() throws IOException {
+      //noinspection EmptyTryBlock
+      try (@SuppressWarnings("unused") InputStream s = myInputStream; @SuppressWarnings("unused") Reader r = myReader) { }
+      finally {
+        if (myConnection instanceof HttpURLConnection) {
+          ((HttpURLConnection)myConnection).disconnect();
+        }
       }
     }
   }
 
   private static <T> T process(RequestBuilderImpl builder, RequestProcessor<T> processor) throws IOException {
-    LOG.assertTrue(ApplicationManager.getApplication() == null ||
-                   ApplicationManager.getApplication().isUnitTestMode() ||
-                   !ApplicationManager.getApplication().isReadAccessAllowed(),
+    Application app = ApplicationManager.getApplication();
+    LOG.assertTrue(app == null || app.isUnitTestMode() || app.isHeadlessEnvironment() || !app.isReadAccessAllowed(),
                    "Network shouldn't be accessed in EDT or inside read action");
 
     ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
@@ -466,35 +520,32 @@ public final class HttpRequests {
   }
 
   private static <T> T doProcess(RequestBuilderImpl builder, RequestProcessor<T> processor) throws IOException {
-    CertificateManager manager = builder.myUntrustedCertificateStrategy == null || ApplicationManager.getApplication() == null ? null : CertificateManager.getInstance();
     try (RequestImpl request = new RequestImpl(builder)) {
-      T result;
-      if (manager != null) {
-        result = manager.runWithUntrustedCertificateStrategy(() -> processor.process(request), builder.myUntrustedCertificateStrategy);
-      }
-      else {
-        result = processor.process(request);
-      }
+      T result = processor.process(request);
 
-      URLConnection connection = request.myConnection;
-      if (connection instanceof HttpURLConnection && ((HttpURLConnection)connection).getRequestMethod().equals("POST")) {
-        // getResponseCode is not checked on connect for POST, because write must be performed before read
-        HttpURLConnection urlConnection = (HttpURLConnection)connection;
-        int responseCode = urlConnection.getResponseCode();
-        if (responseCode >= 400) {
-          throwHttpStatusError(urlConnection, request, builder, responseCode);
+      if (builder.myThrowStatusCodeException) {
+        URLConnection connection = request.myConnection;
+        if (connection != null && connection.getDoOutput()) {
+          // getResponseCode is not checked on connect, because write must be performed before read
+          HttpURLConnection urlConnection = (HttpURLConnection)connection;
+          int responseCode = urlConnection.getResponseCode();
+          if (responseCode >= 400) {
+            throwHttpStatusError(urlConnection, request, builder, responseCode);
+          }
         }
       }
+
       return result;
     }
   }
 
   private static URLConnection openConnection(RequestBuilderImpl builder, RequestImpl request) throws IOException {
+    if (builder.myForceHttps && StringUtil.startsWith(request.myUrl, "http:")) {
+      request.myUrl = "https:" + request.myUrl.substring(5);
+    }
+
     for (int i = 0; i < builder.myRedirectLimit; i++) {
       String url = request.myUrl;
-      if (builder.myForceHttps && StringUtil.startsWith(url, "http:")) {
-        request.myUrl = url = "https:" + url.substring(5);
-      }
 
       final URLConnection connection;
       if (!builder.myUseProxy) {
@@ -546,33 +597,40 @@ public final class HttpRequests {
         return connection;
       }
 
-      HttpURLConnection httpURLConnection = (HttpURLConnection)connection;
-      String method = httpURLConnection.getRequestMethod();
-      if (method.equals("POST")) {
+      if (connection.getDoOutput()) {
         return connection;
       }
 
-      LOG.assertTrue(method.equals("GET") || method.equals("HEAD"), "'" + method + "' not supported; please use GET, HEAD or POST");
+      HttpURLConnection httpURLConnection = (HttpURLConnection)connection;
+      String method = httpURLConnection.getRequestMethod();
+
+      LOG.assertTrue(method.equals("GET") || method.equals("HEAD") || method.equals("DELETE"),
+                     "'" + method + "' not supported; please use GET, HEAD, DELETE, PUT or POST");
 
       if (LOG.isDebugEnabled()) LOG.debug("connecting to " + url);
-      int responseCode = httpURLConnection.getResponseCode();
-      if (LOG.isDebugEnabled()) LOG.debug("response: " + responseCode);
+      int responseCode;
+      try {
+        responseCode = httpURLConnection.getResponseCode();
+      }
+      catch (SSLHandshakeException e) {
+        throw !NetUtils.isSniEnabled() ? new SSLException("SSL error probably caused by disabled SNI", e) : e;
+      }
+      if (LOG.isDebugEnabled()) LOG.debug("response from " + url + ": " + responseCode);
 
       if (responseCode < 200 || responseCode >= 300 && responseCode != HttpURLConnection.HTTP_NOT_MODIFIED) {
-        int idx = ArrayUtil.indexOf(REDIRECTS, responseCode);
-        if (idx >= 0) {
+        if (ArrayUtil.indexOf(REDIRECTS, responseCode) >= 0) {
           httpURLConnection.disconnect();
           url = connection.getHeaderField("Location");
+          if (LOG.isDebugEnabled()) LOG.debug("redirect from " + url + ": " + url);
           if (url != null) {
-            if (idx >= PERMANENT_IDX) {
-              LOG.error("HTTP response " + responseCode + " for '" + request.myUrl + "'; should be updated to '" + url + "'");
-            }
             request.myUrl = url;
             continue;
           }
         }
 
-        return throwHttpStatusError(httpURLConnection, request, builder, responseCode);
+        if(builder.myThrowStatusCodeException) {
+          throwHttpStatusError(httpURLConnection, request, builder, responseCode);
+        }
       }
 
       return connection;
@@ -581,12 +639,11 @@ public final class HttpRequests {
     throw new IOException(IdeBundle.message("error.connection.failed.redirects"));
   }
 
-  private static URLConnection throwHttpStatusError(@NotNull HttpURLConnection connection, @NotNull RequestImpl request, @NotNull RequestBuilderImpl builder, int responseCode) throws IOException {
+  private static void throwHttpStatusError(HttpURLConnection connection, RequestImpl request, RequestBuilderImpl builder, int responseCode) throws IOException {
     String message = null;
     if (builder.myIsReadResponseOnError) {
       message = HttpUrlConnectionUtil.readString(connection.getErrorStream(), connection);
     }
-
     if (StringUtil.isEmpty(message)) {
       message = "Request failed with status code " + responseCode;
     }
@@ -601,10 +658,9 @@ public final class HttpRequests {
     }
 
     try {
-      final SSLContext context = CertificateManager.getInstance().getSslContext();
-      final SSLSocketFactory factory = context.getSocketFactory();
+      SSLSocketFactory factory = CertificateManager.getInstance().getSslContext().getSocketFactory();
       if (factory == null) {
-        LOG.info("SSLSocketFactory is not defined by IDE CertificateManager; Using default SSL configuration to connect to " + url);
+        LOG.info("SSLSocketFactory is not defined by the IDE Certificate Manager; Using default SSL configuration to connect to " + url);
       }
       else {
         connection.setSSLSocketFactory(factory);
@@ -615,24 +671,19 @@ public final class HttpRequests {
     }
   }
 
-  /**
-   * A lot of web servers would not process request and just return 400 (Bad Request) response if any of request headers contains NUL byte.
-   * This method checks if any headers contain NUL byte in value and removes those headers from request.
-   * @param httpURLConnection connection to check
+  /*
+   * Many servers would not process a request and just return 400 (Bad Request) response if any of request headers contains NUL byte.
+   * This method checks the request and removes invalid headers.
    */
-  private static void checkRequestHeadersForNulBytes(@NotNull URLConnection httpURLConnection) {
-    for (Map.Entry<String, List<String>> header : httpURLConnection.getRequestProperties().entrySet()) {
-      boolean shouldBeIgnored = false;
+  private static void checkRequestHeadersForNulBytes(URLConnection connection) {
+    for (Map.Entry<String, List<String>> header : connection.getRequestProperties().entrySet()) {
       for (String headerValue : header.getValue()) {
-        if (headerValue.contains("\0")) {
+        if (headerValue.indexOf('\0') >= 0) {
+          connection.setRequestProperty(header.getKey(), null);
           LOG.error(String.format("Problem during request to '%s'. Header's '%s' value contains NUL bytes: '%s'. Omitting this header.",
-                                  httpURLConnection.getURL().toString(), header.getKey(), headerValue));
-          shouldBeIgnored = true;
+                                  connection.getURL().toString(), header.getKey(), headerValue));
           break;
         }
-      }
-      if (shouldBeIgnored) {
-        httpURLConnection.setRequestProperty(header.getKey(), null);
       }
     }
   }

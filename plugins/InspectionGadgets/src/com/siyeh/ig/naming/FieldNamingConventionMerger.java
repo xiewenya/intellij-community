@@ -6,6 +6,8 @@ package com.siyeh.ig.naming;
 import com.intellij.codeInspection.naming.AbstractNamingConventionMerger;
 import com.intellij.psi.PsiField;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 
@@ -15,11 +17,11 @@ public class FieldNamingConventionMerger extends AbstractNamingConventionMerger<
   }
 
   @Override
-  protected Element getSourceElement(Map<String, Element> inspectionElements, String sourceToolName) {
+  protected Element getSourceElement(@NotNull Map<String, Element> inspectionElements, @NotNull String sourceToolName) {
     if (sourceToolName.equals(ConstantWithMutableFieldTypeNamingConvention.CONSTANT_WITH_MUTABLE_FIELD_TYPE_NAMING_CONVENTION_SHORT_NAME)) {
       Element element = inspectionElements.get(ConstantNamingConvention.CONSTANT_NAMING_CONVENTION_SHORT_NAME);
       if (element != null) {
-        for (Element option : element.getChildren("option")) {
+        for (@NonNls Element option : element.getChildren("option")) {
           if ("onlyCheckImmutables".equals(option.getAttributeValue("name"))) {
             if (!Boolean.parseBoolean(option.getAttributeValue("value"))) {
               return element;
@@ -31,7 +33,7 @@ public class FieldNamingConventionMerger extends AbstractNamingConventionMerger<
 
       element = inspectionElements.get(StaticVariableNamingConvention.STATIC_VARIABLE_NAMING_CONVENTION_SHORT_NAME);
       if (element != null) {
-        for (Element option : element.getChildren("option")) {
+        for (@NonNls Element option : element.getChildren("option")) {
           if ("checkMutableFinals".equals(option.getAttributeValue("name"))) {
             return Boolean.parseBoolean(option.getAttributeValue("value")) ? element : null;
           }

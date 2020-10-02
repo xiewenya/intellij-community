@@ -8,15 +8,10 @@ import com.siyeh.ig.classlayout.EmptyClassInspection;
 import org.jetbrains.annotations.NotNull;
 
 public class RemoveCurlyBracesFixTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new EmptyClassInspection()};
   }
-
-  public void test() {
-     doAllTests();
-   }
 
   @Override
   protected String getBasePath() {

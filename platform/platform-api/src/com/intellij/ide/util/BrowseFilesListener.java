@@ -21,8 +21,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Consumer;
-import org.jetbrains.annotations.Nls;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +29,6 @@ import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
-import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
@@ -40,13 +38,13 @@ public class BrowseFilesListener implements ActionListener {
   public static final FileChooserDescriptor SINGLE_FILE_DESCRIPTOR = FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor();
 
   private final JTextField myTextField;
-  private final String myTitle;
-  private final String myDescription;
+  private final @NlsContexts.DialogTitle String myTitle;
+  private final @NlsContexts.Label String myDescription;
   protected final FileChooserDescriptor myChooserDescriptor;
 
   public BrowseFilesListener(JTextField textField,
-                             @Nls(capitalization = Nls.Capitalization.Title) String title,
-                             @Nls(capitalization = Nls.Capitalization.Sentence) String description,
+                             @NlsContexts.DialogTitle String title,
+                             @NlsContexts.Label String description,
                              FileChooserDescriptor chooserDescriptor) {
     myTextField = textField;
     myTitle = title;
@@ -73,7 +71,8 @@ public class BrowseFilesListener implements ActionListener {
     myTextField.setText(path);
   }
 
-  public void actionPerformed( ActionEvent e ) {
+  @Override
+  public void actionPerformed(ActionEvent e ) {
     final VirtualFile fileToSelect = getFileToSelect();
     myChooserDescriptor.setTitle(myTitle); // important to set title and description here because a shared descriptor instance can be used
     myChooserDescriptor.setDescription(myDescription);

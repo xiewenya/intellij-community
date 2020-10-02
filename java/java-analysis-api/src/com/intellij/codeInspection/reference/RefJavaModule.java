@@ -30,7 +30,7 @@ public interface RefJavaModule extends RefElement {
   Key<RefJavaModule> JAVA_MODULE = Key.create("JAVA_MODULE");
 
   @Override
-  PsiJavaModule getElement();
+  PsiJavaModule getPsiElement();
 
   @NotNull
   Map<String, List<String>> getExportedPackageNames();

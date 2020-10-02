@@ -22,14 +22,13 @@ import com.intellij.openapi.roots.OrderEnumerationHandler;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.Processor;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author nik
- */
+@ApiStatus.Internal
 public class ModulesOrderEnumerator extends OrderEnumeratorBase {
   private final Collection<? extends Module> myModules;
 
@@ -39,19 +38,19 @@ public class ModulesOrderEnumerator extends OrderEnumeratorBase {
   }
 
   @Override
-  public void processRootModules(@NotNull Processor<Module> processor) {
+  public void processRootModules(@NotNull Processor<? super Module> processor) {
     for (Module each : myModules) {
       processor.process(each);
     }
   }
 
   @Override
-  protected void forEach(@NotNull PairProcessor<OrderEntry, List<OrderEnumerationHandler>> processor) {
+  protected void forEach(@NotNull PairProcessor<? super OrderEntry, ? super List<? extends OrderEnumerationHandler>> processor) {
     myRecursivelyExportedOnly = false;
 
     final THashSet<Module> processed = new THashSet<>();
     for (Module module : myModules) {
-      processEntries(getRootModel(module), processor, processed, true, getCustomHandlers(module));
+      processEntries(getRootModel(module), processed, true, getCustomHandlers(module), processor);
     }
   }
 

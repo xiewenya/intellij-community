@@ -41,7 +41,7 @@ public class UnclearBinaryExpressionFixTest extends IGQuickFixesTestCase {
     final String testName = getTestName(false);
     myFixture.configureByFile(getRelativePath() + "/" + testName + ".java");
     for (IntentionAction action : myFixture.filterAvailableIntentions(myDefaultHint)) {
-      while (action instanceof IntentionActionDelegate) action = ((IntentionActionDelegate)action).getDelegate();
+      action = IntentionActionDelegate.unwrap(action);
       if (action instanceof QuickFixWrapper) {
         myFixture.launchAction(action);
         myFixture.checkResultByFile(getRelativePath() + "/" + testName + ".after.java");
@@ -52,4 +52,6 @@ public class UnclearBinaryExpressionFixTest extends IGQuickFixesTestCase {
   }
 
   public void testSimpleAssignment() { doTest(); }
+
+  public void testBrokenCode() { assertQuickfixNotAvailable(); }
 }

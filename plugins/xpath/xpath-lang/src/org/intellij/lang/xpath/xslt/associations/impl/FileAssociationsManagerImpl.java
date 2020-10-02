@@ -17,7 +17,8 @@ package org.intellij.lang.xpath.xslt.associations.impl;
 
 import com.intellij.ide.projectView.ProjectView;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ProjectComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
@@ -33,38 +34,35 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiUtilCore;
 import org.intellij.lang.xpath.xslt.associations.FileAssociationsManager;
 import org.jdom.Element;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-class FileAssociationsManagerImpl extends FileAssociationsManager implements ProjectComponent, Disposable, JDOMExternalizable {
+@State(name = "XSLT-Support.FileAssociationsManager", storages = @Storage("other.xml"))
+final class FileAssociationsManagerImpl extends FileAssociationsManager implements Disposable, JDOMExternalizable {
   private static final Logger LOG = Logger.getInstance(FileAssociationsManagerImpl.class);
 
   private final Project myProject;
-  private final VirtualFilePointerManager myFilePointerManager;
   private final Map<VirtualFilePointer, VirtualFilePointerContainer> myAssociations;
   private boolean myTempCopy;
 
-  public FileAssociationsManagerImpl(Project project, VirtualFilePointerManager filePointerManager) {
+  FileAssociationsManagerImpl(Project project) {
     myProject = project;
-    myFilePointerManager = filePointerManager;
     myAssociations = new LinkedHashMap<>();
   }
-  
+
   public void markAsTempCopy() {
     myTempCopy = true;
   }
 
   @Override
-  @SuppressWarnings({"unchecked"})
   public void readExternal(Element element) throws InvalidDataException {
     final List<Element> children = element.getChildren("file");
+    VirtualFilePointerManager filePointerManager = VirtualFilePointerManager.getInstance();
     for (Element child : children) {
       final String url = child.getAttributeValue("url");
       if (url != null) {
-        final VirtualFilePointer pointer = myFilePointerManager.create(url, myProject, null);
-        final VirtualFilePointerContainer container = myFilePointerManager.createContainer(myProject);
+        final VirtualFilePointer pointer = filePointerManager.create(url, this, null);
+        final VirtualFilePointerContainer container = filePointerManager.createContainer(this);
         container.readExternal(child, "association", false);
         myAssociations.put(pointer, container);
       }
@@ -83,16 +81,9 @@ class FileAssociationsManagerImpl extends FileAssociationsManager implements Pro
   }
 
   public TransactionalManager getTempManager() {
-    return new TempManager(this, myProject, myFilePointerManager);
+    return new TempManager(this, myProject);
   }
-  
-  @Override
-  @NotNull
-  @NonNls
-  public String getComponentName() {
-    return "XSLT-Support.FileAssociationsManager";
-  }
-  
+
   @Override
   public void dispose() {
     clear();
@@ -126,10 +117,11 @@ class FileAssociationsManagerImpl extends FileAssociationsManager implements Pro
     final HashMap<VirtualFilePointer, VirtualFilePointerContainer> hashMap = new LinkedHashMap<>();
 
     final Set<VirtualFilePointer> virtualFilePointers = other.myAssociations.keySet();
+    VirtualFilePointerManager filePointerManager = VirtualFilePointerManager.getInstance();
     for (VirtualFilePointer pointer : virtualFilePointers) {
-      final VirtualFilePointerContainer container = other.myFilePointerManager.createContainer(other.myProject);
+      final VirtualFilePointerContainer container = filePointerManager.createContainer(other);
       container.addAll(other.myAssociations.get(pointer));
-      hashMap.put(other.myFilePointerManager.duplicate(pointer, other.myProject, null), container);
+      hashMap.put(filePointerManager.duplicate(pointer, other, null), container);
     }
     return hashMap;
   }
@@ -158,7 +150,6 @@ class FileAssociationsManagerImpl extends FileAssociationsManager implements Pro
       if (pointer.getUrl().equals(virtualFile.getUrl())) {
         VirtualFilePointerContainer container = myAssociations.get(pointer);
         if (container != null) {
-          //noinspection ConstantConditions
           final VirtualFilePointer p = container.findByUrl(assoc.getVirtualFile().getUrl());
           if (p != null) {
             container.remove(p);
@@ -191,11 +182,12 @@ class FileAssociationsManagerImpl extends FileAssociationsManager implements Pro
       return;
     }
 
+    VirtualFilePointerManager filePointerManager = VirtualFilePointerManager.getInstance();
     for (VirtualFilePointer pointer : myAssociations.keySet()) {
       if (pointer.getUrl().equals(virtualFile.getUrl())) {
         VirtualFilePointerContainer container = myAssociations.get(pointer);
         if (container == null) {
-          container = myFilePointerManager.createContainer(myProject);
+          container = filePointerManager.createContainer(this);
           myAssociations.put(pointer, container);
         }
         if (container.findByUrl(assoc.getUrl()) == null) {
@@ -205,9 +197,9 @@ class FileAssociationsManagerImpl extends FileAssociationsManager implements Pro
         return;
       }
     }
-    final VirtualFilePointerContainer container = myFilePointerManager.createContainer(myProject);
+    final VirtualFilePointerContainer container = filePointerManager.createContainer(this);
     container.add(assoc);
-    myAssociations.put(myFilePointerManager.create(virtualFile, myProject, null), container);
+    myAssociations.put(filePointerManager.create(virtualFile, this, null), container);
     touch();
   }
 

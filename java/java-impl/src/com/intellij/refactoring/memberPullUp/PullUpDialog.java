@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.memberPullUp;
 
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
@@ -40,6 +26,7 @@ import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.refactoring.util.classMembers.MemberInfoStorage;
 import com.intellij.refactoring.util.classMembers.UsesAndInterfacesDependencyMemberInfoModel;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -56,28 +43,34 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
   private DocCommentPanel myJavaDocPanel;
 
   private final InterfaceContainmentVerifier myInterfaceContainmentVerifier = new InterfaceContainmentVerifier() {
+    @Override
     public boolean checkedInterfacesContain(PsiMethod psiMethod) {
-      return PullUpProcessor.checkedInterfacesContain(myMemberInfos, psiMethod);
+      return PullUpProcessor.checkedInterfacesContain(getMemberInfos(), psiMethod);
     }
   };
 
-  private static final String PULL_UP_STATISTICS_KEY = "pull.up##";
+  private static final @NonNls String PULL_UP_STATISTICS_KEY = "pull.up##";
 
   public interface Callback {
     boolean checkConflicts(PullUpDialog dialog);
   }
 
   public PullUpDialog(Project project, PsiClass aClass, List<PsiClass> superClasses, MemberInfoStorage memberInfoStorage, Callback callback) {
-    super(project, aClass, superClasses, memberInfoStorage, JavaPullUpHandler.REFACTORING_NAME);
+    super(project, aClass, superClasses, memberInfoStorage, JavaPullUpHandler.getRefactoringName());
     myCallback = callback;
 
     init();
+  }
+
+  private List<MemberInfo> getMemberInfos() {
+    return myMemberInfos;
   }
 
   public int getJavaDocPolicy() {
     return myJavaDocPanel.getPolicy();
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "#com.intellij.refactoring.memberPullUp.PullUpDialog";
   }
@@ -90,18 +83,24 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
   protected void initClassCombo(JComboBox classCombo) {
     classCombo.setRenderer(new ClassCellRenderer(classCombo.getRenderer()));
     classCombo.addItemListener(new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (e.getStateChange() == ItemEvent.SELECTED) {
-          if (myMemberSelectionPanel != null) {
-            ((MyMemberInfoModel)myMemberInfoModel).setSuperClass(getSuperClass());
-            myMemberSelectionPanel.getTable().setMemberInfos(myMemberInfos);
-            myMemberSelectionPanel.getTable().fireExternalDataChange();
-          }
+          updateMemberPanels();
         }
       }
     });
   }
 
+  private void updateMemberPanels() {
+    if (myMemberSelectionPanel != null) {
+      ((MyMemberInfoModel)myMemberInfoModel).setSuperClass(getSuperClass());
+      myMemberSelectionPanel.getTable().setMemberInfos(myMemberInfos);
+      myMemberSelectionPanel.getTable().fireExternalDataChange();
+    }
+  }
+
+  @Override
   protected PsiClass getPreselection() {
     PsiClass preselection = RefactoringHierarchyUtil.getNearestBaseClass(myClass, false);
 
@@ -123,10 +122,12 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
     return preselection;
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.MEMBERS_PULL_UP);
+  @Override
+  protected String getHelpId() {
+    return HelpID.MEMBERS_PULL_UP;
   }
 
+  @Override
   protected void doAction() {
     if (!myCallback.checkConflicts(this)) return;
     JavaRefactoringSettings.getInstance().PULL_UP_MEMBERS_JAVADOC = myJavaDocPanel.getPolicy();
@@ -145,7 +146,7 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
 
   @Override
   protected void addCustomElementsToCentralPanel(JPanel panel) {
-    myJavaDocPanel = new DocCommentPanel(RefactoringBundle.message("javadoc.for.abstracts"));
+    myJavaDocPanel = new DocCommentPanel(JavaRefactoringBundle.message("javadoc.for.abstracts"));
     myJavaDocPanel.setPolicy(JavaRefactoringSettings.getInstance().PULL_UP_MEMBERS_JAVADOC);
     panel.add(myJavaDocPanel, BorderLayout.EAST);
     updateAbstractState();
@@ -159,7 +160,7 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
       info.setToAbstract(abstractWhenDisabled);
       if (myMemberInfoModel.isAbstractEnabled(info) || abstractWhenDisabled) {
         if (!hasJavadoc &&
-            member instanceof PsiDocCommentOwner && 
+            member instanceof PsiDocCommentOwner &&
             ((PsiDocCommentOwner)member).getDocComment() != null) {
           hasJavadoc = true;
         }
@@ -185,30 +186,31 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
   }
 
   private class MyMemberInfoModel extends UsesAndInterfacesDependencyMemberInfoModel<PsiMember, MemberInfo> {
-    public MyMemberInfoModel() {
-      super(myClass, getSuperClass(), false, myInterfaceContainmentVerifier);
+    MyMemberInfoModel() {
+      super(getPsiClass(), getSuperClass(), false, myInterfaceContainmentVerifier);
     }
 
     @Override
     public boolean isMemberEnabled(MemberInfo member) {
       final PsiClass currentSuperClass = getSuperClass();
       if(currentSuperClass == null) return true;
-      if (myMemberInfoStorage.getDuplicatedMemberInfos(currentSuperClass).contains(member)) return false;
-      if (myMemberInfoStorage.getExtending(currentSuperClass).contains(member.getMember())) return false;
+      if (getMemberInfoStorage().getDuplicatedMemberInfos(currentSuperClass).contains(member)) return false;
+      if (getMemberInfoStorage().getExtending(currentSuperClass).contains(member.getMember())) return false;
       final boolean isInterface = currentSuperClass.isInterface();
       if (!isInterface) return true;
 
-      PsiElement element = member.getMember();
+      PsiModifierListOwner element = member.getMember();
       if (element instanceof PsiClass && ((PsiClass) element).isInterface()) return true;
       if (element instanceof PsiField) {
-        return ((PsiModifierListOwner) element).hasModifierProperty(PsiModifier.STATIC);
+        return element.hasModifierProperty(PsiModifier.STATIC);
       }
       if (element instanceof PsiMethod) {
-        final PsiSubstitutor superSubstitutor = TypeConversionUtil.getSuperClassSubstitutor(currentSuperClass, myClass, PsiSubstitutor.EMPTY);
+        final PsiSubstitutor superSubstitutor =
+          TypeConversionUtil.getSuperClassSubstitutor(currentSuperClass, getPsiClass(), PsiSubstitutor.EMPTY);
         final MethodSignature signature = ((PsiMethod) element).getSignature(superSubstitutor);
         final PsiMethod superClassMethod = MethodSignatureUtil.findMethodBySignature(currentSuperClass, signature, false);
         if (superClassMethod != null && !PsiUtil.isLanguageLevel8OrHigher(currentSuperClass)) return false;
-        return !((PsiModifierListOwner) element).hasModifierProperty(PsiModifier.STATIC) || PsiUtil.isLanguageLevel8OrHigher(currentSuperClass);
+        return !element.hasModifierProperty(PsiModifier.STATIC) || PsiUtil.isLanguageLevel8OrHigher(currentSuperClass);
       }
       return true;
     }
@@ -257,5 +259,13 @@ public class PullUpDialog extends PullUpDialogBase<MemberInfoStorage, MemberInfo
     public Boolean isFixedAbstract(MemberInfo member) {
       return Boolean.TRUE;
     }
+  }
+
+  private PsiClass getPsiClass() {
+    return myClass;
+  }
+
+  private MemberInfoStorage getMemberInfoStorage() {
+    return myMemberInfoStorage;
   }
 }

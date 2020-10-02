@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -29,12 +30,6 @@ import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class StringBufferToStringInConcatenationInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("string.buffer.to.string.in.concatenation.display.name");
-  }
 
   @Override
   @NotNull
@@ -58,7 +53,7 @@ public class StringBufferToStringInConcatenationInspection extends BaseInspectio
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message("string.buffer.to.string.in.concatenation.remove.quickfix");
+      return CommonQuickFixBundle.message("fix.remove", "toString()");
     }
 
     @Override

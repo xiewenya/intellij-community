@@ -15,27 +15,26 @@
  */
 package com.intellij.util;
 
-import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.ThrowableComputable;
 import org.jetbrains.annotations.NotNull;
 
 
-/** Use {@link WriteAction} */
+/**
+ * @deprecated Use {@link WriteAction}
+ */
 @Deprecated
 public abstract class ActionRunner {
   /**
    * @deprecated use {@link WriteAction#run(ThrowableRunnable)} or {@link WriteAction#compute(ThrowableComputable)} instead
    */
   @Deprecated
-  public static  void runInsideWriteAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
-    RunResult result = new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        runnable.run();
-      }
-    }.execute();
-    if (result.getThrowable() instanceof Exception) throw (Exception)result.getThrowable();
-    result.throwException();
+  public static void runInsideWriteAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
+    WriteAction.computeAndWait(() -> {
+      runnable.run();
+      return null;
+    });
   }
 
   /**
@@ -43,21 +42,28 @@ public abstract class ActionRunner {
    */
   @Deprecated
   public static <T> T runInsideWriteAction(@NotNull final InterruptibleRunnableWithResult<T> runnable) throws Exception {
-    return WriteAction.computeAndWait(()->runnable.run());
+    return WriteAction.computeAndWait(() -> runnable.run());
   }
 
   /**
-   * @deprecated use {@link com.intellij.openapi.application.ReadAction#run(ThrowableRunnable)} or {@link com.intellij.openapi.application.ReadAction#compute(ThrowableComputable)} instead
+   * @deprecated use {@link ReadAction#run(ThrowableRunnable)} or {@link ReadAction#compute(ThrowableComputable)} instead
    */
   @Deprecated
   public static void runInsideReadAction(@NotNull final InterruptibleRunnable runnable) throws Exception {
-    ReadAction.run(()->runnable.run());
+    ReadAction.run(() -> runnable.run());
   }
 
+  /**
+   * @deprecated obsolete API
+   */
   @Deprecated
   public interface InterruptibleRunnable {
     void run() throws Exception;
   }
+
+  /**
+   * @deprecated obsolete API
+   */
   @Deprecated
   public interface InterruptibleRunnableWithResult<T> {
     T run() throws Exception;

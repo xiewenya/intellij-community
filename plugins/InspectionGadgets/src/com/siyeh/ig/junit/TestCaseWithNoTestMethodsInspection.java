@@ -47,13 +47,6 @@ public class TestCaseWithNoTestMethodsInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "test.case.with.no.test.methods.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "test.case.with.no.test.methods.problem.descriptor");
@@ -132,7 +125,7 @@ public class TestCaseWithNoTestMethodsInspection extends BaseInspection {
 
       if (!nestedTestFrameworks.isEmpty()) {
         for (PsiClass innerClass : aClass.getInnerClasses()) {
-          if (innerClass.hasModifierProperty(PsiModifier.STATIC) &&
+          if (!innerClass.hasModifierProperty(PsiModifier.STATIC) &&
               hasTestMethods(innerClass, nestedTestFrameworks, nestedTestFrameworks, false)) {
             return true;
           }

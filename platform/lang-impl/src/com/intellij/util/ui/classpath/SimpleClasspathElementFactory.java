@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.classpath;
 
 import com.intellij.openapi.project.Project;
@@ -17,10 +18,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
-public class SimpleClasspathElementFactory {
+public final class SimpleClasspathElementFactory {
   private SimpleClasspathElementFactory() {
   }
 
@@ -71,7 +69,7 @@ public class SimpleClasspathElementFactory {
     return list;
   }
 
-  public static List<VirtualFile> convertToFiles(Collection<SimpleClasspathElement> cpeList)
+  public static List<VirtualFile> convertToFiles(Collection<? extends SimpleClasspathElement> cpeList)
   {
     VirtualFileManager fileManager = VirtualFileManager.getInstance();
     List<VirtualFile> files = new ArrayList<>();

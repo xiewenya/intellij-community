@@ -12,6 +12,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.io.BufferedInputStream void mark(int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.BufferedOutputStream BufferedOutputStream(java.io.OutputStream)'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -55,6 +60,16 @@
     <item name='java.io.BufferedReader void ensureOpen()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='java.io.BufferedReader void mark(int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
+    <item name='java.io.BufferedReader void reset()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
         </annotation>
     </item>
     <item name='java.io.BufferedWriter BufferedWriter(java.io.Writer) 0'>
@@ -102,12 +117,37 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.io.ByteArrayInputStream int read()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
+    <item name='java.io.ByteArrayInputStream int read(byte[], int, int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this,param1&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.ByteArrayInputStream int read(byte[], int, int) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.io.ByteArrayInputStream long skip(long)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.io.ByteArrayInputStream void close()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='java.io.ByteArrayInputStream void mark(int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
+    <item name='java.io.ByteArrayInputStream void reset()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
         </annotation>
     </item>
     <item name='java.io.ByteArrayOutputStream ByteArrayOutputStream()'>
@@ -122,6 +162,7 @@
     </item>
     <item name='java.io.ByteArrayOutputStream byte[] toByteArray()'>
         <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="value" val="&quot;-&gt;new&quot;"/>
             <val name="pure" val="true"/>
         </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
@@ -151,6 +192,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.io.ByteArrayOutputStream void reset()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.ByteArrayOutputStream void write(byte[], int, int) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -164,6 +210,9 @@
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.DataInputStream java.lang.String readUTF()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.DataInputStream void readFully(byte[]) 0'>
@@ -213,6 +262,11 @@
     <item name='java.io.File boolean equals(java.lang.Object) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
+    <item name='java.io.File boolean isInvalid()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.File boolean renameTo(java.io.File) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -222,12 +276,18 @@
         </annotation>
     </item>
     <item name='java.io.File java.io.File createTempFile(java.lang.String, java.lang.String)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File java.io.File createTempFile(java.lang.String, java.lang.String) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File java.io.File createTempFile(java.lang.String, java.lang.String, java.io.File)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_,_-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File java.io.File createTempFile(java.lang.String, java.lang.String, java.io.File) 0'>
@@ -282,9 +342,15 @@
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.File java.net.URI toURI()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File java.net.URL toURL()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File void readObject(java.io.ObjectInputStream) 0'>
@@ -299,6 +365,9 @@
         </annotation>
     </item>
     <item name='java.io.File.TempDirectory java.io.File generateFile(java.lang.String, java.lang.String, java.io.File)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_,_-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.File.TempDirectory java.io.File generateFile(java.lang.String, java.lang.String, java.io.File) 0'>
@@ -440,6 +509,9 @@
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.ObjectInputStream java.io.ObjectInputStream.GetField readFields()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.ObjectInputStream java.lang.Class&lt;?&gt; resolveProxyClass(java.lang.String[]) 0'>
@@ -450,6 +522,7 @@
     </item>
     <item name='java.io.ObjectInputStream java.lang.Object cloneArray(java.lang.Object)'>
         <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="value" val="&quot;_-&gt;new&quot;"/>
             <val name="pure" val="true"/>
         </annotation>
     </item>
@@ -479,7 +552,7 @@
     </item>
     <item name='java.io.ObjectInputStream java.lang.Object resolveObject(java.lang.Object)'>
         <annotation name='org.jetbrains.annotations.Contract'>
-            <val name="value" val="&quot;!null-&gt;!null;null-&gt;null&quot;"/>
+            <val name="value" val="&quot;_-&gt;param1&quot;"/>
             <val name="pure" val="true"/>
         </annotation>
     </item>
@@ -492,6 +565,11 @@
     <item name='java.io.ObjectInputStream.BlockDataInputStream boolean getBlockDataMode()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='java.io.ObjectInputStream.BlockDataInputStream boolean setBlockDataMode(boolean)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
         </annotation>
     </item>
     <item name='java.io.ObjectInputStream.BlockDataInputStream int currentBlockRemaining()'>
@@ -585,6 +663,11 @@
         </annotation>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
+    <item name='java.io.ObjectInputStream.HandleTable void grow()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.ObjectInputStream.HandleTable.HandleList HandleList()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -620,6 +703,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.io.ObjectInputStream.ValidationList void clear()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.ObjectOutputStream int getProtocolVersion()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -627,7 +715,7 @@
     </item>
     <item name='java.io.ObjectOutputStream java.lang.Object replaceObject(java.lang.Object)'>
         <annotation name='org.jetbrains.annotations.Contract'>
-            <val name="value" val="&quot;!null-&gt;!null;null-&gt;null&quot;"/>
+            <val name="value" val="&quot;_-&gt;param1&quot;"/>
             <val name="pure" val="true"/>
         </annotation>
     </item>
@@ -717,6 +805,11 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='java.io.ObjectOutputStream.HandleTable void growEntries()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
+    </item>
     <item name='java.io.ObjectOutputStream.PutField PutField()'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
@@ -724,6 +817,11 @@
     </item>
     <item name='java.io.ObjectOutputStream.PutFieldImpl void write(java.io.ObjectOutput) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.io.ObjectOutputStream.ReplaceTable void grow()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.io.ObjectStreamException ObjectStreamException()'>
         <annotation name='org.jetbrains.annotations.Contract'>
@@ -791,6 +889,7 @@
     </item>
     <item name='java.io.PrintStream T requireNonNull(T, java.lang.String)'>
         <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="value" val="&quot;_,_-&gt;param1&quot;"/>
             <val name="pure" val="true"/>
         </annotation>
     </item>
@@ -798,25 +897,45 @@
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream append(char)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream append(java.lang.CharSequence)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream append(java.lang.CharSequence) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream append(java.lang.CharSequence, int, int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_,_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream append(java.lang.CharSequence, int, int) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream format(java.lang.String, java.lang.Object...)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.PrintStream java.io.PrintStream format(java.util.Locale, java.lang.String, java.lang.Object...)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_,_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='java.io.PrintStream void clearError()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.io.PrintStream void ensureOpen()'>
         <annotation name='org.jetbrains.annotations.Contract'>
@@ -831,6 +950,11 @@
     </item>
     <item name='java.io.PrintStream void println(java.lang.Object) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
+    </item>
+    <item name='java.io.PrintStream void setError()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="mutates" val="&quot;this&quot;"/>
+        </annotation>
     </item>
     <item name='java.io.RandomAccessFile RandomAccessFile(java.io.File, java.lang.String) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
@@ -848,6 +972,9 @@
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.RandomAccessFile java.lang.String readUTF()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.RandomAccessFile void readFully(byte[]) 0'>
@@ -912,15 +1039,24 @@
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.Writer java.io.Writer append(char)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.Writer java.io.Writer append(java.lang.CharSequence)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.Writer java.io.Writer append(java.lang.CharSequence) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='java.io.Writer java.io.Writer append(java.lang.CharSequence, int, int)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_,_,_-&gt;this&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
     <item name='java.io.Writer java.io.Writer append(java.lang.CharSequence, int, int) 0'>

@@ -1,190 +1,363 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins.cl;
 
 import com.intellij.diagnostic.PluginException;
-import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.diagnostic.StartUpMeasurer;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.extensions.PluginId;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.lang.UrlClassLoader;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
+import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
+import java.security.cert.Certificate;
+import java.util.List;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * @author Eugene Zhuravlev
- * @since 6.03.2003
- */
-public class PluginClassLoader extends UrlClassLoader {
-  private final ClassLoader[] myParents;
-  private final PluginId myPluginId;
-  private final String myPluginVersion;
+public final class PluginClassLoader extends UrlClassLoader implements PluginAwareClassLoader {
+  static {
+    if (registerAsParallelCapable()) {
+      markParallelCapable(PluginClassLoader.class);
+    }
+  }
+
+  private ClassLoader[] myParents;
+  private final PluginDescriptor myPluginDescriptor;
   private final List<String> myLibDirectories;
 
+  private final AtomicLong edtTime = new AtomicLong();
+  private final AtomicLong backgroundTime = new AtomicLong();
+
+  private final AtomicInteger loadedClassCounter = new AtomicInteger();
+  private ClassLoader myCoreLoader;
+
+  // to simplify analyzing of heap dump (dynamic plugin reloading)
+  private final PluginId pluginId;
+
   public PluginClassLoader(@NotNull List<URL> urls,
-                           @NotNull ClassLoader[] parents,
-                           PluginId pluginId,
-                           String version,
-                           File pluginRoot) {
-    super(build().urls(urls).allowLock().useCache());
+                           @NotNull ClassLoader @NotNull [] parents,
+                           @NotNull PluginDescriptor pluginDescriptor,
+                           @Nullable Path pluginRoot) {
+    this(build().urls(urls).allowLock().useCache(), parents, pluginDescriptor, pluginRoot);
+  }
+
+  public PluginClassLoader(@NotNull Builder builder,
+                           @NotNull ClassLoader @NotNull [] parents,
+                           @NotNull PluginDescriptor pluginDescriptor,
+                           @Nullable Path pluginRoot) {
+    super(builder);
+
     myParents = parents;
-    myPluginId = pluginId;
-    myPluginVersion = version;
-    myLibDirectories = ContainerUtil.newSmartList();
-    File libDir = new File(pluginRoot, "lib");
-    if (libDir.exists()) {
-      myLibDirectories.add(libDir.getAbsolutePath());
+    myPluginDescriptor = pluginDescriptor;
+    pluginId = pluginDescriptor.getPluginId();
+
+    myLibDirectories = new SmartList<>();
+    if (pluginRoot != null) {
+      Path libDir = pluginRoot.resolve("lib");
+      if (Files.exists(libDir)) {
+        myLibDirectories.add(libDir.toAbsolutePath().toString());
+      }
     }
   }
 
   @Override
-  public Class loadClass(@NotNull String name, boolean resolve) throws ClassNotFoundException {
-    Class c = tryLoadingClass(name, resolve, null);
+  public long getEdtTime() {
+    return edtTime.get();
+  }
+
+  @Override
+  public long getBackgroundTime() {
+    return backgroundTime.get();
+  }
+
+  @Override
+  public long getLoadedClassCount() {
+    return loadedClassCounter.get();
+  }
+
+  @Override
+  public Class<?> loadClass(@NotNull String name, boolean resolve) throws ClassNotFoundException {
+    Class<?> c = tryLoadingClass(name, resolve, null, true);
     if (c == null) {
       throw new ClassNotFoundException(name + " " + this);
     }
     return c;
   }
 
+  private interface ActionWithClassloader<Result, ParameterType> {
+    Result execute(String name, ClassLoader classloader, ParameterType parameter);
+  }
+
+  private abstract static class ActionWithPluginClassLoader<Result, ParameterType> {
+    Result execute(String name, PluginClassLoader classloader, Set<ClassLoader> visited,
+                   ActionWithPluginClassLoader<Result, ParameterType> actionWithPluginClassLoader,
+                   ActionWithClassloader<Result, ParameterType> actionWithClassloader,
+                   ParameterType parameter) {
+      Result resource = doExecute(name, classloader, parameter);
+      if (resource != null) return resource;
+      return classloader.processResourcesInParents(name, actionWithPluginClassLoader, actionWithClassloader, visited, parameter, false);
+    }
+
+    protected abstract Result doExecute(String name, PluginClassLoader classloader, ParameterType parameter);
+
+  }
+
+  private @Nullable <Result, ParameterType> Result processResourcesInParents(String name,
+                                                                             ActionWithPluginClassLoader<Result, ParameterType> actionWithPluginClassLoader,
+                                                                             ActionWithClassloader<Result, ParameterType> actionWithClassloader,
+                                                                             ParameterType parameter) {
+    return processResourcesInParents(name, actionWithPluginClassLoader, actionWithClassloader, null, parameter, true);
+  }
+
+  public void setCoreLoader(ClassLoader loader) {
+    myCoreLoader = loader;
+  }
+
+  private @Nullable <Result, ParameterType> Result processResourcesInParents(String name,
+                                                                             ActionWithPluginClassLoader<Result, ParameterType> actionWithPluginClassLoader,
+                                                                             ActionWithClassloader<Result, ParameterType> actionWithClassloader,
+                                                                             Set<ClassLoader> visited,
+                                                                             ParameterType parameter,
+                                                                             boolean withRoot) {
+    for (ClassLoader parent : myParents) {
+      if (parent == myCoreLoader) {
+        continue;
+      }
+      if (visited == null) {
+        visited = new HashSet<>();
+        visited.add(this);
+      }
+
+      if (!visited.add(parent)) {
+        continue;
+      }
+
+      if (parent instanceof PluginClassLoader) {
+        Result resource = actionWithPluginClassLoader.execute(name, (PluginClassLoader)parent, visited, actionWithPluginClassLoader,
+          actionWithClassloader, parameter);
+        if (resource != null) {
+          return resource;
+        }
+        continue;
+      }
+
+      Result resource = actionWithClassloader.execute(name, parent, parameter);
+      if (resource != null) return resource;
+    }
+
+    if (withRoot && myCoreLoader != null && (visited == null || visited.add(myCoreLoader))) {
+      return actionWithClassloader.execute(name, myCoreLoader, parameter);
+    }
+
+    return null;
+  }
+
+  private static final ActionWithPluginClassLoader<Class<?>, Void> loadClassInPluginCL = new ActionWithPluginClassLoader<Class<?>, Void>() {
+    @Override
+    Class<?> execute(String name,
+                     PluginClassLoader classloader,
+                     Set<ClassLoader> visited,
+                     ActionWithPluginClassLoader<Class<?>, Void> actionWithPluginClassLoader,
+                     ActionWithClassloader<Class<?>, Void> actionWithClassloader,
+                     Void parameter) {
+      return classloader.tryLoadingClass(name, false, visited, false);
+    }
+
+    @Override
+    protected Class<?> doExecute(String name, PluginClassLoader classloader, Void parameter) {
+      return null;
+    }
+  };
+
+  private static final ActionWithClassloader<Class<?>, Void> loadClassInCl = new ActionWithClassloader<Class<?>, Void>() {
+    @Override
+    public Class<?> execute(String name, ClassLoader classloader, Void parameter) {
+      try {
+        return classloader.loadClass(name);
+      }
+      catch (ClassNotFoundException ignoreAndContinue) {
+        // Ignore and continue
+      }
+      return null;
+    }
+  };
+
   // Changed sequence in which classes are searched, this is essential if plugin uses library,
   // a different version of which is used in IDEA.
-  @Nullable
-  private Class tryLoadingClass(@NotNull String name, boolean resolve, @Nullable Set<ClassLoader> visited) {
-    Class c = null;
+  private @Nullable Class<?> tryLoadingClass(@NotNull String name, boolean resolve, @Nullable Set<ClassLoader> visited, boolean withRoot) {
+    long startTime = StartUpMeasurer.getCurrentTime();
+    Class<?> c = null;
     if (!mustBeLoadedByPlatform(name)) {
       c = loadClassInsideSelf(name);
     }
 
     if (c == null) {
-      c = loadClassFromParents(name, visited);
+      c = processResourcesInParents(name, loadClassInPluginCL, loadClassInCl, visited, null, withRoot);
     }
 
     if (c != null) {
       if (resolve) {
         resolveClass(c);
       }
-      return c;
     }
 
-    return null;
+    if (StartUpMeasurer.measuringPluginStartupCosts) {
+      Application app = ApplicationManager.getApplication();
+      // JDK impl is not so fast as ours, use it only if no application
+      boolean isEdt = app == null ? EventQueue.isDispatchThread() : app.isDispatchThread();
+      (isEdt ? edtTime : backgroundTime).addAndGet(StartUpMeasurer.getCurrentTime() - startTime);
+    }
+    return c;
   }
 
   private static final Set<String> KOTLIN_STDLIB_CLASSES_USED_IN_SIGNATURES = ContainerUtil.set(
     "kotlin.sequences.Sequence",
-    "kotlin.Unit",
-    "kotlin.Pair",
-    "kotlin.Triple",
+    "kotlin.Lazy", "kotlin.Unit",
+    "kotlin.Pair", "kotlin.Triple",
     "kotlin.jvm.internal.DefaultConstructorMarker",
-    "kotlin.reflect.KDeclarationContainer"
-  );
+    "kotlin.jvm.internal.ClassBasedDeclarationContainer",
+    "kotlin.properties.ReadWriteProperty",
+    "kotlin.properties.ReadOnlyProperty");
 
-  private static boolean mustBeLoadedByPlatform(String className) {
-    //some commonly used classes from kotlin-runtime must be loaded by the platform classloader. Otherwise if a plugin bundles its own version
+  private static boolean mustBeLoadedByPlatform(@NonNls String className) {
+    if (className.startsWith("java.")) {
+      return true;
+    }
+
+    // some commonly used classes from kotlin-runtime must be loaded by the platform classloader. Otherwise if a plugin bundles its own version
     // of kotlin-runtime.jar it won't be possible to call platform's methods with these types in signatures from such a plugin.
-    //We assume that these classes don't change between Kotlin versions so it's safe to always load them from platform's kotlin-runtime.
-    return className.startsWith("kotlin.") && (className.startsWith("kotlin.jvm.functions.") || KOTLIN_STDLIB_CLASSES_USED_IN_SIGNATURES.contains(className));
+    // We assume that these classes don't change between Kotlin versions so it's safe to always load them from platform's kotlin-runtime.
+    return className.startsWith("kotlin.") && (className.startsWith("kotlin.jvm.functions.") ||
+                                               (className.startsWith("kotlin.reflect.") &&
+                                                className.indexOf('.', 15 /* "kotlin.reflect".length */) < 0) ||
+                                               KOTLIN_STDLIB_CLASSES_USED_IN_SIGNATURES.contains(className));
   }
 
-  @Nullable
-  private Class loadClassFromParents(String name, Set<ClassLoader> visited) {
-    for (ClassLoader parent : myParents) {
-      if (visited == null) visited = ContainerUtilRt.newHashSet(this);
-      if (!visited.add(parent)) {
-        continue;
-      }
-
-      if (parent instanceof PluginClassLoader) {
-        Class c = ((PluginClassLoader)parent).tryLoadingClass(name, false, visited);
-        if (c != null) {
-          return c;
-        }
-        continue;
+  private @Nullable Class<?> loadClassInsideSelf(@NotNull String name) {
+    synchronized (getClassLoadingLock(name)) {
+      Class<?> c = findLoadedClass(name);
+      if (c != null) {
+        return c;
       }
 
       try {
-        return parent.loadClass(name);
+        c = _findClass(name);
       }
-      catch (ClassNotFoundException ignoreAndContinue) {
-        // Ignore and continue
+      catch (LinkageError e) {
+        throw new PluginException("While loading class " + name + ": " + e.getMessage(), e, getPluginId());
       }
-    }
+      if (c != null) {
+        loadedClassCounter.incrementAndGet();
+      }
 
-    return null;
-  }
-
-  @Nullable
-  private synchronized Class loadClassInsideSelf(@NotNull String name) {
-    Class c = findLoadedClass(name);
-    if (c != null) {
       return c;
     }
-
-    try {
-      c = _findClass(name);
-    }
-    catch (IncompatibleClassChangeError | UnsupportedClassVersionError e) {
-      throw new PluginException("While loading class " + name + ": " + e.getMessage(), e, myPluginId);
-    }
-    if (c != null) {
-      PluginManagerCore.addPluginClass(myPluginId);
-    }
-
-    return c;
   }
+
+  private static final ActionWithPluginClassLoader<URL, Void> findResourceInPluginCL = new ActionWithPluginClassLoader<URL, Void>() {
+    @Override
+    protected URL doExecute(String name, PluginClassLoader classloader, Void parameter) {
+      return classloader.findOwnResource(name);
+    }
+  };
+
+  private static final ActionWithClassloader<URL, Void> findResourceInCl = new ActionWithClassloader<URL, Void>() {
+    @Override
+    public URL execute(String name, ClassLoader classloader, Void parameter) {
+      return classloader.getResource(name);
+    }
+  };
 
   @Override
   public URL findResource(String name) {
-    URL resource = super.findResource(name);
+    URL resource = findOwnResource(name);
     if (resource != null) return resource;
-
-    for (ClassLoader parent : myParents) {
-      URL parentResource = parent.getResource(name);
-      if (parentResource != null) return parentResource;
-    }
-
-    return null;
+    return processResourcesInParents(name, findResourceInPluginCL, findResourceInCl, null);
   }
+
+  private @Nullable URL findOwnResource(String name) {
+    return super.findResource(name);
+  }
+
+  private static final ActionWithPluginClassLoader<InputStream, Void>
+    getResourceAsStreamInPluginCL = new ActionWithPluginClassLoader<InputStream, Void>() {
+    @Override
+    protected InputStream doExecute(String name, PluginClassLoader classloader, Void parameter) {
+      return classloader.getOwnResourceAsStream(name);
+    }
+  };
+
+  private static final ActionWithClassloader<InputStream, Void> getResourceAsStreamInCl = new ActionWithClassloader<InputStream, Void>() {
+    @Override
+    public InputStream execute(String name, ClassLoader classloader, Void parameter) {
+      return classloader.getResourceAsStream(name);
+    }
+  };
 
   @Override
   public InputStream getResourceAsStream(String name) {
-    InputStream stream = super.getResourceAsStream(name);
+    InputStream stream = getOwnResourceAsStream(name);
     if (stream != null) return stream;
 
-    for (ClassLoader parent : myParents) {
-      InputStream inputStream = parent.getResourceAsStream(name);
-      if (inputStream != null) return inputStream;
-    }
-
-    return null;
+    return processResourcesInParents(name, getResourceAsStreamInPluginCL, getResourceAsStreamInCl, null);
   }
+
+  private @Nullable InputStream getOwnResourceAsStream(String name) {
+    return super.getResourceAsStream(name);
+  }
+
+  private static final ActionWithPluginClassLoader<Void, List<Enumeration<URL>>>
+    findResourcesInPluginCL = new ActionWithPluginClassLoader<Void, List<Enumeration<URL>>>() {
+    @Override
+    protected Void doExecute(String name,
+                             PluginClassLoader classloader,
+                             List<Enumeration<URL>> enumerations) {
+      try {
+        enumerations.add(classloader.findOwnResources(name));
+      }
+      catch (IOException ignore) {
+      }
+      return null;
+    }
+  };
+
+  private static final ActionWithClassloader<Void, List<Enumeration<URL>>>
+    findResourcesInCl = new ActionWithClassloader<Void, List<Enumeration<URL>>>() {
+    @Override
+    public Void execute(String name, ClassLoader classloader, List<Enumeration<URL>> enumerations) {
+      try {
+        enumerations.add(classloader.getResources(name));
+      }
+      catch (IOException ignore) {
+      }
+      return null;
+    }
+  };
 
   @Override
   public Enumeration<URL> findResources(String name) throws IOException {
-    @SuppressWarnings("unchecked") Enumeration<URL>[] resources = new Enumeration[myParents.length + 1];
-    resources[0] = super.findResources(name);
-    for (int idx = 0; idx < myParents.length; idx++) {
-      resources[idx + 1] = myParents[idx].getResources(name);
-    }
+    List<Enumeration<URL>> resources = new ArrayList<>();
+    resources.add(findOwnResources(name));
+    processResourcesInParents(name, findResourcesInPluginCL, findResourcesInCl, resources);
     return new DeepEnumeration(resources);
+  }
+
+  private Enumeration<URL> findOwnResources(String name) throws IOException {
+    return super.findResources(name);
   }
 
   @SuppressWarnings("UnusedDeclaration")
@@ -204,32 +377,39 @@ public class PluginClassLoader extends UrlClassLoader {
         }
       }
     }
-
     return null;
   }
 
-  public PluginId getPluginId() {
-    return myPluginId;
+  @Override
+  public @NotNull PluginId getPluginId() {
+    return pluginId;
+  }
+
+  @Override
+  public @NotNull PluginDescriptor getPluginDescriptor() {
+    return myPluginDescriptor;
   }
 
   @Override
   public String toString() {
-    return "PluginClassLoader[" + myPluginId + ", " + myPluginVersion + "] " + super.toString();
+    return "PluginClassLoader[" + myPluginDescriptor + "] " + super.toString();
   }
 
-  private static class DeepEnumeration implements Enumeration<URL> {
-    private final Enumeration<URL>[] myEnumerations;
+  private static final class DeepEnumeration implements Enumeration<URL> {
+    private final List<Enumeration<URL>> list;
     private int myIndex;
 
-    DeepEnumeration(Enumeration<URL>[] enumerations) {
-      myEnumerations = enumerations;
+    DeepEnumeration(@NotNull List<Enumeration<URL>> enumerations) {
+      list = enumerations;
     }
 
     @Override
     public boolean hasMoreElements() {
-      while (myIndex < myEnumerations.length) {
-        Enumeration<URL> e = myEnumerations[myIndex];
-        if (e != null && e.hasMoreElements()) return true;
+      while (myIndex < list.size()) {
+        Enumeration<URL> e = list.get(myIndex);
+        if (e != null && e.hasMoreElements()) {
+          return true;
+        }
         myIndex++;
       }
       return false;
@@ -240,7 +420,32 @@ public class PluginClassLoader extends UrlClassLoader {
       if (!hasMoreElements()) {
         throw new NoSuchElementException();
       }
-      return myEnumerations[myIndex].nextElement();
+      return list.get(myIndex).nextElement();
     }
+  }
+
+  @TestOnly
+  @ApiStatus.Internal
+  public @NotNull List<ClassLoader> _getParents() {
+    //noinspection SSBasedInspection
+    return Collections.unmodifiableList(Arrays.asList(myParents));
+  }
+
+  @ApiStatus.Internal
+  public void attachParent(@NotNull ClassLoader classLoader) {
+    myParents = ArrayUtil.append(myParents, classLoader);
+  }
+
+  @ApiStatus.Internal
+  public boolean detachParent(@NotNull ClassLoader classLoader) {
+    int oldSize = myParents.length;
+    myParents = ArrayUtil.remove(myParents, classLoader);
+    return myParents.length == oldSize - 1;
+  }
+
+  @Override
+  protected ProtectionDomain getProtectionDomain(URL url) {
+    // avoid capturing reference to classloader in AccessControlContext
+    return new ProtectionDomain(new CodeSource(url, (Certificate[])null), null);
   }
 }

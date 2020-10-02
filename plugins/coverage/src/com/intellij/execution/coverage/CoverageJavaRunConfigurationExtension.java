@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.coverage;
 
 import com.intellij.coverage.*;
@@ -13,9 +11,12 @@ import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.configurations.RunnerSettings;
 import com.intellij.execution.configurations.coverage.CoverageConfigurable;
 import com.intellij.execution.configurations.coverage.CoverageEnabledConfiguration;
+import com.intellij.execution.configurations.coverage.CoverageFragment;
 import com.intellij.execution.configurations.coverage.JavaCoverageEnabledConfiguration;
 import com.intellij.execution.junit.RefactoringListeners;
 import com.intellij.execution.process.ProcessHandler;
+import com.intellij.execution.ui.SettingsEditorFragment;
+import com.intellij.java.coverage.JavaCoverageBundle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -25,7 +26,6 @@ import com.intellij.openapi.projectRoots.JavaSdk;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
@@ -36,26 +36,36 @@ import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.refactoring.listeners.RefactoringElementListenerComposite;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Registers "Coverage" tab in Java run configurations
  */
 public class CoverageJavaRunConfigurationExtension extends RunConfigurationExtension {
+  @Override
   public void attachToProcess(@NotNull final RunConfigurationBase configuration, @NotNull ProcessHandler handler, RunnerSettings runnerSettings) {
     CoverageDataManager.getInstance(configuration.getProject()).attachToProcess(handler, configuration, runnerSettings);
   }
 
+  @Override
   @Nullable
   public SettingsEditor createEditor(@NotNull RunConfigurationBase configuration) {
     return new CoverageConfigurable(configuration);
   }
 
+  @Override
+  protected <P extends RunConfigurationBase<?>> List<SettingsEditorFragment<P, ?>> createFragments(@NotNull P configuration) {
+    return Collections.singletonList(new CoverageFragment<P>(configuration));
+  }
+
+  @Override
   public String getEditorTitle() {
     return CoverageEngine.getEditorTitle();
   }
@@ -66,7 +76,8 @@ public class CoverageJavaRunConfigurationExtension extends RunConfigurationExten
     return "coverage";
   }
 
-  public void updateJavaParameters(RunConfigurationBase configuration, JavaParameters params, RunnerSettings runnerSettings) {
+  @Override
+  public void updateJavaParameters(@NotNull RunConfigurationBase configuration, @NotNull JavaParameters params, RunnerSettings runnerSettings) {
     if (!isApplicableFor(configuration)) {
       return;
     }
@@ -82,9 +93,11 @@ public class CoverageJavaRunConfigurationExtension extends RunConfigurationExten
 
       final Sdk jdk = params.getJdk();
       if (jdk != null && JavaSdk.getInstance().isOfVersionOrHigher(jdk, JavaSdkVersion.JDK_1_7) && coverageRunner instanceof JavaCoverageRunner && !((JavaCoverageRunner)coverageRunner).isJdk7Compatible()) {
-        Notifications.Bus.notify(new Notification("Coverage", "Coverage instrumentation is not fully compatible with JDK 7",
-                                                  coverageRunner.getPresentableName() +
-                                                  " coverage instrumentation can lead to java.lang.VerifyError errors with JDK 7. If so, please try IDEA coverage runner.",
+        Notifications.Bus.notify(new Notification("Coverage",
+                                                  JavaCoverageBundle.message("coverage.instrumentation.jdk7.compatibility"),
+                                                  JavaCoverageBundle.message(
+                                                    "coverage.instrumentation.jdk7.compatibility.veryfy.error.warning",
+                                                    coverageRunner.getPresentableName()),
                                                   NotificationType.WARNING));
       }
     }
@@ -101,7 +114,7 @@ public class CoverageJavaRunConfigurationExtension extends RunConfigurationExten
   }
 
   @Override
-  public void writeExternal(@NotNull RunConfigurationBase runConfiguration, @NotNull Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull RunConfigurationBase runConfiguration, @NotNull Element element) {
     if (!isApplicableFor(runConfiguration)) {
       return;
     }
@@ -184,15 +197,14 @@ public class CoverageJavaRunConfigurationExtension extends RunConfigurationExten
     return listener;
   }
 
-  @Nullable
-  private static String[] getFilters(JavaCoverageEnabledConfiguration coverageEnabledConfiguration) {
+  private static String @Nullable [] getFilters(JavaCoverageEnabledConfiguration coverageEnabledConfiguration) {
     final ClassFilter[] patterns = coverageEnabledConfiguration.getCoveragePatterns();
     if (patterns != null) {
       final List<String> filters = new ArrayList<>();
       for (ClassFilter classFilter : patterns) {
         filters.add(classFilter.getPattern());
       }
-      return ArrayUtil.toStringArray(filters);
+      return ArrayUtilRt.toStringArray(filters);
     }
     return null;
   }
@@ -215,47 +227,53 @@ public class CoverageJavaRunConfigurationExtension extends RunConfigurationExten
     if (listener instanceof CoverageListener) {
       if (!(runnerSettings instanceof CoverageRunnerData)) return true;
       final CoverageEnabledConfiguration coverageEnabledConfiguration = CoverageEnabledConfiguration.getOrCreate(configuration);
-      return !(coverageEnabledConfiguration.getCoverageRunner() instanceof IDEACoverageRunner) || 
+      return !(coverageEnabledConfiguration.getCoverageRunner() instanceof IDEACoverageRunner) ||
              !(coverageEnabledConfiguration.isTrackPerTestCoverage() && !coverageEnabledConfiguration.isSampling());
     }
     return false;
   }
 
-  protected boolean isApplicableFor(@NotNull final RunConfigurationBase configuration) {
+  @Override
+  public boolean isApplicableFor(@NotNull final RunConfigurationBase configuration) {
     return CoverageEnabledConfiguration.isApplicableTo(configuration);
   }
 
-  private static class MyPackageAccessor extends MyAccessor implements RefactoringListeners.Accessor<PsiPackage> {
+  private static final class MyPackageAccessor extends MyAccessor implements RefactoringListeners.Accessor<PsiPackage> {
 
 
     private MyPackageAccessor(Project project, ClassFilter[] patterns, int idx, String[] filters) {
       super(project, patterns, idx, filters);
     }
 
+    @Override
     public void setName(String qualifiedName) {
       super.setName(qualifiedName + ".*");
     }
 
+    @Override
     public PsiPackage getPsiElement() {
       final String name = getName();
       return JavaPsiFacade.getInstance(getProject()).findPackage(name.substring(0, name.length() - ".*".length()));
     }
 
+    @Override
     public void setPsiElement(PsiPackage psiElement) {
       setName(psiElement.getQualifiedName());
     }
   }
 
-  private static class MyClassAccessor extends MyAccessor implements RefactoringListeners.Accessor<PsiClass> {
+  private static final class MyClassAccessor extends MyAccessor implements RefactoringListeners.Accessor<PsiClass> {
 
     private MyClassAccessor(Project project, ClassFilter[] patterns, int idx, String[] filters) {
       super(project, patterns, idx, filters);
     }
 
+    @Override
     public PsiClass getPsiElement() {
       return JavaPsiFacade.getInstance(getProject()).findClass(getName(), GlobalSearchScope.allScope(getProject()));
     }
 
+    @Override
     public void setPsiElement(PsiClass psiElement) {
       setName(psiElement.getQualifiedName());
     }

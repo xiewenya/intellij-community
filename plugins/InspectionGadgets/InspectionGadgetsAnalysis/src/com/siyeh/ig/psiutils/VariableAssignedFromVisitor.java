@@ -27,13 +27,13 @@ class VariableAssignedFromVisitor extends JavaRecursiveElementWalkingVisitor {
   @NotNull
   private final PsiVariable variable;
 
-  public VariableAssignedFromVisitor(@NotNull PsiVariable variable) {
+  VariableAssignedFromVisitor(@NotNull PsiVariable variable) {
     super();
     this.variable = variable;
   }
 
   @Override
-  public void visitFile(PsiFile file) {
+  public void visitFile(@NotNull PsiFile file) {
     LOG.error("Unexpectedly visited PsiFile "+file+" when tracing variable "+variable);
     stopWalking();
   }

@@ -2,6 +2,7 @@
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInspection.CommonProblemDescriptor;
+import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.QuickFix;
 import com.intellij.openapi.application.ApplicationManager;
@@ -31,7 +32,7 @@ public abstract class PerformFixesModalTask implements SequentialTask {
   private int myDescriptorIdx = 0;
 
   protected PerformFixesModalTask(@NotNull Project project,
-                                  @NotNull CommonProblemDescriptor[] descriptors) {
+                                  CommonProblemDescriptor @NotNull [] descriptors) {
     this(project, Collections.singletonList(descriptors));
   }
 
@@ -42,10 +43,6 @@ public abstract class PerformFixesModalTask implements SequentialTask {
     myLength = descriptorPacks.stream().mapToInt(ds -> ds.length).sum();
     myDocumentManager = PsiDocumentManager.getInstance(myProject);
     myReformattingAspect = PostprocessReformattingAspect.getInstance(myProject);
-  }
-
-  @Override
-  public void prepare() {
   }
 
   @Override
@@ -68,22 +65,21 @@ public abstract class PerformFixesModalTask implements SequentialTask {
     }
   }
 
-  public boolean iteration(ProgressIndicator indicator) {
+  @Override
+  public boolean iteration(@NotNull ProgressIndicator indicator) {
     final Pair<CommonProblemDescriptor, Boolean> pair = nextDescriptor();
     CommonProblemDescriptor descriptor = pair.getFirst();
     boolean shouldDoPostponedOperations = pair.getSecond();
 
-    if (indicator != null) {
-      indicator.setFraction((double)myProcessed++ / myLength);
-      String presentableText = "usages";
-      if (descriptor instanceof ProblemDescriptor) {
-        final PsiElement psiElement = ((ProblemDescriptor)descriptor).getPsiElement();
-        if (psiElement != null) {
-          presentableText = SymbolPresentationUtil.getSymbolPresentableText(psiElement);
-        }
+    indicator.setFraction((double)myProcessed++ / myLength);
+    String presentableText = "usages";
+    if (descriptor instanceof ProblemDescriptor) {
+      final PsiElement psiElement = ((ProblemDescriptor)descriptor).getPsiElement();
+      if (psiElement != null) {
+        presentableText = SymbolPresentationUtil.getSymbolPresentableText(psiElement);
       }
-      indicator.setText("Processing " + presentableText);
     }
+    indicator.setText(InspectionsBundle.message("processing.progress.text", presentableText));
 
     final boolean[] runInReadAction = {false};
     final QuickFix[] fixes = descriptor.getFixes();
@@ -113,9 +109,6 @@ public abstract class PerformFixesModalTask implements SequentialTask {
     return isDone();
   }
 
-  @Override
-  public void stop() {}
-  
   protected abstract void applyFix(Project project, CommonProblemDescriptor descriptor);
 
   private Pair<CommonProblemDescriptor, Boolean> nextDescriptor() {

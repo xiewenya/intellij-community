@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.Disposable;
@@ -27,15 +13,20 @@ import org.apache.log4j.spi.LoggingEvent;
 import org.apache.log4j.xml.DOMConfigurator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.AssumptionViolatedException;
+import org.junit.rules.TestRule;
+import org.junit.rules.TestWatcher;
+import org.junit.runner.Description;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.intellij.openapi.application.PathManager.PROPERTY_LOG_PATH;
 
 @SuppressWarnings({"CallToPrintStackTrace", "UseOfSystemOutOrSystemErr"})
-public class TestLoggerFactory implements Logger.Factory {
+public final class TestLoggerFactory implements Logger.Factory {
   private static final String SYSTEM_MACRO = "$SYSTEM_DIR$";
   private static final String APPLICATION_MACRO = "$APPLICATION_DIR$";
   private static final String LOG_DIR_MACRO = "$LOG_DIR$";
@@ -65,9 +56,7 @@ public class TestLoggerFactory implements Logger.Factory {
   public static boolean reconfigure() {
     try {
       File logXmlFile = new File(PathManager.getHomePath(), "test-log.xml");
-      if (!logXmlFile.exists()) {
-        logXmlFile = new File(PathManager.getBinPath(), "log.xml");
-      }
+
       if (!logXmlFile.exists()) {
         return false;
       }
@@ -125,7 +114,7 @@ public class TestLoggerFactory implements Logger.Factory {
             file.seek(length - LOG_SEEK_WINDOW);
             byte[] bytes = new byte[(int)LOG_SEEK_WINDOW];
             int read = file.read(bytes);
-            logText = new String(bytes, 0, read);
+            logText = new String(bytes, 0, read, StandardCharsets.UTF_8);
           }
         }
         else {
@@ -146,7 +135,7 @@ public class TestLoggerFactory implements Logger.Factory {
     }
   }
 
-  public static void enableDebugLogging(@NotNull Disposable parentDisposable, @NotNull String... categories) {
+  public static void enableDebugLogging(@NotNull Disposable parentDisposable, String @NotNull ... categories) {
     for (String category : categories) {
       final Logger logger = Logger.getInstance(category);
       logger.setLevel(Level.DEBUG);
@@ -177,6 +166,10 @@ public class TestLoggerFactory implements Logger.Factory {
     }
   }
 
+  public static void onTestStarted() {
+    // clear buffer from tests which failed to report their termination properly
+    BUFFER.setLength(0);
+  }
   public static void onTestFinished(boolean success) {
     if (!success && BUFFER.length() != 0) {
       if (UsefulTestCase.IS_UNDER_TEAMCITY) {
@@ -199,5 +192,30 @@ public class TestLoggerFactory implements Logger.Factory {
       }
     }
     BUFFER.setLength(0);
+  }
+
+  @NotNull
+  public static TestRule createTestWatcher() {
+    return new TestWatcher() {
+      @Override
+      protected void succeeded(Description description) {
+        onTestFinished(true);
+      }
+
+      @Override
+      protected void failed(Throwable e, Description description) {
+        onTestFinished(false);
+      }
+
+      @Override
+      protected void skipped(AssumptionViolatedException e, Description description) {
+        onTestFinished(true);
+      }
+
+      @Override
+      protected void starting(@NotNull Description d) {
+        onTestStarted();
+      }
+    };
   }
 }

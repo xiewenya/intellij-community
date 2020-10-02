@@ -20,12 +20,8 @@ public interface GrReferenceElement<Q extends PsiElement> extends GroovyPsiEleme
   @Nullable
   String getQualifiedReferenceName();
 
-  @NotNull
-  PsiType[] getTypeArguments();
+  PsiType @NotNull [] getTypeArguments();
 
   @Nullable
   GrTypeArgumentList getTypeArgumentList();
-
-  @NotNull
-  String getClassNameText();
 }

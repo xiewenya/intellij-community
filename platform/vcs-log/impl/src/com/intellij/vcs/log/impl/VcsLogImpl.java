@@ -16,23 +16,29 @@
 package com.intellij.vcs.log.impl;
 
 import com.google.common.primitives.Ints;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
-import com.intellij.util.concurrency.FutureResult;
+import com.intellij.util.EmptyConsumer;
 import com.intellij.vcs.log.*;
 import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.ui.AbstractVcsLogUi;
 import com.intellij.vcs.log.ui.table.GraphTableModel;
 import com.intellij.vcs.log.ui.table.VcsLogGraphTable;
+import com.intellij.vcs.log.util.VcsLogUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
-import java.util.concurrent.Future;
-import java.util.function.BiFunction;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class VcsLogImpl implements VcsLog {
@@ -47,26 +53,26 @@ public class VcsLogImpl implements VcsLog {
   @Override
   @NotNull
   public List<CommitId> getSelectedCommits() {
-    return getSelectedDataFromTable(GraphTableModel::getCommitIdAtRow);
+    return myUi.getTable().getModel().getCommitIds(myUi.getTable().getSelectedRows());
   }
 
   @NotNull
   @Override
-  public List<VcsShortCommitDetails> getSelectedShortDetails() {
-    return getSelectedDataFromTable(GraphTableModel::getShortDetails);
+  public List<VcsCommitMetadata> getSelectedShortDetails() {
+    return myUi.getTable().getModel().getCommitMetadata(myUi.getTable().getSelectedRows());
   }
 
   @NotNull
   @Override
   public List<VcsFullCommitDetails> getSelectedDetails() {
-    return getSelectedDataFromTable(GraphTableModel::getFullDetails);
+    return myUi.getTable().getModel().getFullDetails(myUi.getTable().getSelectedRows());
   }
 
   @Override
-  public void requestSelectedDetails(@NotNull Consumer<List<VcsFullCommitDetails>> consumer) {
+  public void requestSelectedDetails(@NotNull Consumer<? super List<VcsFullCommitDetails>> consumer) {
     List<Integer> rowsList = Ints.asList(myUi.getTable().getSelectedRows());
-    myLogData.getCommitDetailsGetter()
-      .loadCommitsData(getTable().getModel().convertToCommitIds(rowsList), consumer, null);
+    myLogData.getCommitDetailsGetter().loadCommitsData(getTable().getModel().convertToCommitIds(rowsList), consumer,
+                                                       EmptyConsumer.getInstance(), null);
   }
 
   @Nullable
@@ -77,22 +83,46 @@ public class VcsLogImpl implements VcsLog {
 
   @NotNull
   @Override
-  public Future<Boolean> jumpToReference(final String reference) {
-    if (StringUtil.isEmptyOrSpaces(reference)) return new FutureResult<>(false);
+  public ListenableFuture<Boolean> jumpToReference(final @NotNull String reference) {
+    if (StringUtil.isEmptyOrSpaces(reference)) return Futures.immediateFuture(false);
+
     SettableFuture<Boolean> future = SettableFuture.create();
     VcsLogRefs refs = myUi.getDataPack().getRefs();
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
       List<VcsRef> matchingRefs = refs.stream().filter(ref -> ref.getName().startsWith(reference)).collect(Collectors.toList());
       ApplicationManager.getApplication().invokeLater(() -> {
         if (matchingRefs.isEmpty()) {
-          myUi.jumpToCommitByPartOfHash(reference, future);
+          future.setFuture(jumpToHash(reference));
         }
         else {
           VcsRef ref = Collections.min(matchingRefs, new VcsGoToRefComparator(myUi.getDataPack().getLogProviders()));
-          myUi.jumpToCommit(ref.getCommitHash(), ref.getRoot(), future);
+          future.setFuture(jumpToCommit(ref.getCommitHash(), ref.getRoot()));
         }
       });
     });
+    return future;
+  }
+
+  @Override
+  @NotNull
+  public ListenableFuture<Boolean> jumpToCommit(@NotNull Hash commitHash, @NotNull VirtualFile root) {
+    SettableFuture<Boolean> future = SettableFuture.create();
+    myUi.jumpTo(commitHash, (model, hash) -> model.getRowOfCommit(hash, root), future, false);
+    return future;
+  }
+
+  @NotNull
+  private ListenableFuture<Boolean> jumpToHash(@NotNull String commitHash) {
+    SettableFuture<Boolean> future = SettableFuture.create();
+    String trimmed = StringUtil.trim(commitHash, ch -> !StringUtil.containsChar("()'\"`", ch));
+    if (!VcsLogUtil.HASH_REGEX.matcher(trimmed).matches()) {
+      VcsBalloonProblemNotifier.showOverChangesView(myUi.getLogData().getProject(),
+                                                    VcsLogBundle.message("vcs.log.commit.or.reference.not.found", commitHash),
+                                                    MessageType.WARNING);
+      future.set(false);
+      return future;
+    }
+    myUi.jumpTo(trimmed, GraphTableModel::getRowOfCommitByPartOfHash, future, false);
     return future;
   }
 
@@ -105,22 +135,5 @@ public class VcsLogImpl implements VcsLog {
   @NotNull
   private VcsLogGraphTable getTable() {
     return myUi.getTable();
-  }
-
-  @NotNull
-  private <T> List<T> getSelectedDataFromTable(@NotNull BiFunction<GraphTableModel, Integer, T> dataGetter) {
-    final int[] rows = myUi.getTable().getSelectedRows();
-    return new AbstractList<T>() {
-      @NotNull
-      @Override
-      public T get(int index) {
-        return dataGetter.apply(getTable().getModel(), rows[index]);
-      }
-
-      @Override
-      public int size() {
-        return rows.length;
-      }
-    };
   }
 }

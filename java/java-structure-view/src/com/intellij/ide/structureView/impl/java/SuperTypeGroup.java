@@ -16,7 +16,7 @@
 package com.intellij.ide.structureView.impl.java;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.structureView.StructureViewBundle;
 import com.intellij.ide.util.treeView.smartTree.Group;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.navigation.ItemPresentation;
@@ -37,7 +37,7 @@ public class SuperTypeGroup implements Group, ItemPresentation, AccessLevelProvi
   private final OwnershipType myOverrides;
   private final Collection<TreeElement> myChildren = new ArrayList<>();
 
-  public static enum OwnershipType {
+  public enum OwnershipType {
     IMPLEMENTS,
     OVERRIDES,
     INHERITS
@@ -91,7 +91,7 @@ public class SuperTypeGroup implements Group, ItemPresentation, AccessLevelProvi
 
   public String toString() {
     final PsiClass superClass = getSuperClass();
-    return superClass != null ? superClass.getName() : IdeBundle.message("node.structureview.invalid");
+    return superClass != null ? superClass.getName() : StructureViewBundle.message("node.structureview.invalid");
   }
 
   public boolean equals(Object o) {

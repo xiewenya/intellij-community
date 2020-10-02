@@ -71,14 +71,12 @@ public class MavenSmartCompletionContributor extends CompletionContributor {
           }
         }
         else if (converter instanceof ResolvingConverter) {
-          //noinspection unchecked
           ResolvingConverter resolvingConverter = (ResolvingConverter)converter;
           Collection variants = resolvingConverter.getVariants(reference.getConvertContext());
           addVariants(resolvingConverter, variants, result);
         }
       }
       else {
-        //noinspection unchecked
         Collections.addAll((Collection)result, each.getVariants());
       }
     }
@@ -97,8 +95,7 @@ public class MavenSmartCompletionContributor extends CompletionContributor {
     }
   }
 
-  @NotNull
-  private static PsiReference[] getReferences(CompletionParameters parameters) {
+  private static PsiReference @NotNull [] getReferences(CompletionParameters parameters) {
     PsiElement psiElement = parameters.getPosition().getParent();
     return psiElement instanceof XmlText ? psiElement.getParent().getReferences() : psiElement.getReferences();
   }

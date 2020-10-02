@@ -16,6 +16,7 @@
 package com.intellij.refactoring.introduceField;
 
 import com.intellij.codeInsight.TestFrameworks;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.JavaRefactoringSettings;
@@ -50,6 +51,7 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
           occurrences, allowInitInMethod, allowInitInMethodIfAll, typeSelectorManager);
   }
 
+  @Override
   protected void initializeControls(PsiExpression initializerExpression, BaseExpressionToFieldHandler.InitializationPlace ourLastInitializerPlace) {
     initializeInitializerPlace(initializerExpression, ourLastInitializerPlace);
     String ourLastVisibility = JavaRefactoringSettings.getInstance().INTRODUCE_FIELD_VISIBILITY;
@@ -60,6 +62,7 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
     super.initializeControls(initializerExpression, ourLastInitializerPlace);
   }
 
+  @Override
   protected void initializeInitializerPlace(PsiExpression initializerExpression,
                                             BaseExpressionToFieldHandler.InitializationPlace ourLastInitializerPlace) {
     if (initializerExpression != null) {
@@ -108,6 +111,7 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
     }
   }
 
+  @Override
   public BaseExpressionToFieldHandler.InitializationPlace getInitializerPlace() {
     if (myRbInConstructor.isSelected()) {
       return BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR;
@@ -126,17 +130,18 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
     return BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION;
   }
 
+  @Override
   public String getFieldVisibility() {
     return myVisibilityPanel.getVisibility();
   }
 
+  @Override
   protected JComponent createInitializerPlacePanel(ItemListener itemListener, ItemListener finalUpdater) {
     JPanel mainPanel = new JPanel();
     mainPanel.setLayout(new BorderLayout());
 
     JPanel initializationPanel = new JPanel();
-    initializationPanel.setBorder(IdeBorderFactory.createTitledBorder(RefactoringBundle.message("initialize.in.border.title"),
-                                                                      true));
+    initializationPanel.setBorder(IdeBorderFactory.createTitledBorder(RefactoringBundle.message("initialize.in.border.title")));
     initializationPanel.setLayout(new BoxLayout(initializationPanel, BoxLayout.Y_AXIS));
 
 
@@ -147,7 +152,7 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
 
     myRbInFieldDeclaration = new JRadioButton();
     myRbInFieldDeclaration.setFocusable(false);
-    myRbInFieldDeclaration.setText(RefactoringBundle.message("field.declaration.radio"));
+    myRbInFieldDeclaration.setText(JavaRefactoringBundle.message("field.declaration.radio"));
 
     myRbInConstructor = new JRadioButton();
     myRbInConstructor.setFocusable(false);
@@ -195,8 +200,10 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
   }
 
   @Override
-  protected boolean updateInitializationPlaceModel(boolean initializedInSetup, boolean initializedInConstructor) {
-    myRbInFieldDeclaration.setEnabled(false);
+  protected boolean updateInitializationPlaceModel(boolean initializedInSetup, boolean initializedInConstructor, boolean locals) {
+    if (locals) {
+      myRbInFieldDeclaration.setEnabled(false);
+    }
     myRbInConstructor.setEnabled(initializedInConstructor);
     enableFinal(false);
     if (myRbInSetUp != null){
@@ -214,12 +221,9 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
     return myRbInSetUp != null;
   }
 
+  @Override
   public void setInitializeInFieldDeclaration() {
     myRbInFieldDeclaration.setSelected(true);
-  }
-
-  public void setVisibility(String visibility) {
-    myVisibilityPanel.setVisibility(visibility);
   }
 
   @Override
@@ -241,6 +245,7 @@ public class IntroduceFieldDialogPanel extends IntroduceFieldCentralPanel {
     }
   }
 
+  @Override
   protected JPanel composeWholePanel(JComponent initializerPlacePanel, JPanel checkboxPanel) {
     JPanel panel = new JPanel(new GridBagLayout());
     final GridBagConstraints constraints =

@@ -30,7 +30,7 @@ import java.util.List;
 /**
  * Utility methods for GenerationToStringAction and the inspections.
  */
-public class GenerateToStringUtils {
+public final class GenerateToStringUtils {
 
     private static final Logger log = Logger.getInstance("#GenerateToStringUtils");
 
@@ -43,47 +43,46 @@ public class GenerateToStringUtils {
      * @param pattern        the filter pattern to filter out unwanted fields
      * @return fields available for this action after the filter process.
      */
-    @NotNull
-    public static PsiField[] filterAvailableFields(PsiClass clazz, FilterPattern pattern) {
+    public static PsiField @NotNull [] filterAvailableFields(PsiClass clazz, FilterPattern pattern) {
         return filterAvailableFields(clazz, false, pattern);
     }
 
     /**
-     * Filters the list of fields from the class with the given parameters from the {@link org.jetbrains.java.generate.config.Config config} settings.
+     * Filters the list of fields from the class with the given parameters from the {@link Config config} settings.
      *
      * @param clazz          the class to filter it's fields
      * @param pattern        the filter pattern to filter out unwanted fields
      * @return fields available for this action after the filter process.
      */
-    @NotNull
-    public static PsiField[] filterAvailableFields(PsiClass clazz,
-                                                   boolean includeSuperClass,
-                                                   FilterPattern pattern) {
+    public static PsiField @NotNull [] filterAvailableFields(PsiClass clazz,
+                                                             boolean includeSuperClass,
+                                                             FilterPattern pattern) {
         if (log.isDebugEnabled()) log.debug("Filtering fields using the pattern: " + pattern);
         List<PsiField> availableFields = new ArrayList<>();
-        collectAvailableFields(clazz, includeSuperClass, pattern, availableFields, new HashSet<>());
+        collectAvailableFields(clazz, clazz, includeSuperClass, pattern, availableFields, new HashSet<>());
         return availableFields.toArray(PsiField.EMPTY_ARRAY);
     }
 
     private static void collectAvailableFields(PsiClass clazz,
+                                               PsiElement place,
                                                boolean includeSuperClass,
                                                FilterPattern pattern,
-                                               List<PsiField> availableFields,
-                                               HashSet<PsiClass> visited) {
+                                               List<? super PsiField> availableFields,
+                                               HashSet<? super PsiClass> visited) {
 
         int sortElements = GenerateToStringContext.getConfig().getSortElements();
 
         if (includeSuperClass && sortElements == 3) {
             PsiClass superClass = clazz.getSuperClass();
             if (superClass != null && visited.add(superClass)) {
-                collectAvailableFields(superClass, true, pattern, availableFields, visited);
+                collectAvailableFields(superClass, place, true, pattern, availableFields, visited);
             }
         }
 
         // performs til filtering process
         PsiField[] fields = includeSuperClass && sortElements != 3 ? clazz.getAllFields() : clazz.getFields();
         for (PsiField field : fields) {
-            if (!JavaResolveUtil.isAccessible(field, field.getContainingClass(), field.getModifierList(), clazz, null, null)) {
+            if (!JavaResolveUtil.isAccessible(field, field.getContainingClass(), field.getModifierList(), place, null, null)) {
                 continue;
             }
             // if the field matches the pattern then it shouldn't be in the list of available fields
@@ -106,22 +105,23 @@ public class GenerateToStringUtils {
      * @param pattern        the filter pattern to filter out unwanted fields
      * @return methods available for this action after the filter process.
      */
-    @NotNull
-    public static PsiMethod[] filterAvailableMethods(PsiClass clazz, @NotNull FilterPattern pattern) {
+    public static PsiMethod @NotNull [] filterAvailableMethods(PsiClass clazz, @NotNull FilterPattern pattern) {
         if (log.isDebugEnabled()) log.debug("Filtering methods using the pattern: " + pattern);
         List<PsiMethod> availableMethods = new ArrayList<>();
-        collectAvailableMethods(clazz, pattern, availableMethods, new HashSet<>());
+        collectAvailableMethods(clazz, clazz, pattern, availableMethods, new HashSet<>());
         return availableMethods.toArray(PsiMethod.EMPTY_ARRAY);
     }
 
-    private static void collectAvailableMethods(PsiClass clazz, @NotNull FilterPattern pattern,
-                                                List<PsiMethod> availableMethods,
-                                                HashSet<PsiClass> visited) {
+    private static void collectAvailableMethods(PsiClass clazz,
+                                                PsiClass base,
+                                                @NotNull FilterPattern pattern,
+                                                List<? super PsiMethod> availableMethods,
+                                                HashSet<? super PsiClass> visited) {
         int sortElements = GenerateToStringContext.getConfig().getSortElements();
         if (sortElements == 3) {
             PsiClass superClass = clazz.getSuperClass();
             if (superClass != null && visited.add(superClass)) {
-                collectAvailableMethods(superClass, pattern, availableMethods, visited);
+                collectAvailableMethods(superClass, base, pattern, availableMethods, visited);
             }
         }
         PsiMethod[] methods = sortElements != 3 ? clazz.getAllMethods() : clazz.getMethods();
@@ -143,9 +143,9 @@ public class GenerateToStringUtils {
                 continue;
             }
 
-            // method should not be a getter for an existing field
+            // method should not be a getter for an existing field in the same class
             String fieldName = PsiAdapter.getGetterFieldName(method);
-            if (clazz.findFieldByName(fieldName, false) != null) {
+            if (base.findFieldByName(fieldName, false) != null) {
                 continue;
             }
 

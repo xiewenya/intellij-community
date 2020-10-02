@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing.unittestLegacy;
 
 import com.intellij.execution.ExecutionException;
@@ -11,6 +9,7 @@ import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.WriteExternalException;
 import com.jetbrains.python.testing.AbstractPythonLegacyTestRunConfiguration;
 import org.jdom.Element;
@@ -23,8 +22,8 @@ public class PythonUnitTestRunConfiguration extends
                                             AbstractPythonLegacyTestRunConfiguration<PythonUnitTestRunConfiguration>
                                               implements PythonUnitTestRunConfigurationParams {
   private boolean myIsPureUnittest = true;
-  protected String myTitle = "Unittest";
-  protected String myPluralTitle = "Unittests";
+  protected @NlsSafe String myTitle = "Unittest";
+  protected @NlsSafe String myPluralTitle = "Unittests";
 
   private String myParams = "";
   private boolean useParam = false;
@@ -82,22 +81,27 @@ public class PythonUnitTestRunConfiguration extends
     return myIsPureUnittest;
   }
 
+  @Override
   public void setPureUnittest(boolean isPureUnittest) {
     myIsPureUnittest = isPureUnittest;
   }
 
+  @Override
   public String getParams() {
     return myParams;
   }
 
+  @Override
   public void setParams(String pattern) {
     myParams = pattern;
   }
 
+  @Override
   public boolean useParam() {
     return useParam;
   }
 
+  @Override
   public void useParam(boolean useParam) {
     this.useParam = useParam;
   }

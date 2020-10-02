@@ -17,12 +17,15 @@ package com.intellij.psi.impl;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Roman.Chernyatchik
- * @deprecated use {@link PsiTreeChangePreprocessorBase} instead
+ * @deprecated see {@link com.intellij.psi.util.PsiModificationTracker#getOutOfCodeBlockModificationTracker()}
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
 public abstract class AbstractModificationTracker implements PsiTreeChangePreprocessor {
   private final PsiManagerImpl myPsiManager;
   private PsiModificationTrackerImpl myModificationTracker;

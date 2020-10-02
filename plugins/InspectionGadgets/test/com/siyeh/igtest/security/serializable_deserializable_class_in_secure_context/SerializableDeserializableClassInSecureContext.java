@@ -25,6 +25,14 @@ class NonDeserializableClass implements Serializable {
 class <warning descr="Class 'SerializableClass' may be deserialized, compromising security">SerializableClass</warning> implements Serializable {
   private int sensitive = 736326;
   public void writeObject(ObjectOutputStream out) {
+    new Serializable() {
+      int state;
+    };
+    throw new Error();
+  }
+}
+record R(int a) implements Serializable {
+  private void readObject(ObjectInputStream in) {
     throw new Error();
   }
 }
@@ -36,6 +44,10 @@ class EventListener<E  extends Event> {
   private int sensitive = 736326;
 }
 class MyException extends Exception {}
+class YourException extends Exception {
+  int state;
+}
 enum E {
   A, B, C
 }
+

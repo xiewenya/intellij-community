@@ -2,13 +2,13 @@
 package com.siyeh.ig.errorhandling;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class UnnecessaryInitCauseInspectionTest extends LightInspectionTestCase {
+public class UnnecessaryInitCauseInspectionTest extends LightJavaInspectionTestCase {
 
   @Override
   protected String[] getEnvironmentClasses() {
@@ -51,6 +51,7 @@ public class UnnecessaryInitCauseInspectionTest extends LightInspectionTestCase 
   }
 
   public void testIncompatibleType() {
+    //noinspection EmptyTryBlock
     doTest("import java.io.*;" +
            "class X {" +
            "  void m() throws Exception {" +
@@ -69,10 +70,11 @@ public class UnnecessaryInitCauseInspectionTest extends LightInspectionTestCase 
            "}");
   }
 
+  @SuppressWarnings("ThrowableNotThrown")
   public void testNotAccessible() {
     doTest("import java.util.*;" +
            "class X {" +
-           "  void z() {" +
+           "  static void z() {" +
            "    RuntimeException cause = new RuntimeException();\n" +
            "    MissingResourceException e = new MissingResourceException(\"asdf\", \"asdf\", \"asdf\");\n" +
            "    e.initCause(cause);" +

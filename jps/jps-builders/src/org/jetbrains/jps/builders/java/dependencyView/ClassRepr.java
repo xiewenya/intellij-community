@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.util.io.DataExternalizer;
@@ -42,6 +28,8 @@ public class ClassRepr extends ClassFileRepr {
   private final int myOuterClassName;
   private final boolean myIsLocal;
   private final boolean myIsAnonymous;
+  private final boolean myIsGenerated;
+  private boolean myHasInlinedConstants;
 
   public Set<MethodRepr> getMethods() {
     return myMethods;
@@ -61,6 +49,18 @@ public class ClassRepr extends ClassFileRepr {
 
   public boolean isAnonymous() {
     return myIsAnonymous;
+  }
+
+  public boolean isGenerated() {
+    return myIsGenerated;
+  }
+
+  public boolean hasInlinedConstants() {
+    return myHasInlinedConstants;
+  }
+
+  public void setHasInlinedConstants(boolean hasConstants) {
+    myHasInlinedConstants = hasConstants;
   }
 
   public TypeRepr.ClassType getSuperClass() {
@@ -100,6 +100,7 @@ public class ClassRepr extends ClassFileRepr {
 
     public abstract boolean targetAttributeCategoryMightChange();
 
+    @Override
     public boolean no() {
       return base() == NONE &&
              interfaces().unchanged() &&
@@ -110,6 +111,7 @@ public class ClassRepr extends ClassFileRepr {
     }
   }
 
+  @Override
   public Diff difference(final Proto past) {
     final ClassRepr pastClass = (ClassRepr)past;
     final Difference diff = super.difference(past);
@@ -118,10 +120,13 @@ public class ClassRepr extends ClassFileRepr {
     if (!mySuperClass.equals(pastClass.mySuperClass)) {
       base |= Difference.SUPERCLASS;
     }
-
     if (!getUsages().equals(pastClass.getUsages())) {
       base |= Difference.USAGES;
     }
+    if (hasInlinedConstants() != pastClass.hasInlinedConstants()) {
+      base |= Difference.CONSTANT_REFERENCES;
+    }
+    
     final int d = base;
 
     return new Diff(diff) {
@@ -184,8 +189,7 @@ public class ClassRepr extends ClassFileRepr {
     };
   }
 
-  @NotNull
-  public int[] getSupers() {
+  public int @NotNull [] getSupers() {
     final int[] result = new int[myInterfaces.size() + 1];
 
     result[0] = mySuperClass.className;
@@ -198,7 +202,8 @@ public class ClassRepr extends ClassFileRepr {
     return result;
   }
 
-  protected void updateClassUsages(final DependencyContext context, final Set<UsageRepr.Usage> s) {
+  @Override
+  protected void updateClassUsages(final DependencyContext context, final Set<? super UsageRepr.Usage> s) {
     mySuperClass.updateClassUsages(context, name, s);
 
     for (TypeRepr.AbstractType t : myInterfaces) {
@@ -225,17 +230,18 @@ public class ClassRepr extends ClassFileRepr {
                    final int outerClassName,
                    final boolean localClassFlag,
                    final boolean anonymousClassFlag,
-                   final Set<UsageRepr.Usage> usages) {
+                   final Set<UsageRepr.Usage> usages, boolean isGenerated) {
     super(access, sig, name, annotations, fileName, context, usages);
     mySuperClass = TypeRepr.createClassType(context, superClass);
     myInterfaces = (Set<TypeRepr.AbstractType>)TypeRepr.createClassType(context, interfaces, new THashSet<>(1));
     myFields = fields;
     myMethods = methods;
-    this.myAnnotationTargets = annotationTargets;
-    this.myRetentionPolicy = policy;
-    this.myOuterClassName = outerClassName;
-    this.myIsLocal = localClassFlag;
-    this.myIsAnonymous = anonymousClassFlag;
+    myAnnotationTargets = annotationTargets;
+    myRetentionPolicy = policy;
+    myOuterClassName = outerClassName;
+    myIsLocal = localClassFlag;
+    myIsAnonymous = anonymousClassFlag;
+    myIsGenerated = isGenerated;
     updateClassUsages(context, usages);
   }
 
@@ -256,6 +262,8 @@ public class ClassRepr extends ClassFileRepr {
       int flags = DataInputOutputUtil.readINT(in);
       myIsLocal = (flags & LOCAL_MASK) != 0;
       myIsAnonymous = (flags & ANONYMOUS_MASK) != 0;
+      myHasInlinedConstants = (flags & HAS_INLINED_CONSTANTS_MASK) != 0;
+      myIsGenerated = (flags & IS_GENERATED_MASK) != 0;
     }
     catch (IOException e) {
       throw new BuildDataCorruptedException(e);
@@ -264,6 +272,8 @@ public class ClassRepr extends ClassFileRepr {
 
   private static final int LOCAL_MASK = 1;
   private static final int ANONYMOUS_MASK = 2;
+  private static final int HAS_INLINED_CONSTANTS_MASK = 4;
+  private static final int IS_GENERATED_MASK = 8;
 
   @Override
   public void save(final DataOutput out) {
@@ -276,7 +286,9 @@ public class ClassRepr extends ClassFileRepr {
       RW.save(myAnnotationTargets, UsageRepr.AnnotationUsage.elementTypeExternalizer, out);
       RW.writeUTF(out, myRetentionPolicy == null ? "" : myRetentionPolicy.toString());
       DataInputOutputUtil.writeINT(out, myOuterClassName);
-      DataInputOutputUtil.writeINT(out, (myIsLocal ? LOCAL_MASK:0) | (myIsAnonymous ? ANONYMOUS_MASK : 0));
+      DataInputOutputUtil.writeINT(
+        out, (myIsLocal ? LOCAL_MASK:0) | (myIsAnonymous ? ANONYMOUS_MASK : 0) | (myHasInlinedConstants ? HAS_INLINED_CONSTANTS_MASK : 0) | (myIsGenerated ? IS_GENERATED_MASK : 0)
+      );
     }
     catch (IOException e) {
       throw new BuildDataCorruptedException(e);
@@ -392,6 +404,10 @@ public class ClassRepr extends ClassFileRepr {
     stream.println(myIsLocal);
     stream.print("      Anonymous class: ");
     stream.println(myIsAnonymous);
+    stream.print("      Has inlined constants: ");
+    stream.println(myHasInlinedConstants);
+    stream.print("      IsGenerated: ");
+    stream.println(myIsGenerated);
 
     stream.println("      Fields:");
     final FieldRepr[] fs = myFields.toArray(new FieldRepr[0]);

@@ -15,6 +15,7 @@
  */
 package com.intellij.vcs.log.visible;
 
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcs.log.VcsLogDataPack;
 import com.intellij.vcs.log.VcsLogFilterCollection;
@@ -23,15 +24,19 @@ import com.intellij.vcs.log.VcsLogRefs;
 import com.intellij.vcs.log.data.DataPack;
 import com.intellij.vcs.log.data.DataPackBase;
 import com.intellij.vcs.log.graph.VisibleGraph;
-import com.intellij.vcs.log.impl.VcsLogFilterCollectionImpl;
+import com.intellij.vcs.log.history.FileHistoryPaths;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
 
 public class VisiblePack implements VcsLogDataPack {
   @NotNull
   public static final VisiblePack EMPTY =
-    new VisiblePack(DataPack.EMPTY, EmptyVisibleGraph.getInstance(), false, VcsLogFilterCollectionImpl.EMPTY) {
+    new VisiblePack(DataPack.EMPTY, EmptyVisibleGraph.getInstance(), false, VcsLogFilterObject.EMPTY_COLLECTION) {
       @Override
       public String toString() {
         return "EmptyVisiblePack";
@@ -42,15 +47,25 @@ public class VisiblePack implements VcsLogDataPack {
   @NotNull private final VisibleGraph<Integer> myVisibleGraph;
   private final boolean myCanRequestMore;
   @NotNull private final VcsLogFilterCollection myFilters;
+  @Nullable private final Object myAdditionalData;
 
   public VisiblePack(@NotNull DataPackBase dataPack,
                      @NotNull VisibleGraph<Integer> graph,
                      boolean canRequestMore,
                      @NotNull VcsLogFilterCollection filters) {
+    this(dataPack, graph, canRequestMore, filters, null);
+  }
+
+  public VisiblePack(@NotNull DataPackBase dataPack,
+                     @NotNull VisibleGraph<Integer> graph,
+                     boolean canRequestMore,
+                     @NotNull VcsLogFilterCollection filters,
+                     @Nullable Object data) {
     myDataPack = dataPack;
     myVisibleGraph = graph;
     myCanRequestMore = canRequestMore;
     myFilters = filters;
+    myAdditionalData = data;
   }
 
   @NotNull
@@ -99,7 +114,12 @@ public class VisiblePack implements VcsLogDataPack {
     return myDataPack.getRefsModel().rootAtHead(head);
   }
 
+  public <T> T getAdditionalData() {
+    return (T)myAdditionalData;
+  }
+
   @Override
+  @NonNls
   public String toString() {
     return "VisiblePack{size=" +
            myVisibleGraph.getVisibleCommitCount() +
@@ -107,5 +127,30 @@ public class VisiblePack implements VcsLogDataPack {
            myFilters +
            ", canRequestMore=" +
            myCanRequestMore + "}";
+  }
+
+  @NotNull
+  public FilePath getFilePath(int index) {
+    if (FileHistoryPaths.hasPathsInformation(this)) {
+      FilePath path = FileHistoryPaths.filePathOrDefault(this, myVisibleGraph.getRowInfo(index).getCommit());
+      if (path != null) {
+        return path;
+      }
+    }
+    return VcsUtil.getFilePath(getRoot(index));
+  }
+
+  public static class ErrorVisiblePack extends VisiblePack {
+    @NotNull private final Throwable myError;
+
+    public ErrorVisiblePack(@NotNull DataPackBase dataPack, @NotNull VcsLogFilterCollection filters, @NotNull Throwable error) {
+      super(dataPack, EmptyVisibleGraph.getInstance(), false, filters, null);
+      myError = error;
+    }
+
+    @NotNull
+    public Throwable getError() {
+      return myError;
+    }
   }
 }

@@ -1,35 +1,19 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.formatter.java;
 
-import com.intellij.formatting.Alignment;
-import com.intellij.formatting.Block;
-import com.intellij.formatting.Indent;
-import com.intellij.formatting.Wrap;
+import com.intellij.formatting.*;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.util.Condition;
 import com.intellij.psi.formatter.FormatterUtil;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
-public class ChildrenBlocksBuilder {
+public final class ChildrenBlocksBuilder {
   private final Config myConfig;
 
   private ChildrenBlocksBuilder(Config builder) {
@@ -37,7 +21,7 @@ public class ChildrenBlocksBuilder {
   }
 
   public List<Block> buildNodeChildBlocks(ASTNode node, BlockFactory factory) {
-    List<Block> blocks = ContainerUtil.newArrayList();
+    List<Block> blocks = new ArrayList<>();
 
     for (ASTNode child : node.getChildren(null)) {
       if (FormatterUtil.isWhitespaceOrEmpty(child) || child.getTextLength() == 0) {
@@ -50,7 +34,7 @@ public class ChildrenBlocksBuilder {
       Indent indent = myConfig.getIndent(type);
       Wrap wrap = myConfig.getWrap(type);
 
-      blocks.add(factory.createBlock(child, indent, alignment, wrap));
+      blocks.add(factory.createBlock(child, indent, alignment, wrap, factory.getFormattingMode()));
     }
 
     return blocks;
@@ -60,15 +44,16 @@ public class ChildrenBlocksBuilder {
     private static final Alignment NO_ALIGNMENT = Alignment.createAlignment();
     private static final Wrap NO_WRAP = Wrap.createWrap(0, false);
 
-    private final Map<IElementType, Alignment> myAlignments = ContainerUtil.newHashMap();
-    private final Map<IElementType, Indent> myIndents = ContainerUtil.newHashMap();
-    private final Map<IElementType, Wrap> myWraps = ContainerUtil.newHashMap();
+    private final Map<IElementType, Alignment> myAlignments = new HashMap<>();
+    private final Map<IElementType, Indent> myIndents = new HashMap<>();
+    private final Map<IElementType, Wrap> myWraps = new HashMap<>();
 
-    private final Map<IElementType, Condition<ASTNode>> myNoneAlignmentCondition = ContainerUtil.newHashMap();
+    private final Map<IElementType, Predicate<? super ASTNode>> myNoneAlignmentCondition = new HashMap<>();
 
     private Alignment myDefaultAlignment;
     private Indent myDefaultIndent;
     private Wrap myDefaultWrap;
+    private FormattingMode myFormattingMode;
 
     public ChildrenBlocksBuilder createBuilder() {
       return new ChildrenBlocksBuilder(this);
@@ -99,7 +84,7 @@ public class ChildrenBlocksBuilder {
       return this;
     }
 
-    public Config setNoAlignmentIf(IElementType elementType, Condition<ASTNode> applyAlignCondition) {
+    public Config setNoAlignmentIf(IElementType elementType, Predicate<? super ASTNode> applyAlignCondition) {
       myNoneAlignmentCondition.put(elementType, applyAlignCondition);
       return this;
     }
@@ -116,9 +101,9 @@ public class ChildrenBlocksBuilder {
 
     private Alignment getAlignment(ASTNode node) {
       IElementType elementType = node.getElementType();
-      
-      Condition<ASTNode> noneAlignmentCondition = myNoneAlignmentCondition.get(elementType);
-      if (noneAlignmentCondition != null && noneAlignmentCondition.value(node)) {
+
+      Predicate<? super ASTNode> noneAlignmentCondition = myNoneAlignmentCondition.get(elementType);
+      if (noneAlignmentCondition != null && noneAlignmentCondition.test(node)) {
         return null;
       }
 
@@ -140,5 +125,13 @@ public class ChildrenBlocksBuilder {
       return this;
     }
 
+    public FormattingMode getFormattingMode() {
+      return myFormattingMode;
+    }
+
+    public Config setFormattingMode(FormattingMode formattingMode) {
+      myFormattingMode = formattingMode;
+      return this;
+    }
   }
 }

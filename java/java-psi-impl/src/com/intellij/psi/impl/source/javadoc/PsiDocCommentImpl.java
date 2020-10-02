@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.javadoc;
 
 import com.intellij.lang.ASTNode;
@@ -40,7 +26,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDocComment, JavaTokenType, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.javadoc.PsiDocCommentImpl");
+  private static final Logger LOG = Logger.getInstance(PsiDocCommentImpl.class);
 
   private static final TokenSet TAG_BIT_SET = TokenSet.create(DOC_TAG);
   private static final ArrayFactory<PsiDocTag> ARRAY_FACTORY = count -> count == 0 ? PsiDocTag.EMPTY_ARRAY : new PsiDocTag[count];
@@ -57,8 +43,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
   }
 
   @Override
-  @NotNull
-  public PsiElement[] getDescriptionElements() {
+  public PsiElement @NotNull [] getDescriptionElements() {
     List<PsiElement> array = new ArrayList<>();
     for (ASTNode child = getFirstChildNode(); child != null; child = child.getTreeNext()) {
       IElementType i = child.getElementType();
@@ -71,8 +56,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
   }
 
   @Override
-  @NotNull
-  public PsiDocTag[] getTags() {
+  public PsiDocTag @NotNull [] getTags() {
     return getChildrenAsPsiElements(TAG_BIT_SET, ARRAY_FACTORY);
   }
 
@@ -96,8 +80,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
   }
 
   @Override
-  @NotNull
-  public PsiDocTag[] findTagsByName(String name) {
+  public PsiDocTag @NotNull [] findTagsByName(String name) {
     List<PsiDocTag> array = new ArrayList<>();
     name = "@" + name;
     for (PsiDocTag tag : getTags()) {
@@ -108,6 +91,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
     return array.toArray(PsiDocTag.EMPTY_ARRAY);
   }
 
+  @NotNull
   @Override
   public IElementType getTokenType() {
     return getElementType();
@@ -158,7 +142,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
     if (first == last && first.getElementType() == DOC_TAG) {
       if (anchor == null) {
         anchor = getLastChildNode(); // this is a '*/'
-        ASTNode prevBeforeWS = TreeUtil.skipElementsBack(anchor.getTreePrev(), ElementType.JAVA_WHITESPACE_BIT_SET);
+        ASTNode prevBeforeWS = TreeUtil.skipElementsBack(anchor.getTreePrev(), TokenSet.WHITE_SPACE);
         if (prevBeforeWS != null) {
           anchor = prevBeforeWS;
           before = Boolean.FALSE;
@@ -225,7 +209,7 @@ public class PsiDocCommentImpl extends LazyParseablePsiElement implements PsiDoc
       current = current.getTreePrev();
     }
     if (current != null && current.getElementType() == DOC_COMMENT_LEADING_ASTERISKS) {
-      ASTNode prevWhiteSpace = TreeUtil.skipElementsBack(current.getTreePrev(), ElementType.JAVA_WHITESPACE_BIT_SET);
+      ASTNode prevWhiteSpace = TreeUtil.skipElementsBack(current.getTreePrev(), TokenSet.WHITE_SPACE);
       assert prevWhiteSpace != null;
       ASTNode toBeDeleted = prevWhiteSpace.getTreeNext();
       while (toBeDeleted != null) {

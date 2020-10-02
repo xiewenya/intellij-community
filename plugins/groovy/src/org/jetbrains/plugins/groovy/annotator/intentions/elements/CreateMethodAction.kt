@@ -11,6 +11,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiNameHelper
 import com.intellij.psi.PsiType
 import com.intellij.psi.presentation.java.ClassPresentationUtil.getNameForClass
+import com.intellij.psi.util.JavaElementKind
 import org.jetbrains.plugins.groovy.intentions.base.IntentionUtils.createTemplateForMethod
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier
@@ -39,12 +40,8 @@ internal class CreateMethodAction(
   override fun getText(): String {
     val what = request.methodName
     val where = getNameForClass(target, false)
-    return if (abstract && !target.isInterface) {
-      message("create.abstract.method.from.usage.full.text", what, where)
-    }
-    else {
-      message("create.method.from.usage.full.text", what, where)
-    }
+    val kind = if (abstract && !target.isInterface) JavaElementKind.ABSTRACT_METHOD else JavaElementKind.METHOD
+    return message("create.element.in.class", kind.`object`(), what, where)
   }
 
   override fun invoke(project: Project, editor: Editor?, file: PsiFile?) {
@@ -67,8 +64,9 @@ private class MethodRenderer(
   }
 
   private fun setupTemplate(method: GrMethod) {
-    val typeExpressions = setupParameters(method, request.parameters).toTypedArray()
-    val nameExpressions = setupNameExpressions(request.parameters).toTypedArray()
+    val parameters = request.expectedParameters
+    val typeExpressions = setupParameters(method, parameters).toTypedArray()
+    val nameExpressions = setupNameExpressions(parameters, project).toTypedArray()
     val returnExpression = setupTypeElement(method, createConstraints(project, request.returnType))
     createTemplateForMethod(typeExpressions, nameExpressions, method, targetClass, returnExpression, false, null)
   }

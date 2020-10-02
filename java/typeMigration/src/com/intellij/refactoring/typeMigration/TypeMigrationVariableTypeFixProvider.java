@@ -1,6 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
 import com.intellij.codeInsight.FileModificationService;
@@ -25,8 +23,8 @@ import org.jetbrains.annotations.Nullable;
 public class TypeMigrationVariableTypeFixProvider implements ChangeVariableTypeQuickFixProvider {
   private static final Logger LOG1 = Logger.getInstance(TypeMigrationVariableTypeFixProvider.class);
 
-  @NotNull
-  public IntentionAction[] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
+  @Override
+  public IntentionAction @NotNull [] getFixes(@NotNull PsiVariable variable, @NotNull PsiType toReturn) {
     return new IntentionAction[]{createTypeMigrationFix(variable, toReturn)};
   }
 
@@ -44,13 +42,13 @@ public class TypeMigrationVariableTypeFixProvider implements ChangeVariableTypeQ
       @NotNull
       @Override
       public String getText() {
-        return "Migrate \'" + myName + "\' type to \'" + getReturnType().getCanonicalText() + "\'";
+        return TypeMigrationBundle.message("migrate.fix.text", myName, getReturnType().getPresentableText());
       }
 
       @Override
       public void invoke(@NotNull Project project,
                          @NotNull PsiFile file,
-                         @Nullable("is null when called from inspection") Editor editor,
+                         @Nullable Editor editor,
                          @NotNull PsiElement startElement,
                          @NotNull PsiElement endElement) {
         runTypeMigrationOnVariable((PsiVariable)startElement, getReturnType(), editor, optimizeImports, true);
@@ -60,7 +58,7 @@ public class TypeMigrationVariableTypeFixProvider implements ChangeVariableTypeQ
 
   public static void runTypeMigrationOnVariable(@NotNull PsiVariable variable,
                                                 @NotNull PsiType targetType,
-                                                @Nullable("is null when called from inspection") Editor editor,
+                                                @Nullable Editor editor,
                                                 boolean optimizeImports,
                                                 boolean allowDependentRoots) {
     Project project = variable.getProject();

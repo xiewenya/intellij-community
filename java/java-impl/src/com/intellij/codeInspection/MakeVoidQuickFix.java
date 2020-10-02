@@ -19,7 +19,7 @@ import com.intellij.codeInsight.BlockUtils;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefMethod;
-import com.intellij.openapi.application.WriteAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -29,6 +29,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.changeSignature.ChangeSignatureProcessor;
 import com.intellij.refactoring.changeSignature.ParameterInfoImpl;
+import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
 import com.siyeh.ig.controlflow.UnnecessaryReturnInspection;
@@ -50,7 +51,7 @@ public class MakeVoidQuickFix implements LocalQuickFix {
   @Override
   @NotNull
   public String getFamilyName() {
-    return InspectionsBundle.message("inspection.unused.return.value.make.void.quickfix");
+    return JavaBundle.message("inspection.unused.return.value.make.void.quickfix");
   }
 
   @Override
@@ -60,7 +61,7 @@ public class MakeVoidQuickFix implements LocalQuickFix {
       RefElement refElement = (RefElement)myProcessor.getElement(descriptor);
       if (refElement instanceof RefMethod && refElement.isValid()) {
         RefMethod refMethod = (RefMethod)refElement;
-        psiMethod = (PsiMethod)refMethod.getElement();
+        psiMethod = (PsiMethod)refMethod.getPsiElement();
       }
     }
     else {
@@ -85,49 +86,52 @@ public class MakeVoidQuickFix implements LocalQuickFix {
     SmartList<PsiMethod> methodsToModify = new SmartList<>(psiMethod);
     if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
       methodsToModify.addAll(OverridingMethodsSearch.search(psiMethod).findAll());
-    }, InspectionsBundle.message("psi.search.overriding.progress"), true, project)) {
+    }, JavaBundle.message("psi.search.overriding.progress"), true, project)) {
       return;
     }
     if (!FileModificationService.getInstance().preparePsiElementsForWrite(methodsToModify)) return;
-    for (final PsiMethod method : methodsToModify) {
-      replaceReturnStatements(method);
-    }
     final ChangeSignatureProcessor csp = new ChangeSignatureProcessor(project,
                                                                       psiMethod,
                                                                       false, null, psiMethod.getName(),
                                                                       PsiType.VOID,
-                                                                      ParameterInfoImpl.fromMethod(psiMethod));
+                                                                      ParameterInfoImpl.fromMethod(psiMethod)) {
+      @Override
+      protected void performRefactoring(UsageInfo @NotNull [] usages) {
+        super.performRefactoring(usages);
+        for (final PsiMethod method: methodsToModify) {
+          replaceReturnStatements(method);
+        }
+      }
+    };
     csp.run();
   }
 
   private static void replaceReturnStatements(@NotNull final PsiMethod method) {
     final PsiReturnStatement[] statements = PsiUtil.findReturnStatements(method);
     if (statements.length > 0) {
-      WriteAction.run(() -> {
-        for (int i = statements.length - 1; i >= 0; i--) {
-          PsiReturnStatement returnStatement = statements[i];
-          try {
-            final PsiExpression expression = returnStatement.getReturnValue();
-            if (expression != null) {
-              List<PsiExpression> sideEffectExpressions = SideEffectChecker.extractSideEffectExpressions(expression);
-              PsiStatement[] sideEffectStatements = StatementExtractor.generateStatements(sideEffectExpressions, expression);
-              if (sideEffectStatements.length > 0) {
-                PsiStatement added = BlockUtils.addBefore(returnStatement, sideEffectStatements);
-                returnStatement = PsiTreeUtil.getNextSiblingOfType(added, PsiReturnStatement.class);
-              }
-              if (returnStatement != null && returnStatement.getReturnValue() != null) {
-                returnStatement.getReturnValue().delete();
-                if (UnnecessaryReturnInspection.isReturnRedundant(returnStatement, false, null)) {
-                  returnStatement.delete();
-                }
+      for (int i = statements.length - 1; i >= 0; i--) {
+        PsiReturnStatement returnStatement = statements[i];
+        try {
+          final PsiExpression expression = returnStatement.getReturnValue();
+          if (expression != null) {
+            List<PsiExpression> sideEffectExpressions = SideEffectChecker.extractSideEffectExpressions(expression);
+            PsiStatement[] sideEffectStatements = StatementExtractor.generateStatements(sideEffectExpressions, expression);
+            if (sideEffectStatements.length > 0) {
+              PsiStatement added = BlockUtils.addBefore(returnStatement, sideEffectStatements);
+              returnStatement = PsiTreeUtil.getNextSiblingOfType(added, PsiReturnStatement.class);
+            }
+            if (returnStatement != null && returnStatement.getReturnValue() != null) {
+              returnStatement.getReturnValue().delete();
+              if (UnnecessaryReturnInspection.isReturnRedundant(returnStatement, false, true, null)) {
+                returnStatement.delete();
               }
             }
           }
-          catch (IncorrectOperationException e) {
-            LOG.error(e);
-          }
         }
-      });
+        catch (IncorrectOperationException e) {
+          LOG.error(e);
+        }
+      }
     }
   }
 }

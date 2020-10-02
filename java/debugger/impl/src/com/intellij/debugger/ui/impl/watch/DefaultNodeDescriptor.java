@@ -25,7 +25,7 @@ import com.intellij.openapi.diagnostic.Logger;
 
 
 public final class DefaultNodeDescriptor extends NodeDescriptorImpl{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.impl.watch.DefaultNodeDescriptor");
+  private static final Logger LOG = Logger.getInstance(DefaultNodeDescriptor.class);
   public boolean equals(Object obj) {
     return obj instanceof DefaultNodeDescriptor;
   }
@@ -34,13 +34,16 @@ public final class DefaultNodeDescriptor extends NodeDescriptorImpl{
     return 0;
   }
 
+  @Override
   public boolean isExpandable() {
     return true;
   }
 
+  @Override
   public void setContext(EvaluationContextImpl context) {
   }
 
+  @Override
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) {
     LOG.assertTrue(false);
     return null;

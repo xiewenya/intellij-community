@@ -1,25 +1,14 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.util.RefactoringChangeUtil;
@@ -27,10 +16,12 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class AddTypeArgumentsFix extends MethodArgumentFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.quickfix.AddTypeArgumentsFix");
+import java.util.Objects;
 
-  private AddTypeArgumentsFix(PsiExpressionList list, int i, PsiType toType, final ArgumentFixerActionFactory factory) {
+public final class AddTypeArgumentsFix extends MethodArgumentFix {
+  private static final Logger LOG = Logger.getInstance(AddTypeArgumentsFix.class);
+
+  private AddTypeArgumentsFix(@NotNull PsiExpressionList list, int i, @NotNull PsiType toType, @NotNull ArgumentFixerActionFactory factory) {
     super(list, i, toType, factory);
   }
 
@@ -62,9 +53,11 @@ public class AddTypeArgumentsFix extends MethodArgumentFix {
   }
 
   @Nullable
-  public static PsiExpression addTypeArguments(PsiExpression expression, PsiType toType) {
+  public static PsiExpression addTypeArguments(@NotNull PsiExpression expression, @Nullable PsiType toType) {
     if (!PsiUtil.isLanguageLevel5OrHigher(expression)) return null;
 
+    PsiExpression orig = expression;
+    expression = PsiUtil.skipParenthesizedExprDown(expression);
     if (expression instanceof PsiMethodCallExpression) {
       final PsiMethodCallExpression methodCall = (PsiMethodCallExpression)expression;
       final PsiReferenceParameterList list = methodCall.getMethodExpression().getParameterList();
@@ -83,13 +76,19 @@ public class AddTypeArgumentsFix extends MethodArgumentFix {
           LanguageLevel level = PsiUtil.getLanguageLevel(expression);
           for (int i = 0; i < typeParameters.length; i++) {
             PsiTypeParameter typeParameter = typeParameters[i];
-            final PsiType substitution = toType == null ? resolveResult.getSubstitutor().substitute(typeParameter)
-                                                        : helper.getSubstitutionForTypeParameter(typeParameter, returnType, toType, false, level);
+            final PsiType substitution;
+            if (toType == null) {
+              substitution = resolveResult.getSubstitutor().substitute(typeParameter);
+              if (!PsiTypesUtil.isDenotableType(substitution, expression)) return null;
+            }
+            else {
+              substitution = helper.getSubstitutionForTypeParameter(typeParameter, returnType, toType, false, level);
+            }
             if (substitution == null || PsiType.NULL.equals(substitution)) return null;
             mappings[i] = GenericsUtil.eliminateWildcards(substitution, false);
           }
 
-          final PsiElementFactory factory = JavaPsiFacade.getInstance(expression.getProject()).getElementFactory();
+          final PsiElementFactory factory = JavaPsiFacade.getElementFactory(expression.getProject());
           PsiMethodCallExpression copy = (PsiMethodCallExpression)expression.copy();
           final PsiReferenceExpression methodExpression = copy.getMethodExpression();
           final PsiReferenceParameterList parameterList = methodExpression.getParameterList();
@@ -100,21 +99,34 @@ public class AddTypeArgumentsFix extends MethodArgumentFix {
           if (methodExpression.getQualifierExpression() == null) {
             final PsiExpression qualifierExpression;
             final PsiClass containingClass = method.getContainingClass();
-            LOG.assertTrue(containingClass != null);
+            if (containingClass == null) return null; // not actual method but some copy in DummyHolder, ignore
             if (method.hasModifierProperty(PsiModifier.STATIC)) {
               qualifierExpression = factory.createReferenceExpression(containingClass);
-            } else {
+            }
+            else {
               qualifierExpression = RefactoringChangeUtil.createThisExpression(method.getManager(), null);
             }
             methodExpression.setQualifierExpression(qualifierExpression);
           }
 
-          return (PsiExpression)JavaCodeStyleManager.getInstance(copy.getProject()).shortenClassReferences(copy);
+          PsiExpression result = (PsiExpression)JavaCodeStyleManager.getInstance(copy.getProject()).shortenClassReferences(copy);
+          if (orig != expression) {
+            PsiExpression parenthesized = (PsiExpression)orig.copy();
+            Objects.requireNonNull(PsiUtil.skipParenthesizedExprDown(parenthesized)).replace(result);
+            return parenthesized;
+          }
+          return result;
         }
       }
     }
     return null;
   }
 
-  public static ArgumentFixerActionFactory REGISTRAR = new AddTypeArgumentsFix.MyFixerActionFactory();
+  @Override
+  public @NotNull FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new AddTypeArgumentsFix(PsiTreeUtil.findSameElementInCopy(myArgList, target), myIndex, myToType,
+                                   myArgumentFixerActionFactory);
+  }
+
+  public static final ArgumentFixerActionFactory REGISTRAR = new AddTypeArgumentsFix.MyFixerActionFactory();
 }

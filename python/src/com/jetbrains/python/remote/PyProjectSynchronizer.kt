@@ -15,10 +15,17 @@
  */
 package com.jetbrains.python.remote
 
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.remote.CredentialsType
+import com.intellij.util.PathMappingSettings
+import org.jetbrains.annotations.Nls
 import java.io.File
 import java.util.function.Consumer
+
+typealias PathMappings = List<PathMappingSettings.PathMapping>
 
 /**
  * ProjectSynchronizer is an engine that synchronize code between local and remote system or between java (which is local)
@@ -45,14 +52,21 @@ interface PyProjectSynchronizer {
    * @return null if sync is available or error message if something prevents project from sync.
    */
 
-  fun checkSynchronizationAvailable(syncCheckStrategy: PySyncCheckStrategy): String?
+  @Nls fun checkSynchronizationAvailable(syncCheckStrategy: PySyncCheckStrategy): String?
 
   /**
-   * @return if remote box allows user to configure remote path, this method returns default path
+   * if remote box allows user to configure remote path, this method returns default path
    * that should be shown to user.
-   * If returns null, user can't configure remote path and GUI should not provide such ability
+   *
+   * Must return null if [getAutoMappings] are not null.
    */
   fun getDefaultRemotePath(): String?
+
+  /**
+   * If remote box does not allow user to configure path mapping then these mappings could be used to automatically convert
+   * local path to remote path. If set, can't be empty and can't coexist with [getDefaultRemotePath]
+   */
+  fun getAutoMappings(): com.jetbrains.python.Result<PathMappings, String>? = null
 
 
   /**
@@ -71,6 +85,37 @@ interface PyProjectSynchronizer {
    * @param filePath local file name (in case of java-to-python), remote otherwise
    */
   fun mapFilePath(project: Project, direction: PySyncDirection, filePath: String): String?
+}
+
+/**
+ * Plugin registers [PyProjectSynchronizer] for [CredentialsType]
+ */
+interface PyProjectSynchronizerProvider {
+  fun getSynchronizer(credsType: CredentialsType<*>, sdk: Sdk): PyProjectSynchronizer?
+
+  companion object {
+    val EP_NAME: ExtensionPointName<PyProjectSynchronizerProvider> = ExtensionPointName.create("Pythonid.projectSynchronizerProvider")
+
+    fun find(credsType: CredentialsType<*>, sdk: Sdk) = EP_NAME.extensions.mapNotNull { it.getSynchronizer(credsType, sdk) }.firstOrNull()
+
+    /**
+     * Returns [PyProjectSynchronizer] that is suitable for remote Python
+     * [sdk].
+     *
+     * Returns [PyUnknownProjectSynchronizer.INSTANCE] if [sdk] is remote but
+     * no [PyProjectSynchronizer] is registered for this type of Python SDK.
+     *
+     * Returns `null` if [sdk] is local or it is not Python SDK.
+     */
+    @JvmStatic
+    fun getSynchronizer(sdk: Sdk): PyProjectSynchronizer? {
+      val sdkAdditionalData = sdk.sdkAdditionalData
+      if (sdkAdditionalData is PyRemoteSdkAdditionalDataBase) {
+        return find(sdkAdditionalData.remoteConnectionType, sdk) ?: PyUnknownProjectSynchronizer.INSTANCE
+      }
+      return null
+    }
+  }
 }
 
 /**

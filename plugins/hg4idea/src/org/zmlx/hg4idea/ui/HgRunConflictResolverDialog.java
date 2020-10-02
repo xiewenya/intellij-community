@@ -19,6 +19,7 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.zmlx.hg4idea.HgBundle;
 import org.zmlx.hg4idea.HgFile;
 import org.zmlx.hg4idea.command.HgResolveCommand;
 import org.zmlx.hg4idea.command.HgResolveStatusEnum;
@@ -44,11 +45,12 @@ public class HgRunConflictResolverDialog extends DialogWrapper {
     super(project, false);
     this.project = project;
     repositorySelector.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         onChangeRepository();
       }
     });
-    setTitle("Resolve Conflicts");
+    setTitle(HgBundle.message("action.hg4idea.run.conflict.resolver.title"));
     init();
     setRoots(repositories, selectedRepo);
   }
@@ -64,6 +66,7 @@ public class HgRunConflictResolverDialog extends DialogWrapper {
     onChangeRepository();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return mainPanel;
   }
@@ -82,7 +85,7 @@ public class HgRunConflictResolverDialog extends DialogWrapper {
       ApplicationManager.getApplication().invokeLater(() -> {
         setOKActionEnabled(!model.isEmpty());
         if (model.isEmpty()) {
-          model.addElement("No conflicts to resolve");
+          model.addElement(HgBundle.message("action.hg4idea.run.conflict.resolver.no.conflicts"));
         }
         conflictsList.setModel(model);
       }, modalityState);

@@ -20,6 +20,7 @@ import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.java.i18n.JavaI18nBundle;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.lang.properties.psi.Property;
@@ -37,19 +38,8 @@ import java.util.Set;
 public class UnusedMessageFormatParameterInspection extends PropertiesInspectionBase {
   public static final String REGEXP = "regexp";
 
-  @NotNull
-  public String getDisplayName() {
-    return PropertiesBundle.message("unused.message.format.parameter.display.name");
-  }
-
-  @NotNull
-  @NonNls
-  public String getShortName() {
-    return "UnusedMessageFormatParameter";
-  }
-
-  @Nullable
-  public ProblemDescriptor[] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
+  @Override
+  public ProblemDescriptor @Nullable [] checkFile(@NotNull PsiFile file, @NotNull InspectionManager manager, boolean isOnTheFly) {
     if (!(file instanceof PropertiesFile)) return null;
     PropertiesFile propertiesFile = (PropertiesFile)file;
     final List<IProperty> properties = propertiesFile.getProperties();
@@ -88,7 +78,7 @@ public class UnusedMessageFormatParameterInspection extends PropertiesInspection
             if (!parameters.contains(new Integer(i))) {
               ASTNode[] nodes = property.getPsiElement().getNode().getChildren(null);
               PsiElement valElement = nodes.length < 3 ? property.getPsiElement() : nodes[2].getPsi();
-              final String message = PropertiesBundle.message("unused.message.format.parameter.problem.descriptor", integer.toString(), Integer.toString(i));
+              final String message = JavaI18nBundle.message("unused.message.format.parameter.problem.descriptor", integer.toString(), Integer.toString(i));
               final String propertyKey = property.getKey();
               final LocalQuickFix[] fixes = isOnTheFly ? new LocalQuickFix[]{new RenameElementFix(((Property)property), propertyKey == null ? REGEXP : propertyKey + "." + REGEXP)} : null;
               problemDescriptors.add(manager.createProblemDescriptor(valElement, message, isOnTheFly, fixes, ProblemHighlightType.GENERIC_ERROR_OR_WARNING));

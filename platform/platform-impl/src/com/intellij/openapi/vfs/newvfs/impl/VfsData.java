@@ -1,50 +1,34 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.newvfs.impl;
 
-import com.intellij.openapi.application.ApplicationAdapter;
+import com.intellij.openapi.application.ApplicationListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.vfs.InvalidVirtualFileAccessException;
+import com.intellij.openapi.vfs.newvfs.NewVirtualFileSystem;
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.BitUtil;
+import com.intellij.util.Functions;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.AtomicFieldUpdater;
-import com.intellij.util.containers.ConcurrentBitSet;
-import com.intellij.util.containers.ConcurrentIntObjectMap;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.IntObjectMap;
+import com.intellij.util.containers.*;
 import com.intellij.util.keyFMap.KeyFMap;
-import com.intellij.util.text.CharSequenceHashingStrategy;
-import gnu.trove.THashSet;
-import gnu.trove.TIntHashSet;
+import com.intellij.util.text.ByteArrayCharSequence;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import static com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry.ALL_FLAGS_MASK;
-import static com.intellij.util.ObjectUtils.assertNotNull;
 
 /**
  * The place where all the data is stored for VFS parts loaded into a memory: name-ids, flags, user data, children.
@@ -70,25 +54,27 @@ import static com.intellij.util.ObjectUtils.assertNotNull;
  * 4. If a file is deleted (invalidated), then its data is not needed anymore, and should be removed. But this can only happen after
  * all the listener have been notified about the file deletion and have had their chance to look at the data the last time. See {@link #killInvalidatedFiles()}
  *
- * 5. The file with removed data is marked as "dead" (see {@link #ourDeadMarker}, any access to it will throw {@link InvalidVirtualFileAccessException}
+ * 5. The file with removed data is marked as "dead" (see {@link #myDeadMarker}, any access to it will throw {@link InvalidVirtualFileAccessException}
  * Dead ids won't be reused in the same session of the IDE.
  *
  * @author peter
  */
-public class VfsData {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.newvfs.impl.VfsData");
+public final class VfsData {
+  private static final Logger LOG = Logger.getInstance(VfsData.class);
   private static final int SEGMENT_BITS = 9;
   private static final int SEGMENT_SIZE = 1 << SEGMENT_BITS;
   private static final int OFFSET_MASK = SEGMENT_SIZE - 1;
-  private static final Object ourDeadMarker = new String("dead file");
 
-  private static final ConcurrentIntObjectMap<Segment> ourSegments = ContainerUtil.createConcurrentIntObjectMap();
-  private static final ConcurrentBitSet ourInvalidatedIds = new ConcurrentBitSet();
-  private static TIntHashSet ourDyingIds = new TIntHashSet();
-  private static final IntObjectMap<VirtualDirectoryImpl> ourChangedParents = ContainerUtil.createConcurrentIntObjectMap();
+  private final Object myDeadMarker = ObjectUtils.sentinel("dead file");
 
-  static {
-    ApplicationManager.getApplication().addApplicationListener(new ApplicationAdapter() {
+  private final ConcurrentIntObjectMap<Segment> mySegments = ContainerUtil.createConcurrentIntObjectMap();
+  private final ConcurrentBitSet myInvalidatedIds = new ConcurrentBitSet();
+  private IntOpenHashSet myDyingIds = new IntOpenHashSet();
+
+  private final IntObjectMap<VirtualDirectoryImpl> myChangedParents = ContainerUtil.createConcurrentIntObjectMap();
+
+  public VfsData() {
+    ApplicationManager.getApplication().addApplicationListener(new ApplicationListener() {
       @Override
       public void writeActionFinished(@NotNull Object action) {
         // after top-level write action is finished, all the deletion listeners should have processed the deleted files
@@ -97,23 +83,25 @@ public class VfsData {
           killInvalidatedFiles();
         }
       }
-    });
+    }, ApplicationManager.getApplication());
   }
 
-  private static void killInvalidatedFiles() {
-    synchronized (ourDeadMarker) {
-      if (!ourDyingIds.isEmpty()) {
-        for (int id : ourDyingIds.toArray()) {
-          assertNotNull(getSegment(id, false)).myObjectArray.set(getOffset(id), ourDeadMarker);
-          ourChangedParents.remove(id);
+  private void killInvalidatedFiles() {
+    synchronized (myDeadMarker) {
+      if (!myDyingIds.isEmpty()) {
+        for (IntIterator iterator = myDyingIds.iterator(); iterator.hasNext(); ) {
+          int id = iterator.nextInt();
+          Segment segment = Objects.requireNonNull(getSegment(id, false));
+          segment.myObjectArray.set(getOffset(id), myDeadMarker);
+          myChangedParents.remove(id);
         }
-        ourDyingIds = new TIntHashSet();
+        myDyingIds = new IntOpenHashSet();
       }
     }
   }
 
   @Nullable
-  static VirtualFileSystemEntry getFileById(int id, @NotNull VirtualDirectoryImpl parent) {
+  VirtualFileSystemEntry getFileById(int id, @NotNull VirtualDirectoryImpl parent, boolean putToMemoryCache) {
     PersistentFSImpl persistentFS = (PersistentFSImpl)PersistentFS.getInstance();
     VirtualFileSystemEntry dir = persistentFS.getCachedDir(id);
     if (dir != null) return dir;
@@ -125,7 +113,7 @@ public class VfsData {
     Object o = segment.myObjectArray.get(offset);
     if (o == null) return null;
 
-    if (o == ourDeadMarker) {
+    if (o == myDeadMarker) {
       throw reportDeadFileAccess(new VirtualFileImpl(id, segment, parent));
     }
     final int nameId = segment.getNameId(id);
@@ -134,88 +122,123 @@ public class VfsData {
       throw new AssertionError("nameId=" + nameId + "; data=" + o + "; parent=" + parent + "; parent.id=" + parent.getId() + "; db.parent=" + FSRecords.getParent(id));
     }
 
-    return o instanceof DirectoryData ? persistentFS.getOrCacheDir(id, segment, (DirectoryData)o, parent)
-                                      : new VirtualFileImpl(id, segment, parent);
+    if (o instanceof DirectoryData) {
+      if (putToMemoryCache) {
+        return persistentFS.getOrCacheDir(id, new VirtualDirectoryImpl(id, segment, (DirectoryData)o, parent, parent.getFileSystem()));
+      } else {
+        VirtualFileSystemEntry entry = persistentFS.getCachedDir(id);
+        if (entry != null) return entry;
+        return new VirtualDirectoryImpl(id, segment, (DirectoryData)o, parent, parent.getFileSystem());
+      }
+    }
+    return new VirtualFileImpl(id, segment, parent);
   }
 
-  private static InvalidVirtualFileAccessException reportDeadFileAccess(VirtualFileSystemEntry file) {
+  private static @NotNull InvalidVirtualFileAccessException reportDeadFileAccess(@NotNull VirtualFileSystemEntry file) {
     return new InvalidVirtualFileAccessException("Accessing dead virtual file: " + file.getUrl());
   }
 
   private static int getOffset(int id) {
+    if (id <= 0) throw new IllegalArgumentException("invalid argument id: "+id);
     return id & OFFSET_MASK;
   }
 
   @Nullable @Contract("_,true->!null")
-  public static Segment getSegment(int id, boolean create) {
+  public Segment getSegment(int id, boolean create) {
     int key = id >>> SEGMENT_BITS;
-    Segment segment = ourSegments.get(key);
+    Segment segment = mySegments.get(key);
     if (segment != null || !create) return segment;
-    return ourSegments.cacheOrGet(key, new Segment());
+    return mySegments.cacheOrGet(key, new Segment(this, key));
   }
-  
-  public static class FileAlreadyCreatedException extends Exception {
-    private FileAlreadyCreatedException(String message) {
+
+  public boolean hasLoadedFile(int id) {
+    Segment segment = getSegment(id, false);
+    return segment != null && segment.myObjectArray.get(getOffset(id)) != null;
+  }
+
+  public static final class FileAlreadyCreatedException extends RuntimeException {
+    private FileAlreadyCreatedException(@NotNull String message) {
       super(message);
     }
   }
 
-  public static void initFile(int id, Segment segment, int nameId, @NotNull Object data) throws FileAlreadyCreatedException {
-    assert id > 0;
+  static void initFile(int id, @NotNull Segment segment, int nameId, @NotNull Object data) throws FileAlreadyCreatedException {
     int offset = getOffset(id);
 
     segment.setNameId(id, nameId);
 
     Object existingData = segment.myObjectArray.get(offset);
     if (existingData != null) {
-      FSRecords.invalidateCaches();
-      int parent = FSRecords.getParent(id);
-      String msg = "File already created: " + nameId + ", data=" + existingData + "; parentId=" + parent;
-      if (parent > 0) {
-        msg += "; parent.name=" + FSRecords.getName(parent);
-        msg += "; parent.children=" + Arrays.toString(FSRecords.listAll(id));
-      }
+      String msg = FSRecords.diagnosticsForAlreadyCreatedFile(id, nameId, existingData);
       throw new FileAlreadyCreatedException(msg);
     }
     segment.myObjectArray.set(offset, data);
   }
 
-  static CharSequence getNameByFileId(int id) {
-    return FileNameCache.getVFileName(assertNotNull(getSegment(id, false)).getNameId(id));
+  @NotNull
+  CharSequence getNameByFileId(int id) {
+    return FileNameCache.getVFileName(getNameId(id));
   }
 
-  static boolean isFileValid(int id) {
-    return !ourInvalidatedIds.get(id);
+  int getNameId(int id) {
+    return Objects.requireNonNull(getSegment(id, false)).getNameId(id);
+  }
+
+  boolean isFileValid(int id) {
+    return !myInvalidatedIds.get(id);
   }
 
   @Nullable
-  static VirtualDirectoryImpl getChangedParent(int id) {
-    return ourChangedParents.get(id);
+  VirtualDirectoryImpl getChangedParent(int id) {
+    return myChangedParents.get(id);
   }
 
-  static void changeParent(int id, VirtualDirectoryImpl parent) {
-    ourChangedParents.put(id, parent);
+  private void changeParent(int id, @NotNull VirtualDirectoryImpl parent) {
+    ApplicationManager.getApplication().assertWriteAccessAllowed();
+    myChangedParents.put(id, parent);
   }
 
-  static void invalidateFile(int id) {
-    ourInvalidatedIds.set(id);
-    synchronized (ourDeadMarker) {
-      ourDyingIds.add(id);
+  void invalidateFile(int id) {
+    myInvalidatedIds.set(id);
+    synchronized (myDeadMarker) {
+      myDyingIds.add(id);
     }
   }
 
-  public static class Segment {
+  static final class Segment {
+    private final int myIndex;
     // user data for files, DirectoryData for folders
-    private final AtomicReferenceArray<Object> myObjectArray = new AtomicReferenceArray<>(SEGMENT_SIZE);
+    private final AtomicReferenceArray<Object> myObjectArray;
 
     // <nameId, flags> pairs, "flags" part containing flags per se and modification stamp
-    private final AtomicIntegerArray myIntArray = new AtomicIntegerArray(SEGMENT_SIZE * 2);
+    private final AtomicIntegerArray myIntArray;
+
+    @NotNull
+    final VfsData vfsData;
+
+    // the reference is synchronized by read-write lock; clients outside read-action deserve to get outdated result
+    @Nullable Segment replacement;
+
+    Segment(@NotNull VfsData vfsData, int index) {
+      this(vfsData, index, new AtomicReferenceArray<>(SEGMENT_SIZE), new AtomicIntegerArray(SEGMENT_SIZE * 2));
+    }
+
+    private Segment(@NotNull VfsData vfsData,
+                    int index,
+                    @NotNull AtomicReferenceArray<Object> objectArray,
+                    @NotNull AtomicIntegerArray intArray) {
+      myIndex = index;
+      myObjectArray = objectArray;
+      myIntArray = intArray;
+      this.vfsData = vfsData;
+    }
 
     int getNameId(int fileId) {
       return myIntArray.get(getOffset(fileId) * 2);
     }
 
     void setNameId(int fileId, int nameId) {
+      if (fileId <= 0 || nameId <= 0) throw new IllegalArgumentException("invalid arguments id: "+fileId+"; nameId: "+nameId);
       myIntArray.set(getOffset(fileId) * 2, nameId);
     }
 
@@ -223,7 +246,8 @@ public class VfsData {
       myObjectArray.set(getOffset(fileId), map);
     }
 
-    KeyFMap getUserMap(VirtualFileSystemEntry file, int id) {
+    @NotNull
+    KeyFMap getUserMap(@NotNull VirtualFileSystemEntry file, int id) {
       Object o = myObjectArray.get(getOffset(id));
       if (!(o instanceof KeyFMap)) {
         throw reportDeadFileAccess(file);
@@ -235,12 +259,12 @@ public class VfsData {
       return myObjectArray.compareAndSet(getOffset(fileId), oldMap, newMap);
     }
 
-    boolean getFlag(int id, int mask) {
+    boolean getFlag(int id, @VirtualFileSystemEntry.Flags int mask) {
       assert (mask & ~ALL_FLAGS_MASK) == 0 : "Unexpected flag";
       return (myIntArray.get(getOffset(id) * 2 + 1) & mask) != 0;
     }
 
-    void setFlag(int id, int mask, boolean value) {
+    void setFlag(int id, @VirtualFileSystemEntry.Flags int mask, boolean value) {
       if (LOG.isTraceEnabled()) {
         LOG.trace("Set flag " + Integer.toHexString(mask) + "=" + value + " for id=" + id);
       }
@@ -248,7 +272,23 @@ public class VfsData {
       int offset = getOffset(id) * 2 + 1;
       while (true) {
         int oldInt = myIntArray.get(offset);
-        int updated = value ? (oldInt | mask) : (oldInt & ~mask);
+        int updated = BitUtil.set(oldInt, mask, value);
+        if (myIntArray.compareAndSet(offset, oldInt, updated)) {
+          return;
+        }
+      }
+    }
+    void setFlags(int id, @VirtualFileSystemEntry.Flags int combinedMask, @VirtualFileSystemEntry.Flags int combinedValue) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Set flags " + Integer.toHexString(combinedMask) + "=" + combinedValue + " for id=" + id);
+      }
+      assert (combinedMask & ~ALL_FLAGS_MASK) == 0 : "Unexpected flag";
+      assert (~combinedMask & combinedValue) == 0 : "Value (" + Integer.toHexString(combinedValue)+ ") set bits outside mask ("+
+                                                    Integer.toHexString(combinedMask)+")";
+      int offset = getOffset(id) * 2 + 1;
+      while (true) {
+        int oldInt = myIntArray.get(offset);
+        int updated = oldInt & ~combinedMask | combinedValue;
         if (myIntArray.compareAndSet(offset, oldInt, updated)) {
           return;
         }
@@ -270,64 +310,130 @@ public class VfsData {
       }
     }
 
+    void changeParent(int fileId, VirtualDirectoryImpl directory) {
+      assert replacement == null;
+      replacement = new Segment(vfsData, myIndex, myObjectArray, myIntArray);
+      boolean replaced = vfsData.mySegments.replace(myIndex, this, replacement);
+      assert replaced;
+      vfsData.changeParent(fileId, directory);
+    }
   }
 
   // non-final field accesses are synchronized on this instance, but this happens in VirtualDirectoryImpl
-  public static class DirectoryData {
-    private static final AtomicFieldUpdater<DirectoryData, KeyFMap> updater = AtomicFieldUpdater.forFieldOfType(DirectoryData.class, KeyFMap.class);
-    @NotNull volatile KeyFMap myUserMap = KeyFMap.EMPTY_MAP;
-    @NotNull int[] myChildrenIds = ArrayUtil.EMPTY_INT_ARRAY; // guarded by this
-    private Set<CharSequence> myAdoptedNames; // guarded by this
-
+  static final class DirectoryData {
+    private static final AtomicFieldUpdater<DirectoryData, KeyFMap> MY_USER_MAP_UPDATER = AtomicFieldUpdater.forFieldOfType(DirectoryData.class, KeyFMap.class);
     @NotNull
-    VirtualFileSystemEntry[] getFileChildren(int fileId, @NotNull VirtualDirectoryImpl parent) {
-      assert fileId > 0;
-      VirtualFileSystemEntry[] children = new VirtualFileSystemEntry[myChildrenIds.length];
-      for (int i = 0; i < myChildrenIds.length; i++) {
-        children[i] = assertNotNull(getFileById(myChildrenIds[i], parent));
+    volatile KeyFMap myUserMap = KeyFMap.EMPTY_MAP;
+    /**
+     * sorted by {@link VfsData#getNameByFileId(int)}
+     * assigned under lock(this) only; never modified in-place
+     * @see VirtualDirectoryImpl#findIndex(int[], CharSequence)
+     */
+    volatile int @NotNull [] myChildrenIds = ArrayUtilRt.EMPTY_INT_ARRAY; // guarded by this
+
+    // assigned under lock(this) only; accessed/modified map contents under lock(myAdoptedNames)
+    private volatile Set<CharSequence> myAdoptedNames;
+
+    VirtualFileSystemEntry @NotNull [] getFileChildren(@NotNull VirtualDirectoryImpl parent, boolean putToMemoryCache) {
+      int[] ids = myChildrenIds;
+      VirtualFileSystemEntry[] children = new VirtualFileSystemEntry[ids.length];
+      for (int i = 0; i < ids.length; i++) {
+        int childId = ids[i];
+        VirtualFileSystemEntry child = parent.getVfsData().getFileById(childId, parent, putToMemoryCache);
+        if (child == null) {
+          throw new AssertionError("No file for id " + childId + ", parentId = " + parent.myId);
+        }
+        children[i] = child;
       }
       return children;
     }
 
-    boolean changeUserMap(KeyFMap oldMap, KeyFMap newMap) {
-      return updater.compareAndSet(this, oldMap, newMap);
+    boolean changeUserMap(@NotNull KeyFMap oldMap, @NotNull KeyFMap newMap) {
+      return MY_USER_MAP_UPDATER.compareAndSet(this, oldMap, newMap);
     }
 
-    boolean isAdoptedName(CharSequence name) {
-      return myAdoptedNames != null && myAdoptedNames.contains(name);
+    boolean isAdoptedName(@NotNull CharSequence name) {
+      Set<CharSequence> adopted = myAdoptedNames;
+      if (adopted == null) {
+        return false;
+      }
+      synchronized (adopted) {
+        return adopted.contains(name);
+      }
     }
 
-    void removeAdoptedName(CharSequence name) {
-      if (myAdoptedNames != null) {
-        myAdoptedNames.remove(name);
-        if (myAdoptedNames.isEmpty()) {
+    /**
+     * must call removeAdoptedName() before adding new child with the same name
+     * or otherwise {@link VirtualDirectoryImpl#doFindChild(String, boolean, NewVirtualFileSystem, boolean)} would risk finding already non-existing child
+     *
+     * Must be called in synchronized(VfsData)
+     */
+    void removeAdoptedName(@NotNull CharSequence name) {
+      Set<CharSequence> adopted = myAdoptedNames;
+      if (adopted == null) {
+        return;
+      }
+      synchronized (adopted) {
+        boolean removed = adopted.remove(name);
+        if (removed && adopted.isEmpty()) {
           myAdoptedNames = null;
         }
       }
     }
-    void addAdoptedName(CharSequence name, boolean caseSensitive) {
-      if (myAdoptedNames == null) {
-        myAdoptedNames = new THashSet<>(0, caseSensitive ? CharSequenceHashingStrategy.CASE_SENSITIVE : CharSequenceHashingStrategy.CASE_INSENSITIVE);
+
+    /**
+     * Must be called in synchronized(VfsData)
+     */
+    void addAdoptedName(@NotNull CharSequence name, boolean caseSensitive) {
+      Set<CharSequence> adopted = getOrCreateAdoptedNames(caseSensitive);
+      CharSequence sequence = ByteArrayCharSequence.convertToBytesIfPossible(name);
+      synchronized (adopted) {
+        adopted.add(sequence);
       }
-      myAdoptedNames.add(name);
     }
-    void addAdoptedNames(Collection<CharSequence> names, boolean caseSensitive) {
-      if (myAdoptedNames == null) {
-        myAdoptedNames = new THashSet<>(0, caseSensitive ? CharSequenceHashingStrategy.CASE_SENSITIVE : CharSequenceHashingStrategy.CASE_INSENSITIVE);
+
+    /**
+     * Optimization: faster than call {@link #addAdoptedName(CharSequence, boolean)} one by one
+     * Must be called in synchronized(VfsData)
+     */
+    void addAdoptedNames(@NotNull Collection<? extends CharSequence> names, boolean caseSensitive) {
+      Set<CharSequence> adopted = getOrCreateAdoptedNames(caseSensitive);
+      synchronized (adopted) {
+        adopted.addAll(names);
       }
-      myAdoptedNames.addAll(names);
+    }
+
+    /**
+     * Must be called in synchronized(VfsData)
+     */
+    @NotNull
+    private Set<CharSequence> getOrCreateAdoptedNames(boolean caseSensitive) {
+      Set<CharSequence> adopted = myAdoptedNames;
+      if (adopted == null) {
+        adopted = CollectionFactory.createCharSequenceSet(caseSensitive);
+        myAdoptedNames = adopted;
+      }
+      return adopted;
     }
 
     @NotNull
-    Collection<CharSequence> getAdoptedNames() {
-      return myAdoptedNames == null ? Collections.emptyList() : myAdoptedNames;
+    List<String> getAdoptedNames() {
+      Set<CharSequence> adopted = myAdoptedNames;
+      if (adopted == null) return Collections.emptyList();
+      synchronized (adopted) {
+        return ContainerUtil.map(adopted, Functions.TO_STRING());
+      }
     }
 
+    /**
+     * Must be called in synchronized(VfsData)
+     */
     void clearAdoptedNames() {
       myAdoptedNames = null;
     }
 
     @Override
+    @NonNls
     public String toString() {
       return "DirectoryData{" +
              "myUserMap=" + myUserMap +
@@ -336,5 +442,4 @@ public class VfsData {
              '}';
     }
   }
-
 }

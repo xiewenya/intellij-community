@@ -1,55 +1,51 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.roots
 
-import com.intellij.openapi.extensions.Extensions
+import com.intellij.openapi.module.EmptyModuleType
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.io.FileUtil.toSystemDependentName
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vcs.VcsConfiguration
+import com.intellij.openapi.vcs.VcsDirectoryMapping
 import com.intellij.openapi.vcs.VcsRootChecker
+import com.intellij.openapi.vcs.VcsRootError.Type.EXTRA_MAPPING
+import com.intellij.openapi.vcs.VcsRootErrorImpl
 import com.intellij.openapi.vcs.changes.committed.MockAbstractVcs
-import com.intellij.openapi.vcs.roots.VcsRootBaseTest.DOT_MOCK
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.PsiTestUtil
+import com.intellij.testFramework.VfsTestUtil
 import com.intellij.vcs.test.VcsPlatformTest
-import com.intellij.vcsUtil.VcsUtil.getFilePath
-import java.io.File
+import com.intellij.vcsUtil.VcsUtil
 
 class VcsRootProblemNotifierTest : VcsPlatformTest() {
+  private lateinit var rootModule: Module
 
   private lateinit var checker: VcsRootChecker
   private lateinit var vcs: MockAbstractVcs
-  private lateinit var rootProblemNotifier: VcsRootProblemNotifier
+  private lateinit var notifier: VcsRootProblemNotifier
 
   override fun setUp() {
     super.setUp()
 
-    vcs = MockAbstractVcs(myProject)
+    rootModule = doCreateRealModuleIn("foo", myProject, EmptyModuleType.getInstance())
+
+    vcs = object : MockAbstractVcs(myProject) {
+      override fun allowsNestedRoots(): Boolean = true
+    }
     checker = MockRootChecker(vcs)
-    getExtensionPoint().registerExtension(checker)
+    VcsRootChecker.EXTENSION_POINT_NAME.point.registerExtension(checker, testRootDisposable)
     vcsManager.registerVcs(vcs)
 
-    rootProblemNotifier = VcsRootProblemNotifier.getInstance(myProject)
+    notifier = VcsRootProblemNotifier.createInstance(myProject)
+    Registry.get("vcs.root.auto.add.nofity").setValue(true)
   }
 
   override fun tearDown() {
     try {
-      if (wasInit { checker }) getExtensionPoint().unregisterExtension(checker)
-      if (wasInit { vcs }) vcsManager.unregisterVcs(vcs)
+      if (::vcs.isInitialized) {
+        vcsManager.unregisterVcs(vcs)
+      }
+      Registry.get("vcs.root.auto.add.nofity").resetToDefault()
     }
     finally {
       super.tearDown()
@@ -58,40 +54,106 @@ class VcsRootProblemNotifierTest : VcsPlatformTest() {
 
   override fun getDebugLogCategories() = super.getDebugLogCategories().plus("#com.intellij.openapi.vcs.roots")
 
-  fun `test root is added automatically in simple case`() {
-    assertTrue(File(projectPath, DOT_MOCK).mkdir())
+  fun `test single root equal to project dir is auto-added silently`() {
+    createRepoDir(projectRoot)
 
-    VcsRootProblemNotifier.getInstance(myProject).rescanAndNotifyIfNeeded()
+    notifier.rescanAndNotifyIfNeeded()
 
     assertNoNotification()
     assertSameElements(vcsManager.allVersionedRoots, projectRoot)
   }
 
-  fun `test nothing is added automatically if two roots detected`() {
+  fun `test single root deeply under project dir is auto-added and reported`() {
+    PsiTestUtil.addContentRoot(rootModule, projectRoot)
+    val deepRoot = VfsTestUtil.createDir(projectRoot, "lib")
+    createRepoDir(deepRoot)
+
+    notifier.rescanAndNotifyIfNeeded()
+
+    // "Root under project dir should be auto-added"
+    assertSameElements(vcsManager.allVersionedRoots, deepRoot)
+    assertSuccessfulNotification("mock Integration Enabled", notifier.getPresentableMapping(deepRoot.path))
+  }
+
+  fun `test two roots under project dir are auto-added and reported`() {
     val subRoot = createNestedRoots()
 
-    rootProblemNotifier.rescanAndNotifyIfNeeded()
+    notifier.rescanAndNotifyIfNeeded()
 
-    assertFalse("No roots should be auto-added since it is not the simple case", vcsManager.hasAnyMappings())
-    assertSuccessfulNotification("Unregistered VCS roots detected","""
-      The following directories are roots of VCS repositories, but they are not registered in the Settings:
-      ${toSystemDependentName(projectPath)}
-      ${toSystemDependentName(subRoot.path)}
-      <a>Add roots</a> <a>Configure</a> <a>Ignore</a>
+    assertSameElements(vcsManager.allVersionedRoots, projectRoot, subRoot)
+    assertSuccessfulNotification("mock Integration Enabled","""
+      ${notifier.getPresentableMapping(projectPath)}
+      ${notifier.getPresentableMapping(subRoot.path)}
       """.trimIndent())
+  }
+
+  fun `test root above project dir is auto-added and reported`() {
+    val aboveRoot = testRoot
+    createRepoDir(aboveRoot)
+    projectRoot
+
+    notifier.rescanAndNotifyIfNeeded()
+
+    assertSameElements(vcsManager.allVersionedRoots, aboveRoot)
+    assertSuccessfulNotification("mock Integration Enabled", notifier.getPresentableMapping(aboveRoot.path))
+  }
+
+  fun `test root above project dir and deeply under project dir are auto-added and reported`() {
+    PsiTestUtil.addContentRoot(rootModule, projectRoot)
+    val shallowRoot = VfsTestUtil.createDir(projectRoot, "lib")
+    createRepoDir(shallowRoot)
+    val deepRoot = VfsTestUtil.createDir(projectRoot, "some/deep/folder/lib")
+    createRepoDir(deepRoot)
+    val aboveRoot = testRoot
+    createRepoDir(aboveRoot)
+
+    notifier.rescanAndNotifyIfNeeded()
+
+    assertSameElements(vcsManager.allVersionedRoots, aboveRoot, shallowRoot, deepRoot)
+    assertSuccessfulNotification("mock Integration Enabled", """
+      ${notifier.getPresentableMapping(aboveRoot.path)}
+      ${notifier.getPresentableMapping(shallowRoot.path)}
+      ${notifier.getPresentableMapping(deepRoot.path)}
+      """.trimIndent())
+  }
+
+  fun `test root deeply under project dir are not auto-added without content root`() {
+    val shallowRoot = VfsTestUtil.createDir(projectRoot, "lib")
+    createRepoDir(shallowRoot)
+    val deepRoot = VfsTestUtil.createDir(projectRoot, "some/deep/folder/lib")
+    createRepoDir(deepRoot)
+    val aboveRoot = testRoot
+    createRepoDir(aboveRoot)
+
+    notifier.rescanAndNotifyIfNeeded()
+
+    assertSameElements(vcsManager.allVersionedRoots, aboveRoot)
+    assertSuccessfulNotification("mock Integration Enabled", """
+      ${notifier.getPresentableMapping(aboveRoot.path)}
+      """.trimIndent())
+  }
+
+  fun `test if project dir is a root and there is a root above project dir, the first is auto-added silently, second is ignored`() {
+    createRepoDir(testRoot)
+    createRepoDir(projectRoot)
+
+    notifier.rescanAndNotifyIfNeeded()
+
+    assertSameElements(vcsManager.allVersionedRoots, projectRoot)
+    assertNoNotification()
   }
 
   // IDEA-168690
   fun `test root is not added back if explicitly removed`() {
-    assertTrue(File(projectPath, DOT_MOCK).mkdir())
-    vcsManager.setDirectoryMapping(projectPath, vcs.name)
+    createRepoDir(projectRoot)
+    vcsManager.setDirectoryMapping(projectNioRoot.toString(), vcs.name)
     assertSameElements(vcsManager.allVersionedRoots, projectRoot)
 
-    val mapping = vcsManager.getDirectoryMappingFor(getFilePath(projectRoot))
-    vcsManager.removeDirectoryMapping(mapping)
-    VcsConfiguration.getInstance(myProject).addIgnoredUnregisteredRoots(listOf(projectPath))
+    val mapping = vcsManager.getDirectoryMappingFor(VcsUtil.getFilePath(projectRoot))
+    vcsManager.removeDirectoryMapping(mapping!!)
+    VcsConfiguration.getInstance(project).addIgnoredUnregisteredRoots(listOf(projectPath))
 
-    rootProblemNotifier.rescanAndNotifyIfNeeded()
+    notifier.rescanAndNotifyIfNeeded()
 
     assertNoNotification()
     assertFalse("The root shouldn't be auto-added after explicit removal", vcsManager.hasAnyMappings())
@@ -100,33 +162,31 @@ class VcsRootProblemNotifierTest : VcsPlatformTest() {
   // IDEA-CR-18592
   fun `test single root is not added automatically if there is ignored root`() {
     val subRoot = createNestedRoots()
-    VcsConfiguration.getInstance(myProject).addIgnoredUnregisteredRoots(listOf(FileUtil.toSystemIndependentName(subRoot.path)))
+    VcsConfiguration.getInstance(project).addIgnoredUnregisteredRoots(listOf(FileUtil.toSystemIndependentName(subRoot.path)))
 
-    rootProblemNotifier.rescanAndNotifyIfNeeded()
+    notifier.rescanAndNotifyIfNeeded()
 
     assertFalse("The root shouldn't be auto-added because it is not the only one", vcsManager.hasAnyMappings())
-    assertSuccessfulNotification("Unregistered VCS root detected","""
-      The directory ${toSystemDependentName(projectPath)} is under mock, but is not registered in the Settings.
-      <a>Add root</a> <a>Configure</a> <a>Ignore</a>
-      """.trimIndent())
+    assertSuccessfulNotification("mock Repository Found", notifier.getPresentableMapping(projectPath))
   }
 
-  private fun createNestedRoots(): File {
-    assertTrue(File(projectPath, DOT_MOCK).mkdir())
-    val subRoot = File(projectPath, "lib")
-    assertTrue(File(subRoot, DOT_MOCK).mkdirs())
-    LocalFileSystem.getInstance().refreshAndFindFileByIoFile(subRoot)
+  fun `test invalid roots are notified even if notification is not shown for unregistered (auto-added) roots`() {
+    Registry.get("vcs.root.auto.add.nofity").setValue(false)
+
+    vcsManager.setDirectoryMapping(projectPath, vcs.name)
+    notifier.rescanAndNotifyIfNeeded()
+
+    val rootError = VcsRootErrorImpl(EXTRA_MAPPING, VcsDirectoryMapping(projectPath, vcs.keyInstanceMethod.name))
+    assertErrorNotification("Invalid VCS root mapping", notifier.getInvalidRootDescriptionItem(rootError, vcs.name))
+  }
+
+  private fun createNestedRoots(): VirtualFile {
+    PsiTestUtil.addContentRoot(rootModule, projectRoot)
+    createRepoDir(projectRoot)
+    val subRoot = VfsTestUtil.createDir(projectRoot, "lib")
+    createRepoDir(subRoot)
     return subRoot
   }
-
-  private fun getExtensionPoint() = Extensions.getRootArea().getExtensionPoint(VcsRootChecker.EXTENSION_POINT_NAME)
-
-  private class MockRootChecker(private val vcs: MockAbstractVcs) : VcsRootChecker() {
-    override fun getSupportedVcs() = vcs.keyInstanceMethod!!
-
-    override fun isRoot(path: String) = File(path, DOT_MOCK).exists()
-
-    override fun isVcsDir(path: String) = path.toLowerCase().endsWith(DOT_MOCK)
-  }
-
 }
+
+private fun createRepoDir(parent: VirtualFile) = VfsTestUtil.createDir(parent, DOT_MOCK)

@@ -1,16 +1,18 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.evaluate;
 
 import com.intellij.codeInsight.lookup.LookupManager;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.components.BorderLayoutPanel;
 import com.intellij.xdebugger.*;
@@ -27,6 +29,7 @@ import com.intellij.xdebugger.impl.ui.XDebuggerEditorBase;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreePanel;
 import com.intellij.xdebugger.impl.ui.tree.nodes.EvaluatingExpressionRootNode;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,9 +42,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.function.Supplier;
 
-/**
- * @author nik
- */
 public class XDebuggerEvaluationDialog extends DialogWrapper {
   public static final DataKey<XDebuggerEvaluationDialog> KEY = DataKey.create("DEBUGGER_EVALUATION_DIALOG");
 
@@ -54,7 +54,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   private final XDebuggerTreePanel myTreePanel;
   private EvaluationInputComponent myInputComponent;
   private final XDebugSession mySession;
-  private final Supplier<XDebuggerEvaluator> myEvaluatorSupplier;
+  private final Supplier<? extends XDebuggerEvaluator> myEvaluatorSupplier;
   private final Project myProject;
   private final XDebuggerEditorsProvider myEditorsProvider;
   private EvaluationMode myMode;
@@ -80,13 +80,13 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   }
 
   private XDebuggerEvaluationDialog(@Nullable XDebugSession session,
-                                    @Nullable Supplier<XDebuggerEvaluator> evaluatorSupplier,
+                                    @Nullable Supplier<? extends XDebuggerEvaluator> evaluatorSupplier,
                                     @NotNull Project project,
                                     @NotNull XDebuggerEditorsProvider editorsProvider,
                                     @NotNull XExpression text,
                                     @Nullable XSourcePosition sourcePosition,
                                     boolean isCodeFragmentEvaluationSupported) {
-    super(WindowManager.getInstance().getFrame(project), true);
+    super(project, true);
     mySession = session;
     myEvaluatorSupplier = evaluatorSupplier;
     myProject = project;
@@ -114,13 +114,13 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
     new AnAction(){
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         e.getPresentation().setEnabled(session != null && project != null && LookupManager.getInstance(project).getActiveLookup() == null);
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         //doOKAction(); // do not evaluate on add to watches
         addToWatches();
       }
@@ -128,7 +128,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         IdeFocusManager.getInstance(project).requestFocus(myTreePanel.getTree(), true);
       }
     }.registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.ALT_DOWN_MASK)), getRootPane(),
@@ -145,6 +145,8 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
     }
     setTitle(XDebuggerBundle.message("xdebugger.evaluate.dialog.title"));
     switchToMode(mode, text);
+    FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "dialog.open",
+                                                new FeatureUsageData().addData("mode", mode.name()));
     if (mode == EvaluationMode.EXPRESSION) {
       myInputComponent.getInputEditor().selectAll();
     }
@@ -184,6 +186,8 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
 
   @Override
   protected void doOKAction() {
+    FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "evaluate",
+                                                new FeatureUsageData().addData("mode", myMode.name()));
     evaluate();
   }
 
@@ -236,7 +240,7 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
     return getInputEditor().getExpression();
   }
 
-  private static String getSwitchButtonText(EvaluationMode mode) {
+  private static @Nls String getSwitchButtonText(EvaluationMode mode) {
     return mode != EvaluationMode.EXPRESSION
            ? XDebuggerBundle.message("button.text.expression.mode")
            : XDebuggerBundle.message("button.text.code.fragment.mode");
@@ -293,14 +297,13 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
     final XDebuggerTree tree = myTreePanel.getTree();
     tree.markNodesObsolete();
     tree.setRoot(new EvaluatingExpressionRootNode(this, tree), false);
-    tree.selectNodeOnLoad(XDebuggerEvaluationDialog::isFirstChild);
+    tree.selectNodeOnLoad(XDebuggerEvaluationDialog::isFirstChild, Conditions.alwaysFalse());
 
     myResultPanel.invalidate();
 
     //editor is already changed
     editor = inputEditor.getEditor();
-    //selectAll puts focus back
-    inputEditor.selectAll();
+    inputEditor.requestFocusInEditor();
 
     //try to restore caret position and clear selection
     if (offset >= 0 && editor != null) {
@@ -360,6 +363,8 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
       EvaluationMode newMode = (myMode == EvaluationMode.EXPRESSION) ? EvaluationMode.CODE_FRAGMENT : EvaluationMode.EXPRESSION;
       // remember only on user selection
       XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().setEvaluationDialogMode(newMode);
+      FUCounterUsageLogger.getInstance().logEvent("debugger.evaluate.usage", "mode.switch",
+                                                  new FeatureUsageData().addData("mode", newMode.name()));
       switchToMode(newMode, text);
     }
   }
@@ -367,11 +372,18 @@ public class XDebuggerEvaluationDialog extends DialogWrapper {
   private class EvaluationMainPanel extends BorderLayoutPanel implements DataProvider {
     @Nullable
     @Override
-    public Object getData(@NonNls String dataId) {
+    public Object getData(@NotNull @NonNls String dataId) {
       if (KEY.is(dataId)) {
         return XDebuggerEvaluationDialog.this;
       }
       return null;
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+      Dimension d = super.getMinimumSize();
+      d.width = Math.max(d.width, JBUI.scale(450));
+      return d;
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,12 +60,6 @@ public class ObjectEqualityInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("object.comparison.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("object.comparison.problem.description");
   }
@@ -85,9 +79,8 @@ public class ObjectEqualityInspection extends BaseInspection {
     return new ObjectEqualityVisitor();
   }
 
-  @NotNull
   @Override
-  public InspectionGadgetsFix[] buildFixes(Object... infos) {
+  public InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
     return EqualityToEqualsFix.buildEqualityFixes((PsiBinaryExpression)infos[0]);
   }
 
@@ -112,7 +105,7 @@ public class ObjectEqualityInspection extends BaseInspection {
           (isThisReference(lhs, method.getContainingClass()) || isThisReference(rhs, method.getContainingClass()))) {
         return;
       }
-      if (m_ignoreEnums && TypeConversionUtil.isEnumType(lhs.getType())) {
+      if (m_ignoreEnums && (TypeConversionUtil.isEnumType(lhs.getType()) || TypeConversionUtil.isEnumType(rhs.getType()))) {
         return;
       }
       ProblemHighlightType highlightType;
@@ -135,10 +128,11 @@ public class ObjectEqualityInspection extends BaseInspection {
         // don't warn on non-compiling code, but allow to replace
         return false;
       }
-      if (m_ignoreClassObjects && ClassUtils.isFinalClassWithDefaultEquals(PsiUtil.resolveClassInClassTypeOnly(lhs.getType()))) {
+      if (m_ignoreClassObjects && (ClassUtils.isFinalClassWithDefaultEquals(PsiUtil.resolveClassInClassTypeOnly(lhs.getType())) ||
+                                   ClassUtils.isFinalClassWithDefaultEquals(PsiUtil.resolveClassInClassTypeOnly(rhs.getType())))) {
         return false;
       }
-      if (m_ignorePrivateConstructors && typeHasPrivateConstructor(lhs)) {
+      if (m_ignorePrivateConstructors && (typeHasPrivateConstructor(lhs) || typeHasPrivateConstructor(rhs))) {
         return false;
       }
       return true;

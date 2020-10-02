@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ContentFolder;
 import com.intellij.openapi.roots.ExcludeFolder;
@@ -34,6 +19,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.JpsElement;
@@ -46,10 +32,12 @@ import org.jetbrains.jps.model.serialization.module.JpsModuleRootModelSerializer
 import java.util.*;
 
 /**
- *  @author dsl
+ * This class isn't used in the new implementation of project model, which is based on {@link com.intellij.workspaceModel.ide Workspace Model}.
+ * It shouldn't be used directly, its interface {@link ContentEntry} should be used instead.
  */
-public class ContentEntryImpl extends RootModelComponentBase implements ContentEntry, ClonableContentEntry, Comparable<ContentEntryImpl> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.impl.SimpleContentEntryImpl");
+@ApiStatus.Internal
+public final class ContentEntryImpl extends RootModelComponentBase implements ContentEntry, ClonableContentEntry, Comparable<ContentEntryImpl> {
+  private static final Logger LOG = Logger.getInstance(ContentEntryImpl.class);
   @NotNull private final VirtualFilePointer myRoot;
   @NonNls public static final String ELEMENT_NAME = JpsModuleRootModelSerializer.CONTENT_TAG;
   private final Set<SourceFolder> mySourceFolders = new LinkedHashSet<>();
@@ -58,7 +46,8 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
   private List<String> myExcludePatterns;
 
   ContentEntryImpl(@NotNull VirtualFile file, @NotNull RootModelImpl m) {
-    this(file.getUrl(), m);
+    super(m);
+    myRoot = VirtualFilePointerManager.getInstance().create(file, this, m.getRootsChangedListener());
   }
 
   ContentEntryImpl(@NotNull String url, @NotNull RootModelImpl m) {
@@ -79,7 +68,7 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     }
   }
 
-  private static String getUrlFrom(@NotNull Element e) throws InvalidDataException {
+  private static @NotNull String getUrlFrom(@NotNull Element e) throws InvalidDataException {
     LOG.assertTrue(ELEMENT_NAME.equals(e.getName()));
 
     String url = e.getAttributeValue(URL_ATTRIBUTE);
@@ -112,9 +101,8 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     return myRoot.getUrl();
   }
 
-  @NotNull
   @Override
-  public SourceFolder[] getSourceFolders() {
+  public SourceFolder @NotNull [] getSourceFolders() {
     return mySourceFolders.toArray(new SourceFolder[0]);
   }
 
@@ -137,8 +125,7 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getSourceFolderFiles() {
+  public VirtualFile @NotNull [] getSourceFolderFiles() {
     assert !isDisposed();
     final SourceFolder[] sourceFolders = getSourceFolders();
     ArrayList<VirtualFile> result = new ArrayList<>(sourceFolders.length);
@@ -151,9 +138,8 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     return VfsUtilCore.toVirtualFileArray(result);
   }
 
-  @NotNull
   @Override
-  public ExcludeFolder[] getExcludeFolders() {
+  public ExcludeFolder @NotNull [] getExcludeFolders() {
     //assert !isDisposed();
     return myExcludeFolders.toArray(new ExcludeFolder[0]);
   }
@@ -165,7 +151,7 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     for (ExcludeFolder folder : myExcludeFolders) {
       excluded.add(folder.getUrl());
     }
-    for (DirectoryIndexExcludePolicy excludePolicy : Extensions.getExtensions(DirectoryIndexExcludePolicy.EP_NAME, getRootModel().getProject())) {
+    for (DirectoryIndexExcludePolicy excludePolicy : DirectoryIndexExcludePolicy.EP_NAME.getExtensions(getRootModel().getProject())) {
       for (VirtualFilePointer pointer : excludePolicy.getExcludeRootsForModule(getRootModel())) {
         excluded.add(pointer.getUrl());
       }
@@ -174,14 +160,13 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
   }
 
   @Override
-  @NotNull
-  public VirtualFile[] getExcludeFolderFiles() {
+  public VirtualFile @NotNull [] getExcludeFolderFiles() {
     assert !isDisposed();
-    ArrayList<VirtualFile> result = new ArrayList<>();
+    List<VirtualFile> result = new ArrayList<>();
     for (ExcludeFolder excludeFolder : getExcludeFolders()) {
       ContainerUtil.addIfNotNull(result, excludeFolder.getFile());
     }
-    for (DirectoryIndexExcludePolicy excludePolicy : Extensions.getExtensions(DirectoryIndexExcludePolicy.EP_NAME, getRootModel().getProject())) {
+    for (DirectoryIndexExcludePolicy excludePolicy : DirectoryIndexExcludePolicy.EP_NAME.getExtensions(getRootModel().getProject())) {
       for (VirtualFilePointer pointer : excludePolicy.getExcludeRootsForModule(getRootModel())) {
         ContainerUtil.addIfNotNull(result, pointer.getFile());
       }
@@ -267,6 +252,7 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     mySourceFolders.clear();
   }
 
+  @NotNull
   @Override
   public ExcludeFolder addExcludeFolder(@NotNull VirtualFile file) {
     assert !isDisposed();
@@ -274,6 +260,7 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     return addExcludeFolder(new ExcludeFolderImpl(file, this));
   }
 
+  @NotNull
   @Override
   public ExcludeFolder addExcludeFolder(@NotNull String url) {
     assert !isDisposed();
@@ -360,7 +347,8 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     }
   }
 
-  private ExcludeFolder addExcludeFolder(ExcludeFolder f) {
+  @NotNull
+  private ExcludeFolder addExcludeFolder(@NotNull ExcludeFolder f) {
     Disposer.register(this, (Disposable)f);
     myExcludeFolders.add(f);
     return f;
@@ -451,5 +439,10 @@ public class ContentEntryImpl extends RootModelComponentBase implements ContentE
     i = ArrayUtil.lexicographicCompare(getExcludeFolders(), other.getExcludeFolders());
     if (i != 0) return i;
     return ContainerUtil.compareLexicographically(getExcludePatterns(), other.getExcludePatterns());
+  }
+
+  @Override
+  public String toString() {
+    return "ContentEntryImpl for '"+getUrl()+"'";
   }
 }

@@ -1,14 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties;
 
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
@@ -19,6 +16,7 @@ import com.intellij.reference.SoftLazyValue;
 import com.intellij.util.Function;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,9 +25,6 @@ import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author cdr
- */
 public class PropertiesUtil {
   private static final Pattern LOCALE_PATTERN = Pattern.compile("(_[a-zA-Z]{2,8}(_[a-zA-Z]{2}|[0-9]{3})?(_[\\w\\-]+)?)\\.[^_]+$");
   public static final Set<Character> BASE_NAME_BORDER_CHAR = ContainerUtil.newHashSet('-', '_', '.');
@@ -68,7 +63,7 @@ public class PropertiesUtil {
   }
 
   @NotNull
-  public static String getDefaultBaseName(final Collection<PropertiesFile> files) {
+  public static String getDefaultBaseName(final Collection<? extends PropertiesFile> files) {
     String commonPrefix = null;
     for (PropertiesFile file : files) {
       final String baseName = file.getVirtualFile().getNameWithoutExtension();
@@ -101,7 +96,7 @@ public class PropertiesUtil {
         final String name = file.getName();
 
         if (!StringUtil.containsChar(name, '_')) {
-          return FileUtil.getNameWithoutExtension(name);
+          return FileUtilRt.getNameWithoutExtension(name);
         }
 
         final Matcher matcher = LOCALE_PATTERN.matcher(name);
@@ -118,11 +113,11 @@ public class PropertiesUtil {
               continue;
             }
             baseNameWithExtension = name.substring(0, matchResult.start(1)) + name.substring(matchResult.end(1));
-            return FileUtil.getNameWithoutExtension(baseNameWithExtension);
+            return FileUtilRt.getNameWithoutExtension(baseNameWithExtension);
           }
         }
         baseNameWithExtension = name;
-        return FileUtil.getNameWithoutExtension(baseNameWithExtension);
+        return FileUtilRt.getNameWithoutExtension(baseNameWithExtension);
       }
     });
   }
@@ -170,7 +165,7 @@ public class PropertiesUtil {
    * messages_en.properties is a parent of the messages_en_US.properties
    */
   @Nullable
-  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<PropertiesFile> candidates) {
+  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<? extends PropertiesFile> candidates) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile == null) return null;
     String name = virtualFile.getNameWithoutExtension();
@@ -228,15 +223,15 @@ public class PropertiesUtil {
   }
 
   @NotNull
-  public static String getPresentableLocale(@NotNull Locale locale) {
+  public static @Nls String getPresentableLocale(@NotNull Locale locale) {
     List<String> names = new ArrayList<>();
-    if (!Comparing.strEqual(locale.getDisplayLanguage(), null)) {
+    if (locale.getDisplayLanguage() != null) {
       names.add(locale.getDisplayLanguage());
     }
-    if (!Comparing.strEqual(locale.getDisplayCountry(), null)) {
+    if (locale.getDisplayCountry() != null) {
       names.add(locale.getDisplayCountry());
     }
-    if (!Comparing.strEqual(locale.getDisplayVariant(), null)) {
+    if (locale.getDisplayVariant() != null) {
       names.add(locale.getDisplayVariant());
     }
     return names.isEmpty() ? "" : " (" + StringUtil.join(names, "/") + ")";
@@ -250,7 +245,7 @@ public class PropertiesUtil {
   public static String getSuffix(@NotNull PropertiesFile propertiesFile) {
     final String baseName = propertiesFile.getResourceBundle().getBaseName();
     final String propertiesFileName = propertiesFile.getName();
-    if (baseName.equals(FileUtil.getNameWithoutExtension(propertiesFileName))) return "";
-    return FileUtil.getNameWithoutExtension(propertiesFileName.substring(baseName.length() + 1));
+    if (baseName.equals(FileUtilRt.getNameWithoutExtension(propertiesFileName))) return "";
+    return FileUtilRt.getNameWithoutExtension(propertiesFileName.substring(baseName.length() + 1));
   }
 }

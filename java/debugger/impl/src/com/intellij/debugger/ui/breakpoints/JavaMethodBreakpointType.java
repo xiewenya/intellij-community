@@ -1,15 +1,17 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.HelpID;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiMethod;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaMethodBreakpointProperties;
@@ -19,10 +21,9 @@ import javax.swing.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMethodBreakpointProperties>
-                                      implements JavaBreakpointType<JavaMethodBreakpointProperties> {
+public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMethodBreakpointProperties> {
   public JavaMethodBreakpointType() {
-    super("java-method", DebuggerBundle.message("method.breakpoints.tab.title"));
+    super("java-method", JavaDebuggerBundle.message("method.breakpoints.tab.title"));
   }
 
   @NotNull
@@ -39,6 +40,12 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
 
   @NotNull
   @Override
+  public Icon getSuspendNoneIcon() {
+    return AllIcons.Debugger.Db_no_suspend_method_breakpoint;
+  }
+
+  @NotNull
+  @Override
   public Icon getMutedEnabledIcon() {
     return AllIcons.Debugger.Db_muted_method_breakpoint;
   }
@@ -49,6 +56,12 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
     return AllIcons.Debugger.Db_muted_disabled_method_breakpoint;
   }
 
+  @NotNull
+  @Override
+  public Icon getInactiveDependentIcon() {
+    return AllIcons.Debugger.Db_dep_method_breakpoint;
+  }
+
   //@Override
   protected String getHelpID() {
     return HelpID.METHOD_BREAKPOINTS;
@@ -56,7 +69,7 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
 
   //@Override
   public String getDisplayName() {
-    return DebuggerBundle.message("method.breakpoints.tab.title");
+    return JavaDebuggerBundle.message("method.breakpoints.tab.title");
   }
 
   @Override
@@ -64,6 +77,7 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
     return getText(breakpoint);
   }
 
+  @Nls
   static String getText(XBreakpoint<JavaMethodBreakpointProperties> breakpoint) {
     final StringBuilder buffer = new StringBuilder();
     //if(isValid()) {
@@ -80,8 +94,9 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
     }
     //}
     //else {
-    //  buffer.append(DebuggerBundle.message("status.breakpoint.invalid"));
+    //  buffer.append(JavaDebuggerBundle.message("status.breakpoint.invalid"));
     //}
+    //noinspection HardCodedStringLiteral
     return buffer.toString();
   }
 
@@ -116,5 +131,10 @@ public class JavaMethodBreakpointType extends JavaLineBreakpointTypeBase<JavaMet
   @Override
   public boolean canBeHitInOtherPlaces() {
     return true;
+  }
+
+  @Override
+  public boolean canPutAt(@NotNull VirtualFile file, int line, @NotNull Project project) {
+    return canPutAtElement(file, line, project, (element, document) -> element instanceof PsiMethod);
   }
 }

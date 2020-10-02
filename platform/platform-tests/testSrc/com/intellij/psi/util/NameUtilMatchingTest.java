@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.util;
 
@@ -51,7 +37,11 @@ public class NameUtilMatchingTest extends TestCase {
     assertMatches("nt", "NameUtilTest");
     assertMatches("repl map", "ReplacePathToMacroMap");
     assertMatches("replmap", "ReplacePathToMacroMap");
+    assertMatches("CertificateEx", "CertificateEncodingException");
     assertDoesntMatch("ABCD", "AbstractButton.DISABLED_ICON_CHANGED_PROPERTY");
+
+    assertMatches("templipa", "template_impl_template_list_panel");
+    assertMatches("templistpa", "template_impl_template_list_panel");
   }
   
   public void testSimpleCasesWithFirstLowercased() {
@@ -77,6 +67,10 @@ public class NameUtilMatchingTest extends TestCase {
     assertMatches("na ut", "name_util_test");
     assertMatches("na te", "name_util_test");
     assertDoesntMatch("na ti", "name_util_test");
+
+    assertDoesntMatch("alias imple", "alias simple");
+    assertDoesntMatch("alias mple", "alias simple");
+    assertDoesntMatch("alias nother", "alias another");
   }
   
   public void testXMLCompletion() {
@@ -183,6 +177,7 @@ public class NameUtilMatchingTest extends TestCase {
     assertMatches("j.js", "jquery.autocomplete.js");
     assertDoesntMatch("j.ajs", "jquery.autocomplete.js");
     assertMatches("oracle.bnf", "oracle-11.2.bnf");
+    assertMatches("*foo.*bar", "foo.b.bar");
   }
 
   public void testNoExtension() {
@@ -412,6 +407,7 @@ public class NameUtilMatchingTest extends TestCase {
     assertDoesntMatch("Foo ", "Foox");
     assertDoesntMatch("Collections ", "CollectionSplitter");
     assertMatches("CollectionS ", "CollectionSplitter");
+    assertMatches("*run ", "in Runnable.run");
 
     assertDoesntMatch("*l ", "AppDelegate");
     assertDoesntMatch("*le ", "AppDelegate");
@@ -426,6 +422,11 @@ public class NameUtilMatchingTest extends TestCase {
     assertMatches("*v2 ", "VARCHAR2");
     assertMatches("smart8co", "SmartType18CompletionTest");
     assertMatches("smart8co", "smart18completion");
+  }
+
+  public void testDoNotAllowDigitsBetweenMatchingDigits() {
+    assertDoesntMatch("*012", "001122");
+    assertMatches("012", "0a1_22");
   }
 
   public void testSpecialSymbols() {
@@ -602,9 +603,7 @@ public class NameUtilMatchingTest extends TestCase {
     assertTrue(caseInsensitiveMatcher(" EUC-").matchingDegree("x-EUC-TW") > Integer.MIN_VALUE);
   }
 
-  private static void assertPreference(@NonNls String pattern,
-                                       @NonNls String less,
-                                       @NonNls String more) {
+  static void assertPreference(@NonNls String pattern, @NonNls String less, @NonNls String more) {
     assertPreference(pattern, less, more, NameUtil.MatchingCaseSensitivity.FIRST_LETTER);
   }
 
@@ -642,8 +641,9 @@ public class NameUtilMatchingTest extends TestCase {
     assertDoesntMatch("*.ico", "a.i.c.o");
   }
 
-  public void testUsingCapsMeansTheyShouldMatchCaps() {
-    assertDoesntMatch("URLCl", "UrlClassLoader");
+  public void testCapsMayMatchNonCaps() {
+    assertMatches("PDFRe", "PdfRenderer");
+    assertMatches("*pGETPartTimePositionInfo", "dbo.pGetPartTimePositionInfo.sql");
   }
 
   public void testACapitalAfterAnotherCapitalMayMatchALowercaseLetterBecauseShiftWasAccidentallyHeldTooLong() {
@@ -660,7 +660,7 @@ public class NameUtilMatchingTest extends TestCase {
 
   public void testMatchingAllOccurrences() {
     String text = "some text";
-    MinusculeMatcher matcher = new AllOccurrencesMatcher("*e", NameUtil.MatchingCaseSensitivity.NONE, "");
+    MinusculeMatcher matcher = AllOccurrencesMatcher.create("*e", NameUtil.MatchingCaseSensitivity.NONE, "");
     UsefulTestCase.assertOrderedEquals(matcher.matchingFragments(text),
                         new TextRange(3, 4), new TextRange(6, 7));
   }

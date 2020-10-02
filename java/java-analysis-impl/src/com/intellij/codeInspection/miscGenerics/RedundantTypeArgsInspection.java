@@ -15,13 +15,16 @@
  */
 package com.intellij.codeInspection.miscGenerics;
 
-import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInspection.*;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiDiamondTypeUtil;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -31,21 +34,15 @@ import java.util.List;
  * @author ven
  */
 public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.miscGenerics.RedundantTypeArgsInspection");
+  private static final Logger LOG = Logger.getInstance(RedundantTypeArgsInspection.class);
 
-  private final static LocalQuickFix ourQuickFixAction = new MyQuickFixAction();
+  private static final LocalQuickFix ourQuickFixAction = new MyQuickFixAction();
   public static final String SHORT_NAME = "RedundantTypeArguments";
 
   @Override
   @NotNull
   public String getGroupDisplayName() {
-    return GroupNames.VERBOSE_GROUP_NAME;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionsBundle.message("inspection.redundant.type.display.name");
+    return InspectionsBundle.message("group.names.verbose.or.redundant.code.constructs");
   }
 
   @Override
@@ -105,7 +102,7 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
                                           final PsiType[] typeArguments,
                                           PsiCallExpression expression,
                                           final InspectionManager inspectionManager,
-                                          final List<ProblemDescriptor> problems, boolean isOnTheFly) {
+                                          final List<? super ProblemDescriptor> problems, boolean isOnTheFly) {
     PsiExpressionList argumentList = expression.getArgumentList();
     if (argumentList == null) return;
     final JavaResolveResult resolveResult = reference.advancedResolve(false);
@@ -121,7 +118,7 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
                                                 : "inspection.redundant.type.problem.descriptor";
         final ProblemDescriptor descriptor = 
           inspectionManager.createProblemDescriptor(expression.getTypeArgumentList(),
-                                                    InspectionsBundle.message(key),
+                                                    JavaAnalysisBundle.message(key),
                                                     ourQuickFixAction,
                                                     ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly);
         problems.add(descriptor);
@@ -131,12 +128,12 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
 
   private static void checkMethodReference(PsiMethodReferenceExpression expression,
                                            InspectionManager inspectionManager,
-                                           List<ProblemDescriptor> problems, 
+                                           List<? super ProblemDescriptor> problems,
                                            boolean isOnTheFly) {
     final PsiTypeElement qualifierTypeElement = expression.getQualifierType();
     if (qualifierTypeElement != null) {
       final PsiType psiType = qualifierTypeElement.getType();
-      if (psiType instanceof PsiClassType && !(((PsiClassType)psiType).isRaw())) {
+      if (psiType instanceof PsiClassType && !((PsiClassType)psiType).isRaw()) {
         PsiClass aClass = ((PsiClassType)psiType).resolve();
         if (aClass == null) return;
         final JavaResolveResult result = expression.advancedResolve(false);
@@ -148,7 +145,7 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
             LOG.assertTrue(referenceElement != null, qualifierTypeElement);
             final PsiReferenceParameterList parameterList = referenceElement.getParameterList();
             LOG.assertTrue(parameterList != null);
-            final ProblemDescriptor descriptor = inspectionManager.createProblemDescriptor(parameterList, InspectionsBundle
+            final ProblemDescriptor descriptor = inspectionManager.createProblemDescriptor(parameterList, JavaAnalysisBundle
               .message("inspection.redundant.type.problem.descriptor"), ourQuickFixAction, ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly);
             problems.add(descriptor);
           }
@@ -164,12 +161,12 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
         PsiTypeParameter[] typeParameters = resolve instanceof PsiClass ? PsiTypeParameter.EMPTY_ARRAY : ((PsiMethod)resolve).getTypeParameters();
         if (typeParameters.length == 0 ||
             typeParameters.length == typeArguments.length && 
-            PsiDiamondTypeUtil.areTypeArgumentsRedundant(typeArguments, expression, false, ((PsiMethod)resolve), typeParameters)) {
+            PsiDiamondTypeUtil.areTypeArgumentsRedundant(typeArguments, expression, false, (PsiMethod)resolve, typeParameters)) {
           String key = typeParameters.length == 0 ? "inspection.redundant.type.no.generics.method.reference.problem.descriptor"
                                                   : "inspection.redundant.type.problem.descriptor";
           final ProblemDescriptor descriptor =
             inspectionManager.createProblemDescriptor(parameterList,
-                                                      InspectionsBundle.message(key),
+                                                      JavaAnalysisBundle.message(key),
                                                       new MyQuickFixAction(), ProblemHighlightType.LIKE_UNUSED_SYMBOL, isOnTheFly);
             problems.add(descriptor);
         }
@@ -181,7 +178,7 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionsBundle.message("inspection.redundant.type.remove.quickfix");
+      return JavaAnalysisBundle.message("inspection.redundant.type.remove.quickfix");
     }
 
     @Override
@@ -190,9 +187,20 @@ public class RedundantTypeArgsInspection extends GenericsInspectionToolBase {
       if (!(element instanceof PsiReferenceParameterList)) return;
       final PsiReferenceParameterList typeArgumentList = (PsiReferenceParameterList)element;
       try {
-        final PsiMethodCallExpression expr =
-          (PsiMethodCallExpression)JavaPsiFacade.getInstance(project).getElementFactory().createExpressionFromText("foo()", null);
-        typeArgumentList.replace(expr.getTypeArgumentList());
+        PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
+        PsiMethodReferenceExpression ref = PsiTreeUtil.getParentOfType(typeArgumentList, PsiMethodReferenceExpression.class);
+        PsiTypeElement qualifierType = ref != null ? ref.getQualifierType() : null;
+        if (qualifierType != null && PsiTreeUtil.isAncestor(qualifierType, typeArgumentList, false)) {
+          PsiClass targetClass = PsiUtil.resolveClassInType(qualifierType.getType());
+          if (targetClass != null) {
+            new CommentTracker().replaceAndRestoreComments(qualifierType, elementFactory.createReferenceExpression(targetClass));
+          }
+        }
+        else {
+          final PsiMethodCallExpression expr =
+            (PsiMethodCallExpression)elementFactory.createExpressionFromText("foo()", null);
+          new CommentTracker().replaceAndRestoreComments(typeArgumentList, expr.getTypeArgumentList());
+        }
       }
       catch (IncorrectOperationException e) {
         LOG.error(e);

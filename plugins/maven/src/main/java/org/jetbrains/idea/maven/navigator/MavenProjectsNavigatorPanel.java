@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.navigator;
 
 import com.intellij.execution.Location;
@@ -29,12 +15,14 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.ui.PopupHandler;
 import com.intellij.ui.ScrollPaneFactory;
+import com.intellij.ui.mac.TouchbarDataKeys;
 import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.ui.treeStructure.SimpleTree;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.execution.MavenGoalLocation;
 import org.jetbrains.idea.maven.model.MavenArtifact;
@@ -48,8 +36,10 @@ import org.jetbrains.idea.maven.utils.actions.MavenActionUtil;
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
-import java.util.*;
 import java.util.List;
+import java.util.*;
+
+import static org.jetbrains.idea.maven.navigator.MavenProjectsNavigator.TOOL_WINDOW_PLACE_ID;
 
 public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implements DataProvider {
   private final Project myProject;
@@ -59,6 +49,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
 
     private Map<String, Integer> standardGoalOrder;
 
+    @Override
     public int compare(String o1, String o2) {
       return getStandardGoalOrder(o1) - getStandardGoalOrder(o2);
     }
@@ -94,12 +85,13 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
     setTransferHandler(new MyTransferHandler(project));
 
     myTree.addMouseListener(new PopupHandler() {
+      @Override
       public void invokePopup(final Component comp, final int x, final int y) {
         final String id = getMenuId(getSelectedNodes(MavenProjectsStructure.MavenSimpleNode.class));
         if (id != null) {
           final ActionGroup actionGroup = (ActionGroup)actionManager.getAction(id);
           if (actionGroup != null) {
-            actionManager.createActionPopupMenu("", actionGroup).getComponent().show(comp, x, y);
+            actionManager.createActionPopupMenu(TOOL_WINDOW_PLACE_ID, actionGroup).getComponent().show(comp, x, y);
           }
         }
       }
@@ -124,8 +116,9 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
     });
   }
 
+  @Override
   @Nullable
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) return "reference.toolWindows.mavenProjects";
 
     if (CommonDataKeys.PROJECT.is(dataId)) return myProject;
@@ -145,6 +138,9 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
     }
     if (MavenDataKeys.MAVEN_PROJECTS_TREE.is(dataId)) {
       return myTree;
+    }
+    if (TouchbarDataKeys.ACTIONS_KEY.is(dataId)) {
+      return new DefaultActionGroup(ActionManager.getInstance().getAction("Maven.Reimport"));
     }
 
     return super.getData(dataId);
@@ -219,7 +215,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
       for (MavenProjectsStructure.GoalNode node : nodes) {
         goals.add(qualifiedGoals ? node.getGoal() : node.getName());
       }
-      Collections.sort(goals, myGoalOrderComparator);
+      goals.sort(myGoalOrderComparator);
       return goals;
     }
     return null;
@@ -278,7 +274,7 @@ public class MavenProjectsNavigatorPanel extends SimpleToolWindowPanel implement
     return MavenProjectsStructure.getCommonProjectNode(getSelectedNodes(MavenProjectsStructure.MavenSimpleNode.class));
   }
 
-  private static class MyTransferHandler extends TransferHandler {
+  private static final class MyTransferHandler extends TransferHandler {
 
     private final Project myProject;
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.integrate;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -13,6 +13,8 @@ import org.jetbrains.idea.svn.diff.DiffOptions;
 import org.jetbrains.idea.svn.update.UpdateEventHandler;
 
 import java.io.File;
+
+import static org.jetbrains.idea.svn.SvnBundle.message;
 
 public class BranchMerger implements IMerger {
 
@@ -48,16 +50,23 @@ public class BranchMerger implements IMerger {
     mySupportsMergeInfo = supportsMergeInfo;
   }
 
-  public String getComment() {
-    return "Merge all from " + myBranchName +
-           (!mySupportsMergeInfo ? " at " + mySourceLatestRevision : "") +
-           (myReintegrate ? " (reintegration)" : "");
+  @Override
+  public @NotNull String getComment() {
+    return mySupportsMergeInfo
+           ? myReintegrate
+             ? message("label.merge.all.from.branch.reintegrate", myBranchName)
+             : message("label.merge.all.from.branch", myBranchName)
+           : myReintegrate
+             ? message("label.merge.all.from.branch.at.revision.reintegrate", myBranchName, mySourceLatestRevision)
+             : message("label.merge.all.from.branch.at.revision", myBranchName, mySourceLatestRevision);
   }
 
+  @Override
   public boolean hasNext() {
     return myAtStart;
   }
 
+  @Override
   public void mergeNext() throws VcsException {
     myAtStart = false;
 
@@ -80,18 +89,22 @@ public class BranchMerger implements IMerger {
     return myVcs.getSvnConfiguration().getMergeOptions();
   }
 
+  @Override
   @Nullable
   public String getInfo() {
     return null;
   }
 
+  @Override
   public File getMergeInfoHolder() {
     return new File(myTargetPath);
   }
 
+  @Override
   public void afterProcessing() {
   }
 
+  @Override
   @Nullable
   public String getSkipped() {
     return null;

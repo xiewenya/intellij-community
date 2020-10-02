@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.debugger
 
 import com.intellij.icons.AllIcons
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
 import javax.swing.Icon
 
-fun VariableView(variable: Variable, context: VariableContext) = VariableView(variable.name, variable, context)
+fun VariableView(variable: Variable, context: VariableContext): VariableView = VariableView(variable.name, variable, context)
 
 class VariableView(override val variableName: String, private val variable: Variable, private val context: VariableContext) : XNamedValue(variableName), VariableContext {
   @Volatile private var value: Value? = null
@@ -34,12 +34,12 @@ class VariableView(override val variableName: String, private val variable: Vari
   @Volatile private var remainingChildren: List<Variable>? = null
   @Volatile private var remainingChildrenOffset: Int = 0
 
-  override fun watchableAsEvaluationExpression() = context.watchableAsEvaluationExpression()
+  override fun watchableAsEvaluationExpression(): Boolean = context.watchableAsEvaluationExpression()
 
   override val viewSupport: DebuggerViewSupport
     get() = context.viewSupport
 
-  override val parent = context
+  override val parent: VariableContext = context
 
   override val memberFilter: Promise<MemberFilter>
     get() = context.viewSupport.getMemberFilter(this)
@@ -62,17 +62,21 @@ class VariableView(override val variableName: String, private val variable: Vari
 
     if (variable !is ObjectProperty || variable.getter == null) {
       // it is "used" expression (WEB-6779 Debugger/Variables: Automatically show used variables)
-      evaluateContext.evaluate(variable.name)
-        .onSuccess(node) {
-          if (it.wasThrown) {
-            setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(it.value, null), null, node)
-          }
-          else {
-            value = it.value
-            computePresentation(it.value, node)
-          }
+        context.memberFilter.then {
+          evaluateContext.evaluate(it.sourceNameToRaw(variable.name) ?: variable.name)
+            .onSuccess(node) {
+              if (it.wasThrown) {
+                setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(it.value, null), null, node)
+              }
+              else {
+                value = it.value
+                variable.value = it.value
+                computePresentation(it.value, node)
+              }
+            }
+            .onError(node) { setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(null, it.message), it.message, node) }
+
         }
-        .onError(node) { setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(null, it.message), it.message, node) }
       return
     }
 
@@ -109,6 +113,11 @@ class VariableView(override val variableName: String, private val variable: Vari
   }
 
   private fun computePresentation(value: Value, node: XValueNode) {
+    if (variable is ObjectProperty && variable.name == PROTOTYPE_PROP) {
+      setObjectPresentation(value as ObjectValue, icon, node)
+      return
+    }
+
     when (value.type) {
       ValueType.OBJECT, ValueType.NODE -> context.viewSupport.computeObjectPresentation((value as ObjectValue), variable, context, node, icon)
 
@@ -118,7 +127,7 @@ class VariableView(override val variableName: String, private val variable: Vari
 
       ValueType.BOOLEAN, ValueType.NULL, ValueType.UNDEFINED -> node.setPresentation(icon, XKeywordValuePresentation(value.valueString!!), false)
 
-      ValueType.NUMBER -> node.setPresentation(icon, createNumberPresentation(value.valueString!!), false)
+      ValueType.NUMBER, ValueType.BIGINT  -> node.setPresentation(icon, createNumberPresentation(value.valueString!!), false)
 
       ValueType.STRING -> {
         node.setPresentation(icon, XStringValuePresentation(value.valueString!!), false)
@@ -178,7 +187,7 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
 
     if (hasIndexedProperties == hasNamedProperties || additionalProperties != null) {
-      all(promises).processed(node) { node.addChildren(XValueChildrenList.EMPTY, true) }
+      promises.all().processed(node) { node.addChildren(XValueChildrenList.EMPTY, true) }
     }
   }
 
@@ -215,7 +224,7 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
 
     var functionValue = value as? FunctionValue
-    if (functionValue != null && functionValue.hasScopes() == ThreeState.NO) {
+    if (functionValue != null && (functionValue.hasScopes() == ThreeState.NO)) {
       functionValue = null
     }
 
@@ -226,7 +235,7 @@ class VariableView(override val variableName: String, private val variable: Vari
 
     if (functionValue != null) {
       // we pass context as variable context instead of this variable value - we cannot watch function scopes variables, so, this variable name doesn't matter
-      node.addChildren(XValueChildrenList.bottomGroup(FunctionScopesValueGroup(functionValue, context)), isLastChildren)
+      node.addChildren(XValueChildrenList.bottomGroup(FunctionScopesValueGroup(functionValue, context)), isLastChildren && remainingChildren == null)
     }
   }
 
@@ -302,18 +311,19 @@ class VariableView(override val variableName: String, private val variable: Vari
 
       override fun setValue(expression: XExpression, callback: XValueModifier.XModificationCallback) {
         variable.valueModifier!!.setValue(variable, expression.expression, evaluateContext)
-          .doneRun {
+          .onSuccess {
             value = null
             callback.valueModified()
           }
-          .rejected { callback.errorOccurred(it.message!!) }
+          .onError { callback.errorOccurred(it.message!!) }
       }
     }
   }
 
-  fun getValue() = variable.value
+  fun getValue(): Value? = variable.value
 
-  override fun canNavigateToSource() = value is FunctionValue || viewSupport.canNavigateToSource(variable, context)
+  override fun canNavigateToSource(): Boolean = value is FunctionValue && value?.valueString?.contains("[native code]") != true
+                                                || viewSupport.canNavigateToSource(variable, context)
 
   override fun computeSourcePosition(navigatable: XNavigatable) {
     if (value is FunctionValue) {
@@ -324,7 +334,7 @@ class VariableView(override val variableName: String, private val variable: Vari
               navigatable.setSourcePosition(it?.let { viewSupport.getSourceInfo(null, it, function.openParenLine, function.openParenColumn) }?.let {
                 object : XSourcePositionWrapper(it) {
                   override fun createNavigatable(project: Project): Navigatable {
-                    return PsiVisitors.visit(myPosition, project) { position, element, positionOffset, document ->
+                    return PsiVisitors.visit(myPosition, project) { _, element, _, _ ->
                       // element will be "open paren", but we should navigate to function name,
                       // we cannot use specific PSI type here (like JSFunction), so, we try to find reference expression (i.e. name expression)
                       var referenceCandidate: PsiElement? = element
@@ -361,7 +371,7 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
   }
 
-  override fun computeInlineDebuggerData(callback: XInlineDebuggerDataCallback) = viewSupport.computeInlineDebuggerData(variableName, variable, context, callback)
+  override fun computeInlineDebuggerData(callback: XInlineDebuggerDataCallback): ThreeState = viewSupport.computeInlineDebuggerData(variableName, variable, context, callback)
 
   override fun getEvaluationExpression(): String? {
     if (!watchableAsEvaluationExpression()) {
@@ -417,6 +427,10 @@ class VariableView(override val variableName: String, private val variable: Vari
         return
       }
 
+      if (value is PresentationProvider && value.computePresentation(node, icon)) {
+        return
+      }
+
       val valueString = value.valueString
       // only WIP reports normal description
       if (valueString != null && (valueString.endsWith(")") || valueString.endsWith(']')) &&
@@ -436,7 +450,7 @@ class VariableView(override val variableName: String, private val variable: Vari
     fun getIcon(value: Value): Icon {
       val type = value.type
       return when (type) {
-        ValueType.FUNCTION -> AllIcons.Nodes.Function
+        ValueType.FUNCTION -> AllIcons.Nodes.Lambda
         ValueType.ARRAY -> AllIcons.Debugger.Db_array
         else -> if (type.isObjectType) AllIcons.Debugger.Value else AllIcons.Debugger.Db_primitive
       }
@@ -446,12 +460,16 @@ class VariableView(override val variableName: String, private val variable: Vari
 
 fun getClassName(value: ObjectValue): String {
   val className = value.className
-  return if (className.isNullOrEmpty()) "Object" else className!!
+  return when {
+    className.isNullOrEmpty() -> "Object"
+    className == "console" -> "Console"
+    else -> className
+  }
 }
 
 fun getObjectValueDescription(value: ObjectValue): String {
   val description = value.valueString
-  return if (description.isNullOrEmpty()) getClassName(value) else description!!
+  return if (description.isNullOrEmpty()) getClassName(value) else description
 }
 
 internal fun trimFunctionDescription(value: Value): String {
@@ -477,7 +495,7 @@ private val ARRAY_DESCRIPTION_PATTERN = Pattern.compile("^[a-zA-Z\\d]+[\\[(]\\d+
 
 private class ArrayPresentation(length: Int, className: String?) : XValuePresentation() {
   private val length = Integer.toString(length)
-  private val className = if (className.isNullOrEmpty()) "Array" else className!!
+  private val className = if (className.isNullOrEmpty()) "Array" else className
 
   override fun renderValue(renderer: XValuePresentation.XValueTextRenderer) {
     renderer.renderSpecialSymbol(className)
@@ -487,4 +505,4 @@ private class ArrayPresentation(length: Int, className: String?) : XValuePresent
   }
 }
 
-private val PROTOTYPE_PROP = "__proto__"
+const val PROTOTYPE_PROP = "__proto__"

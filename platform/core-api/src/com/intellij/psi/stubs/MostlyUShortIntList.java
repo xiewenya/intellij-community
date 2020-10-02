@@ -4,8 +4,10 @@ package com.intellij.psi.stubs;
 import com.intellij.util.containers.UnsignedShortArrayList;
 import gnu.trove.TIntIntHashMap;
 
+import java.util.function.IntUnaryOperator;
+
 /** An int list where most values are in range 0..2^16 */
-class MostlyUShortIntList implements IntIntFunction {
+class MostlyUShortIntList implements IntUnaryOperator {
   private static final int IN_MAP = Character.MAX_VALUE;
   private final UnsignedShortArrayList myList;
   private TIntIntHashMap myMap;
@@ -35,6 +37,11 @@ class MostlyUShortIntList implements IntIntFunction {
     return myMap;
   }
 
+  @Override
+  public int applyAsInt(int index) {
+    return get(index);
+  }
+
   public int get(int index) {
     int value = myList.getQuick(index);
     return value == IN_MAP ? myMap.get(index) : value;
@@ -50,9 +57,4 @@ class MostlyUShortIntList implements IntIntFunction {
       myMap.trimToSize();
     }
   }
-}
-
-interface IntIntFunction {
-  IntIntFunction IDENTITY = i -> i;
-  int get(int arg);
 }

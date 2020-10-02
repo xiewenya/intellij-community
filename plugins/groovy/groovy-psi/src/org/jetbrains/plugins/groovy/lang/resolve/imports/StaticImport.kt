@@ -1,9 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve.imports
 
+import com.intellij.openapi.util.text.StringUtil.getQualifiedName
 import com.intellij.psi.PsiElement
 import com.intellij.psi.ResolveState
 import com.intellij.psi.scope.PsiScopeProcessor
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils.*
 import org.jetbrains.plugins.groovy.lang.resolve.getName
@@ -37,6 +39,10 @@ data class StaticImport constructor(
 
   override val isAliased: Boolean = memberName != name
 
+  override val shortName: String get() = memberName
+
+  override val fullyQualifiedName: String get() = getQualifiedName(classFqn, memberName)
+
   override fun processDeclarations(processor: PsiScopeProcessor, state: ResolveState, place: PsiElement, file: GroovyFileBase): Boolean {
     if (processor.isAnnotationResolve()) return true
     if (!processor.shouldProcessMembers()) return true
@@ -56,6 +62,7 @@ data class StaticImport constructor(
     return StaticStarImport(classFqn) in imports.staticStarImports
   }
 
+  @NonNls
   override fun toString(): String = "import static $classFqn.$memberName as $name"
 
   private fun namesMapping() = namesMapping(memberName, name)

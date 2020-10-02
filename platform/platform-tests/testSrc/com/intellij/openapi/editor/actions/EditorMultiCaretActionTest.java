@@ -20,18 +20,15 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-@SuppressWarnings("JUnit4AnnotatedMethodInJUnit3TestCase")
 @RunWith(com.intellij.testFramework.Parameterized.class)
 @TestDataPath("/testData/../../../platform/platform-tests/testData/editor/multiCaret/")
 public class EditorMultiCaretActionTest extends LightPlatformCodeInsightTestCase implements FileBasedTestCaseHelper {
   @Test
   public void testAction() {
-    EdtTestUtil.runInEdtAndWait(() -> {
-      configureByFile(getBeforeFileName());
-      EditorTestUtil.setEditorVisibleSize(myEditor, 120, 20); // some actions require visible area to be defined, like EditorPageUp
-      executeAction(getActionName());
-      checkResultByFile(getAfterFileName());
-    });
+    configureByFile(getBeforeFileName());
+    EditorTestUtil.setEditorVisibleSize(getEditor(), 120, 20); // some actions require visible area to be defined, like EditorPageUp
+    executeAction(getActionName());
+    checkResultByFile(getAfterFileName());
   }
 
   @Nullable
@@ -41,7 +38,7 @@ public class EditorMultiCaretActionTest extends LightPlatformCodeInsightTestCase
     if (pos < 0) {
       return null;
     }
-    return pos < 0 ? null : fileName.substring(0, pos) + '(' + fileName.substring(pos + 8) + ')';
+    return fileName.substring(0, pos) + '(' + fileName.substring(pos + 8) + ')';
   }
 
   private String getBeforeFileName() {

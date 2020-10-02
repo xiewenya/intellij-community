@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
-import com.intellij.Patches;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
@@ -25,7 +10,7 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.StatusBar;
-import com.intellij.openapi.wm.impl.IdeFrameImpl;
+import com.intellij.openapi.wm.impl.ProjectFrameHelper;
 import com.intellij.util.Alarm;
 import com.intellij.util.BitUtil;
 import com.intellij.util.ReflectionUtil;
@@ -58,7 +43,7 @@ public final class SwingCleanuper {
     myAlarm = new Alarm(application);
     application.getMessageBus().connect().subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
         @Override
-        public void projectOpened(final Project project) {
+        public void projectOpened(@NotNull final Project project) {
           myAlarm.cancelAllRequests();
         }
         // Swing keeps references to the last focused component inside DefaultKeyboardFocusManager.realOppositeComponent
@@ -66,22 +51,18 @@ public final class SwingCleanuper {
         // memory leak we (if the project was closed and a new one was not opened yet) request focus to the status bar and after
         // the focus events have passed the queue, we put 'null' to the DefaultKeyboardFocusManager.realOppositeComponent field.
         @Override
-        public void projectClosed(final Project project){
+        public void projectClosed(@NotNull final Project project){
           myAlarm.cancelAllRequests();
           myAlarm.addRequest(
             () -> {
               // request focus into some focusable component inside IdeFrame
-              final Window window = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-              IdeFrameImpl frame = (IdeFrameImpl)(window instanceof IdeFrameImpl ? window :
-                                                  SwingUtilities.getAncestorOfClass(IdeFrameImpl.class, window));
+              ProjectFrameHelper frame = ProjectFrameHelper.getFrameHelper(KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow());
               if (frame != null) {
                 final Application app = ApplicationManager.getApplication();
                 if (app != null && app.isActive()) {
                   StatusBar statusBar = frame.getStatusBar();
                   if (statusBar != null) {
-                    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-                      IdeFocusManager.getGlobalInstance().requestFocus((JComponent)statusBar, true);
-                    });
+                    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus((JComponent)statusBar, true));
                   }
                 }
               }

@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing.pytestLegacy;
 
 import com.google.common.collect.Lists;
@@ -15,16 +13,18 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import com.jetbrains.python.testing.AbstractPythonLegacyTestRunConfiguration;
 import com.jetbrains.python.testing.VFSTestFrameworkListener;
 import org.jdom.Element;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,8 +42,8 @@ public class PyTestRunConfiguration extends AbstractPythonLegacyTestRunConfigura
   private boolean useParam = false;
   private boolean useKeyword = false;
 
-  protected String myTitle = "py.test";
-  protected String myPluralTitle = "py.tests";
+  protected @NlsSafe String myTitle = "pytest";
+  protected @NlsSafe String myPluralTitle = "pytests";
 
 
   private static final String TEST_TO_RUN_FIELD = "testToRun";
@@ -54,10 +54,12 @@ public class PyTestRunConfiguration extends AbstractPythonLegacyTestRunConfigura
     super(project, factory);
   }
 
+  @Override
   protected SettingsEditor<PyTestRunConfiguration> createConfigurationEditor() {
     return new PyTestConfigurationEditor(getProject(), this);
   }
 
+  @Override
   public RunProfileState getState(@NotNull Executor executor, @NotNull ExecutionEnvironment env) throws ExecutionException {
     return new PyTestCommandLineState(this, env);
   }
@@ -112,18 +114,22 @@ public class PyTestRunConfiguration extends AbstractPythonLegacyTestRunConfigura
     return "";
   }
 
+  @Override
   public boolean useParam() {
     return useParam;
   }
 
+  @Override
   public void useParam(boolean useParam) {
     this.useParam = useParam;
   }
 
+  @Override
   public boolean useKeyword() {
     return useKeyword;
   }
 
+  @Override
   public void useKeyword(boolean useKeyword) {
     this.useKeyword = useKeyword;
   }
@@ -152,17 +158,18 @@ public class PyTestRunConfiguration extends AbstractPythonLegacyTestRunConfigura
   @Override
   public void checkConfiguration() throws RuntimeConfigurationException {
     if (StringUtil.isEmptyOrSpaces(myTestToRun)) {
-      throw new RuntimeConfigurationError("Please specify target folder or script");
+      throw new RuntimeConfigurationError(PyBundle.message("runcfg.testing.specify.target.folder.or.script"));
     }
-    Sdk sdk = PythonSdkType.findSdkByPath(getInterpreterPath());
+    Sdk sdk = PythonSdkUtil.findSdkByPath(getInterpreterPath());
     if (sdk != null && !VFSTestFrameworkListener.getInstance().isTestFrameworkInstalled(sdk, PyNames.PY_TEST)) {
-      throw new RuntimeConfigurationWarning(PyBundle.message("runcfg.testing.no.test.framework", "py.test"));
+      throw new RuntimeConfigurationWarning(PyBundle.message("runcfg.testing.no.test.framework", "pytest"));
     }
   }
 
   @Override
   public String suggestedName() {
-    return "py.test in " + getName();
+    //noinspection DialogTitleCapitalization
+    return PyBundle.message("runcfg.pytest.suggested.name", getName());
   }
 
   @Override
@@ -178,7 +185,7 @@ public class PyTestRunConfiguration extends AbstractPythonLegacyTestRunConfigura
   @Nullable
   @Override
   public final String getTestSpec(@NotNull final Location location, @NotNull final AbstractTestProxy failedTest) {
-    /**
+    /*
      *  PyTest supports subtests (with yielding). Such tests are reported as _test_name[index] and location does not point to actual test.
      *  We need to get rid of braces and calculate name manually, since location is incorrect.
      *  Test path starts from file.

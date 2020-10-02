@@ -1,14 +1,14 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.lang.jvm.types.JvmPrimitiveTypeKind;
 import com.intellij.lang.jvm.types.JvmType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayFactory;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 /**
  * Representation of Java type (primitive type, array or class type).
@@ -28,8 +28,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
   public static final PsiType[] EMPTY_ARRAY = new PsiType[0];
   public static final ArrayFactory<PsiType> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PsiType[count];
 
-  @NotNull
-  public static PsiType[] createArray(int count) {
+  public static PsiType @NotNull [] createArray(int count) {
     return ARRAY_FACTORY.create(count);
   }
 
@@ -38,7 +37,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
   /**
    * Constructs a PsiType with given annotations
    */
-  protected PsiType(@NotNull final PsiAnnotation[] annotations) {
+  protected PsiType(final PsiAnnotation @NotNull [] annotations) {
     this(TypeAnnotationProvider.Static.create(annotations));
   }
 
@@ -71,8 +70,11 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
     return new PsiArrayType(this);
   }
 
-  /** @deprecated use {@link #annotate(TypeAnnotationProvider)} (to be removed in IDEA 18) */
-  public PsiArrayType createArrayType(@NotNull PsiAnnotation... annotations) {
+  /** @deprecated use {@link #annotate(TypeAnnotationProvider)} */
+  @Deprecated
+  @NotNull
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.3")
+  public PsiArrayType createArrayType(PsiAnnotation @NotNull ... annotations) {
     return new PsiArrayType(this, annotations);
   }
 
@@ -80,7 +82,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    * Returns text of the type that can be presented to a user (references normally non-qualified).
    */
   @NotNull
-  public String getPresentableText(boolean annotated) {
+  public @NlsSafe String getPresentableText(boolean annotated) {
     return getPresentableText();
   }
 
@@ -88,7 +90,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    * Same as {@code getPresentableText(false)}.
    */
   @NotNull
-  public abstract String getPresentableText();
+  public abstract @NlsSafe String getPresentableText();
 
   /**
    * Returns canonical representation of the type (all references fully-qualified).
@@ -102,7 +104,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    * Same as {@code getCanonicalText(false)}.
    */
   @NotNull
-  public abstract String getCanonicalText();
+  public abstract @NlsSafe String getCanonicalText();
 
   /**
    * Return canonical text of the type with some internal details added for presentational purposes. Use with care.
@@ -124,6 +126,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
   /**
    * @return true if values of type {@code type} can be assigned to rvalues of this type.
    */
+  @Contract(pure = true)
   public boolean isAssignableFrom(@NotNull PsiType type) {
     return TypeConversionUtil.isAssignable(this, type);
   }
@@ -141,18 +144,18 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    * @param text the text to compare with.
    * @return true if the string is equivalent to the type, false otherwise
    */
-  public abstract boolean equalsToText(@NotNull String text);
+  public abstract boolean equalsToText(@NotNull @NonNls String text);
 
   /**
    * Returns the class type for qualified class name.
    *
    * @param qName qualified class name.
-   * @param project
    * @param resolveScope the scope in which the class is searched.
    * @return the class instance.
    */
-  public static PsiClassType getTypeByName(String qName, Project project, GlobalSearchScope resolveScope) {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+  @NotNull
+  public static PsiClassType getTypeByName(@NotNull String qName, @NotNull Project project, @NotNull GlobalSearchScope resolveScope) {
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     return factory.createTypeByFQClassName(qName, resolveScope);
   }
 
@@ -279,8 +282,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    *
    * @return the array of superclass types, or an empty array if the type is not a class type.
    */
-  @NotNull
-  public abstract PsiType[] getSuperTypes();
+  public abstract PsiType @NotNull [] getSuperTypes();
 
   /**
    * @return provider for this type's annotations. Can be used to construct other PsiType instances
@@ -295,8 +297,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
    * @return annotations for this type. Uses {@link #getAnnotationProvider()} to retrieve the annotations.
    */
   @Override
-  @NotNull
-  public PsiAnnotation[] getAnnotations() {
+  public PsiAnnotation @NotNull [] getAnnotations() {
     return myAnnotationProvider.getAnnotations();
   }
 
@@ -317,8 +318,7 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
   }
 
   @Override
-  @NotNull
-  public PsiAnnotation[] getApplicableAnnotations() {
+  public PsiAnnotation @NotNull [] getApplicableAnnotations() {
     return getAnnotations();
   }
 
@@ -327,8 +327,8 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable, JvmType 
     return "PsiType:" + getPresentableText();
   }
 
-  protected static abstract class Stub extends PsiType {
-    protected Stub(@NotNull PsiAnnotation[] annotations) {
+  protected abstract static class Stub extends PsiType {
+    protected Stub(PsiAnnotation @NotNull [] annotations) {
       super(annotations);
     }
 

@@ -1,20 +1,17 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.compiler
 
+import com.intellij.compiler.CompilerConfiguration
 import com.intellij.compiler.server.BuildManager
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.Executor
 import com.intellij.execution.application.ApplicationConfiguration
-import com.intellij.execution.application.ApplicationConfigurationType
 import com.intellij.execution.executors.DefaultRunExecutor
 import com.intellij.execution.impl.DefaultJavaProgramRunner
 import com.intellij.execution.process.*
 import com.intellij.execution.runners.ProgramRunner
 import com.intellij.module.ModuleGroupTestsKt
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.Result
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.compiler.CompilerMessage
 import com.intellij.openapi.compiler.CompilerMessageCategory
@@ -23,27 +20,30 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.StdModuleTypes
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.JavaSdkVersion
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.pom.java.LanguageLevel
 import com.intellij.psi.PsiFile
-import com.intellij.testFramework.*
+import com.intellij.testFramework.CompilerTester
+import com.intellij.testFramework.EdtTestUtil
+import com.intellij.testFramework.IdeaTestUtil
+import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase
 import com.intellij.util.SystemProperties
 import com.intellij.util.io.PathKt
-import com.intellij.util.lang.JavaVersion
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.Nullable
-import org.jetbrains.plugins.groovy.config.GroovyFacetUtil
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.runner.GroovyScriptRunConfiguration
 import org.jetbrains.plugins.groovy.runner.GroovyScriptRunConfigurationType
 import org.jetbrains.plugins.groovy.util.Slow
-
 /**
  * @author aalmiray
  * @author peter
@@ -51,7 +51,6 @@ import org.jetbrains.plugins.groovy.util.Slow
 @Slow
 @CompileStatic
 abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase implements CompilerMethods {
-
   protected CompilerTester myCompilerTester
 
   @Override
@@ -59,36 +58,35 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
     return super.getProject()
   }
 
+  @NotNull
   @Override
-  Disposable disposeOnTearDown(Disposable disposable) {
+  Disposable disposeOnTearDown(@NotNull Disposable disposable) {
     return super.disposeOnTearDown(disposable)
   }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp()
-    edt { ModuleGroupTestsKt.renameModule(myModule, "mainModule") }
-    myCompilerTester = new CompilerTester(myModule)
+    edt { ModuleGroupTestsKt.renameModule(module, "mainModule") }
+    myCompilerTester = new CompilerTester(module)
+    CompilerConfiguration.getInstance(project).buildProcessVMOptions = "-XX:TieredStopAtLevel=1" // for faster build process startup
   }
 
   @Override
   protected void tuneFixture(JavaModuleFixtureBuilder moduleBuilder) throws Exception {
-    moduleBuilder.setLanguageLevel(JavaSdkVersion.fromJavaVersion(JavaVersion.current()).maxLanguageLevel)
+    moduleBuilder.setLanguageLevel(LanguageLevel.JDK_1_8)
     def javaHome = FileUtil.toSystemIndependentName(SystemProperties.javaHome)
     moduleBuilder.addJdk(StringUtil.trimEnd(StringUtil.trimEnd(javaHome, '/'), '/jre'))
     super.tuneFixture(moduleBuilder)
   }
 
   @Override
-  protected void runTest() throws Throwable {
-    if (PlatformTestUtil.COVERAGE_ENABLED_BUILD) return
-
-    super.runTest()
+  protected boolean shouldRunTest() {
+    return !PlatformTestUtil.COVERAGE_ENABLED_BUILD
   }
 
-  protected static void addGroovyLibrary(final Module to) {
-    File jar = GroovyFacetUtil.getBundledGroovyJar()
-    PsiTestUtil.addLibrary(to, "groovy", jar.getParent(), jar.getName())
+  protected void addGroovyLibrary(final Module to) {
+    GroovyProjectDescriptors.LIB_GROOVY_2_4.addTo(to)
   }
 
   @Override
@@ -113,30 +111,25 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected void setupTestSources() {
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final ModuleRootManager rootManager = ModuleRootManager.getInstance(myModule)
+    WriteCommandAction.runWriteCommandAction(getProject(), {
+        final ModuleRootManager rootManager = ModuleRootManager.getInstance(module)
         final ModifiableRootModel rootModel = rootManager.getModifiableModel()
         final ContentEntry entry = rootModel.getContentEntries()[0]
         entry.removeSourceFolder(entry.getSourceFolders()[0])
         entry.addSourceFolder(myFixture.getTempDirFixture().findOrCreateDir("src"), false)
         entry.addSourceFolder(myFixture.getTempDirFixture().findOrCreateDir("tests"), true)
         rootModel.commit()
-      }
-    }.execute()
+      })
   }
 
   protected Module addDependentModule() {
     Module module = addModule("dependent", true)
-    ModuleRootModificationUtil.addDependency(module, myModule)
+    ModuleRootModificationUtil.addDependency(module, getModule())
     return module
   }
 
   protected Module addModule(final String name, final boolean withSource) {
-    return new WriteCommandAction<Module>(getProject()) {
-      @Override
-      protected void run(@NotNull Result<Module> result) throws Throwable {
+    return WriteCommandAction.runWriteCommandAction(getProject(), {
         final VirtualFile depRoot = myFixture.getTempDirFixture().findOrCreateDir(name)
 
         final ModifiableModuleModel moduleModel = ModuleManager.getInstance(getProject()).getModifiableModel()
@@ -144,17 +137,16 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
         moduleModel.commit()
 
         final Module dep = ModuleManager.getInstance(getProject()).findModuleByName(moduleName)
-        ModuleRootModificationUtil.setModuleSdk(dep, ModuleRootManager.getInstance(myModule).getSdk())
+        ModuleRootModificationUtil.setModuleSdk(dep, ModuleRootManager.getInstance(module).getSdk())
         if (withSource) {
           PsiTestUtil.addSourceRoot(dep, depRoot)
         } else {
           PsiTestUtil.addContentRoot(dep, depRoot)
         }
-        IdeaTestUtil.setModuleLanguageLevel(dep, LanguageLevelModuleExtensionImpl.getInstance(myModule).getLanguageLevel())
+        IdeaTestUtil.setModuleLanguageLevel(dep, LanguageLevelModuleExtensionImpl.getInstance(module).getLanguageLevel())
 
-        result.setResult(dep)
-      }
-    }.execute().getResultObject()
+        return dep
+    } as ThrowableComputable<Module,RuntimeException>)
   }
 
   protected void deleteClassFile(final String className) throws IOException {
@@ -162,12 +154,12 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   @Nullable
-  protected VirtualFile findClassFile(String className) {
-    return findClassFile(className, myModule)
+  protected File findClassFile(String className) {
+    return findClassFile(className, module)
   }
 
   @Nullable
-  protected VirtualFile findClassFile(String className, Module module) {
+  protected File findClassFile(String className, Module module) {
     return myCompilerTester.findClassFile(className, module)
   }
 
@@ -200,7 +192,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected void assertOutput(String className, String output) throws ExecutionException {
-    assertOutput(className, output, myModule)
+    assertOutput(className, output, module)
   }
 
   protected void assertOutput(String className, String expected, final Module module) throws ExecutionException {
@@ -217,7 +209,8 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
     def output = StringUtil.convertLineSeparators(sb.toString().trim()).readLines()
     output = output.findAll { line ->
       !StringUtil.containsIgnoreCase(line, "illegal") &&
-      !line.contains("consider reporting this to the maintainers of org.codehaus.groovy.reflection.CachedClass")
+      !line.contains("consider reporting this to the maintainers of org.codehaus.groovy.reflection.CachedClass") &&
+      !line.startsWith("Picked up ")
     }
     assertEquals(expected.trim(), output.join("\n"))
   }
@@ -232,8 +225,7 @@ abstract class GroovyCompilerTestCase extends JavaCodeInsightFixtureTestCase imp
   }
 
   protected ApplicationConfiguration createApplicationConfiguration(String className, Module module) {
-    final ApplicationConfiguration configuration =
-      new ApplicationConfiguration("app", getProject(), ApplicationConfigurationType.getInstance())
+    final ApplicationConfiguration configuration = new ApplicationConfiguration("app", getProject())
     configuration.setModule(module)
     configuration.setMainClassName(className)
     return configuration

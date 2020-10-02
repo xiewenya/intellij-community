@@ -29,7 +29,8 @@ public class KotlinDslGradleGroovyFrameworkSupportProvider extends KotlinDslGrad
       @NotNull
       @Override
       public String getPresentableName() {
-        return "Groovy";
+        //noinspection HardCodedStringLiteral
+        return "Groovy"; //NON-NLS
       }
 
       @NotNull
@@ -47,7 +48,7 @@ public class KotlinDslGradleGroovyFrameworkSupportProvider extends KotlinDslGrad
                          @NotNull ModifiableModelsProvider modifiableModelsProvider,
                          @NotNull BuildScriptDataBuilder buildScriptData) {
     buildScriptData
-      .addPluginDefinition("plugin(\"groovy\")")
+      .addPluginDefinitionInPluginsGroup("groovy")
       .addRepositoriesDefinition("mavenCentral()")
       .addDependencyNotation("compile(\"org.codehaus.groovy:groovy-all:2.3.11\")")
       .addDependencyNotation("testCompile(\"junit\", \"junit\", \"4.12\")");

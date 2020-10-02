@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.util;
 
 import com.intellij.codeInsight.AttachSourcesProvider;
@@ -36,19 +22,24 @@ import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.gradle.initialization.BuildLayoutParameters;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.service.project.GradleProjectResolverUtil;
 import org.jetbrains.plugins.gradle.service.task.GradleTaskManager;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.*;
+import java.util.function.Predicate;
 
 import static com.intellij.jarFinder.InternetAttachSourceProvider.attachSourceJar;
 import static org.jetbrains.plugins.gradle.service.project.GradleProjectResolverUtil.attachSourcesAndJavadocFromGradleCacheIfNeeded;
@@ -93,29 +84,59 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
         final String gradlePath = GradleProjectResolverUtil.getGradlePath(module);
         if (gradlePath == null) return ActionCallback.REJECTED;
 
+        String sourceArtifactNotation = getSourcesArtifactNotation(artifactIdCandidate -> {
+          VirtualFile[] rootFiles = libraryOrderEntry.getRootFiles(OrderRootType.CLASSES);
+          return rootFiles.length == 0 || ContainerUtil.exists(rootFiles, file -> file.getName().startsWith(artifactIdCandidate));
+        }, artifactCoordinates);
+        final String sourcesLocationFilePath;
+        final File sourcesLocationFile;
+        try {
+          sourcesLocationFile = new File(FileUtil.createTempDirectory("sources", "loc"), "path.tmp");
+          sourcesLocationFilePath = StringUtil.escapeBackSlashes(sourcesLocationFile.getCanonicalPath());
+          Runtime.getRuntime().addShutdownHook(new Thread(() -> FileUtil.delete(sourcesLocationFile), "GradleAttachSourcesProvider cleanup"));
+        }
+        catch (IOException e) {
+          GradleLog.LOG.warn(e);
+          return ActionCallback.REJECTED;
+        }
         final String taskName = "DownloadSources";
+        // @formatter:off
         String initScript = "allprojects {\n" +
                             "  afterEvaluate { project ->\n" +
                             "    if(project.path == '" + gradlePath + "') {\n" +
-                            "        project.configurations.maybeCreate('downloadSources')\n" +
-                            "        project.dependencies.add('downloadSources', '" + artifactCoordinates + ":sources" + "')\n" +
-                            "        project.tasks.create(name: '" + taskName + "', overwrite: true) {\n" +
+                            "        def overwrite = project.tasks.findByName('" + taskName + "') != null\n" +
+                            "        project.tasks.create(name: '" + taskName + "', overwrite: overwrite) {\n" +
                             "        doLast {\n" +
-                            "          project.configurations.downloadSources.resolve()\n" +
+                            "          def configuration = null\n" +
+                            "          def repository = project.repositories.toList().find {\n" +
+                            "              project.repositories.clear()\n" +
+                            "              project.repositories.add(it)\n" +
+                            "              configuration = project.configurations.create('downloadSourcesFrom_' + it.name + '_' + UUID.randomUUID())\n" +
+                            "              configuration.transitive = false\n" +
+                            "              project.dependencies.add(configuration.name, '" + sourceArtifactNotation + "')\n" +
+                            "              configuration.resolvedConfiguration.lenientConfiguration.getFiles().any()\n" +
+                            "          }\n" +
+                            "          if (!repository) {\n" +
+                            "              configuration = project.configurations.create('downloadSources_' + UUID.randomUUID())\n" +
+                            "              configuration.transitive = false\n" +
+                            "              project.dependencies.add(configuration.name, '" + sourceArtifactNotation + "')\n" +
+                            "              configuration.resolve()\n" +
+                            "          }\n" +
+                            "          new File('" + sourcesLocationFilePath + "').write configuration?.singleFile?.path\n" +
                             "        }\n" +
                             "      }\n" +
                             "    }\n" +
                             "  }\n" +
                             "}\n";
-
+        // @formatter:on
         UserDataHolderBase userData = new UserDataHolderBase();
         userData.putUserData(GradleTaskManager.INIT_SCRIPT_KEY, initScript);
 
         String gradleVmOptions = GradleSettings.getInstance(project).getGradleVmOptions();
         ExternalSystemTaskExecutionSettings settings = new ExternalSystemTaskExecutionSettings();
-        settings.setExecutionName("Download sources");
+        settings.setExecutionName(getName());
         settings.setExternalProjectPath(ExternalSystemApiUtil.getExternalRootProjectPath(module));
-        settings.setTaskNames(ContainerUtil.list(taskName));
+        settings.setTaskNames(Collections.singletonList(taskName));
         settings.setVmOptions(gradleVmOptions);
         settings.setExternalSystemIdString(GradleConstants.SYSTEM_ID.getId());
         ExternalSystemUtil.runTask(
@@ -123,13 +144,26 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
           new TaskCallback() {
             @Override
             public void onSuccess() {
-              File sourceJar = getSourceFile(artifactCoordinates, libraryOrderEntry.getFiles(OrderRootType.CLASSES)[0], project);
+              VirtualFile classesFile = libraryOrderEntry.getFiles(OrderRootType.CLASSES)[0];
+              File sourceJar = getSourceFile(artifactCoordinates, classesFile, project);
+              if (sourceJar == null) {
+                try {
+                  sourceJar = new File(FileUtil.loadFile(sourcesLocationFile));
+                  FileUtil.delete(sourcesLocationFile);
+                }
+                catch (IOException e) {
+                  GradleLog.LOG.warn(e);
+                }
+              }
+              File finalSourceJar = sourceJar;
               ApplicationManager.getApplication().invokeLater(() -> {
                 final Set<Library> libraries = new HashSet<>();
                 for (LibraryOrderEntry orderEntry : orderEntries) {
                   ContainerUtil.addIfNotNull(libraries, orderEntry.getLibrary());
                 }
-                attachSourceJar(sourceJar, libraries);
+                if (finalSourceJar != null) {
+                  attachSourceJar(finalSourceJar, libraries);
+                }
                 resultWrapper.setDone();
               });
             }
@@ -150,6 +184,26 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
   }
 
   @NotNull
+  @ApiStatus.Internal
+  static String getSourcesArtifactNotation(@NotNull Predicate<String> artifactIdChecker, String artifactCoordinates) {
+    String groupNameVersionCoordinates;
+    String[] split = artifactCoordinates.split(":");
+    if (split.length == 4) {
+      // group:name:packaging:classifier || name:packaging:classifier:version || group:name:classifier:version || group:name:packaging:version
+      boolean isArtifactId = artifactIdChecker.test(split[1]);
+      groupNameVersionCoordinates = isArtifactId ? split[0] + ":" + split[1] + ":" + split[3] : artifactCoordinates;
+    }
+    else if (split.length == 5) {
+      // group:name:packaging:classifier:version
+      groupNameVersionCoordinates = split[0] + ":" + split[1] + ":" + split[4];
+    }
+    else {
+      groupNameVersionCoordinates = artifactCoordinates;
+    }
+    return groupNameVersionCoordinates + ":sources";
+  }
+
+  @Nullable
   private static File getSourceFile(String artifactCoordinates, VirtualFile classesFile, Project project) {
     LibraryData data = new LibraryData(GradleConstants.SYSTEM_ID, artifactCoordinates);
     data.addPath(LibraryPathType.BINARY, VfsUtil.getLocalFile(classesFile).getPath());
@@ -157,11 +211,12 @@ public class GradleAttachSourcesProvider implements AttachSourcesProvider {
     File gradleUserHome =
       serviceDirectory != null ? new File(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir();
     attachSourcesAndJavadocFromGradleCacheIfNeeded(gradleUserHome, data);
-    return new File(data.getPaths(LibraryPathType.SOURCE).iterator().next());
+    Iterator<String> iterator = data.getPaths(LibraryPathType.SOURCE).iterator();
+    return iterator.hasNext() ? new File(iterator.next()) : null;
   }
 
   private static Map<LibraryOrderEntry, Module> getGradleModules(List<LibraryOrderEntry> libraryOrderEntries) {
-    Map<LibraryOrderEntry, Module> result = ContainerUtil.newHashMap();
+    Map<LibraryOrderEntry, Module> result = new HashMap<>();
     for (LibraryOrderEntry entry : libraryOrderEntries) {
       if (entry.isModuleLevel()) continue;
       Module module = entry.getOwnerModule();

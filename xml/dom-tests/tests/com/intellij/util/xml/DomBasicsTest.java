@@ -18,7 +18,6 @@ package com.intellij.util.xml;
 import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.mock.MockModule;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.text.StringUtil;
@@ -29,6 +28,7 @@ import com.intellij.psi.impl.file.impl.FileManagerImpl;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.xml.events.DomEvent;
 import com.intellij.util.xml.impl.*;
 import com.intellij.util.xml.reflect.DomAttributeChildDescription;
@@ -45,8 +45,8 @@ import java.util.*;
  */
 public class DomBasicsTest extends DomTestCase {
   @Override
-  protected void invokeTestRunnable(@NotNull final Runnable runnable) {
-    WriteCommandAction.writeCommandAction(null).run(() -> runnable.run());
+  protected void runTestRunnable(final @NotNull ThrowableRunnable<Throwable> testRunnable) throws Throwable {
+    WriteCommandAction.writeCommandAction(null).run(testRunnable);
   }
 
   public void testFileElementCaching() {
@@ -399,9 +399,7 @@ public class DomBasicsTest extends DomTestCase {
     element.getChild().getGenericValue().setStringValue("abc");
     element.addChildElement().getGenericValue().setStringValue("def");
 
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      element2.copyFrom(element);
-    });
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> element2.copyFrom(element));
     assertEquals("attr", element2.getAttr().getValue());
     assertEquals("true", element2.getGenericValue().getStringValue());
 
@@ -428,9 +426,7 @@ public class DomBasicsTest extends DomTestCase {
     element2.ensureTagExists();
     assertNull(element2.getChild().getChild().getGenericValue().getStringValue());
     element1.getChild().getChild().getGenericValue().setStringValue("abc");
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      element2.copyFrom(element1);
-    });
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> element2.copyFrom(element1));
     assertEquals("abc", element2.getChild().getChild().getGenericValue().getStringValue());
   }
 
@@ -461,9 +457,7 @@ public class DomBasicsTest extends DomTestCase {
     assertEquals(oldChild1, child1);
     assertEquals(child1, oldChild1);
     final MyElement oldElement1 = oldElement;
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      oldElement1.undefine();
-    });
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> oldElement1.undefine());
     assertFalse(oldChild1.isValid());
 
     assertFalse(oldElement.isValid());
@@ -514,7 +508,7 @@ public class DomBasicsTest extends DomTestCase {
     final MyElement element = createElement("<a><child-element/><child-element><child/></child-element></a>");
     final MyElement parent = element.getChildElements().get(1);
     final MyElement child = parent.getChild();
-    final MyElement copy = (MyElement)child.createStableCopy();
+    final MyElement copy = child.createStableCopy();
     WriteCommandAction.runWriteCommandAction(getProject(), () -> {
       parent.undefine();
       element.addChildElement().getChild().ensureXmlElementExists();

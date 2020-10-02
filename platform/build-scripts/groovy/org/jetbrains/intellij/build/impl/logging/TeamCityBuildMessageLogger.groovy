@@ -1,19 +1,16 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.impl.logging
 
+import com.intellij.util.SystemProperties
 import groovy.transform.CompileStatic
 import org.apache.tools.ant.Project
 import org.jetbrains.intellij.build.BuildMessageLogger
-import org.jetbrains.intellij.build.CompilationErrorsLogMessage
 import org.jetbrains.intellij.build.LogMessage
 import org.jetbrains.intellij.build.impl.BuildUtils
 
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.function.BiFunction
-/**
- * todo[nik] this is replacement for BuildInfoPrinter. BuildInfoPrinter should be deleted after we move its remaining methods to this class.
- *
- * @author nik
- */
+
 @CompileStatic
 class TeamCityBuildMessageLogger extends BuildMessageLogger {
   public static final BiFunction<String, AntTaskLogger, BuildMessageLogger> FACTORY = { String taskName, AntTaskLogger antLogger ->
@@ -24,29 +21,51 @@ class TeamCityBuildMessageLogger extends BuildMessageLogger {
   private final String parallelTaskId
   private AntTaskLogger antTaskLogger
   private boolean isTeamCityListenerRegistered
+  private final ConcurrentLinkedDeque<LogMessage> delayedBlockStartMessages = new ConcurrentLinkedDeque<>()
 
   TeamCityBuildMessageLogger(String parallelTaskId, AntTaskLogger antTaskLogger) {
     this.parallelTaskId = parallelTaskId
     this.antTaskLogger = antTaskLogger
-    isTeamCityListenerRegistered = antTaskLogger.antProject.buildListeners.any { it.class.name.startsWith("jetbrains.buildServer.") }
+    //if Ant script is started directly by TeamCity Ant runner its BuildListener will be present in antProject;
+    //if Ant script is started from a forked Java task we cannot detect this automatically so explicit property should be passed
+    isTeamCityListenerRegistered = antTaskLogger.antProject.buildListeners.any { it.class.name.startsWith("jetbrains.buildServer.") } ||
+                                   SystemProperties.getBooleanProperty("intellij.build.teamcity.build.listener.available", false)
   }
 
   @Override
   void processMessage(LogMessage message) {
     switch (message.kind) {
-      case LogMessage.Kind.ERROR:
-      case LogMessage.Kind.WARNING:
       case LogMessage.Kind.INFO:
-        logPlainMessage(message)
+        logPlainMessage(message, "")
+        break
+      case LogMessage.Kind.WARNING:
+        logPlainMessage(message, " status='WARNING'")
+        break
+      case LogMessage.Kind.ERROR:
+        def messageText = message.text.trim()
+        int lineEnd = messageText.indexOf('\n')
+        String firstLine
+        String details
+        if (lineEnd != -1) {
+          firstLine = messageText.substring(0, lineEnd)
+          details = " errorDetails='${escape(messageText.substring(lineEnd + 1))}'"
+        }
+        else {
+          firstLine = messageText
+          details = ""
+        }
+        printTeamCityMessage("message", true, "text='${escape(firstLine)}'$details status='ERROR'")
         break
       case LogMessage.Kind.PROGRESS:
         printTeamCityMessage("progressMessage", false, "'${escape(message.text)}'")
         break
       case LogMessage.Kind.BLOCK_STARTED:
-        printTeamCityMessage("blockOpened", true, "name='${escape(message.text)}'")
+        delayedBlockStartMessages.addLast(message)
         break
       case LogMessage.Kind.BLOCK_FINISHED:
-        printTeamCityMessage("blockClosed", true, "name='${escape(message.text)}'")
+        if (!dropDelayedBlockStartMessageIfSame(message)) {
+          printTeamCityMessage("blockClosed", true, "name='${escape(message.text)}'")
+        }
         break
       case LogMessage.Kind.ARTIFACT_BUILT:
         printTeamCityMessage("publishArtifacts", false, "'${escape(message.text)}'")
@@ -60,22 +79,28 @@ class TeamCityBuildMessageLogger extends BuildMessageLogger {
         String value = escape(message.text.substring(index + 1))
         printTeamCityMessage("buildStatisticValue", false, "key='$key' value='$value'")
         break
+      case LogMessage.Kind.SET_PARAMETER:
+        int index = message.text.indexOf('=')
+        String name = escape(message.text.substring(0, index))
+        String value = escape(message.text.substring(index + 1))
+        printTeamCityMessage("setParameter", false, "name='$name' value='$value'")
+        break
       case LogMessage.Kind.COMPILATION_ERROR:
         int index = message.text.indexOf(':')
         String compiler = escape(message.text.substring(0, index))
         String messageText = escape(message.text.substring(index + 1))
-        printTeamCityMessage("compilationStarted", false, "compiler='$compiler']");
-        printTeamCityMessage("message", false, "text='$messageText' status='ERROR']");
-        printTeamCityMessage("compilationFinished", false, "compiler='$compiler']");
+        printTeamCityMessage("compilationStarted", false, "compiler='$compiler']")
+        printTeamCityMessage("message", false, "text='$messageText' status='ERROR']")
+        printTeamCityMessage("compilationFinished", false, "compiler='$compiler']")
         break
       case LogMessage.Kind.COMPILATION_ERRORS:
         String compiler = escape((message as CompilationErrorsLogMessage).compilerName)
-        printTeamCityMessage("compilationStarted", false, "compiler='$compiler']");
+        printTeamCityMessage("compilationStarted", false, "compiler='$compiler']")
         (message as CompilationErrorsLogMessage).errorMessages.each {
           String messageText = escape(it)
-          printTeamCityMessage("message", false, "text='$messageText' status='ERROR']");
+          printTeamCityMessage("message", false, "text='$messageText' status='ERROR']")
         }
-        printTeamCityMessage("compilationFinished", false, "compiler='$compiler']");
+        printTeamCityMessage("compilationFinished", false, "compiler='$compiler']")
         break
       case LogMessage.Kind.DEBUG:
         //debug messages are printed to a separate file available in the build artifacts
@@ -83,8 +108,8 @@ class TeamCityBuildMessageLogger extends BuildMessageLogger {
     }
   }
 
-  void logPlainMessage(LogMessage message) {
-    String status = message.kind == LogMessage.Kind.WARNING ? " status='WARNING'" : ""
+  void logPlainMessage(LogMessage message, String status) {
+    printDelayedBlockStartMessages()
     if (parallelTaskId != null || !status.isEmpty()) {
       printTeamCityMessage("message", true, "text='${escape(message.text)}'$status")
     }
@@ -94,9 +119,36 @@ class TeamCityBuildMessageLogger extends BuildMessageLogger {
   }
 
   private void printTeamCityMessage(String messageId, boolean includeFlowId, String messageArguments) {
+    printDelayedBlockStartMessages()
+    doPrintTeamCityMessage(messageId, includeFlowId, messageArguments)
+  }
+
+  private void doPrintTeamCityMessage(String messageId, boolean includeFlowId, String messageArguments) {
     String flowArg = includeFlowId && parallelTaskId != null ? " flowId='${escape(parallelTaskId)}'" : ""
     String message = "##teamcity[$messageId$flowArg $messageArguments]"
     printMessageText(message)
+  }
+
+  private void printDelayedBlockStartMessages() {
+    LogMessage message
+    while ((message = delayedBlockStartMessages.pollFirst()) != null) {
+      doPrintTeamCityMessage("blockOpened", true, "name='${escape(message.text)}'")
+    }
+  }
+
+  private boolean dropDelayedBlockStartMessageIfSame(LogMessage message) {
+    LogMessage last = delayedBlockStartMessages.peekLast()
+    if (last == null) return false
+    if (message.text != last.text) {
+      return false
+    }
+    last = delayedBlockStartMessages.pollLast()
+    if (message.text != last.text) {
+      // it's different since peek, return it back, hopefully no one notice that
+      delayedBlockStartMessages.addLast(last)
+      return false
+    }
+    return true
   }
 
   private void printMessageText(String message) {

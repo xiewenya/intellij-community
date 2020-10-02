@@ -1,9 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.analysis;
 
-import com.intellij.analysis.dialog.*;
+import com.intellij.analysis.dialog.ModelScopeItem;
+import com.intellij.analysis.dialog.ModelScopeItemPresenter;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.find.FindSettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
@@ -13,15 +13,16 @@ import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.refactoring.util.RadioUpDownListener;
 import com.intellij.ui.TitledSeparator;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.components.BorderLayoutPanel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.java.JavaSourceRootType;
 
 import javax.swing.*;
 import java.awt.*;
@@ -29,8 +30,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 
 public class BaseAnalysisActionDialog extends DialogWrapper {
@@ -39,7 +38,7 @@ public class BaseAnalysisActionDialog extends DialogWrapper {
   @NotNull private final AnalysisUIOptions myOptions;
   private final boolean myRememberScope;
   private final boolean myShowInspectTestSource;
-  private final String myAnalysisNoon;
+  private final @NlsContexts.Separator String myScopeTitle;
   private final Project myProject;
   private final ButtonGroup myGroup = new ButtonGroup();
   private final JCheckBox myInspectTestSource = new JCheckBox();
@@ -49,49 +48,49 @@ public class BaseAnalysisActionDialog extends DialogWrapper {
    * @deprecated Use {@link BaseAnalysisActionDialog#BaseAnalysisActionDialog(String, String, Project, List, AnalysisUIOptions, boolean, boolean)} instead.
    */
   @Deprecated
-  public BaseAnalysisActionDialog(@NotNull String title,
-                                   @NotNull String analysisNoon,
+  public BaseAnalysisActionDialog(@NlsContexts.DialogTitle @NotNull String title,
+                                   @NotNull @NlsContexts.Separator String scopeTitle,
                                    @NotNull Project project,
                                    @NotNull final AnalysisScope scope,
                                    final String moduleName,
                                    final boolean rememberScope,
                                    @NotNull AnalysisUIOptions analysisUIOptions,
                                    @Nullable PsiElement context) {
-    this(title, analysisNoon, project, scope, moduleName != null ? ModuleManager.getInstance(project).findModuleByName(moduleName) : null, rememberScope, analysisUIOptions, context);
+    this(title, scopeTitle, project, standardItems(project, scope, moduleName != null ? ModuleManager.getInstance(project).findModuleByName(moduleName) : null, context),
+         analysisUIOptions, rememberScope);
   }
 
-  /**
-   * @deprecated Use {@link BaseAnalysisActionDialog#BaseAnalysisActionDialog(String, String, Project, List, AnalysisUIOptions, boolean, boolean)} instead.
-   */
-  @Deprecated
-  public BaseAnalysisActionDialog(@NotNull String title,
-                                  @NotNull String analysisNoon,
+  @NotNull
+  public static List<ModelScopeItem> standardItems(@NotNull Project project,
+                                                   @NotNull AnalysisScope scope,
+                                                   @Nullable Module module,
+                                                   @Nullable PsiElement context) {
+    return ContainerUtil.mapNotNull(
+      ModelScopeItemPresenter.EP_NAME.getExtensionList(),
+      presenter -> presenter.tryCreate(project, scope, module, context));
+  }
+
+  public BaseAnalysisActionDialog(@NlsContexts.DialogTitle @NotNull String title,
+                                @NotNull @NlsContexts.Separator String scopeTitle,
+                                @NotNull Project project,
+                                @NotNull List<? extends ModelScopeItem> items,
+                                @NotNull AnalysisUIOptions options,
+                                final boolean rememberScope) {
+    this(title, scopeTitle, project, items, options, rememberScope, ModuleUtil.hasTestSourceRoots(project));
+  }
+
+  public BaseAnalysisActionDialog(@NlsContexts.DialogTitle @NotNull String title,
+                                  @NotNull @NlsContexts.Separator String scopeTitle,
                                   @NotNull Project project,
-                                  @NotNull final AnalysisScope scope,
-                                  @Nullable Module module,
+                                  @NotNull List<? extends ModelScopeItem> items,
+                                  @NotNull AnalysisUIOptions options,
                                   final boolean rememberScope,
-                                  @NotNull AnalysisUIOptions analysisUIOptions,
-                                  @Nullable PsiElement context) {
-    this(title, analysisNoon, project, Stream.of(new ProjectScopeItem(project),
-                                                 new CustomScopeItem(project, context),
-                                                 VcsScopeItem.createIfHasVCS(project),
-                                                 ModuleScopeItem.tryCreate(module),
-                                                 OtherScopeItem.tryCreate(scope)).filter(x -> x != null).collect(Collectors.toList()),
-         analysisUIOptions, rememberScope, ModuleUtil.isSupportedRootType(project, JavaSourceRootType.TEST_SOURCE));
-  }
-
-  public BaseAnalysisActionDialog(@NotNull String title,
-                                   @NotNull String analysisNoon,
-                                   @NotNull Project project,
-                                   @NotNull List<ModelScopeItem> items,
-                                   @NotNull AnalysisUIOptions options,
-                                   final boolean rememberScope,
-                                   final boolean showInspectTestSource) {
+                                  final boolean showInspectTestSource) {
     super(true);
-    myAnalysisNoon = analysisNoon;
+    myScopeTitle = scopeTitle;
     myProject = project;
 
-    myViewItems = ModelScopeItemPresenter.createOrderedViews(items);
+    myViewItems = ModelScopeItemPresenter.createOrderedViews(items, getDisposable());
     myOptions = options;
     myRememberScope = rememberScope;
     myShowInspectTestSource = showInspectTestSource;
@@ -104,7 +103,7 @@ public class BaseAnalysisActionDialog extends DialogWrapper {
   protected JComponent createCenterPanel() {
     BorderLayoutPanel panel = new BorderLayoutPanel();
     TitledSeparator titledSeparator = new TitledSeparator();
-    titledSeparator.setText(myAnalysisNoon);
+    titledSeparator.setText(myScopeTitle);
     panel.addToTop(titledSeparator);
 
     JPanel scopesPanel = new JPanel(new GridBagLayout());
@@ -153,7 +152,7 @@ public class BaseAnalysisActionDialog extends DialogWrapper {
       gridY++;
     }
 
-    myInspectTestSource.setText(AnalysisScopeBundle.message("scope.option.include.test.sources"));
+    myInspectTestSource.setText(CodeInsightBundle.message("scope.option.include.test.sources"));
     myInspectTestSource.setSelected(myOptions.ANALYZE_TEST_SOURCES);
     myInspectTestSource.setVisible(myShowInspectTestSource);
     gbc.gridy = gridY;
@@ -181,8 +180,7 @@ public class BaseAnalysisActionDialog extends DialogWrapper {
   private void preselectButton() {
     if (myRememberScope) {
       int type = myOptions.SCOPE_TYPE;
-      List<ModelScopeItemView> preselectedScopes = myViewItems.stream()
-        .filter(x -> x.scopeId == type).collect(Collectors.toList());
+      List<ModelScopeItemView> preselectedScopes = ContainerUtil.filter(myViewItems, x -> x.scopeId == type);
 
       if (preselectedScopes.size() >= 1) {
         LOG.assertTrue(preselectedScopes.size() == 1, "preselectedScopes.size() == 1");

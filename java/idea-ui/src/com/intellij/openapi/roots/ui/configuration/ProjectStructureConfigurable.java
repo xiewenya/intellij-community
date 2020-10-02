@@ -1,36 +1,19 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration;
 
 import com.intellij.compiler.server.BuildManager;
 import com.intellij.facet.Facet;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.options.BaseConfigurable;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.LibraryOrderEntry;
@@ -48,6 +31,7 @@ import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.OnePixelSplitter;
+import com.intellij.ui.UIBundle;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.navigation.BackAction;
 import com.intellij.ui.navigation.ForwardAction;
@@ -69,10 +53,8 @@ import java.util.List;
 
 import static com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurableFilter.ConfigurableId;
 
-public class ProjectStructureConfigurable extends BaseConfigurable implements SearchableConfigurable, Place.Navigator,
+public class ProjectStructureConfigurable implements SearchableConfigurable, Place.Navigator,
                                                                               Configurable.NoMargin, Configurable.NoScroll {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.roots.ui.configuration.ProjectStructureConfigurable");
-
   public static final DataKey<ProjectStructureConfigurable> KEY = DataKey.create("ProjectStructureConfiguration");
 
   protected final UIState myUiState = new UIState();
@@ -114,29 +96,25 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
   private final ModulesConfigurator myModuleConfigurator;
   private JdkListConfigurable myJdkListConfig;
 
-  private final JLabel myEmptySelection = new JLabel("<html><body><center>Select a setting to view or edit its details here</center></body></html>",
-                                                     SwingConstants.CENTER);
+  private final JLabel myEmptySelection = new JLabel(
+    JavaUiBundle.message("project.structure.empty.text"),
+    SwingConstants.CENTER);
 
   private final ObsoleteLibraryFilesRemover myObsoleteLibraryFilesRemover;
 
-  public ProjectStructureConfigurable(final Project project,
-                                      final ProjectLibrariesConfigurable projectLibrariesConfigurable,
-                                      final GlobalLibrariesConfigurable globalLibrariesConfigurable,
-                                      final ModuleStructureConfigurable moduleStructureConfigurable,
-                                      FacetStructureConfigurable facetStructureConfigurable,
-                                      ArtifactsStructureConfigurable artifactsStructureConfigurable) {
+  public ProjectStructureConfigurable(@NotNull Project project) {
     myProject = project;
-    myFacetStructureConfigurable = facetStructureConfigurable;
-    myArtifactsStructureConfigurable = artifactsStructureConfigurable;
+    myFacetStructureConfigurable = FacetStructureConfigurable.getInstance(project);
+    myArtifactsStructureConfigurable = project.getService(ArtifactsStructureConfigurable.class);
 
     myModuleConfigurator = new ModulesConfigurator(myProject);
     myContext = new StructureConfigurableContext(myProject, myModuleConfigurator);
     myModuleConfigurator.setContext(myContext);
 
-    myProjectLibrariesConfig = projectLibrariesConfigurable;
-    myGlobalLibrariesConfig = globalLibrariesConfigurable;
-    myModulesConfig = moduleStructureConfigurable;
-    
+    myProjectLibrariesConfig = ProjectLibrariesConfigurable.getInstance(project);
+    myGlobalLibrariesConfig = GlobalLibrariesConfigurable.getInstance(project);
+    myModulesConfig = ModuleStructureConfigurable.getInstance(project);
+
     myProjectLibrariesConfig.init(myContext);
     myGlobalLibrariesConfig.init(myContext);
     myModulesConfig.init(myContext);
@@ -164,7 +142,7 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
   @Override
   @Nls
   public String getDisplayName() {
-    return ProjectBundle.message("project.settings.display.name");
+    return JavaUiBundle.message("project.settings.display.name");
   }
 
   @Override
@@ -193,8 +171,8 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
     };
 
     final DefaultActionGroup toolbarGroup = new DefaultActionGroup();
-    toolbarGroup.add(new BackAction(myComponent));
-    toolbarGroup.add(new ForwardAction(myComponent));
+    toolbarGroup.add(new BackAction(myComponent, myContext));
+    toolbarGroup.add(new ForwardAction(myComponent, myContext));
     final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("ProjectStructure", toolbarGroup, true);
     toolbar.setTargetComponent(myComponent);
     myToolbarComponent = toolbar.getComponent();
@@ -217,7 +195,7 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
     boolean isDefaultProject = myProject == ProjectManager.getInstance().getDefaultProject();
 
     mySidePanel = new SidePanel(this);
-    mySidePanel.addSeparator("Project Settings");
+    mySidePanel.addSeparator(JavaUiBundle.message("project.settings.title"));
     addProjectConfig();
     if (!isDefaultProject) {
       addModulesConfig();
@@ -229,25 +207,13 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
       addArtifactsConfig();
     }
 
-    ProjectStructureConfigurableContributor[] adders = ProjectStructureConfigurableContributor.EP_NAME.getExtensions();
-    for (ProjectStructureConfigurableContributor adder : adders) {
-      for (Configurable configurable : adder.getExtraProjectConfigurables(myProject, myContext)) {
-        addConfigurable(configurable, true);
-      }
-    }
-
-    mySidePanel.addSeparator("Platform Settings");
+    mySidePanel.addSeparator(JavaUiBundle.message("project.structure.platform.title"));
     addJdkListConfig();
     addGlobalLibrariesConfig();
 
-    for (ProjectStructureConfigurableContributor adder : adders) {
-      for (Configurable configurable : adder.getExtraPlatformConfigurables(myProject, myContext)) {
-        addConfigurable(configurable, true);
-      }
-    }
-
     mySidePanel.addSeparator("--");
     addErrorPane();
+    mySidePanel.getList().getAccessibleContext().setAccessibleName(UIBundle.message("project.structure.categories.accessible.name"));
   }
 
   private void addArtifactsConfig() {
@@ -318,8 +284,6 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
 
   @Override
   public void apply() throws ConfigurationException {
-    LOG.assertTrue(TransactionGuard.getInstance().getContextTransaction() != null, "Project Structure should be shown in a transaction, see AnAction#startInTransaction");
-
     for (Configurable each : myName2Config) {
       if (each instanceof BaseStructureConfigurable && each.isModified()) {
         ((BaseStructureConfigurable)each).checkCanApply();
@@ -350,7 +314,7 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
   public void reset() {
     // need this to ensure VFS operations will not block because of storage flushing
     // and other maintenance IO tasks run in background
-    AccessToken token = HeavyProcessLatch.INSTANCE.processStarted("Resetting Project Structure");
+    AccessToken token = HeavyProcessLatch.INSTANCE.processStarted(JavaUiBundle.message("project.structure.configurable.reset.text"));
 
     try {
 
@@ -596,7 +560,7 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
     myDetails.add(myEmptySelection, BorderLayout.CENTER);
   }
 
-  public static ProjectStructureConfigurable getInstance(final Project project) {
+  public static ProjectStructureConfigurable getInstance(@NotNull final Project project) {
     return ServiceManager.getService(project, ProjectStructureConfigurable.class);
   }
 
@@ -617,7 +581,7 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
     return myProjectConfig;
   }
 
-  public void registerObsoleteLibraryRoots(@NotNull Collection<VirtualFile> roots) {
+  public void registerObsoleteLibraryRoots(@NotNull Collection<? extends VirtualFile> roots) {
     myObsoleteLibraryFilesRemover.registerObsoleteLibraryRoots(roots);
   }
 
@@ -639,13 +603,13 @@ public class ProjectStructureConfigurable extends BaseConfigurable implements Se
   }
 
   private class MyPanel extends JPanel implements DataProvider {
-    public MyPanel() {
+    MyPanel() {
       super(new BorderLayout());
     }
 
     @Override
     @Nullable
-    public Object getData(@NonNls final String dataId) {
+    public Object getData(@NotNull @NonNls final String dataId) {
       if (KEY.is(dataId)) {
         return ProjectStructureConfigurable.this;
       } else if (History.KEY.is(dataId)) {

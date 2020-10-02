@@ -1,120 +1,109 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.status;
 
-import com.intellij.ide.ui.UISettings;
-import com.intellij.ide.ui.UISettingsListener;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.CustomStatusBarWidget;
 import com.intellij.openapi.wm.StatusBar;
-import com.intellij.openapi.wm.StatusBarWidget;
+import com.intellij.ui.ClickListener;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.UIBundle;
 import com.intellij.util.concurrency.EdtExecutorService;
-import com.intellij.util.ui.JBSwingUtilities;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.image.BufferedImage;
+import java.awt.event.MouseEvent;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-public class MemoryUsagePanel extends JButton implements CustomStatusBarWidget, UISettingsListener {
-  @NonNls public static final String WIDGET_ID = "Memory";
-  private static final int MEGABYTE = 1024 * 1024;
-  @NonNls private static final String SAMPLE_STRING;
-  
-  static {
-    long maxMemory = Math.min(Runtime.getRuntime().maxMemory() / MEGABYTE, 9999);
-    SAMPLE_STRING = maxMemory + " of " + maxMemory + "M ";
-  }
-  private static final Color USED_COLOR = new JBColor(Gray._185, Gray._110);
-  private static final Color UNUSED_COLOR = new JBColor(Gray._215, Gray._90);
+import static com.intellij.openapi.util.io.FileUtilRt.MEGABYTE;
 
-  private long myLastTotal = -1;
+public final class MemoryUsagePanel extends TextPanel implements CustomStatusBarWidget, Activatable {
+  public static final String WIDGET_ID = "Memory";
+
+  private static final Color USED_COLOR = JBColor.namedColor("MemoryIndicator.usedBackground", new JBColor(Gray._185, Gray._110));
+  private static final Color UNUSED_COLOR = JBColor.namedColor("MemoryIndicator.allocatedBackground", new JBColor(Gray._215, Gray._90));
+
+  private long myLastAllocated = -1;
   private long myLastUsed = -1;
-  private Image myBufferedImage;
-  private boolean myWasPressed;
+  private ScheduledFuture<?> myFuture;
+  private final long myMaxMemory = Math.min(Runtime.getRuntime().maxMemory() / MEGABYTE, 9999);
+  private StatusBar myStatusBar;
 
   public MemoryUsagePanel() {
-    setOpaque(false);
     setFocusable(false);
-
-    addActionListener(e -> {
-      System.gc();
-      updateState();
-    });
-
-    setBorder(StatusBarWidget.WidgetBorder.INSTANCE);
+    setTextAlignment(CENTER_ALIGNMENT);
+    new ClickListener() {
+      @Override
+      public boolean onClick(@NotNull MouseEvent event, int clickCount) {
+        //noinspection CallToSystemGC
+        System.gc();
+        updateState();
+        return true;
+      }
+    }.installOn(this, true);
+    setBorder(JBUI.Borders.empty(0, 2));
     updateUI();
 
-    new UiNotifyConnector(this, new Activatable() {
-      private ScheduledFuture<?> myFuture;
-
-      @Override
-      public void showNotify() {
-        myFuture = EdtExecutorService.getScheduledExecutorInstance().scheduleWithFixedDelay(MemoryUsagePanel.this::updateState,
-                                                                                            1, 5, TimeUnit.SECONDS);
-      }
-
-      @Override
-      public void hideNotify() {
-        if (myFuture != null) {
-          myFuture.cancel(true);
-          myFuture = null;
-        }
-      }
-    });
-
+    new UiNotifyConnector(this, this);
   }
 
   @Override
-  public void dispose() {
-  }
-
-  @Override
-  public void install(@NotNull StatusBar statusBar) { }
-
-  @Override
-  @Nullable
-  public WidgetPresentation getPresentation(@NotNull PlatformType type) {
+  public Color getBackground() {
     return null;
   }
 
   @Override
-  @NotNull
-  public String ID() {
-    return WIDGET_ID;
+  public void showNotify() {
+    myFuture = EdtExecutorService.getScheduledExecutorInstance().scheduleWithFixedDelay(this::updateState, 1, 5, TimeUnit.SECONDS);
   }
 
-  public void setShowing(final boolean showing) {
-    if (showing != isVisible()) {
-      setVisible(showing);
-      revalidate();
+  @Override
+  public void hideNotify() {
+    if (myFuture != null) {
+      myFuture.cancel(true);
+      myFuture = null;
     }
   }
 
   @Override
-  public void updateUI() {
-    myBufferedImage = null;
-    super.updateUI();
-    setFont(getWidgetFont());
-    setBorder(BorderFactory.createEmptyBorder());
+  public void install(@NotNull StatusBar statusBar) {
+    if (statusBar instanceof IdeStatusBarImpl) {
+      ((IdeStatusBarImpl)statusBar).setBorder(BorderFactory.createEmptyBorder(1, 0, 0, 6));
+    }
   }
 
   @Override
-  public void uiSettingsChanged(UISettings uiSettings) {
-    myBufferedImage = null;
+  public void dispose() { 
+    if (myStatusBar instanceof IdeStatusBarImpl) {
+      ((IdeStatusBarImpl)myStatusBar).setBorder(BorderFactory.createEmptyBorder(1, 0, 0, 0));
+    }
+    myStatusBar = null;
   }
 
-  private static Font getWidgetFont() {
-    return JBUI.Fonts.label(11);
+  @Nullable
+  @Override
+  public WidgetPresentation getPresentation() {
+    return null;
+  }
+
+  @NotNull
+  @Override
+  public String ID() {
+    return WIDGET_ID;
+  }
+
+  public void setShowing(boolean showing) {
+    if (showing != isVisible()) {
+      setVisible(showing);
+      revalidate();
+    }
   }
 
   @Override
@@ -123,78 +112,39 @@ public class MemoryUsagePanel extends JButton implements CustomStatusBarWidget, 
   }
 
   @Override
-  public void paintComponent(final Graphics g) {
-    final boolean pressed = getModel().isPressed();
-    final boolean stateChanged = myWasPressed != pressed;
-    myWasPressed = pressed;
+  public void paintComponent(Graphics g) {
+    Dimension size = getSize();
+    int barWidth = size.width;
 
-    if (myBufferedImage == null || stateChanged) {
-      final Dimension size = getSize();
-      final Insets insets = getInsets();
+    Runtime rt = Runtime.getRuntime();
+    long maxMem = rt.maxMemory();
+    long allocatedMem = rt.totalMemory();
+    long unusedMem = rt.freeMemory();
+    long usedMem = allocatedMem - unusedMem;
 
-      myBufferedImage = UIUtil.createImage(g, size.width, size.height, BufferedImage.TYPE_INT_ARGB);
-      Graphics2D g2 = JBSwingUtilities.runGlobalCGTransform(this, ((BufferedImage)myBufferedImage).createGraphics());
+    int usedBarLength = (int)(barWidth * usedMem / maxMem);
+    int unusedBarLength = (int)(size.height * unusedMem / maxMem);
 
-      final Runtime rt = Runtime.getRuntime();
-      final long maxMem = rt.maxMemory();
-      final long allocatedMem = rt.totalMemory();
-      final long unusedMem = rt.freeMemory();
-      final long usedMem = allocatedMem - unusedMem;
+    // background
+    g.setColor(UIUtil.getPanelBackground());
+    g.fillRect(0, 0, barWidth, size.height - 1);
 
-      final int totalBarLength = size.width - insets.left - insets.right;
-      final int usedBarLength = (int)(totalBarLength * usedMem / maxMem);
-      final int unusedBarLength = (int)(totalBarLength * unusedMem / maxMem);
-      final int barHeight = Math.max(size.height, getFont().getSize() + 2);
-      final int yOffset = (size.height - barHeight) / 2;
-      final int xOffset = insets.left;
+    // gauge (used)
+    g.setColor(USED_COLOR);
+    g.fillRect(0, 0, usedBarLength, size.height - 1);
 
-      // background
-      g2.setColor(UIUtil.getPanelBackground());
-      g2.fillRect(0, 0, size.width, size.height);
+    // gauge (unused)
+    g.setColor(UNUSED_COLOR);
+    g.fillRect(usedBarLength, 0, unusedBarLength, size.height - 1);
 
-      // gauge (used)
-      g2.setColor(USED_COLOR);
-      g2.fillRect(xOffset, yOffset, usedBarLength, barHeight);
-
-      // gauge (unused)
-      g2.setColor(UNUSED_COLOR);
-      g2.fillRect(xOffset + usedBarLength, yOffset, unusedBarLength, barHeight);
-
-      // label
-      g2.setFont(getFont());
-      final long used = usedMem / MEGABYTE;
-      final long total = maxMem / MEGABYTE;
-      final String info = UIBundle.message("memory.usage.panel.message.text", used, total);
-      final FontMetrics fontMetrics = g.getFontMetrics();
-      final int infoWidth = fontMetrics.charsWidth(info.toCharArray(), 0, info.length());
-      final int infoHeight = fontMetrics.getAscent();
-      UISettings.setupAntialiasing(g2);
-      final Color fg = pressed ? UIUtil.getLabelDisabledForeground() : JBColor.foreground();
-      g2.setColor(fg);
-      g2.drawString(info, xOffset + (totalBarLength - infoWidth) / 2, yOffset + infoHeight + (barHeight - infoHeight) / 2 - 1);
-
-      g2.dispose();
-    }
-
-    UIUtil.drawImage(g, myBufferedImage, 0, 0, null);
+    //text
+    super.paintComponent(g);
   }
 
   @Override
-  public Dimension getPreferredSize() {
-    final Insets insets = getInsets();
-    int width = getFontMetrics(getWidgetFont()).stringWidth(SAMPLE_STRING) + insets.left + insets.right + JBUI.scale(2);
-    int height = getFontMetrics(getWidgetFont()).getHeight() + insets.top + insets.bottom + JBUI.scale(2);
-    return new Dimension(width, height);
-  }
-
-  @Override
-  public Dimension getMinimumSize() {
-    return getPreferredSize();
-  }
-
-  @Override
-  public Dimension getMaximumSize() {
-    return getPreferredSize();
+  protected String getTextForPreferredSize() {
+    long sample = myMaxMemory < 1000 ? 999 : 9999;
+    return " " + UIBundle.message("memory.usage.panel.message.text", sample, sample);
   }
 
   private void updateState() {
@@ -202,19 +152,17 @@ public class MemoryUsagePanel extends JButton implements CustomStatusBarWidget, 
       return;
     }
 
-    final Runtime runtime = Runtime.getRuntime();
-    final long total = runtime.totalMemory() / MEGABYTE;
-    final long used = total - runtime.freeMemory() / MEGABYTE;
+    Runtime rt = Runtime.getRuntime();
+    long maxMem = rt.maxMemory() / MEGABYTE;
+    long allocatedMem = rt.totalMemory() / MEGABYTE;
+    long usedMem = allocatedMem - rt.freeMemory() / MEGABYTE;
+    String text = UIBundle.message("memory.usage.panel.message.text", usedMem, maxMem);
 
-    if (total != myLastTotal || used != myLastUsed) {
-      myLastTotal = total;
-      myLastUsed = used;
-      UIUtil.invokeLaterIfNeeded(() -> {
-        myBufferedImage = null;
-        repaint();
-      });
-
-      setToolTipText(UIBundle.message("memory.usage.panel.statistics.message", total, used));
+    if (allocatedMem != myLastAllocated || usedMem != myLastUsed || !StringUtil.equals(text, getText())) {
+      myLastAllocated = allocatedMem;
+      myLastUsed = usedMem;
+      setText(text);
+      setToolTipText(UIBundle.message("memory.usage.panel.statistics.message", maxMem, allocatedMem, usedMem));
     }
   }
 }

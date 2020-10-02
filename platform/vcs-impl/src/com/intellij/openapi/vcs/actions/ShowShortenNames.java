@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.vcs.VcsBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,11 +29,11 @@ import java.util.ArrayList;
 /**
  * @author Konstantin Bulenkov
  */
-public class ShowShortenNames extends ActionGroup {
+public class ShowShortenNames extends ActionGroup implements DumbAware {
   private final AnAction[] myChildren;
 
   public ShowShortenNames() {
-    super("Names", true);
+    super(VcsBundle.messagePointer("annotations.short.name.type.group.names"), true);
     final ArrayList<AnAction> kids = new ArrayList<>(ShortNameType.values().length);
     for (ShortNameType type : ShortNameType.values()) {
       kids.add(new SetShortNameTypeAction(type));
@@ -40,9 +41,8 @@ public class ShowShortenNames extends ActionGroup {
     myChildren = kids.toArray(AnAction.EMPTY_ARRAY);
   }
 
-  @NotNull
   @Override
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     return myChildren;
   }
 
@@ -58,18 +58,18 @@ public class ShowShortenNames extends ActionGroup {
   private static class SetShortNameTypeAction extends ToggleAction implements DumbAware {
     private final ShortNameType myType;
 
-    public SetShortNameTypeAction(ShortNameType type) {
+    SetShortNameTypeAction(ShortNameType type) {
       super(type.getDescription());
       myType = type;
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myType == getType();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean enabled) {
+    public void setSelected(@NotNull AnActionEvent e, boolean enabled) {
       if (enabled) {
         myType.set();
       }

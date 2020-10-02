@@ -1,21 +1,22 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.data.index;
 
-import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
-import com.intellij.openapi.components.State;
-import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.components.*;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.EventDispatcher;
+import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.XCollection;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
+import java.util.EventListener;
 import java.util.SortedSet;
+import java.util.TreeSet;
 
-@State(name = "Vcs.Log.Big.Repositories", storages = {@Storage("vcs.log.big.repos.xml")})
-public class VcsLogBigRepositoriesList implements PersistentStateComponent<VcsLogBigRepositoriesList.State> {
+@State(name = "Vcs.Log.Big.Repositories", storages = @Storage(StoragePathMacros.CACHE_FILE))
+public final class VcsLogBigRepositoriesList implements PersistentStateComponent<VcsLogBigRepositoriesList.State> {
   @NotNull private final Object myLock = new Object();
+  @NotNull private final EventDispatcher<Listener> myDispatcher = EventDispatcher.create(Listener.class);
   private State myState;
 
   public VcsLogBigRepositoriesList() {
@@ -24,9 +25,8 @@ public class VcsLogBigRepositoriesList implements PersistentStateComponent<VcsLo
     }
   }
 
-  @Nullable
   @Override
-  public State getState() {
+  public @NotNull State getState() {
     synchronized (myLock) {
       return new State(myState);
     }
@@ -35,26 +35,47 @@ public class VcsLogBigRepositoriesList implements PersistentStateComponent<VcsLo
   @Override
   public void loadState(@NotNull State state) {
     synchronized (myLock) {
-      myState = new State(state);
+      if (state.diffRenameLimitOne) {
+        myState = new State(state);
+      }
+      else {
+        myState = new State();
+        myState.diffRenameLimitOne = true;
+      }
     }
   }
 
   public void addRepository(@NotNull VirtualFile root) {
+    boolean added;
     synchronized (myLock) {
-      myState.REPOSITORIES.add(root.getPath());
+      added = myState.repositories.add(root.getPath());
     }
+    if (added) myDispatcher.getMulticaster().onRepositoriesListChanged();
   }
 
-  public void removeRepository(@NotNull VirtualFile root) {
+  public boolean removeRepository(@NotNull VirtualFile root) {
+    boolean removed;
     synchronized (myLock) {
-      myState.REPOSITORIES.remove(root.getPath());
+      removed = myState.repositories.remove(root.getPath());
     }
+    if (removed) myDispatcher.getMulticaster().onRepositoriesListChanged();
+    return removed;
   }
 
   public boolean isBig(@NotNull VirtualFile root) {
     synchronized (myLock) {
-      return myState.REPOSITORIES.contains(root.getPath());
+      return myState.repositories.contains(root.getPath());
     }
+  }
+
+  public int getRepositoriesCount() {
+    synchronized (myLock) {
+      return myState.repositories.size();
+    }
+  }
+
+  public void addListener(@NotNull Listener listener, @NotNull Disposable disposable) {
+    myDispatcher.addListener(listener, disposable);
   }
 
   @NotNull
@@ -62,15 +83,22 @@ public class VcsLogBigRepositoriesList implements PersistentStateComponent<VcsLo
     return ServiceManager.getService(VcsLogBigRepositoriesList.class);
   }
 
-  public static class State {
-    @XCollection(elementName = "repository", valueAttributeName = "path")
-    public SortedSet<String> REPOSITORIES = ContainerUtil.newTreeSet();
+  public static final class State {
+    @XCollection(elementName = "repository", valueAttributeName = "path", style = XCollection.Style.v2)
+    public SortedSet<String> repositories = new TreeSet<>();
+    @Attribute("diff-rename-limit-one")
+    public boolean diffRenameLimitOne = false;
 
     public State() {
     }
 
     public State(@NotNull State state) {
-      REPOSITORIES = ContainerUtil.newTreeSet(state.REPOSITORIES);
+      repositories = new TreeSet<>(state.repositories);
+      diffRenameLimitOne = state.diffRenameLimitOne;
     }
+  }
+
+  public interface Listener extends EventListener {
+    void onRepositoriesListChanged();
   }
 }

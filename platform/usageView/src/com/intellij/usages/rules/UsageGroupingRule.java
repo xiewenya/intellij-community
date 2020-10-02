@@ -39,7 +39,7 @@ public interface UsageGroupingRule {
    * {@link SingleParentUsageGroupingRule#getParentGroupFor getParentGroupFor} instead.</p>
    */
   @NotNull
-  default List<UsageGroup> getParentGroupsFor(@NotNull Usage usage, @NotNull UsageTarget[] targets) {
+  default List<UsageGroup> getParentGroupsFor(@NotNull Usage usage, UsageTarget @NotNull [] targets) {
     return ContainerUtil.createMaybeSingletonList(groupUsage(usage));
   }
 
@@ -54,6 +54,7 @@ public interface UsageGroupingRule {
   /**
    * @deprecated extend {@link SingleParentUsageGroupingRule} and override {@link SingleParentUsageGroupingRule#getParentGroupFor getParentGroupFor} instead
    */
+  @Deprecated
   @Nullable
   default UsageGroup groupUsage(@NotNull Usage usage) {
     throw new UnsupportedOperationException();

@@ -1,23 +1,17 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.extensions.PluginDescriptor;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.SmartFMap;
+import com.intellij.util.SmartList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * The main (and single) purpose of this class is provide lazy initialization
@@ -25,84 +19,106 @@ import org.jetbrains.annotations.NotNull;
  *
  * @author Vladimir Kondratyev
  */
-public class ActionStub extends AnAction{
-  private static final Logger LOG=Logger.getInstance("#com.intellij.openapi.actionSystem.ActionStub");
+@SuppressWarnings("ComponentNotRegistered")
+public final class ActionStub extends AnAction implements ActionStubBase {
+  private static final Logger LOG = Logger.getInstance(ActionStub.class);
 
   private final String myClassName;
   private final String myProjectType;
+  private final Supplier<Presentation> myTemplatePresentation;
   private final String myId;
-  private final String myText;
-  private final ClassLoader myLoader;
-  private final PluginId myPluginId;
+  private final PluginDescriptor myPlugin;
   private final String myIconPath;
+  private SmartFMap<String, Supplier<String>> myActionTextOverrides = SmartFMap.emptyMap();
+  private final SmartList<Supplier<String>> mySynonyms = new SmartList<>();
 
   public ActionStub(@NotNull String actionClass,
                     @NotNull String id,
-                    @NotNull String text,
-                    ClassLoader loader,
-                    PluginId pluginId,
-                    String iconPath, String projectType) {
-    myLoader = loader;
-    myClassName=actionClass;
+                    @NotNull PluginDescriptor plugin,
+                    @Nullable String iconPath,
+                    @Nullable String projectType,
+                    @NotNull Supplier<Presentation> templatePresentation) {
+    myPlugin = plugin;
+    myClassName = actionClass;
     myProjectType = projectType;
+    myTemplatePresentation = templatePresentation;
     LOG.assertTrue(!id.isEmpty());
-    myId=id;
-    myText=text;
-    myPluginId = pluginId;
+    myId = id;
     myIconPath = iconPath;
   }
 
+  @Override
+  public void addTextOverride(@NotNull String place, @NotNull Supplier<String> text) {
+    myActionTextOverrides = myActionTextOverrides.plus(place, text);
+  }
+
+  @Override
+  public void addSynonym(@NotNull Supplier<String> text) {
+    mySynonyms.add(text);
+  }
+
   @NotNull
-  public String getClassName(){
+  @Override
+  public PluginDescriptor getPlugin() {
+    return myPlugin;
+  }
+
+  @NotNull
+  @Override
+  Presentation createTemplatePresentation() {
+    return myTemplatePresentation.get();
+  }
+
+  @NotNull
+  public String getClassName() {
     return myClassName;
   }
 
+  @Override
   @NotNull
-  public String getId(){
+  public String getId() {
     return myId;
   }
 
-  @NotNull
-  public String getText(){
-    return myText;
-  }
-
   public ClassLoader getLoader() {
-    return myLoader;
+    return myPlugin.getPluginClassLoader();
   }
 
-  public PluginId getPluginId() {
-    return myPluginId;
-  }
-
+  @Override
   public String getIconPath() {
     return myIconPath;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e){
+  public void actionPerformed(@NotNull AnActionEvent e) {
     throw new UnsupportedOperationException();
   }
 
   /**
    * Copies template presentation and shortcuts set to {@code targetAction}.
-   *
-   * @param targetAction cannot be {@code null}
    */
+  @ApiStatus.Internal
   public final void initAction(@NotNull AnAction targetAction) {
-    Presentation sourcePresentation = getTemplatePresentation();
-    Presentation targetPresentation = targetAction.getTemplatePresentation();
+    copyTemplatePresentation(this.getTemplatePresentation(), targetAction.getTemplatePresentation());
+    targetAction.setShortcutSet(getShortcutSet());
+    for (String place : myActionTextOverrides.keySet()) {
+      targetAction.addTextOverride(place, Objects.requireNonNull(myActionTextOverrides.get(place)));
+    }
+    for (Supplier<String> synonym : mySynonyms) {
+      targetAction.addSynonym(synonym);
+    }
+  }
+
+  public static void copyTemplatePresentation(Presentation sourcePresentation, Presentation targetPresentation) {
     if (targetPresentation.getIcon() == null && sourcePresentation.getIcon() != null) {
       targetPresentation.setIcon(sourcePresentation.getIcon());
     }
-    if (targetPresentation.getText() == null && sourcePresentation.getText() != null) {
-      targetPresentation.setText(sourcePresentation.getText());
+    if (StringUtil.isEmpty(targetPresentation.getText()) && sourcePresentation.getText() != null) {
+      targetPresentation.setTextWithMnemonic(sourcePresentation.getTextWithPossibleMnemonic());
     }
     if (targetPresentation.getDescription() == null && sourcePresentation.getDescription() != null) {
       targetPresentation.setDescription(sourcePresentation.getDescription());
     }
-    targetAction.setShortcutSet(getShortcutSet());
-    targetAction.markAsGlobal();
   }
 
   public String getProjectType() {

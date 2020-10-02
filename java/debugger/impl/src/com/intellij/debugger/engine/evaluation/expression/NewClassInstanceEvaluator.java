@@ -16,7 +16,7 @@
 
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.JVMName;
@@ -26,7 +26,10 @@ import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.ArrayUtil;
-import com.sun.jdi.*;
+import com.sun.jdi.ClassType;
+import com.sun.jdi.Method;
+import com.sun.jdi.ObjectReference;
+import com.sun.jdi.Value;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,24 +42,25 @@ class NewClassInstanceEvaluator implements Evaluator {
   private final JVMName myConstructorSignature;
   private final Evaluator[] myParamsEvaluators;
 
-  public NewClassInstanceEvaluator(TypeEvaluator classTypeEvaluator, JVMName constructorSignature, Evaluator[] argumentEvaluators) {
+  NewClassInstanceEvaluator(TypeEvaluator classTypeEvaluator, JVMName constructorSignature, Evaluator[] argumentEvaluators) {
     myClassTypeEvaluator = classTypeEvaluator;
     myConstructorSignature = constructorSignature;
     myParamsEvaluators = argumentEvaluators;
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     DebugProcessImpl debugProcess = context.getDebugProcess();
     Object obj = myClassTypeEvaluator.evaluate(context);
     if (!(obj instanceof ClassType)) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.cannot.evaluate.class.type"));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.cannot.evaluate.class.type"));
     }
     ClassType classType = (ClassType)obj;
     // find constructor
     Method method = DebuggerUtils.findMethod(classType, JVMNameUtil.CONSTRUCTOR_NAME, myConstructorSignature.getName(debugProcess));
     if (method == null) {
       throw EvaluateExceptionUtil.createEvaluateException(
-        DebuggerBundle.message("evaluation.error.cannot.resolve.constructor", myConstructorSignature.getDisplayName(debugProcess)));
+        JavaDebuggerBundle.message("evaluation.error.cannot.resolve.constructor", myConstructorSignature.getDisplayName(debugProcess)));
     }
     // evaluate arguments
     List<Value> arguments;

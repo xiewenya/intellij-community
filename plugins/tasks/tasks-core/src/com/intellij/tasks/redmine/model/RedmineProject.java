@@ -1,5 +1,6 @@
 package com.intellij.tasks.redmine.model;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -7,7 +8,7 @@ import org.jetbrains.io.mandatory.Mandatory;
 import org.jetbrains.io.mandatory.RestModel;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
 @RestModel
 @SuppressWarnings("UnusedDeclaration")
@@ -48,7 +49,7 @@ public class RedmineProject {
   }
 
   @NotNull
-  public String getName() {
+  public @NlsSafe String getName() {
     return name;
   }
 

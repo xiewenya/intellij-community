@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.artifacts.ui;
 
 import com.intellij.compiler.artifacts.PackagingElementsTestCase;
@@ -5,19 +6,20 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.roots.ui.configuration.artifacts.*;
 import com.intellij.openapi.roots.ui.configuration.artifacts.nodes.ComplexPackagingElementNode;
 import com.intellij.openapi.roots.ui.configuration.artifacts.nodes.PackagingElementNode;
-import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
+import com.intellij.openapi.ui.TestDialogManager;
 import com.intellij.openapi.util.Ref;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.elements.PackagingElementFactory;
+import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.PathUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.concurrency.Promise;
 
+import javax.swing.tree.TreePath;
 import java.util.Arrays;
 import java.util.Collections;
 
-/**
- * @author nik
- */
 public abstract class ArtifactEditorTestCase extends PackagingElementsTestCase {
   protected ArtifactEditorImpl myArtifactEditor;
 
@@ -57,10 +59,11 @@ public abstract class ArtifactEditorTestCase extends PackagingElementsTestCase {
     disposeOnTearDown(myArtifactEditor);
   }
 
-  protected void selectNode(String path) {
+  protected void selectNode(String path){
     final LayoutTreeComponent layoutTreeComponent = myArtifactEditor.getLayoutTreeComponent();
     layoutTreeComponent.getLayoutTree().clearSelection();
-    layoutTreeComponent.selectNode(PathUtil.getParentPath(path), PathUtil.getFileName(path));
+    Promise<TreePath> selection = layoutTreeComponent.selectNode(PathUtil.getParentPath(path), PathUtil.getFileName(path));
+    PlatformTestUtil.assertPromiseSucceeds(selection);
     assertFalse("Node " + path + " not found", layoutTreeComponent.getSelection().getNodes().isEmpty());
   }
 
@@ -77,9 +80,9 @@ public abstract class ArtifactEditorTestCase extends PackagingElementsTestCase {
 
   protected static void runAction(final Runnable action, boolean confirmationExpected) {
     final Ref<Boolean> dialogShown = Ref.create(false);
-    final TestDialog oldDialog = Messages.setTestDialog(new TestDialog() {
+    final TestDialog oldDialog = TestDialogManager.setTestDialog(new TestDialog() {
       @Override
-      public int show(String message) {
+      public int show(@NotNull String message) {
         dialogShown.set(true);
         return 0;
       }
@@ -89,7 +92,7 @@ public abstract class ArtifactEditorTestCase extends PackagingElementsTestCase {
       action.run();
     }
     finally {
-      Messages.setTestDialog(oldDialog);
+      TestDialogManager.setTestDialog(oldDialog);
     }
 
     if (confirmationExpected) {

@@ -1,71 +1,70 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.util;
 
-import com.intellij.internal.statistic.UsageTrigger;
-import com.intellij.internal.statistic.beans.ConvertUsagesUtil;
-import com.intellij.openapi.Disposable;
+import com.google.common.util.concurrent.SettableFuture;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.*;
+import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.TextRevisionNumber;
+import com.intellij.openapi.vcs.changes.committed.CommittedChangesTreeBrowser;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.CommittedChangeListForRevision;
 import com.intellij.vcs.log.*;
+import com.intellij.vcs.log.data.CompressedRefs;
+import com.intellij.vcs.log.data.RefsModel;
 import com.intellij.vcs.log.data.VcsLogData;
-import com.intellij.vcs.log.graph.VisibleGraph;
+import com.intellij.vcs.log.impl.MainVcsLogUiProperties;
+import com.intellij.vcs.log.impl.VcsChangesLazilyParsedDetails;
+import com.intellij.vcs.log.impl.VcsLogManager;
+import com.intellij.vcs.log.impl.VcsLogUiProperties;
 import com.intellij.vcs.log.ui.VcsLogInternalDataKeys;
+import com.intellij.vcs.log.ui.VcsLogUiEx;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
-import static com.intellij.util.ObjectUtils.notNull;
 import static com.intellij.util.containers.ContainerUtil.getFirstItem;
+import static com.intellij.vcs.log.impl.VcsLogManager.findLogProviders;
 import static java.util.Collections.singletonList;
 
-public class VcsLogUtil {
+public final class VcsLogUtil {
   public static final int MAX_SELECTED_COMMITS = 1000;
+  public static final int FULL_HASH_LENGTH = 40;
+  public static final int SHORT_HASH_LENGTH = 8;
+  public static final Pattern HASH_REGEX = Pattern.compile("[a-fA-F0-9]{7,40}");
+  @NlsSafe public static final String HEAD = "HEAD";
 
   @NotNull
-  public static Map<VirtualFile, Set<VcsRef>> groupRefsByRoot(@NotNull Collection<VcsRef> refs) {
+  public static Map<VirtualFile, Set<VcsRef>> groupRefsByRoot(@NotNull Collection<? extends VcsRef> refs) {
     return groupByRoot(refs, VcsRef::getRoot);
   }
 
   @NotNull
-  private static <T> Map<VirtualFile, Set<T>> groupByRoot(@NotNull Collection<T> items, @NotNull Function<T, VirtualFile> rootGetter) {
+  private static <T> Map<VirtualFile, Set<T>> groupByRoot(@NotNull Collection<? extends T> items,
+                                                          @NotNull Function<? super T, ? extends VirtualFile> rootGetter) {
     Map<VirtualFile, Set<T>> map = new TreeMap<>(Comparator.comparing(VirtualFile::getPresentableUrl));
     for (T item : items) {
       VirtualFile root = rootGetter.fun(item);
-      Set<T> set = map.get(root);
-      if (set == null) {
-        set = ContainerUtil.newHashSet();
-        map.put(root, set);
-      }
-      set.add(item);
+      map.computeIfAbsent(root, k -> new HashSet<>()).add(item);
     }
     return map;
-  }
-
-  @NotNull
-  public static List<Integer> getVisibleCommits(@NotNull final VisibleGraph<Integer> visibleGraph) {
-    return new AbstractList<Integer>() {
-      @Override
-      public Integer get(int index) {
-        return visibleGraph.getRowInfo(index).getCommit();
-      }
-
-      @Override
-      public int size() {
-        return visibleGraph.getVisibleCommitCount();
-      }
-    };
   }
 
   public static int compareRoots(@NotNull VirtualFile root1, @NotNull VirtualFile root2) {
@@ -73,7 +72,7 @@ public class VcsLogUtil {
   }
 
   @NotNull
-  private static Set<VirtualFile> collectRoots(@NotNull Collection<FilePath> files, @NotNull Set<VirtualFile> roots) {
+  private static Set<VirtualFile> collectRoots(@NotNull Collection<? extends FilePath> files, @NotNull Set<? extends VirtualFile> roots) {
     Set<VirtualFile> selectedRoots = new HashSet<>();
 
     List<VirtualFile> sortedRoots = ContainerUtil.sorted(roots, Comparator.comparing(VirtualFile::getPath));
@@ -166,18 +165,14 @@ public class VcsLogUtil {
     }));
   }
 
-  @NotNull
-  public static <T> List<T> collectFirstPack(@NotNull List<T> list, int max) {
-    return list.subList(0, Math.min(list.size(), max));
-  }
-
   @Nullable
+  @NlsSafe
   public static String getSingleFilteredBranch(@NotNull VcsLogFilterCollection filters, @NotNull VcsLogRefs refs) {
     VcsLogBranchFilter filter = filters.get(VcsLogFilterCollection.BRANCH_FILTER);
     if (filter == null) return null;
-    
+
     String branchName = null;
-    Set<VirtualFile> checkedRoots = ContainerUtil.newHashSet();
+    Set<VirtualFile> checkedRoots = new HashSet<>();
     for (VcsRef branch : refs.getBranches()) {
       if (!filter.matches(branch.getName())) continue;
 
@@ -195,22 +190,7 @@ public class VcsLogUtil {
     return branchName;
   }
 
-  public static void triggerUsage(@NotNull AnActionEvent e) {
-    String text = e.getPresentation().getText();
-    if (text != null) {
-      triggerUsage(text, e.getData(VcsLogInternalDataKeys.FILE_HISTORY_UI) != null);
-    }
-  }
-
-  public static void triggerUsage(@NotNull String text) {
-    triggerUsage(text, false);
-  }
-
-  public static void triggerUsage(@NotNull String text, boolean isFromHistory) {
-    UsageTrigger.trigger(isFromHistory ? "vcs.history." : "vcs.log." + ConvertUsagesUtil.ensureProperKey(text).replace(" ", ""));
-  }
-
-  public static boolean maybeRegexp(@NotNull String text) {
+  public static boolean isRegexp(@NotNull String text) {
     return StringUtil.containsAnyChar(text, "()[]{}.*?+^$\\|");
   }
 
@@ -222,38 +202,189 @@ public class VcsLogUtil {
   @NotNull
   public static VcsFullCommitDetails getDetails(@NotNull VcsLogData data, @NotNull VirtualFile root, @NotNull Hash hash)
     throws VcsException {
-    return notNull(getFirstItem(getDetails(data.getLogProvider(root), root, singletonList(hash.asString()))));
+    return Objects.requireNonNull(getFirstItem(getDetails(data.getLogProvider(root), root, singletonList(hash.asString()))));
   }
 
   @NotNull
   public static List<? extends VcsFullCommitDetails> getDetails(@NotNull VcsLogProvider logProvider,
                                                                 @NotNull VirtualFile root,
                                                                 @NotNull List<String> hashes) throws VcsException {
-    List<VcsFullCommitDetails> result = ContainerUtil.newArrayList();
+    List<VcsFullCommitDetails> result = new ArrayList<>();
     logProvider.readFullDetails(root, hashes, result::add);
     return result;
   }
 
   @NotNull
-  public static CommittedChangeListForRevision createCommittedChangeList(@NotNull VcsFullCommitDetails detail) {
+  public static CommittedChangeListForRevision createCommittedChangeList(@NotNull VcsFullCommitDetails detail, boolean withChanges) {
     return new CommittedChangeListForRevision(detail.getSubject(), detail.getFullMessage(),
                                               VcsUserUtil.getShortPresentation(detail.getCommitter()),
                                               new Date(detail.getCommitTime()),
-                                              detail.getChanges(),
+                                              withChanges ? detail.getChanges() : ContainerUtil.emptyList(),
                                               convertToRevisionNumber(detail.getId()));
   }
 
-  /**
-   * Registers disposable on both provided parent and project. When project is disposed, disposable is still accessed through parent,
-   * while when parent is disposed, disposable gets removed from memory. So this method is suitable for parents that depend on project,
-   * but could be created and disposed several times through one project life,
-   *
-   * @param parent     parent to register disposable on.
-   * @param project    project to register disposable on.
-   * @param disposable disposable to register.
-   */
-  public static void registerWithParentAndProject(@NotNull Disposable parent, @NotNull Project project, @NotNull Disposable disposable) {
-    Disposer.register(parent, () -> Disposer.dispose(disposable));
-    Disposer.register(project, disposable);
+  @NotNull
+  public static CommittedChangeListForRevision createCommittedChangeList(@NotNull VcsFullCommitDetails detail) {
+    return createCommittedChangeList(detail, true);
+  }
+
+  @NotNull
+  @NlsSafe
+  public static String getShortHash(@NotNull String hashString) {
+    return getShortHash(hashString, SHORT_HASH_LENGTH);
+  }
+
+  @NotNull
+  @NlsSafe
+  public static String getShortHash(@NotNull String hashString, int shortHashLength) {
+    return hashString.substring(0, Math.min(shortHashLength, hashString.length()));
+  }
+
+  @Nullable
+  public static VcsRef findBranch(@NotNull RefsModel refs, @NotNull VirtualFile root, @NotNull String branchName) {
+    CompressedRefs compressedRefs = refs.getAllRefsByRoot().get(root);
+    if (compressedRefs == null) return null;
+    Stream<VcsRef> branches = compressedRefs.streamBranches();
+    return branches.filter(vcsRef -> vcsRef.getName().equals(branchName)).findFirst().orElse(null);
+  }
+
+  @NotNull
+  public static List<Change> collectChanges(@NotNull List<? extends VcsFullCommitDetails> detailsList,
+                                            @NotNull Function<? super VcsFullCommitDetails, ? extends Collection<Change>> getChanges) {
+    List<Change> changes = new ArrayList<>();
+    List<VcsFullCommitDetails> detailsListReversed = ContainerUtil.reverse(detailsList);
+    for (VcsFullCommitDetails details : detailsListReversed) {
+      changes.addAll(getChanges.fun(details));
+    }
+
+    return CommittedChangesTreeBrowser.zipChanges(changes);
+  }
+
+  @Nullable
+  public static VirtualFile getActualRoot(@NotNull Project project, @NotNull FilePath path) {
+    VcsRoot rootObject = ProjectLevelVcsManager.getInstance(project).getVcsRootObjectFor(path);
+    if (rootObject == null) return null;
+    Map<VirtualFile, VcsLogProvider> providers = findLogProviders(singletonList(rootObject), project);
+    if (providers.isEmpty()) return null;
+    VcsLogProvider provider = Objects.requireNonNull(getFirstItem(providers.values()));
+    return provider.getVcsRoot(project, rootObject.getPath(), path);
+  }
+
+  @Nullable
+  public static Collection<FilePath> getAffectedPaths(@NotNull VcsLogUi logUi) {
+    return getAffectedPaths(logUi.getDataPack());
+  }
+
+  @Nullable
+  public static Collection<FilePath> getAffectedPaths(@NotNull VcsLogDataPack dataPack) {
+    VcsLogStructureFilter structureFilter = dataPack.getFilters().get(VcsLogFilterCollection.STRUCTURE_FILTER);
+    if (structureFilter != null) {
+      return structureFilter.getFiles();
+    }
+    return null;
+  }
+
+  @Nullable
+  public static Collection<FilePath> getAffectedPaths(@NotNull VirtualFile root, @NotNull AnActionEvent e) {
+    VcsLogUiProperties properties = e.getData(VcsLogInternalDataKeys.LOG_UI_PROPERTIES);
+    if (properties != null && properties.exists(MainVcsLogUiProperties.SHOW_ONLY_AFFECTED_CHANGES)) {
+      if (properties.get(MainVcsLogUiProperties.SHOW_ONLY_AFFECTED_CHANGES)) {
+        VcsLogUi logUi = e.getData(VcsLogDataKeys.VCS_LOG_UI);
+        Project project = e.getProject();
+        if (logUi != null && project != null) {
+          Collection<FilePath> affectedFilePaths = getAffectedPaths(logUi);
+          if (affectedFilePaths != null) {
+            return ContainerUtil.filter(affectedFilePaths,
+                                        path -> Objects.equals(VcsUtil.getVcsRootFor(project, path), root));
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  public static int getMaxSize(@NotNull List<? extends VcsFullCommitDetails> detailsList) {
+    int maxSize = 0;
+    for (VcsFullCommitDetails details : detailsList) {
+      maxSize = Math.max(getSize(details), maxSize);
+    }
+    return maxSize;
+  }
+
+  public static int getSize(@NotNull VcsFullCommitDetails details) {
+    if (details instanceof VcsChangesLazilyParsedDetails) {
+      return ((VcsChangesLazilyParsedDetails)details).size();
+    }
+
+    int size = 0;
+    for (int i = 0; i < details.getParents().size(); i++) {
+      size += details.getChanges(i).size();
+    }
+    return size;
+  }
+
+  public static int getShownChangesLimit() {
+    return Registry.intValue("vcs.log.max.changes.shown");
+  }
+
+  @NotNull
+  @NonNls
+  public static String getSizeText(int maxSize) {
+    if (maxSize < 1000) {
+      return String.valueOf(maxSize);
+    }
+    DecimalFormat format = new DecimalFormat("#.#");
+    format.setRoundingMode(RoundingMode.FLOOR);
+    if (maxSize < 10_000) {
+      return format.format(maxSize / 1000.0) + "K";
+    }
+    else if (maxSize < 1_000_000) {
+      return (maxSize / 1000) + "K";
+    }
+    else if (maxSize < 10_000_000) {
+      return format.format(maxSize / 1_000_000.0) + "M";
+    }
+    return (maxSize / 1_000_000) + "M";
+  }
+
+  @NotNull
+  @NonNls
+  public static String getProvidersMapText(@NotNull Map<VirtualFile, VcsLogProvider> providers) {
+    return "[" + StringUtil.join(providers.keySet(), file -> file.getPresentableUrl(), ", ") + "]";
+  }
+
+  @NotNull
+  @Nls
+  public static String getVcsDisplayName(@NotNull Project project, @NotNull Collection<VcsLogProvider> logProviders) {
+    Set<AbstractVcs> vcs = ContainerUtil.map2SetNotNull(logProviders,
+                                                        provider -> VcsUtil.findVcsByKey(project, provider.getSupportedVcs()));
+    if (vcs.size() != 1) return VcsLogBundle.message("vcs");
+    return Objects.requireNonNull(getFirstItem(vcs)).getDisplayName();
+  }
+
+  @NotNull
+  @Nls
+  public static String getVcsDisplayName(@NotNull Project project, @NotNull VcsLogManager logManager) {
+    return getVcsDisplayName(project, logManager.getDataManager().getLogProviders().values());
+  }
+
+  public static void invokeOnChange(@NotNull VcsLogUi ui, @NotNull Runnable runnable,
+                                    @NotNull Condition<? super VcsLogDataPack> condition) {
+    ui.addLogListener(new VcsLogListener() {
+      @Override
+      public void onChange(@NotNull VcsLogDataPack dataPack, boolean refreshHappened) {
+        if (condition.value(dataPack)) {
+          runnable.run();
+          ui.removeLogListener(this);
+        }
+      }
+    });
+  }
+
+  public static void jumpToRow(@NotNull VcsLogUiEx vcsLogUi, int row, boolean silently) {
+    vcsLogUi.jumpTo(row, (model, r) -> {
+      if (model.getRowCount() <= r) return -1;
+      return r;
+    }, SettableFuture.create(), silently);
   }
 }

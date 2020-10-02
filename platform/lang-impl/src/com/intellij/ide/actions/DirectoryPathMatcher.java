@@ -1,29 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.ide.util.gotoByName.GotoFileModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
-import com.intellij.openapi.roots.LibraryOrSdkOrderEntry;
-import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.roots.OrderEntry;
-import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -45,15 +27,17 @@ import java.util.stream.Collectors;
 /**
  * @author peter
  */
-class DirectoryPathMatcher {
+final class DirectoryPathMatcher {
   @NotNull private final GotoFileModel myModel;
   @Nullable private final List<Pair<VirtualFile, String>> myFiles;
-  @NotNull private final String myPattern;
+  @NotNull final String dirPattern;
+  private final GlobalSearchScope myAllScope;
 
   private DirectoryPathMatcher(@NotNull GotoFileModel model, @Nullable List<Pair<VirtualFile, String>> files, @NotNull String pattern) {
     myModel = model;
     myFiles = files;
-    myPattern = pattern;
+    dirPattern = pattern;
+    myAllScope = GlobalSearchScope.allScope(myModel.getProject());
   }
 
   @Nullable
@@ -68,7 +52,7 @@ class DirectoryPathMatcher {
 
   @Nullable
   DirectoryPathMatcher appendChar(char c) {
-    String nextPattern = myPattern + c;
+    String nextPattern = dirPattern + c;
     if (c == '*' || c == '/' || c == ' ') return new DirectoryPathMatcher(myModel, myFiles, nextPattern);
 
     List<Pair<VirtualFile, String>> files = getMatchingRoots();
@@ -81,11 +65,9 @@ class DirectoryPathMatcher {
       } else {
         processProjectFilesUnder(pair.first, sub -> {
           if (!sub.isDirectory()) return false;
-          if (!containsChar(sub.getName(), c)) return true; //go deeper
+          if (!containsChar(sub.getNameSequence(), c)) return true; //go deeper
 
-          String fullName = myModel.getFullName(sub);
-          if (fullName == null) return true;
-          fullName = FileUtil.toSystemIndependentName(fullName);
+          String fullName = pair.second + '/' + VfsUtilCore.getRelativePath(sub, pair.first, '/');
           if (matcher.matches(fullName)) {
             nextRoots.add(Pair.create(sub, fullName));
             return false;
@@ -104,21 +86,22 @@ class DirectoryPathMatcher {
     List<Pair<VirtualFile, String>> files = getMatchingRoots();
     Set<String> names = new HashSet<>();
     AtomicInteger counter = new AtomicInteger();
-    BooleanSupplier tooMany = () -> counter.incrementAndGet() > 1000;
+    BooleanSupplier tooMany = () -> counter.get() > 1000;
     for (Pair<VirtualFile, String> pair : files) {
       if (containsChar(pair.second, nextLetter) && matcher.matches(pair.second)) {
         names.add(pair.first.getName());
-      }
-      processProjectFilesUnder(pair.first, sub -> {
-        counter.incrementAndGet();
-        if (tooMany.getAsBoolean()) return false;
+      } else {
+        processProjectFilesUnder(pair.first, sub -> {
+          counter.incrementAndGet();
+          if (tooMany.getAsBoolean()) return false;
 
-        String name = sub.getName();
-        if (containsChar(name, nextLetter) && matcher.matches(name)) {
-          names.add(name);
-        }
-        return true;
-      });
+          String name = sub.getName();
+          if (containsChar(name, nextLetter) && matcher.matches(name)) {
+            names.add(name);
+          }
+          return true;
+        });
+      }
     }
     return tooMany.getAsBoolean() ? null : names;
   }
@@ -137,13 +120,12 @@ class DirectoryPathMatcher {
 
   }
 
-  private void processProjectFilesUnder(VirtualFile root, Processor<VirtualFile> consumer) {
-    GlobalSearchScope scope = GlobalSearchScope.allScope(myModel.getProject());
-    VfsUtilCore.visitChildrenRecursively(root, new VirtualFileVisitor<Object>() {
+  private void processProjectFilesUnder(VirtualFile root, Processor<? super VirtualFile> consumer) {
+    VfsUtilCore.visitChildrenRecursively(root, new VirtualFileVisitor<Void>() {
 
       @Override
       public boolean visitFile(@NotNull VirtualFile file) {
-        return scope.contains(file) && consumer.process(file);
+        return myAllScope.contains(file) && consumer.process(file);
       }
 
       @Nullable
@@ -154,8 +136,8 @@ class DirectoryPathMatcher {
     });
   }
 
-  private static boolean containsChar(String name, char c) {
-    return StringUtil.indexOfIgnoreCase(name, c, 0) >= 0;
+  private static boolean containsChar(CharSequence name, char c) {
+    return StringUtil.indexOf(name, c, 0, name.length(), false) >= 0;
   }
 
   @NotNull
@@ -168,6 +150,12 @@ class DirectoryPathMatcher {
           Collections.addAll(roots, entry.getFiles(OrderRootType.CLASSES));
           Collections.addAll(roots, entry.getFiles(OrderRootType.SOURCES));
         }
+      }
+    }
+    for (AdditionalLibraryRootsProvider provider : AdditionalLibraryRootsProvider.EP_NAME.getExtensionList()) {
+      for (SyntheticLibrary descriptor : provider.getAdditionalProjectLibraries(model.getProject())) {
+        roots.addAll(descriptor.getSourceRoots());
+        roots.addAll(descriptor.getBinaryRoots());
       }
     }
     return roots.stream()

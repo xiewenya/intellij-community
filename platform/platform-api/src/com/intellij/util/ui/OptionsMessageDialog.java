@@ -17,18 +17,20 @@ package com.intellij.util.ui;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MultiLineLabelUI;
+import com.intellij.openapi.util.NlsActions.ActionText;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 
 public abstract class OptionsMessageDialog extends OptionsDialog{
-  private final String myMessage;
+  private final @NlsContexts.Label String myMessage;
   private final Icon myIcon;
 
   protected OptionsMessageDialog(Project project,
-                                 final String message,
-                                 String title,
+                                 @NlsContexts.Label String message,
+                                 @NlsContexts.DialogTitle String title,
                                  final Icon icon) {
     super(project);
     myMessage = message;
@@ -37,11 +39,13 @@ public abstract class OptionsMessageDialog extends OptionsDialog{
     setButtonsAlignment(SwingUtilities.CENTER);
   }
 
+  @ActionText
   protected abstract String getOkActionName();
+  @ActionText
   protected abstract String getCancelActionName();
 
-  @NotNull
-  protected Action[] createActions() {
+  @Override
+  protected Action @NotNull [] createActions() {
     final Action okAction = getOKAction();
     final Action cancelAction = getCancelAction();
     assignMnemonic(getOkActionName(), okAction);
@@ -49,7 +53,7 @@ public abstract class OptionsMessageDialog extends OptionsDialog{
     return new Action[]{okAction,cancelAction};
   }
 
-  protected static void assignMnemonic(String option, Action action) {
+  protected static void assignMnemonic(@ActionText String option, Action action) {
     action.putValue(Action.NAME, option);
 
     int mnemoPos = option.indexOf("&");
@@ -61,6 +65,8 @@ public abstract class OptionsMessageDialog extends OptionsDialog{
     }
   }
 
+  @Override
+  @NotNull
   protected JComponent createNorthPanel() {
     JPanel panel = new JPanel(new BorderLayout(15, 0));
     if (myIcon != null) {
@@ -79,6 +85,7 @@ public abstract class OptionsMessageDialog extends OptionsDialog{
     return panel;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return null;
   }

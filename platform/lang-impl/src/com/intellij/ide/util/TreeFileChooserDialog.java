@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util;
 
@@ -33,14 +19,15 @@ import com.intellij.ide.util.treeView.NodeRenderer;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.FileTypeIndex;
@@ -52,10 +39,9 @@ import com.intellij.ui.TabbedPaneWrapper;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -73,8 +59,8 @@ import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Anton Katilin
@@ -83,6 +69,7 @@ import java.util.List;
 public final class TreeFileChooserDialog extends DialogWrapper implements TreeFileChooser {
   private Tree myTree;
   private PsiFile mySelectedFile = null;
+  @NotNull
   private final Project myProject;
   private BaseProjectTreeBuilder myBuilder;
   private TabbedPaneWrapper myTabbedPane;
@@ -95,8 +82,8 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
   private final boolean myShowLibraryContents;
   private boolean mySelectSearchByNameTab = false;
 
-  public TreeFileChooserDialog(final Project project,
-                               String title,
+  public TreeFileChooserDialog(@NotNull Project project,
+                               @NlsContexts.DialogTitle String title,
                                @Nullable final PsiFile initialFile,
                                @Nullable FileType fileType,
                                @Nullable PsiFileFilter filter,
@@ -126,28 +113,13 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
 
     final ProjectAbstractTreeStructureBase treeStructure = new AbstractProjectTreeStructure(myProject) {
       @Override
-      public boolean isFlattenPackages() {
-        return false;
-      }
-
-      @Override
-      public boolean isShowMembers() {
-        return false;
-      }
-
-      @Override
       public boolean isHideEmptyMiddlePackages() {
         return true;
       }
 
       @Override
-      public Object[] getChildElements(final Object element) {
+      public Object @NotNull [] getChildElements(@NotNull final Object element) {
         return filterFiles(super.getChildElements(element));
-      }
-
-      @Override
-      public boolean isAbbreviatePackageNames() {
-        return false;
       }
 
       @Override
@@ -171,7 +143,6 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     myTree.expandRow(0);
     myTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
     myTree.setCellRenderer(new NodeRenderer());
-    UIUtil.setLineStyleAngled(myTree);
 
     final JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myTree);
     scrollPane.setPreferredSize(JBUI.size(500, 300));
@@ -187,7 +158,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
 
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         final TreePath path = myTree.getPathForLocation(e.getX(), e.getY());
         if (path != null && myTree.isPathSelected(path)) {
           doOKAction();
@@ -215,8 +186,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     if (myInitialFile != null) {
       name = myInitialFile.getName();
     }
-    PsiElement context = myInitialFile == null ? null : myInitialFile;
-    myGotoByNamePanel = new ChooseByNamePanel(myProject, new MyGotoFileModel(), name, true, context) {
+    myGotoByNamePanel = new ChooseByNamePanel(myProject, new MyGotoFileModel(), name, true, myInitialFile) {
       @Override
       protected void close(final boolean isOk) {
         super.close(isOk);
@@ -300,7 +270,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     // Select element in the tree
     ApplicationManager.getApplication().invokeLater(() -> {
       if (myBuilder != null) {
-        myBuilder.select(file, file.getVirtualFile(), true);
+        myBuilder.selectAsync(file, file.getVirtualFile(), true);
       }
     }, ModalityState.stateForComponent(getWindow()));
   }
@@ -353,8 +323,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
   private final class MyGotoFileModel implements ChooseByNameModel, DumbAware {
     private final int myMaxSize = WindowManagerEx.getInstanceEx().getFrame(myProject).getSize().width;
     @Override
-    @NotNull
-    public Object[] getElementsByName(final String name, final boolean checkBoxState, final String pattern) {
+    public Object @NotNull [] getElementsByName(@NotNull final String name, final boolean checkBoxState, @NotNull final String pattern) {
       GlobalSearchScope scope = myShowLibraryContents ? GlobalSearchScope.allScope(myProject) : GlobalSearchScope.projectScope(myProject);
       final PsiFile[] psiFiles = FilenameIndex.getFilesByName(myProject, name, scope);
       return filterFiles(psiFiles);
@@ -370,16 +339,14 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
       return null;
     }
 
-    @Override
-    public char getCheckBoxMnemonic() {
-      return 0;
-    }
 
+    @NotNull
     @Override
     public String getNotInMessage() {
       return "";
     }
 
+    @NotNull
     @Override
     public String getNotFoundMessage() {
       return "";
@@ -394,16 +361,16 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     public void saveInitialCheckBoxState(final boolean state) {
     }
 
+    @NotNull
     @Override
     public PsiElementListCellRenderer getListCellRenderer() {
       return new GotoFileCellRenderer(myMaxSize);
     }
 
     @Override
-    @NotNull
-    public String[] getNames(final boolean checkBoxState) {
+    public String @NotNull [] getNames(final boolean checkBoxState) {
       final String[] fileNames;
-      if (myFileType != null && myProject != null) {
+      if (myFileType != null) {
         GlobalSearchScope scope = myShowLibraryContents ? GlobalSearchScope.allScope(myProject) : GlobalSearchScope.projectScope(myProject);
         Collection<VirtualFile> virtualFiles = FileTypeIndex.getFiles(myFileType, scope);
         fileNames = ContainerUtil.map2Array(virtualFiles, String.class, file -> file.getName());
@@ -412,13 +379,9 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
         fileNames = FilenameIndex.getAllFilenames(myProject);
       }
       final Set<String> array = new THashSet<>();
-      for (String fileName : fileNames) {
-        if (!array.contains(fileName)) {
-          array.add(fileName);
-        }
-      }
+      Collections.addAll(array, fileNames);
 
-      final String[] result = ArrayUtil.toStringArray(array);
+      final String[] result = ArrayUtilRt.toStringArray(array);
       Arrays.sort(result);
       return result;
     }
@@ -429,14 +392,14 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     }
 
     @Override
-    public String getElementName(final Object element) {
+    public String getElementName(@NotNull final Object element) {
       if (!(element instanceof PsiFile)) return null;
       return ((PsiFile)element).getName();
     }
 
     @Override
     @Nullable
-    public String getFullName(final Object element) {
+    public String getFullName(@NotNull final Object element) {
       if (element instanceof PsiFile) {
         final VirtualFile virtualFile = ((PsiFile)element).getVirtualFile();
         return virtualFile != null ? virtualFile.getPath() : null;
@@ -451,8 +414,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
     }
 
     @Override
-    @NotNull
-    public String[] getSeparators() {
+    public String @NotNull [] getSeparators() {
       return new String[] {"/", "\\"};
     }
 
@@ -478,7 +440,7 @@ public final class TreeFileChooserDialog extends DialogWrapper implements TreeFi
       boolean accepted = myFileType == null || psiFile.getFileType() == myFileType;
       VirtualFile virtualFile = psiFile.getVirtualFile();
       if (virtualFile != null && !accepted) {
-        accepted = virtualFile.getFileType() == myFileType;
+        accepted = FileTypeRegistry.getInstance().isFileOfType(virtualFile, myFileType);
       }
       return accepted;
     };

@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.artifacts.ui;
 
 import com.intellij.compiler.CompilerConfiguration;
@@ -16,9 +16,6 @@ import com.intellij.packaging.impl.artifacts.JarFromModulesTemplate;
 import com.intellij.testFramework.PsiTestUtil;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public class JarFromModulesTemplateTest extends PackagingElementsTestCase {
   private Artifact myArtifact;
 
@@ -81,13 +78,14 @@ public class JarFromModulesTemplateTest extends PackagingElementsTestCase {
   public void testModuleWithLibraryJarWithManifest() {
     final VirtualFile file = createFile("src/A.java");
     final Module module = addModule("a", file.getParent());
-    addProjectLibrary(module, "jdom", getJDomJar());
+    VirtualFile jDomJar = getJDomJar();
+    addProjectLibrary(module, "jdom", jDomJar);
     createFromTemplate(module, null, file.getParent().getPath(), false);
     assertLayout("<root>\n" +
                  " a.jar\n" +
                  "  module:a\n" +
                  " lib:jdom(project)");
-    assertManifest(null, "jdom.jar");
+    assertManifest(null, jDomJar.getName());
   }
 
   public void testSkipTestLibrary() {
@@ -203,7 +201,8 @@ public class JarFromModulesTemplateTest extends PackagingElementsTestCase {
   public void testCopiedLibraryWithJarsAndDirs() {
     final VirtualFile dir = createDir("lib");
     final Module a = addModuleWithSourceRoot("a");
-    addProjectLibrary(a, "dir", dir, getJDomJar());
+    VirtualFile jDomJar = getJDomJar();
+    addProjectLibrary(a, "dir", dir, jDomJar);
     final String basePath = myProject.getBasePath();
     createFromTemplate(a, null, basePath, false);
     assertLayout("<root>\n" +
@@ -212,8 +211,8 @@ public class JarFromModulesTemplateTest extends PackagingElementsTestCase {
                  "   file:" + basePath + "/META-INF/MANIFEST.MF\n" +
                  "  module:a\n" +
                  "  dir:" + dir.getPath() + "\n" +
-                 " file:" + getLocalJarPath(getJDomJar()));
-    assertManifest(null, "jdom.jar");
+                 " file:" + getLocalJarPath(jDomJar));
+    assertManifest(null, jDomJar.getName());
   }
 
   private void assertManifest(final @Nullable String mainClass, final @Nullable String classpath) {

@@ -1,35 +1,39 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.gdpr;
 
 import com.intellij.ide.Prefs;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.io.StreamUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
+import com.intellij.util.PlatformUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 
 /**
  * @author Eugene Zhuravlev
  *         Date: 09-Mar-16
  */
 public final class EndUserAgreement {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.PrivacyPolicy");
+  private static final Logger LOG = Logger.getInstance(EndUserAgreement.class);
   private static final String POLICY_TEXT_PROPERTY = "jb.privacy.policy.text"; // to be used in tests to pass arbitrary policy text
 
   private static final String PRIVACY_POLICY_DOCUMENT_NAME = "privacy";
+  private static final String PRIVACY_POLICY_EAP_DOCUMENT_NAME = PRIVACY_POLICY_DOCUMENT_NAME + "Eap";
   private static final String EULA_DOCUMENT_NAME = "eua";
+  private static final String EULA_EAP_DOCUMENT_NAME = EULA_DOCUMENT_NAME + "Eap";
 
   private static final String PRIVACY_POLICY_CONTENT_FILE_NAME = "Cached";
 
-  // todo: change to EULA after GDPR is mandatory and corresponding resource is hard-coded into the build
-  private static final String DEFAULT_DOC_NAME = PRIVACY_POLICY_DOCUMENT_NAME;
-  private static final String DEFAULT_DOC_EAP_NAME = DEFAULT_DOC_NAME + "Eap";
+  private static final String DEFAULT_DOC_NAME = EULA_DOCUMENT_NAME;
+  private static final String DEFAULT_DOC_EAP_NAME = EULA_EAP_DOCUMENT_NAME;
+
   private static final String ACTIVE_DOC_FILE_NAME = "documentName";
   private static final String ACTIVE_DOC_EAP_FILE_NAME = "documentName.eap";
 
@@ -39,26 +43,28 @@ public final class EndUserAgreement {
   private static final String VERSION_COMMENT_END = "-->";
   private static final Version MAGIC_VERSION = new Version(999, 999);
 
-  public static File getDocumentContentFile() {
+  public static Path getDocumentContentFile() {
     return getDocumentContentFile(getDocumentName());
   }
 
-  @NotNull
-  private static File getDocumentContentFile(String docName) {
-    return new File(getDataRoot(), PRIVACY_POLICY_DOCUMENT_NAME.equals(docName)? PRIVACY_POLICY_CONTENT_FILE_NAME : docName + ".cached");
+  private static @NotNull Path getDocumentContentFile(String docName) {
+    return getDataRoot().resolve(PRIVACY_POLICY_DOCUMENT_NAME.equals(docName)? PRIVACY_POLICY_CONTENT_FILE_NAME : docName + ".cached");
   }
 
-  @NotNull
-  private static File getDocumentNameFile() {
-    return new File(getDataRoot(), ApplicationInfoImpl.getShadowInstance().isEAP() ? ACTIVE_DOC_EAP_FILE_NAME : ACTIVE_DOC_FILE_NAME);
+  private static @NotNull Path getDocumentNameFile() {
+    return getDataRoot().resolve(isEAP() ? ACTIVE_DOC_EAP_FILE_NAME : ACTIVE_DOC_FILE_NAME);
   }
 
-  private static File getDataRoot() {
-    return new File(Locations.getDataRoot(), "PrivacyPolicy");
+  private static boolean isEAP() {
+    return ApplicationInfoImpl.getShadowInstance().isEAP();
+  }
+
+  private static @NotNull Path getDataRoot() {
+    return PathManager.getCommonDataPath().resolve(RELATIVE_RESOURCE_PATH);
   }
 
   private static String getBundledResourcePath(String docName) {
-    return PRIVACY_POLICY_DOCUMENT_NAME.equals(docName)? "/PrivacyPolicy.html" : "/"+docName+".html";
+    return PRIVACY_POLICY_DOCUMENT_NAME.equals(docName) ? "/PrivacyPolicy.html" : "/" + docName + ".html";
   }
 
   public static void setAccepted(@NotNull Document doc) {
@@ -71,40 +77,69 @@ public final class EndUserAgreement {
     }
   }
 
-  @NotNull
-  private static Version getAcceptedVersion(String docName) {
+  private static @NotNull Version getAcceptedVersion(String docName) {
     return Version.fromString(Prefs.get(getAcceptedVersionKey(docName), null));
   }
 
-  @NotNull
-  public static Document getLatestDocument() {
+  public static @NotNull Document getLatestDocument() {
     // needed for testing
-    final String text = System.getProperty(POLICY_TEXT_PROPERTY, null);
+    String text = System.getProperty(POLICY_TEXT_PROPERTY, null);
     if (text != null) {
-      final Document fromProperty = loadContent(PRIVACY_POLICY_DOCUMENT_NAME, new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
+      Document fromProperty = new Document(PRIVACY_POLICY_DOCUMENT_NAME, text);
       if (!fromProperty.getVersion().isUnknown()) {
         return fromProperty;
       }
     }
 
-    final String docName = getDocumentName();
-    try {
-      final Document fromFile = loadContent(docName, new FileInputStream(getDocumentContentFile(docName)));
-      if (!fromFile.getVersion().isUnknown()) {
-        return fromFile;
-      }
+    String docName = getDocumentName();
+    Document fromFile = loadContent(docName, getDocumentContentFile(docName));
+    if (!fromFile.getVersion().isUnknown()) {
+      return fromFile;
     }
-    catch (IOException ignored) {
-    }
-    return loadContent(docName, EndUserAgreement.class.getResourceAsStream(getBundledResourcePath(docName)));
+
+    return loadContent(docName, getBundledResourcePath(docName));
   }
 
-  public static void update(String docName, String text) {
+  public static boolean updateCachedContentToLatestBundledVersion() {
     try {
-      FileUtil.writeToFile(getDocumentContentFile(docName), text);
-      FileUtil.writeToFile(getDocumentNameFile(), docName);
+      final String docName = getDocumentName();
+      Path cacheFile = getDocumentContentFile(docName);
+      if (Files.exists(cacheFile)) {
+        Document cached = loadContent(docName, cacheFile);
+        if (!cached.getVersion().isUnknown()) {
+          Document bundled = loadContent(docName, getBundledResourcePath(docName));
+          if (!bundled.getVersion().isUnknown() && bundled.getVersion().isNewer(cached.getVersion())) {
+            try {
+              // update content only and not the active document name
+              // active document name can be changed by JBA only
+              writeToFile(getDocumentContentFile(docName), bundled.getText());
+            }
+            catch (FileNotFoundException e) {
+              LOG.info(e.getMessage());
+            }
+            catch (IOException e) {
+              LOG.info(e);
+            }
+            return true;
+          }
+        }
+      }
     }
-    catch (FileNotFoundException e) {
+    catch (Throwable ignored) { }
+    return false;
+  }
+
+  private static void writeToFile(@NotNull Path file, @NotNull String text) throws IOException {
+    Files.createDirectories(file.getParent());
+    Files.write(file, text.getBytes(StandardCharsets.UTF_8));
+  }
+
+  public static void update(@NotNull String docName, @NotNull String text) {
+    try {
+      writeToFile(getDocumentContentFile(docName), text);
+      writeToFile(getDocumentNameFile(), docName);
+    }
+    catch (NoSuchFileException e) {
       LOG.info(e.getMessage());
     }
     catch (IOException e) {
@@ -112,45 +147,55 @@ public final class EndUserAgreement {
     }
   }
 
-  @NotNull
-  private static Document loadContent(final String docName, InputStream stream) {
-    try {
+  private static @NotNull Document loadContent(String docName, String resourcePath) {
+    try (InputStream stream = EndUserAgreement.class.getResourceAsStream(resourcePath)) {
       if (stream != null) {
-        final Reader reader = new InputStreamReader(stream instanceof ByteArrayInputStream? stream : new BufferedInputStream(stream), StandardCharsets.UTF_8);
-        try {
-          return new Document(docName, new String(FileUtil.adaptiveLoadText(reader)));
-        }
-        finally {
-          reader.close();
-        }
+        return new Document(docName, new String(StreamUtil.readBytes(stream), StandardCharsets.UTF_8));
       }
     }
     catch (IOException e) {
-      LOG.info(e);
+      LOG.info(docName + ": " + e.getMessage());
+      LOG.debug(e);
     }
     return new Document(docName, "");
   }
 
-  @NotNull
-  private static String getDocumentName() {
+  private static @NotNull Document loadContent(String docName, Path file) {
     try {
-      final String docName = new String(FileUtilRt.loadFileText(getDocumentNameFile(), StandardCharsets.UTF_8));
-      if (!StringUtil.isEmptyOrSpaces(docName)) {
+      return new Document(docName, Files.readString(file));
+    }
+    catch (IOException e) {
+      LOG.info(docName + ": " + e.getMessage());
+      LOG.debug(e);
+    }
+    return new Document(docName, "");
+  }
+
+  private static @NotNull String getDocumentName() {
+    if (!PlatformUtils.isCommercialEdition()) {
+      return isEAP()? PRIVACY_POLICY_EAP_DOCUMENT_NAME : PRIVACY_POLICY_DOCUMENT_NAME;
+    }
+
+    try {
+      String docName = Files.readString(getDocumentNameFile());
+      if (!StringUtilRt.isEmptyOrSpaces(docName)) {
         return docName;
       }
     }
-    catch (IOException ignored) {
-    }
-    //noinspection ConstantConditions
-    if (DEFAULT_DOC_NAME.equals(PRIVACY_POLICY_DOCUMENT_NAME)) {
-      return PRIVACY_POLICY_DOCUMENT_NAME;
-    }
-    return ApplicationInfoImpl.getShadowInstance().isEAP() ? DEFAULT_DOC_EAP_NAME : DEFAULT_DOC_NAME;
+    catch (IOException ignored) { }
+    return isEAP()? DEFAULT_DOC_EAP_NAME : DEFAULT_DOC_NAME;
   }
 
-  @NotNull
-  private static String getAcceptedVersionKey(String docName) {
-    return PRIVACY_POLICY_DOCUMENT_NAME.equals(docName)? "JetBrains.privacy_policy.accepted_version" : "JetBrains.privacy_policy." + docName + "_accepted_version";
+  private static @NotNull String getAcceptedVersionKey(String docName) {
+    if (PRIVACY_POLICY_DOCUMENT_NAME.equals(docName)) {
+      return "JetBrains.privacy_policy.accepted_version";
+    }
+    String keyName = docName;
+    if (EULA_EAP_DOCUMENT_NAME.equals(docName)) {
+      // for commercial EAP releases accepted version attribute should be separate from the one Resharper uses (IDEA-212020)
+      keyName = "ij_" + keyName;
+    }
+    return "JetBrains.privacy_policy." + keyName + "_accepted_version";
   }
 
   public static final class Document {
@@ -162,6 +207,10 @@ public final class EndUserAgreement {
       myName = name;
       myText = text;
       myVersion = parseVersion(text);
+    }
+
+    public boolean isPrivacyPolicy() {
+      return PRIVACY_POLICY_DOCUMENT_NAME.equals(myName) || PRIVACY_POLICY_EAP_DOCUMENT_NAME.equals(myName);
     }
 
     public boolean isAccepted() {
@@ -185,25 +234,18 @@ public final class EndUserAgreement {
       return myText;
     }
 
-    @NotNull
-    private static Version parseVersion(String text) {
-      if (!StringUtil.isEmptyOrSpaces(text)) {
-        try {
-          final BufferedReader reader = new BufferedReader(new StringReader(text));
-          try {
-            final String line = reader.readLine();
-            if (line != null) {
-              final int startComment = line.indexOf(VERSION_COMMENT_START);
-              if (startComment >= 0 ) {
-                final int endComment = line.indexOf(VERSION_COMMENT_END);
-                if (endComment > startComment) {
-                  return Version.fromString(line.substring(startComment + VERSION_COMMENT_START.length(), endComment).trim());
-                }
+    private static @NotNull Version parseVersion(String text) {
+      if (!StringUtilRt.isEmptyOrSpaces(text)) {
+        try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
+          final String line = reader.readLine();
+          if (line != null) {
+            final int startComment = line.indexOf(VERSION_COMMENT_START);
+            if (startComment >= 0) {
+              final int endComment = line.indexOf(VERSION_COMMENT_END);
+              if (endComment > startComment) {
+                return Version.fromString(line.substring(startComment + VERSION_COMMENT_START.length(), endComment).trim());
               }
             }
-          }
-          finally {
-            reader.close();
           }
         }
         catch (IOException e) {
@@ -212,7 +254,5 @@ public final class EndUserAgreement {
       }
       return Version.UNKNOWN;
     }
-
   }
-
 }

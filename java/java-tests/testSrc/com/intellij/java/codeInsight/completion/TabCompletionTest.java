@@ -17,6 +17,7 @@ package com.intellij.java.codeInsight.completion;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.completion.LightFixtureCompletionTestCase;
+import com.intellij.testFramework.NeedsIndex;
 
 public class TabCompletionTest extends LightFixtureCompletionTestCase {
   @Override
@@ -30,32 +31,46 @@ public class TabCompletionTest extends LightFixtureCompletionTestCase {
   }
 
   public void testReplaceThisWithSuper() {
-    configureByFile("ReplaceThisWithSuper.java");
-    checkResultByFile("ReplaceThisWithSuper_After.java");
+    configureByTestName();
+    checkResultJava();
   }
 
+  @NeedsIndex.SmartMode(reason = "Smart completion in dumb mode is not supported for txt, properties and xml")
   public void testTabInXml() {
     configureByFile("TabInXml.xml");
     checkResultByFile("TabInXml_After.xml");
   }
 
+  @NeedsIndex.SmartMode(reason = "Smart completion in dumb mode is not supported for txt, properties and xml")
   public void testTabInXml2() {
     configureByFile("TabInXml2.xml");
     checkResultByFile("TabInXml2_After.xml");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodCallBeforeAnnotation() {
     myFixture.configureByFile("MethodCallBeforeAnnotation.java");
     myFixture.completeBasic();
     myFixture.type("tos\t");
-    checkResultByFile("MethodCallBeforeAnnotation_After.java");
+    checkResultJava();
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodCallBeforeAnnotation2() {
     myFixture.configureByFile("MethodCallBeforeAnnotation2.java");
     myFixture.completeBasic();
     myFixture.type("tos\t");
-    checkResultByFile("MethodCallBeforeAnnotation2_After.java");
+    checkResultJava();
+  }
+
+  @NeedsIndex.ForStandardLibrary
+  public void testReplaceStringLiteral() {
+    configureByTestName();
+    checkResultJava();
+  }
+
+  private void checkResultJava() {
+    checkResultByFile(getTestName(false) + "_After.java");
   }
 
   @Override

@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packageDependencies.ui;
 
 import com.intellij.openapi.util.Comparing;
 import com.intellij.util.ui.tree.TreeUtil;
-import gnu.trove.Equality;
 
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -27,22 +12,25 @@ import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 import java.util.*;
+import java.util.function.BiPredicate;
+
+import static com.intellij.ui.tree.TreePathUtil.toTreePathArray;
 
 public abstract class TreeExpansionMonitor<T> {
-
   public static TreeExpansionMonitor<DefaultMutableTreeNode> install(final JTree tree) {
     return install(tree, (o1, o2) -> Comparing.equal(o1.getUserObject(), o2.getUserObject()));
   }
 
-  public static TreeExpansionMonitor<DefaultMutableTreeNode> install(final JTree tree, final Equality<DefaultMutableTreeNode> equality) {
+  public static TreeExpansionMonitor<DefaultMutableTreeNode> install(final JTree tree, final BiPredicate<? super DefaultMutableTreeNode, ? super DefaultMutableTreeNode> equality) {
     return new TreeExpansionMonitor<DefaultMutableTreeNode>(tree) {
+      @Override
       protected TreePath findPathByNode(final DefaultMutableTreeNode node) {
         Enumeration enumeration = ((DefaultMutableTreeNode)tree.getModel().getRoot()).breadthFirstEnumeration();
         while (enumeration.hasMoreElements()) {
           final Object nextElement = enumeration.nextElement();
           if (nextElement instanceof DefaultMutableTreeNode) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode)nextElement;
-            if (equality.equals(child, node)) {
+            if (equality.test(child, node)) {
               return new TreePath(child.getPath());
             }
           }
@@ -60,6 +48,7 @@ public abstract class TreeExpansionMonitor<T> {
   protected TreeExpansionMonitor(JTree tree) {
     myTree = tree;
     myTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(TreeSelectionEvent e) {
         if (myFrozen) return;
         mySelectionNodes = new ArrayList<>();
@@ -73,6 +62,7 @@ public abstract class TreeExpansionMonitor<T> {
     });
 
     myTree.addTreeExpansionListener(new TreeExpansionListener() {
+      @Override
       public void treeExpanded(TreeExpansionEvent event) {
         if (myFrozen) return;
         TreePath path = event.getPath();
@@ -81,11 +71,12 @@ public abstract class TreeExpansionMonitor<T> {
         }
       }
 
+      @Override
       public void treeCollapsed(TreeExpansionEvent event) {
         if (myFrozen) return;
         TreePath path = event.getPath();
         if (path != null) {
-          TreePath[] allPaths = myExpandedPaths.toArray(new TreePath[0]);
+          TreePath[] allPaths = toTreePathArray(myExpandedPaths);
           for (TreePath treePath : allPaths) {
             if (treePath.equals(path) || path.isDescendant(treePath)) {
               myExpandedPaths.remove(treePath);

@@ -17,6 +17,7 @@ package com.intellij.util.ui;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -38,9 +39,9 @@ import java.util.List;
 public class CheckBoxListModelEditor<T> {
   private final CheckBoxList<T> list;
   private final ToolbarDecorator toolbarDecorator;
-  private final Function<T, String> toNameConverter;
+  private final Function<? super T, @NlsContexts.Checkbox String> toNameConverter;
 
-  public CheckBoxListModelEditor(@NotNull Function<T, String> toNameConverter, @NotNull String emptyText) {
+  public CheckBoxListModelEditor(@NotNull Function<? super T, @NlsContexts.Checkbox String> toNameConverter, @NotNull @NlsContexts.StatusText String emptyText) {
     this.toNameConverter = toNameConverter;
     list = new CheckBoxList<>();
     list.setEmptyText(emptyText);
@@ -50,7 +51,7 @@ public class CheckBoxListModelEditor<T> {
   }
 
   @NotNull
-  public CheckBoxListModelEditor<T> editAction(final @NotNull Function<T, T> consumer) {
+  public CheckBoxListModelEditor<T> editAction(final @NotNull Function<? super T, ? extends T> consumer) {
     final Runnable action = () -> {
       T item = getSelectedItem();
       if (item != null) {
@@ -58,9 +59,7 @@ public class CheckBoxListModelEditor<T> {
         if (newItem != null) {
           list.updateItem(item, newItem, StringUtil.notNullize(toNameConverter.fun(newItem)));
         }
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(list, true);
-        });
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(list, true));
       }
     };
     toolbarDecorator.setEditAction(new AnActionButtonRunnable() {
@@ -74,10 +73,10 @@ public class CheckBoxListModelEditor<T> {
   }
 
   @NotNull
-  public CheckBoxListModelEditor<T> copyAction(final @NotNull Consumer<T> consumer) {
+  public CheckBoxListModelEditor<T> copyAction(final @NotNull Consumer<? super T> consumer) {
     toolbarDecorator.addExtraAction(new ToolbarDecorator.ElementActionButton(IdeBundle.message("button.copy"), PlatformIcons.COPY_ICON) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         int[] indices = list.getSelectedIndices();
         if (indices == null || indices.length == 0) {
           return;
@@ -127,14 +126,14 @@ public class CheckBoxListModelEditor<T> {
     return list;
   }
 
-  public void reset(@NotNull List<Pair<T, Boolean>> items) {
+  public void reset(@NotNull List<? extends Pair<T, Boolean>> items) {
     list.clear();
     for (Pair<T, Boolean> item : items) {
       list.addItem(item.first, toNameConverter.fun(item.first), item.second);
     }
   }
 
-  public boolean isModified(@NotNull List<Pair<T, Boolean>> oldItems) {
+  public boolean isModified(@NotNull List<? extends Pair<T, Boolean>> oldItems) {
     if (oldItems.size() != list.getItemsCount()) {
       return true;
     }

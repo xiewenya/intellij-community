@@ -22,9 +22,6 @@ import org.jetbrains.jps.model.ex.JpsElementBase;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsUrlListImpl extends JpsElementBase<JpsUrlListImpl> implements JpsUrlList {
   private final List<String> myUrls = new ArrayList<>();
 
@@ -59,6 +56,7 @@ public class JpsUrlListImpl extends JpsElementBase<JpsUrlListImpl> implements Jp
     fireElementChanged();
   }
 
+  @Override
   public void applyChanges(@NotNull JpsUrlListImpl modified) {
     if (!myUrls.equals(modified.myUrls)) {
       myUrls.clear();

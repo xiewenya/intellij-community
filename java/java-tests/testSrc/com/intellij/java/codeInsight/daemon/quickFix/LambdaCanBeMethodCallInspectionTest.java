@@ -22,13 +22,10 @@ import org.jetbrains.annotations.NotNull;
 
 
 public class LambdaCanBeMethodCallInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new LambdaCanBeMethodCallInspection()};
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

@@ -4,16 +4,18 @@ package com.intellij.codeInspection;
 import com.intellij.codeInsight.BlockUtils;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.InlineUtil;
 import com.intellij.refactoring.util.LambdaRefactoringUtil;
-import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
+import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.psiutils.*;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
@@ -63,23 +65,9 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
             if (!(ArrayUtil.getLastElement(statements) instanceof PsiReturnStatement)) {
               return false;
             }
-            if (returnStatements[0].getReturnValue() != null) {
-              if (callParent instanceof PsiLocalVariable) {
-                return true;
-              }
-            }
           }
 
-          if(callParent instanceof PsiExpressionStatement) {
-            PsiElement statementParent = callParent.getParent();
-            // Disable in "for" initialization or update
-            if(statementParent instanceof PsiForStatement && callParent != ((PsiForStatement)statementParent).getBody()) {
-              return false;
-            }
-          }
-
-          return (callParent instanceof PsiStatement && !(callParent instanceof PsiLoopStatement)) ||
-                 callParent instanceof PsiLambdaExpression;
+          return CodeBlockSurrounder.canSurround(call);
         };
         Predicate<PsiMethodCallExpression> checkWrites = call ->
           Arrays.stream(expression.getParameterList().getParameters())
@@ -99,7 +87,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
             if (returnStatements.length > 1) {
               return false;
             }
-            final PsiElement callParent = call.getParent();
+            final PsiElement callParent = PsiUtil.skipParenthesizedExprUp(call.getParent());
             return callParent instanceof PsiStatement ||
                    callParent instanceof PsiLocalVariable;
           }, newExpression, aClass.getBaseClassType(), new ReplaceAnonymousWithLambdaBodyFix());
@@ -107,7 +95,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
       }
 
       private void doCheckMethodCallOnFunctionalExpression(PsiElement expression,
-                                                           Predicate<PsiMethodCallExpression> elementContainerPredicate) {
+                                                           Predicate<? super PsiMethodCallExpression> elementContainerPredicate) {
         final PsiTypeCastExpression parent =
           ObjectUtils.tryCast(PsiUtil.skipParenthesizedExprUp(expression.getParent()), PsiTypeCastExpression.class);
         if (parent != null) {
@@ -118,7 +106,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
         }
       }
 
-      private void doCheckMethodCallOnFunctionalExpression(Predicate<PsiMethodCallExpression> elementContainerPredicate,
+      private void doCheckMethodCallOnFunctionalExpression(Predicate<? super PsiMethodCallExpression> elementContainerPredicate,
                                                            PsiExpression qualifier,
                                                            PsiType interfaceType,
                                                            LocalQuickFix fix) {
@@ -135,7 +123,8 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
         if (!suitableMethod) return;
         final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(interfaceType);
         if (method == interfaceMethod || interfaceMethod != null && MethodSignatureUtil.isSuperMethod(interfaceMethod, method)) {
-          holder.registerProblem(referenceNameElement, "Method call can be simplified", fix);
+          holder.registerProblem(referenceNameElement,
+                                 InspectionGadgetsBundle.message("inspection.trivial.functional.expression.usage.description"), fix);
         }
       }
     };
@@ -162,8 +151,9 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     PsiExpression[] arguments = callExpression.getArgumentList().getExpressions();
     if (Stream.of(arguments).noneMatch(SideEffectChecker::mayHaveSideEffects)) return lambda;
 
-    lambda = RefactoringUtil.ensureCodeBlock(lambda);
-    if (lambda == null) return null;
+    CodeBlockSurrounder surrounder = CodeBlockSurrounder.forExpression(lambda);
+    if (surrounder == null) return null;
+    lambda = (PsiLambdaExpression)surrounder.surround().getExpression();
     callExpression = PsiTreeUtil.getParentOfType(lambda, PsiMethodCallExpression.class);
     if (callExpression == null) return lambda;
     arguments = callExpression.getArgumentList().getExpressions();
@@ -183,7 +173,6 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
         boolean used = VariableAccessUtils.variableIsUsed(parameter, lambda.getBody());
         if (used) {
           String name = parameter.getName();
-          if (name == null) continue;
           statements.add(
             factory.createStatementFromText(parameter.getType().getCanonicalText() + " " + name + "=" + argument.getText()+";", lambda));
           argument.replace(factory.createExpressionFromText(name, parameter));
@@ -203,12 +192,14 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     inlineCallArguments(callExpression, element, ct);
     // body could be invalidated after inlining
     expression = LambdaUtil.extractSingleExpressionFromBody(element.getBody());
-    ct.replaceAndRestoreComments(callExpression, ct.markUnchanged(expression));
+    ct.replaceAndRestoreComments(callExpression, expression);
   }
 
   private static void replaceCodeBlock(PsiLambdaExpression element) {
-    element = RefactoringUtil.ensureCodeBlock(element);
-    if (element == null) return;
+    CodeBlockSurrounder surrounder = CodeBlockSurrounder.forExpression(element);
+    if (surrounder == null) return;
+    CodeBlockSurrounder.SurroundResult result = surrounder.surround();
+    element = (PsiLambdaExpression)result.getExpression();
     PsiElement body = element.getBody();
     if (!(body instanceof PsiCodeBlock)) return;
     PsiMethodCallExpression callExpression = PsiTreeUtil.getParentOfType(element, PsiMethodCallExpression.class);
@@ -220,11 +211,14 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     final PsiStatement[] statements = ((PsiCodeBlock)body).getStatements();
     PsiReturnStatement statement = null;
     if (statements.length > 0) {
-      final PsiStatement anchor = PsiTreeUtil.getParentOfType(parent, PsiStatement.class, false);
+      PsiElement anchor = result.getAnchor();
       statement = ObjectUtils.tryCast(statements[statements.length - 1], PsiReturnStatement.class);
-      if (anchor != null) {
-        final PsiElement gParent = anchor.getParent();
-        for (PsiElement child : body.getChildren()) {
+      PsiElement gParent = anchor.getParent();
+      if (hasNameConflict(statements, anchor, element)) {
+        gParent.addBefore(JavaPsiFacade.getElementFactory(element.getProject()).createStatementFromText(ct.text(body), anchor), anchor);
+      }
+      else {
+        for (PsiElement child = body.getFirstChild(); child != null; child = child.getNextSibling()) {
           if (child != statement && !(child instanceof PsiJavaToken)) {
             gParent.addBefore(ct.markUnchanged(child), anchor);
           }
@@ -233,11 +227,27 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     }
     final PsiExpression returnValue = statement == null ? null : statement.getReturnValue();
     if (returnValue != null) {
-      ct.replaceAndRestoreComments(callExpression, ct.markUnchanged(returnValue));
+      ct.replaceAndRestoreComments(callExpression, returnValue);
     }
     else {
-      ct.deleteAndRestoreComments(callExpression);
+      if (parent instanceof PsiExpressionStatement) {
+        ct.deleteAndRestoreComments(callExpression);
+      }
+      else {
+        ct.deleteAndRestoreComments(parent);
+      }
     }
+  }
+  
+  private static boolean hasNameConflict(PsiStatement[] statements, PsiElement anchor, PsiLambdaExpression lambda) {
+    Predicate<PsiVariable> allowedVar = variable -> PsiTreeUtil.isAncestor(lambda, variable, true);
+    JavaCodeStyleManager manager = JavaCodeStyleManager.getInstance(anchor.getProject());
+    return StreamEx.of(statements).select(PsiDeclarationStatement.class)
+      .flatArray(PsiDeclarationStatement::getDeclaredElements)
+      .select(PsiNamedElement.class)
+      .map(PsiNamedElement::getName)
+      .nonNull()
+      .anyMatch(name -> !name.equals(manager.suggestUniqueVariableName(name, anchor, allowedVar)));
   }
 
   private static void inlineCallArguments(PsiMethodCallExpression callExpression,
@@ -264,7 +274,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace method call on lambda with lambda body";
+      return InspectionGadgetsBundle.message("replace.with.lambda.body.fix.family.name");
     }
 
     @Override
@@ -283,7 +293,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace method call on method reference with corresponding method call";
+      return InspectionGadgetsBundle.message("replace.with.method.reference.fix.family.name");
     }
 
     @Override
@@ -307,7 +317,7 @@ public class TrivialFunctionalExpressionUsageInspection extends AbstractBaseJava
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace call with method body";
+      return InspectionGadgetsBundle.message("replace.anonymous.with.lambda.body.fix.family.name");
     }
 
     @Override

@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -39,32 +24,32 @@ import org.jetbrains.annotations.NotNull;
  */
 public class OpenRepositoryVersionAction extends AnAction implements DumbAware {
   public OpenRepositoryVersionAction() {
-    // TODO[yole]: real icon
-    super(VcsBundle.message("open.repository.version.text"), VcsBundle.message("open.repository.version.description"),
-          AllIcons.ObjectBrowser.ShowEditorHighlighting);
+    super(VcsBundle.messagePointer("open.repository.version.text"), VcsBundle.messagePointer("open.repository.version.description"), null);
   }
 
+  @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     Change[] changes = e.getRequiredData(VcsDataKeys.SELECTED_CHANGES);
     openRepositoryVersion(project, changes);
   }
 
+  @Override
   public void update(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     Change[] changes = e.getData(VcsDataKeys.SELECTED_CHANGES);
     e.getPresentation().setEnabled(project != null && changes != null &&
                                    (!CommittedChangesBrowserUseCase.IN_AIR
-                                     .equals(CommittedChangesBrowserUseCase.DATA_KEY.getData(e.getDataContext()))) &&
+                                     .equals(e.getData(CommittedChangesBrowserUseCase.DATA_KEY))) &&
                                    hasValidChanges(changes) &&
                                    ModalityState.NON_MODAL.equals(ModalityState.current()));
   }
 
-  private static boolean hasValidChanges(@NotNull Change[] changes) {
+  private static boolean hasValidChanges(Change @NotNull [] changes) {
     return ContainerUtil.exists(changes, c -> c.getAfterRevision() != null && !c.getAfterRevision().getFile().isDirectory());
   }
 
-  private static void openRepositoryVersion(@NotNull Project project, @NotNull Change[] changes) {
+  private static void openRepositoryVersion(@NotNull Project project, Change @NotNull [] changes) {
     for (Change change : changes) {
       ContentRevision revision = change.getAfterRevision();
 

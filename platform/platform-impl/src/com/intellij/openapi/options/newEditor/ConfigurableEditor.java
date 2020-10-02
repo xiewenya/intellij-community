@@ -1,50 +1,37 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.CommonBundle;
-import com.intellij.internal.statistic.UsageTrigger;
-import com.intellij.internal.statistic.beans.ConvertUsagesUtil;
-import com.intellij.internal.statistic.eventLog.FeatureUsageUiEvents;
+import com.intellij.ide.IdeBundle;
+import com.intellij.internal.statistic.eventLog.FeatureUsageUiEventsKt;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
-import com.intellij.openapi.options.BaseConfigurable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.options.ex.ConfigurableCardPanel;
-import com.intellij.openapi.options.ex.ConfigurableExtensionPointUtil;
-import com.intellij.openapi.options.ex.ConfigurableVisitor;
+import com.intellij.openapi.options.ex.SortedConfigurableGroup;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.JBColor;
+import com.intellij.openapi.util.text.HtmlChunk;
+import com.intellij.ui.ComponentUtil;
+import com.intellij.ui.LightColors;
 import com.intellij.ui.RelativeFont;
+import com.intellij.ui.UIBundle;
 import com.intellij.ui.components.labels.LinkLabel;
-import com.intellij.util.containers.JBIterable;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
 import java.awt.*;
@@ -52,20 +39,13 @@ import java.awt.event.AWTEventListener;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.ResourceBundle;
 
 import static com.intellij.ui.ScrollPaneFactory.createScrollPane;
 import static java.awt.Toolkit.getDefaultToolkit;
 import static javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER;
 import static javax.swing.SwingUtilities.isDescendingFrom;
 
-/**
- * @author Sergey.Malenkov
- */
 class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWTEventListener {
-  private static final JBColor ERROR_BACKGROUND = new JBColor(0xffbfbf, 0x591f1f);
-  private static final String RESET_NAME = "Reset";
-  private static final String RESET_DESCRIPTION = "Rollback changes for this configuration element";
   private final MergingUpdateQueue myQueue = new MergingUpdateQueue("SettingsModification", 1000, false, this, this, this);
   private final ConfigurableCardPanel myCardPanel = new ConfigurableCardPanel() {
     @Override
@@ -81,13 +61,13 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
       apply();
     }
   };
-  private final AbstractAction myResetAction = new AbstractAction(RESET_NAME) {
+  private final AbstractAction myResetAction = new AbstractAction(UIBundle.message("configurable.reset.action.name")) {
     @Override
     public void actionPerformed(ActionEvent event) {
       if (myConfigurable != null) {
         ConfigurableCardPanel.reset(myConfigurable);
         updateCurrent(myConfigurable, true);
-        FeatureUsageUiEvents.INSTANCE.logResetConfigurable(getConfigurableEventId(myConfigurable));
+        FeatureUsageUiEventsKt.getUiEventLogger().logResetConfigurable(myConfigurable);
       }
     }
   };
@@ -104,18 +84,18 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
 
   protected void init(Configurable configurable, boolean enableError) {
     myApplyAction.setEnabled(false);
-    myResetAction.putValue(Action.SHORT_DESCRIPTION, RESET_DESCRIPTION);
+    myResetAction.putValue(Action.SHORT_DESCRIPTION, UIBundle.message("configurable.reset.action.description"));
     myResetAction.setEnabled(false);
     myErrorLabel.setOpaque(true);
     myErrorLabel.setEnabled(enableError);
     myErrorLabel.setVisible(false);
     myErrorLabel.setVerticalTextPosition(SwingConstants.TOP);
-    myErrorLabel.setBorder(BorderFactory.createEmptyBorder(10, 15, 15, 15));
-    myErrorLabel.setBackground(ERROR_BACKGROUND);
+    myErrorLabel.setBorder(JBUI.Borders.empty(10, 15, 15, 15));
+    myErrorLabel.setBackground(LightColors.RED);
     add(BorderLayout.SOUTH, RelativeFont.HUGE.install(myErrorLabel));
     add(BorderLayout.CENTER, myCardPanel);
     Disposer.register(this, myCardPanel);
-    ActionManager.getInstance().addAnActionListener(this, this);
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(TOPIC, this);
     getDefaultToolkit().addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK | AWTEvent.KEY_EVENT_MASK);
     if (configurable != null) {
       myConfigurable = configurable;
@@ -152,30 +132,34 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
     return setError(apply(myApplyAction.isEnabled() ? myConfigurable : null));
   }
 
+  @Override
+  boolean cancel(AWTEvent source) {
+    myConfigurable.cancel();
+    return super.cancel(source);
+  }
+
   void openLink(Configurable configurable) {
     ShowSettingsUtil.getInstance().editConfigurable(this, configurable);
   }
 
   @Override
-  public final void beforeEditorTyping(char ch, DataContext context) {
+  public final void beforeEditorTyping(char ch, @NotNull DataContext context) {
   }
 
   @Override
-  public final void beforeActionPerformed(AnAction action, DataContext context, AnActionEvent event) {
+  public final void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext context, @NotNull AnActionEvent event) {
   }
 
   @Override
-  public final void afterActionPerformed(AnAction action, DataContext context, AnActionEvent event) {
+  public final void afterActionPerformed(@NotNull AnAction action, @NotNull DataContext context, @NotNull AnActionEvent event) {
     requestUpdate();
   }
 
   @Override
   public JComponent getPreferredFocusedComponent() {
-    if (myConfigurable instanceof BaseConfigurable) {
-      JComponent preferred = ((BaseConfigurable)myConfigurable).getPreferredFocusedComponent();
-      if (preferred != null) return preferred;
-    }
-    return UIUtil.getPreferredFocusedComponent(getContent(myConfigurable));
+    if (myConfigurable == null) return null; // settings editor is not configured yet
+    JComponent preferred = myConfigurable.getPreferredFocusedComponent();
+    return preferred == null ? UIUtil.getPreferredFocusedComponent(getContent(myConfigurable)) : preferred;
   }
 
   @Override
@@ -215,9 +199,9 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
   }
 
   private boolean isPopupOverEditor(Component component) {
-    Window editor = UIUtil.getWindow(this);
+    Window editor = ComponentUtil.getWindow(this);
     if (editor != null) {
-      Window popup = UIUtil.getWindow(component);
+      Window popup = ComponentUtil.getWindow(component);
       // light-weight popup is located on the layered pane of the same window
       if (popup == editor) {
         return true;
@@ -246,26 +230,26 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
   void postUpdateCurrent(Configurable configurable) {
   }
 
-  final boolean updateIfCurrent(Configurable configurable) {
-    if (myConfigurable != configurable) {
-      return false;
+  final void updateIfCurrent(Configurable configurable) {
+    if (myConfigurable == configurable) {
+      updateCurrent(configurable, false);
     }
-    updateCurrent(configurable, false);
-    return true;
   }
 
-  final ActionCallback select(final Configurable configurable) {
+  @NotNull
+  final Promise<? super Object> select(final Configurable configurable) {
     assert !myDisposed : "Already disposed";
     ActionCallback callback = myCardPanel.select(configurable, false);
-    callback.doWhenDone(() -> {
-      myConfigurable = configurable;
-      updateCurrent(configurable, false);
-      postUpdateCurrent(configurable);
-      if (configurable != null) {
-        FeatureUsageUiEvents.INSTANCE.logSelectConfigurable(getConfigurableEventId(configurable));
-      }
-    });
-    return callback;
+    callback
+      .doWhenDone(() -> {
+        myConfigurable = configurable;
+        updateCurrent(configurable, false);
+        postUpdateCurrent(configurable);
+        if (configurable != null) {
+          FeatureUsageUiEventsKt.getUiEventLogger().logSelectConfigurable(configurable);
+        }
+      });
+    return Promises.toPromise(callback);
   }
 
   final boolean setError(ConfigurationException exception) {
@@ -274,7 +258,12 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
       return true;
     }
     if (myErrorLabel.isEnabled()) {
-      myErrorLabel.setText("<html><body><strong>" + exception.getTitle() + "</strong>:<br>" + exception.getMessage());
+      myErrorLabel.setText(HtmlChunk.body().children(
+        HtmlChunk.text(exception.getTitle()).wrapWith("strong"),
+        HtmlChunk.text(":"),
+        HtmlChunk.br(),
+        HtmlChunk.text(exception.getMessage())
+      ).wrapWith("html").toString());
       myErrorLabel.setVisible(true);
     }
     else {
@@ -293,28 +282,26 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
 
   private JComponent createDefaultContent(Configurable configurable) {
     JComponent content = new JPanel(new BorderLayout());
-    content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-    String key = configurable == null ? null : ConfigurableVisitor.ByID.getID(configurable) + ".settings.description";
-    String description = key == null ? null : getString(configurable, key);
+    content.setBorder(JBUI.Borders.empty(11, 16, 16, 16));
+    SortedConfigurableGroup group = configurable instanceof SortedConfigurableGroup ? (SortedConfigurableGroup)configurable : null;
+    String description = group == null ? null : group.getDescription();
     if (description == null) {
-      description = "Select configuration element in the tree to edit its settings";
+      description = IdeBundle.message("label.select.configuration.element");
       content.add(BorderLayout.CENTER, new JLabel(description, SwingConstants.CENTER));
       content.setPreferredSize(JBUI.size(800, 600));
     }
     else {
       content.add(BorderLayout.NORTH, new JLabel(description));
-      if (configurable instanceof Configurable.Composite) {
-        Configurable.Composite composite = (Configurable.Composite)configurable;
 
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        content.add(BorderLayout.CENTER, panel);
-        panel.add(Box.createVerticalStrut(10));
-        for (Configurable current : composite.getConfigurables()) {
-          LinkLabel label = LinkLabel.create(current.getDisplayName(), () -> openLink(current));
-          label.setBorder(BorderFactory.createEmptyBorder(1, 17, 3, 1));
-          panel.add(label);
-        }
+      JPanel panel = new JPanel();
+      panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+      content.add(BorderLayout.CENTER, panel);
+      panel.add(Box.createVerticalStrut(10));
+      for (Configurable current : group.getConfigurables()) {
+        //noinspection DialogTitleCapitalization (title case is OK here)
+        LinkLabel<?> label = LinkLabel.create(current.getDisplayName(), () -> openLink(current));
+        label.setBorder(JBUI.Borders.empty(1, 17, 3, 1));
+        panel.add(label);
       }
     }
     JScrollPane pane = createScrollPane(content, true);
@@ -322,20 +309,11 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
     return pane;
   }
 
-  private static String getString(Configurable configurable, String key) {
-    JBIterable<Configurable> it = JBIterable.of(configurable).append(
-      JBIterable.of(configurable instanceof Configurable.Composite ? ((Configurable.Composite)configurable).getConfigurables() : null));
-    ResourceBundle bundle = ConfigurableExtensionPointUtil.getBundle(key, it, null);
-    return bundle != null ? bundle.getString(key) : null;
-  }
-
   static ConfigurationException apply(Configurable configurable) {
     if (configurable != null) {
       try {
         configurable.apply();
-        final String key = getConfigurableEventId(configurable);
-        FeatureUsageUiEvents.INSTANCE.logApplyConfigurable(key);
-        UsageTrigger.trigger(key);
+        FeatureUsageUiEventsKt.getUiEventLogger().logApplyConfigurable(configurable);
       }
       catch (ConfigurationException exception) {
         return exception;
@@ -344,8 +322,13 @@ class ConfigurableEditor extends AbstractEditor implements AnActionListener, AWT
     return null;
   }
 
-  @NotNull
-  private static String getConfigurableEventId(@NotNull Configurable configurable) {
-    return "ide.settings." + ConvertUsagesUtil.escapeDescriptorName(StringUtil.notNullize(configurable.getDisplayName()));
+  @Nullable
+  Configurable getConfigurable() {
+    return myConfigurable;
+  }
+
+  void reload() {
+    myCardPanel.removeAll();
+    myConfigurable = null;
   }
 }

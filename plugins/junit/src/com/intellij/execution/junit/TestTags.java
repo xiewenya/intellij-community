@@ -4,8 +4,10 @@
 package com.intellij.execution.junit;
 
 import com.intellij.execution.ExecutionException;
+import com.intellij.execution.JUnitBundle;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.testframework.SourceScope;
 import com.intellij.execution.util.JavaParametersUtil;
 import com.intellij.execution.util.ProgramParametersUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -13,11 +15,12 @@ import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 
 class TestTags extends TestObject {
-  public TestTags(JUnitConfiguration configuration, ExecutionEnvironment environment) {
+  TestTags(JUnitConfiguration configuration, ExecutionEnvironment environment) {
     super(configuration, environment);
   }
 
@@ -29,13 +32,20 @@ class TestTags extends TestObject {
       getConfiguration(), getConfiguration().getProject(), getConfiguration().getConfigurationModule().getModule());
     final String tags = getConfiguration().getPersistentData().getTags();
     if (StringUtil.isEmptyOrSpaces(tags)) {
-      throw new RuntimeConfigurationError("Tags are not specified");
+      throw new RuntimeConfigurationError(JUnitBundle.message("tags.are.not.specified.error.message"));
     }
     final JavaRunConfigurationModule configurationModule = getConfiguration().getConfigurationModule();
     if (getSourceScope() == null) {
       configurationModule.checkForWarning();
     }
     parseAsJavaExpression(tags);
+  }
+
+  @Nullable
+  @Override
+  public SourceScope getSourceScope() {
+    final JUnitConfiguration.Data data = getConfiguration().getPersistentData();
+    return data.getScope().getSourceScope(getConfiguration());
   }
 
   /**
@@ -48,7 +58,7 @@ class TestTags extends TestObject {
   private void parseAsJavaExpression(String tags) throws RuntimeConfigurationWarning {
     PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(getConfiguration().getProject());
     try {
-      PsiExpression expression = elementFactory.createExpressionFromText(tags.replaceAll("[^)(&|!]", "x"), null);
+      PsiExpression expression = elementFactory.createExpressionFromText(tags.replaceAll("[^)(&|!\\s]", "x"), null);
       if (expression instanceof PsiPolyadicExpression) {
         IElementType tokenType = ((PsiPolyadicExpression)expression).getOperationTokenType();
         if (tokenType == JavaTokenType.ANDAND || tokenType == JavaTokenType.OROR) {
@@ -62,12 +72,12 @@ class TestTags extends TestObject {
   }
 
   private static void invalidTagException(String tag) throws RuntimeConfigurationWarning {
-    throw new RuntimeConfigurationWarning("Tag name [" + tag + "] must be syntactically valid");
+    throw new RuntimeConfigurationWarning(JUnitBundle.message("tag.name.0.must.be.syntactically.valid.warning", tag));
   }
 
   @Override
   public String suggestActionName() {
-    return "Tests of " + getConfiguration().getPersistentData().getCategory();
+    return JUnitBundle.message("action.text.test.tags", getConfiguration().getPersistentData().getTags());
   }
 
   @Override

@@ -19,13 +19,13 @@ import com.intellij.codeInsight.daemon.impl.quickfix.AddTypeArgumentsFix;
 import com.intellij.codeInspection.AnonymousCanBeLambdaInspection;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.impl.PsiDiamondTypeUtil;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiSuperMethodUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -168,7 +168,7 @@ public class PseudoLambdaReplaceTemplate {
     return validate(argumentTypes, methodReturnType, methodSubstitutor, expression);
   }
 
-  public String getStreamApiMethodName() {
+  public @NlsSafe String getStreamApiMethodName() {
     return myStreamApiMethodName;
   }
 
@@ -289,8 +289,8 @@ public class PseudoLambdaReplaceTemplate {
         if (substitutionMap.size() != 1) {
           return false;
         }
-        final PsiType iterableParametrizedType = ObjectUtils.notNull(ContainerUtil.getFirstItem(substitutionMap.values()));
-        if (!TypeConversionUtil.isAssignable(lambdaReturnType, iterableParametrizedType)) {
+        final PsiType iterableParametrizedType = ContainerUtil.getFirstItem(substitutionMap.values());
+        if (iterableParametrizedType == null || !TypeConversionUtil.isAssignable(lambdaReturnType, iterableParametrizedType)) {
           return false;
         }
       }

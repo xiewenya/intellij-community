@@ -3,25 +3,25 @@
 package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInsight.daemon.impl.RemoveSuppressWarningAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.PsiDocCommentOwner;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class SuppressManagerImpl extends SuppressManager {
+public class SuppressManagerImpl extends SuppressManager implements RedundantSuppressionDetector {
   private static final Logger LOG = Logger.getInstance(SuppressManager.class);
 
   @Override
-  @NotNull
-  public SuppressIntentionAction[] createSuppressActions(@NotNull final HighlightDisplayKey displayKey) {
+  public SuppressIntentionAction @NotNull [] createSuppressActions(@NotNull final HighlightDisplayKey displayKey) {
     SuppressQuickFix[] batchSuppressActions = createBatchSuppressActions(displayKey);
     return SuppressIntentionActionFromFix.convertBatchToSuppressIntentionActions(batchSuppressActions);
   }
 
-  @NotNull
   @Override
-  public SuppressQuickFix[] getSuppressActions(@Nullable PsiElement element, @NotNull String toolId) {
+  public SuppressQuickFix @NotNull [] getSuppressActions(@Nullable PsiElement element, @NotNull String toolId) {
     final HighlightDisplayKey displayKey = HighlightDisplayKey.findById(toolId);
     LOG.assertTrue(displayKey != null, "Display key is null for `" + toolId + "` tool");
     return createBatchSuppressActions(displayKey);
@@ -52,5 +52,21 @@ public class SuppressManagerImpl extends SuppressManager {
   @Override
   public boolean alreadyHas14Suppressions(@NotNull final PsiDocCommentOwner commentOwner) {
     return JavaSuppressionUtil.alreadyHas14Suppressions(commentOwner);
+  }
+  
+  @Override
+  public String getSuppressionIds(@NotNull PsiElement element) {
+    return JavaSuppressionUtil.getSuppressedInspectionIdsIn(element);
+  }
+
+  @Override
+  public boolean isSuppressionFor(@NotNull PsiElement elementWithSuppression, @NotNull PsiElement place, @NotNull String toolId) {
+    PsiElement suppressionScope = JavaSuppressionUtil.getElementToolSuppressedIn(place, toolId);
+    return suppressionScope != null && PsiTreeUtil.isAncestor(elementWithSuppression, suppressionScope, false);
+  }
+
+  @Override
+  public LocalQuickFix createRemoveRedundantSuppressionFix(@NotNull String toolId) {
+    return new RemoveSuppressWarningAction(toolId);
   }
 }

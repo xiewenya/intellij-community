@@ -29,6 +29,7 @@ import icons.MavenIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.project.MavenProject;
+import org.jetbrains.idea.maven.project.MavenProjectBundle;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
 import org.jetbrains.idea.maven.utils.MavenProjectNamer;
 
@@ -59,9 +60,7 @@ public class MavenSelectProjectPopup {
       if (focusAfterSelection != null) {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (workingDirectoryField.hasFocus()) {
-            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-              IdeFocusManager.getGlobalInstance().requestFocus(focusAfterSelection, true);
-            });
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(focusAfterSelection, true));
           }
         });
       }
@@ -82,13 +81,14 @@ public class MavenSelectProjectPopup {
 
   public static void attachToButton(@NotNull final MavenProjectsManager projectsManager,
                                     @NotNull final JButton button,
-                                    @NotNull final Consumer<MavenProject> callback) {
+                                    @NotNull final Consumer<? super MavenProject> callback) {
     button.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         List<MavenProject> projectList = projectsManager.getProjects();
         if (projectList.isEmpty()) {
-          JBPopupFactory.getInstance().createMessage("Maven projects not found").showUnderneathOf(button);
+          JBPopupFactory.getInstance().createMessage(
+            MavenProjectBundle.message("popup.content.maven.projects.not.found")).showUnderneathOf(button);
           return;
         }
 
@@ -100,7 +100,7 @@ public class MavenSelectProjectPopup {
         projectTree.setRootVisible(false);
         projectTree.setCellRenderer(new NodeRenderer() {
           @Override
-          public void customizeCellRenderer(JTree tree,
+          public void customizeCellRenderer(@NotNull JTree tree,
                                             Object value,
                                             boolean selected,
                                             boolean expanded,
@@ -155,7 +155,7 @@ public class MavenSelectProjectPopup {
         });
 
         JBPopup popup = new PopupChooserBuilder(projectTree)
-          .setTitle("Select maven project")
+          .setTitle(RunnerBundle.message("maven.select.project"))
           .setResizable(true)
           .setItemChoosenCallback(clickCallBack).setAutoselectOnMouseMove(true)
           .setCloseOnEnter(false)

@@ -1,17 +1,26 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.psi.codeStyle.NameUtil
+import com.intellij.openapi.util.text.StringUtil
+import com.intellij.util.text.NameUtilCore
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import groovy.transform.Immutable
+import org.apache.maven.model.Dependency
+import org.apache.maven.model.Exclusion
+import org.apache.maven.model.Model
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.BuildMessages
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.java.JpsJavaDependencyScope
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.jetbrains.jps.model.library.JpsLibrary
+import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor
 import org.jetbrains.jps.model.library.JpsRepositoryLibraryType
+import org.jetbrains.jps.model.module.JpsDependencyElement
 import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleDependency
@@ -24,33 +33,23 @@ import org.jetbrains.jps.model.module.JpsModuleDependency
 class MavenArtifactsBuilder {
   /** second component of module names which describes a common group rather than a specific framework and therefore should be excluded from artifactId */
   private static final Set<String> COMMON_GROUP_NAMES = ["platform", "vcs", "tools", "clouds"] as Set<String>
-
-  /** temporary map which specifies which modules will be replaced by libraries so they won't need to be published */
-  private static final Map<String, MavenCoordinates> MODULES_TO_BE_CONVERTED_TO_LIBRARIES = [
-    "intellij.platform.annotations": new MavenCoordinates("org.jetbrains", "annotations", "16.0.1"),
-    "intellij.platform.annotations.java5": new MavenCoordinates("org.jetbrains", "annotations", "16.0.1"),
-    "intellij.platform.annotations.common": null
-  ] as Map<String, MavenCoordinates>
-
   private final BuildContext buildContext
 
   MavenArtifactsBuilder(BuildContext buildContext) {
     this.buildContext = buildContext
   }
 
-  void generateMavenArtifacts(List<String> ideModuleNames) {
-    def mavenArtifacts = buildContext.productProperties.mavenArtifacts
-    Map<JpsModule, MavenArtifactData> modulesToPublish = generateMavenArtifactData((mavenArtifacts.forIdeModules ? ideModuleNames : [])
-                                                                                     + mavenArtifacts.additionalModules)
+  void generateMavenArtifacts(List<String> namesOfModulesToPublish, String outputDir) {
+    Map<JpsModule, MavenArtifactData> modulesToPublish = generateMavenArtifactData(namesOfModulesToPublish)
     buildContext.messages.progress("Generating Maven artifacts for ${modulesToPublish.size()} modules")
     buildContext.messages.debug("Generate artifacts for the following modules:")
     modulesToPublish.each {module, data -> buildContext.messages.debug("  $module.name -> $data.coordinates")}
-    layoutMavenArtifacts(modulesToPublish)
+    layoutMavenArtifacts(modulesToPublish, outputDir)
   }
 
   @SuppressWarnings("GrUnresolvedAccess")
   @CompileDynamic
-  private void layoutMavenArtifacts(Map<JpsModule, MavenArtifactData> modulesToPublish) {
+  private void layoutMavenArtifacts(Map<JpsModule, MavenArtifactData> modulesToPublish, String outputDir) {
     def ant = buildContext.ant
     def publishSourcesFilter = buildContext.productProperties.mavenArtifacts.publishSourcesFilter
     def buildContext = this.buildContext
@@ -60,19 +59,24 @@ class MavenArtifactsBuilder {
       pomXmlFiles[module] = filePath
       generatePomXmlFile(filePath, artifactData)
     }
-    new LayoutBuilder(buildContext, true).layout("$buildContext.paths.artifacts/maven-artifacts") {
+    new LayoutBuilder(buildContext, true).layout("$buildContext.paths.artifacts/$outputDir") {
       modulesToPublish.each { aModule, artifactData ->
         dir(artifactData.coordinates.directoryPath) {
           ant.fileset(file: pomXmlFiles[aModule])
-          jar(artifactData.coordinates.getFileName("", "jar")) {
-            module(aModule.name)
+          def javaSourceRoots = aModule.getSourceRoots(JavaSourceRootType.SOURCE).toList()
+          def javaResourceRoots = aModule.getSourceRoots(JavaResourceRootType.RESOURCE).toList()
+          def hasSources = !(javaSourceRoots.isEmpty() && javaResourceRoots.isEmpty())
+          ant.jar(name: artifactData.coordinates.getFileName("", "jar"), duplicate: "fail", whenmanifestonly: "create") {
+            if (hasSources) {
+              module(aModule.name)
+            }
           }
-          if (publishSourcesFilter.test(aModule, buildContext)) {
+          if (publishSourcesFilter.test(aModule, buildContext) && hasSources) {
             zip(artifactData.coordinates.getFileName("sources", "jar")) {
-              aModule.getSourceRoots(JavaSourceRootType.SOURCE).each { root ->
+              javaSourceRoots.each { root ->
                 ant.zipfileset(dir: root.file.absolutePath, prefix: root.properties.packagePrefix.replace('.', '/'))
               }
-              aModule.getSourceRoots(JavaResourceRootType.RESOURCE).each { root ->
+              javaResourceRoots.each { root ->
                 ant.zipfileset(dir: root.file.absolutePath, prefix: root.properties.relativeOutputPath)
               }
             }
@@ -83,51 +87,72 @@ class MavenArtifactsBuilder {
   }
 
   private static void generatePomXmlFile(String pomXmlPath, MavenArtifactData artifactData) {
+    Model pomModel = new Model(
+      modelVersion: '4.0.0',
+      groupId: artifactData.coordinates.groupId,
+      artifactId: artifactData.coordinates.artifactId,
+      version: artifactData.coordinates.version
+    )
+    artifactData.dependencies.each { dep ->
+      pomModel.addDependency(createDependencyTag(dep))
+    }
+
     File file = new File(pomXmlPath)
     FileUtil.createParentDirs(file)
-    file.text = """
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <groupId>${artifactData.coordinates.groupId}</groupId>
-    <artifactId>${artifactData.coordinates.artifactId}</artifactId>
-    <version>${artifactData.coordinates.version}</version>
-    <dependencies>
-${artifactData.dependencies.collect {"""
-        <dependency>
-             <groupId>$it.coordinates.groupId</groupId>
-             <artifactId>$it.coordinates.artifactId</artifactId>
-             <version>$it.coordinates.version</version>
-${it.scope == DependencyScope.COMPILE ? "" : """
-             <scope>runtime</scope>
-"""}             
-${it.includeTransitiveDeps ? "" : """
-             <exclusions>
-                 <exclusion>
-                     <artifactId>*</artifactId>
-                     <groupId>*</groupId>
-                 </exclusion>
-             </exclusions>
-"""}             
-        </dependency>
-"""}.join("\n")}    
-    </dependencies>    
-</project>
-""".readLines().findAll {!it.trim().isEmpty()}.join("\n")
+    file.withWriter {
+      new MavenXpp3Writer().write(it, pomModel)
+    }
   }
 
-  private MavenCoordinates generateMavenCoordinates(JpsModule module) {
-    def names = module.name.split("\\.")
+  private static Dependency createDependencyTag(MavenArtifactDependency dep) {
+    def dependency = new Dependency(
+      groupId: dep.coordinates.groupId,
+      artifactId: dep.coordinates.artifactId,
+      version: dep.coordinates.version
+    )
+    if (dep.scope == DependencyScope.RUNTIME) {
+      dependency.scope = "runtime"
+    }
+    if (dep.includeTransitiveDeps) {
+      dep.excludedDependencies.each {
+        dependency.addExclusion(new Exclusion(groupId: StringUtil.substringBefore(it, ":"), artifactId: StringUtil.substringAfter(it, ":")))
+      }
+    }
+    else {
+      dependency.addExclusion(new Exclusion(groupId: "*", artifactId: "*"))
+    }
+    dependency
+  }
+
+  static MavenCoordinates generateMavenCoordinates(String moduleName, BuildMessages messages, String version) {
+    def names = moduleName.split("\\.")
     if (names.size() < 2) {
-      buildContext.messages.error("Cannot generate Maven artifacts: incorrect module name '$module.name'")
+      messages.error("Cannot generate Maven artifacts: incorrect module name '${moduleName}'")
     }
     String groupId = "com.jetbrains.${names.take(2).join(".")}"
     def firstMeaningful = names.size() > 2 && COMMON_GROUP_NAMES.contains(names[1]) ? 2 : 1
     String artifactId = names.drop(firstMeaningful).collectMany {
-      NameUtil.splitNameIntoWords(it).toList().collect {it.toLowerCase(Locale.US)}
+      splitByCamelHumpsMergingNumbers(it).collect {it.toLowerCase(Locale.US)}
     }.join("-")
-    return new MavenCoordinates(groupId, artifactId, buildContext.buildNumber)
+    return new MavenCoordinates(groupId, artifactId, version)
+  }
+
+  private static List<String> splitByCamelHumpsMergingNumbers(String s) {
+    def words = NameUtilCore.splitNameIntoWords(s)
+
+    def result = new ArrayList<String>()
+    for (int i = 0; i < words.length; i++) {
+      String next
+      if (i < words.length - 1 && Character.isDigit(words[i + 1].charAt(0))) {
+        next = words[i] + words[i+1]
+        i++
+      }
+      else {
+        next = words[i]
+      }
+      result << next
+    }
+    return result
   }
 
   private Map<JpsModule, MavenArtifactData> generateMavenArtifactData(List<String> moduleNames) {
@@ -145,27 +170,10 @@ ${it.includeTransitiveDeps ? "" : """
     return results
   }
 
-  private MavenArtifactData generateMavenArtifactData(JpsModule module, Map<JpsModule, MavenArtifactData> results, Set<JpsModule> nonMavenizableModules,
-                                                      Set<JpsModule> computationInProgress) {
-    if (results.containsKey(module)) return results[module]
-    if (nonMavenizableModules.contains(module)) return null
-    if (MODULES_TO_BE_CONVERTED_TO_LIBRARIES.containsKey(module.name)) {
-      def coordinates = MODULES_TO_BE_CONVERTED_TO_LIBRARIES[module.name]
-      return coordinates != null ? new MavenArtifactData(coordinates, []) : null
-    }
-    if (!module.name.startsWith("intellij.")) {
-      buildContext.messages.debug("  module '$module.name' doesn't belong to IntelliJ project so it cannot be published")
-      return null
-    }
-    def scrambleTool = buildContext.proprietaryBuildTools.scrambleTool
-    if (scrambleTool != null && scrambleTool.namesOfModulesRequiredToBeScrambled.contains(module.name)) {
-      buildContext.messages.debug("  module '$module.name' must be scrambled so it cannot be published")
-      return null
-    }
+  enum DependencyScope { COMPILE, RUNTIME }
 
-    boolean mavenizable = true
-    computationInProgress << module
-    List<MavenArtifactDependency> dependencies = []
+  static Map<JpsDependencyElement, DependencyScope> scopedDependencies(JpsModule module) {
+    Map<JpsDependencyElement, DependencyScope> result = [:]
     module.dependenciesList.dependencies.each { dependency ->
       def extension = JpsJavaExtensionService.getInstance().getDependencyExtension(dependency)
       if (extension == null) return
@@ -186,33 +194,59 @@ ${it.includeTransitiveDeps ? "" : """
         default:
           return
       }
+      result[dependency] = scope
+    }
+    return result
+  }
 
+  private MavenArtifactData generateMavenArtifactData(JpsModule module, Map<JpsModule, MavenArtifactData> results, Set<JpsModule> nonMavenizableModules,
+                                                      Set<JpsModule> computationInProgress) {
+    if (results.containsKey(module)) return results[module]
+    if (nonMavenizableModules.contains(module)) return null
+    if (!module.name.startsWith("intellij.")) {
+      buildContext.messages.warning("  module '$module.name' doesn't belong to IntelliJ project so it cannot be published")
+      return null
+    }
+    def scrambleTool = buildContext.proprietaryBuildTools.scrambleTool
+    if (scrambleTool != null && scrambleTool.namesOfModulesRequiredToBeScrambled.contains(module.name)) {
+      buildContext.messages.warning("  module '$module.name' must be scrambled so it cannot be published")
+      return null
+    }
+
+    boolean mavenizable = true
+    computationInProgress << module
+    List<MavenArtifactDependency> dependencies = []
+    scopedDependencies(module).each { dependency, scope ->
       if (dependency instanceof JpsModuleDependency) {
         def depModule = (dependency as JpsModuleDependency).module
         if (computationInProgress.contains(depModule)) {
-          buildContext.messages.debug(" module '$module.name' recursively depends on itself so it cannot be published")
-          mavenizable = false
-          return
+          /*
+           It's forbidden to have compile-time circular dependencies in IntelliJ project, but there are some cycles with runtime scope
+            (e.g. intellij.platform.ide.impl depends on (runtime scope) intellij.platform.configurationStore.impl which depends on intellij.platform.ide.impl).
+           It's convenient to have such dependencies to allow running tests in classpath of their modules, so we can just ignore them while
+           generating pom.xml files.
+          */
+          buildContext.messages.warning(" module '$module.name': skip recursive dependency on '$depModule.name'")
         }
-        def depArtifact = generateMavenArtifactData(depModule, results, nonMavenizableModules, computationInProgress)
-        if (depArtifact == null) {
-          buildContext.messages.debug(" module '$module.name' depends on non-mavenizable module '$depModule.name' so it cannot be published")
-          mavenizable = false
-          return
+        else {
+          def depArtifact = generateMavenArtifactData(depModule, results, nonMavenizableModules, computationInProgress)
+          if (depArtifact == null) {
+            buildContext.messages.warning(" module '$module.name' depends on non-mavenizable module '$depModule.name' so it cannot be published")
+            mavenizable = false
+            return
+          }
+          dependencies << new MavenArtifactDependency(depArtifact.coordinates, true, [], scope)
         }
-        dependencies << new MavenArtifactDependency(depArtifact.coordinates, true, scope)
       }
       else if (dependency instanceof JpsLibraryDependency) {
         def library = (dependency as JpsLibraryDependency).library
-        def repLibrary = library.asTyped(JpsRepositoryLibraryType.INSTANCE)
-        if (repLibrary == null) {
-          buildContext.messages.debug(" module '$module.name' depends on non-maven library ${LibraryLicensesListGenerator.getLibraryName(library)}")
-          mavenizable = false
+        def typed = library.asTyped(JpsRepositoryLibraryType.INSTANCE)
+        if (typed != null) {
+          dependencies << createArtifactDependencyByLibrary(typed.properties.data, scope)
         }
-        else {
-          def libraryDescriptor = repLibrary.properties.data
-          dependencies << new MavenArtifactDependency(new MavenCoordinates(libraryDescriptor.groupId, libraryDescriptor.artifactId, libraryDescriptor.version),
-                                                      libraryDescriptor.includeTransitiveDependencies, scope)
+        else if (!isOptionalDependency(library)) {
+          buildContext.messages.warning(" module '$module.name' depends on non-maven library ${LibraryLicensesListGenerator.getLibraryName(library)}")
+          mavenizable = false
         }
       }
     }
@@ -221,9 +255,26 @@ ${it.includeTransitiveDeps ? "" : """
       nonMavenizableModules << module
       return null
     }
-    def artifactData = new MavenArtifactData(generateMavenCoordinates(module), dependencies)
+    def artifactData = new MavenArtifactData(generateMavenCoordinates(module.name, buildContext.messages, buildContext.buildNumber), dependencies)
     results[module] = artifactData
     return artifactData
+  }
+
+  static boolean isOptionalDependency(JpsLibrary library) {
+    //todo: this is a temporary workaround until these libraries are published to Maven repository;
+    // it's unlikely that code which depend on these libraries will be used when running tests so skipping these dependencies shouldn't cause real problems.
+    //  'microba' contains UI elements which are used in few places (IDEA-200834),
+    //  'precompiled_jshell-frontend' is used by "JShell Console" action only (IDEA-222381).
+    library.name == "microba" || library.name == "precompiled_jshell-frontend"
+  }
+
+  private static MavenArtifactDependency createArtifactDependencyByLibrary(JpsMavenRepositoryLibraryDescriptor descriptor, DependencyScope scope) {
+    new MavenArtifactDependency(new MavenCoordinates(descriptor.groupId, descriptor.artifactId, descriptor.version),
+                                descriptor.includeTransitiveDependencies, descriptor.excludedDependencies, scope)
+  }
+
+  static Dependency createDependencyTagByLibrary(JpsMavenRepositoryLibraryDescriptor descriptor) {
+    createDependencyTag(createArtifactDependencyByLibrary(descriptor, DependencyScope.COMPILE))
   }
 
   @Immutable
@@ -232,17 +283,16 @@ ${it.includeTransitiveDeps ? "" : """
     List<MavenArtifactDependency> dependencies
   }
 
-  private enum DependencyScope { COMPILE, RUNTIME }
-
   @Immutable
   private static class MavenArtifactDependency {
     MavenCoordinates coordinates
     boolean includeTransitiveDeps
+    List<String> excludedDependencies
     DependencyScope scope
   }
 
   @Immutable
-  private static class MavenCoordinates {
+  static class MavenCoordinates {
     String groupId
     String artifactId
     String version

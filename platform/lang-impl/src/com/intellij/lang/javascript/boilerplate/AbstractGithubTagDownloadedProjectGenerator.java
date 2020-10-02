@@ -1,13 +1,16 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.javascript.boilerplate;
 
 import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.util.projectWizard.WebProjectTemplate;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -17,14 +20,14 @@ import com.intellij.platform.templates.github.ZipUtil;
 import com.intellij.ui.components.labels.ActionLink;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.PlatformUtils;
+import com.intellij.util.io.URLUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
+import java.net.URL;
 
 /**
  * @author Sergey Simonchik
@@ -41,7 +44,7 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
   }
 
   @NotNull
-  protected abstract String getDisplayName();
+  protected abstract @Nls String getDisplayName();
 
   @NotNull
   public abstract String getGithubUserName();
@@ -53,7 +56,7 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
   @Nullable
   public abstract String getDescription();
 
-  private String getTitle() {
+  private @NlsContexts.ProgressTitle String getTitle() {
     return getDisplayName();
   }
 
@@ -70,11 +73,9 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
       unpackToDir(project, VfsUtilCore.virtualToIoFile(baseDir), tag);
     }
     catch (GeneratorException e) {
-      showErrorMessage(project, e.getMessage());
+      reportError(project, e);
     }
-    ApplicationManager.getApplication().runWriteAction(() -> {
-      baseDir.refresh(true, true);
-    });
+    ApplicationManager.getApplication().runWriteAction(() -> baseDir.refresh(true, true));
   }
 
   @NotNull
@@ -105,7 +106,7 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
     }
     if (!downloaded) {
       if (ApplicationManager.getApplication().isUnitTestMode()) {
-        throw new GeneratorException("Download " + tag.getZipballUrl() + " is skipped in unit test mode");
+        throw new GeneratorException(LangBundle.message("dialog.message.download.skipped.in.unit.test.mode", tag.getZipballUrl()));
       }
       downloadAndUnzip(project, tag.getZipballUrl(), zipArchiveFile, extractToDir, true);
     }
@@ -116,6 +117,16 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
                                 @NotNull File zipArchiveFile,
                                 @NotNull File extractToDir,
                                 boolean retryOnError) throws GeneratorException {
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      try {
+        File file = URLUtil.urlToFile(new URL(url));
+        ZipUtil.unzip(null, extractToDir, file, null, null, true);
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+      return;
+    }
     GithubDownloadUtil.downloadContentToFileWithProgressSynchronously(
       project,
       url,
@@ -140,23 +151,23 @@ public abstract class AbstractGithubTagDownloadedProjectGenerator extends WebPro
 
   @NotNull
   private File getCacheFile(@NotNull GithubTagInfo tag) {
-    String fileName = tag.getName() + ".zip";
-    try {
-      fileName = URLEncoder.encode(fileName, "UTF-8");
-    } catch (UnsupportedEncodingException e) {
-      LOG.warn("Can't urlEncode", e);
-    }
+    String fileName = URLUtil.encodeURIComponent(tag.getName() + ".zip");
     return GithubDownloadUtil.findCacheFile(getGithubUserName(), getGithubRepositoryName(), fileName);
   }
 
-  private void showErrorMessage(@NotNull Project project, @NotNull String message) {
-    String fullMessage = "Error creating " + getDisplayName() + " project. " + message;
-    String title = "Create " + getDisplayName() + " Project";
-    Messages.showErrorDialog(project, fullMessage, title);
+  private void reportError(@NotNull Project project, @NotNull GeneratorException e) {
+    String message = LangBundle.message("dialog.message.error.creating.project", getDisplayName());
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      LOG.error(message, e);
+      return;
+    }
+    LOG.info(message, e);
+    String title = LangBundle.message("dialog.title.create.project", getDisplayName());
+    Messages.showErrorDialog(project, message + ". " + e.getMessage(), title);
   }
 
   public ActionLink createGitHubLink() {
-    ActionLink link = new ActionLink(getName() + " on GitHub", DumbAwareAction.create(e ->
+    ActionLink link = new ActionLink(LangBundle.message("link.label.on.github", getName()), DumbAwareAction.create(e ->
         BrowserUtil.open("https://github.com/" + getGithubUserName() + "/" + getGithubRepositoryName())));
     link.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
     return link;

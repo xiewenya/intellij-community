@@ -1,26 +1,21 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.ActionGroup;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.ui.ColorUtil;
+import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.ScreenUtil;
+import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.ui.GraphicsUtil;
+import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.update.UiNotifyConnector;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -37,6 +32,9 @@ import java.awt.event.MouseWheelEvent;
  * @author ignatov
  */
 public class JBPopupMenu extends JPopupMenu {
+
+  private static final Logger LOG = Logger.getInstance(JBPopupMenu.class);
+
   private final MyLayout myLayout;
 
   public JBPopupMenu() {
@@ -81,8 +79,80 @@ public class JBPopupMenu extends JPopupMenu {
     super.paint(g);
     LayoutManager layout = getLayout();
     if (layout instanceof MyLayout) {
-      ((MyLayout)layout).paintIfNeed(g);
+      ((MyLayout)layout).paintIfNeeded(g);
     }
+  }
+
+  /**
+   * @param component the component above which the popup menu is to appear
+   * @param menu      the popup menu to show above the specified component
+   */
+  public static void showAbove(@NotNull Component component, @NotNull JPopupMenu menu) {
+    // We need `menu.show(component, 0, -menu.getHeight());`, but `menu.getHeight()` will return 0 if the menu hasn't been shown yet.
+    // Let's show it somewhere, and once it's shown, move it to the desired location.
+    menu.show(component, 0, 0);
+    UiNotifyConnector.doWhenFirstShown(menu, () -> {
+      Window window = UIUtil.getWindow(menu);
+      if (window == null) {
+        LOG.error("Cannot find window for menu popup " + menu + ", " + menu.isShowing());
+      }
+      else {
+        Point diff = SwingUtilities.convertPoint(component, 0, 0, window);
+        window.setLocation(window.getX(), window.getY() + diff.y - window.getHeight());
+      }
+    });
+  }
+
+  /**
+   * @param component the component near which the popup menu is to appear
+   * @param menu      the popup menu to show near the specified component
+   */
+  public static void showAtRight(@NotNull Component component, @NotNull JPopupMenu menu) {
+    menu.show(component, component.getWidth(), 0);
+  }
+
+  /**
+   * @param component the component below which the popup menu is to appear
+   * @param menu      the popup menu to show below the specified component
+   */
+  public static void showBelow(@NotNull Component component, @NotNull JPopupMenu menu) {
+    menu.show(component, 0, component.getHeight());
+  }
+
+  /**
+   * @param component the component below which the popup menu is to appear
+   * @param place     the place used for {@link AnActionEvent}
+   * @param group     Group from which the actions for the menu are taken.
+   * @see ActionManager#createActionPopupMenu(String, ActionGroup)
+   */
+  public static void showBelow(@NotNull Component component, @NonNls @NotNull String place, @NotNull ActionGroup group) {
+    showBelow(component, ActionManager.getInstance().createActionPopupMenu(place, group).getComponent());
+  }
+
+  /**
+   * @param event the mouse event that specifies a popup position
+   * @param menu  the popup menu to show in the given mouse position
+   */
+  public static void showByEvent(@NotNull MouseEvent event, @NotNull JPopupMenu menu) {
+    menu.show(event.getComponent(), event.getX(), event.getY());
+  }
+
+  /**
+   * @param event the mouse event that specifies a popup position
+   * @param place the place used for {@link AnActionEvent}
+   * @param group Group from which the actions for the menu are taken.
+   * @see ActionManager#createActionPopupMenu(String, ActionGroup)
+   */
+  public static void showByEvent(@NotNull MouseEvent event, @NonNls @NotNull String place, @NotNull ActionGroup group) {
+    showByEvent(event, ActionManager.getInstance().createActionPopupMenu(place, group).getComponent());
+  }
+
+  /**
+   * @param point the relative point that specifies a popup position
+   * @param menu  the popup menu to show in the given mouse position
+   */
+  public static void showAt(@NotNull RelativePoint point, @NotNull JPopupMenu menu) {
+    menu.show(point.getComponent(), point.getPoint().x, point.getPoint().y);
   }
 
   private static class MyLayout extends DefaultMenuLayout implements ActionListener {
@@ -91,10 +161,10 @@ public class JBPopupMenu extends JPopupMenu {
     int myScrollDirection = 0;
     Timer myTimer;
 
-    public MyLayout(final JPopupMenu target) {
+    MyLayout(final JPopupMenu target) {
       super(target, BoxLayout.PAGE_AXIS);
       myTarget = target;
-      myTimer = UIUtil.createNamedTimer("PopupTimer", 40, this);
+      myTimer = TimerUtil.createNamedTimer("PopupTimer", 40, this);
       myTarget.addPopupMenuListener(new PopupMenuListener() {
         @Override
         public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
@@ -146,11 +216,6 @@ public class JBPopupMenu extends JPopupMenu {
         myScrollDirection = -1;
       }
       else {
-        myScrollDirection = 0;
-      }
-      if (myScrollDirection == 0) {
-        myTarget.revalidate();
-        myTarget.repaint();
         return;
       }
 
@@ -168,7 +233,7 @@ public class JBPopupMenu extends JPopupMenu {
         myShift = newShift;
         myTarget.revalidate();
         myTarget.repaint();
-        Window w = UIUtil.getWindow(myTarget.getComponent());
+        Window w = ComponentUtil.getWindow(myTarget.getComponent());
         if (w != null) {
           for (Window window : w.getOwnedWindows()) {
             window.dispose();
@@ -190,13 +255,13 @@ public class JBPopupMenu extends JPopupMenu {
       ColorUtil.withAlpha(JBColor.background(), .1),
     };
 
-    public void paintIfNeed(Graphics g) {
+    public void paintIfNeeded(Graphics g) {
       if (myShift > 0) {
         for (int i = 0; i < dim.length; i++) {
           g.setColor(dim[i]);
           g.drawLine(0, i, myTarget.getWidth(), i);
         }
-        AllIcons.General.SplitUp.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.SplitUp.getIconWidth() / 2, 0);
+        AllIcons.General.ArrowUp.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.ArrowUp.getIconWidth() / 2, 0);
       }
       if (super.preferredLayoutSize(myTarget).height - getMaxHeight() - myShift > 0) {
         for (int i = 0; i < dim.length; i++) {
@@ -204,8 +269,8 @@ public class JBPopupMenu extends JPopupMenu {
           g.drawLine(0, myTarget.getHeight() - i, myTarget.getWidth(),
                      myTarget.getHeight() - i);
         }
-        AllIcons.General.SplitDown.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.SplitDown.getIconWidth() / 2,
-                                             myTarget.getHeight() - AllIcons.General.SplitDown.getIconHeight());
+        AllIcons.General.ArrowDown.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.ArrowDown.getIconWidth() / 2,
+                                             myTarget.getHeight() - AllIcons.General.ArrowDown.getIconHeight());
       }
     }
 
@@ -236,7 +301,9 @@ public class JBPopupMenu extends JPopupMenu {
     @Override
     public Dimension preferredLayoutSize(Container target) {
       Dimension dimension = super.preferredLayoutSize(target);
-      dimension.height = Math.min(getMaxHeight(), dimension.height);
+      int maxHeight = getMaxHeight();
+      switchTimer(dimension.height > maxHeight);
+      dimension.height = Math.min(maxHeight, dimension.height);
       return dimension;
     }
   }

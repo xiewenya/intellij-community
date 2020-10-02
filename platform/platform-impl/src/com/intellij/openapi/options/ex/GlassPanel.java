@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.options.ex;
 
@@ -20,7 +6,6 @@ import com.intellij.ide.ui.search.SearchUtil;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBTabbedPane;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -36,6 +21,8 @@ public class GlassPanel extends JComponent {
   private final Set<JComponent> myLightComponents = new HashSet<>();
   private final JComponent myPanel;
   private static final Insets EMPTY_INSETS = new Insets(0, 0, 0, 0);
+  private static final JBColor SPOTLIGHT_BORDER_COLOR = JBColor.namedColor("Settings.Spotlight.borderColor",
+                                                                                   ColorUtil.toAlpha(JBColor.ORANGE, 100));
 
 
   public GlassPanel(JComponent containingPanel) {
@@ -43,6 +30,7 @@ public class GlassPanel extends JComponent {
     setVisible(false);
   }
 
+  @Override
   public void paintComponent(Graphics g) {
     paintSpotlights(g);
   }
@@ -89,7 +77,7 @@ public class GlassPanel extends JComponent {
         g2.fill(mask);
 
         g2.setStroke(new BasicStroke(stroke));
-        g2.setColor(ColorUtil.toAlpha(JBColor.ORANGE, 100));
+        g2.setColor(SPOTLIGHT_BORDER_COLOR);
         g2.draw(mask);
       }
       finally {
@@ -110,7 +98,7 @@ public class GlassPanel extends JComponent {
     final boolean isWithBorder = Boolean.TRUE.equals(lightComponent.getClientProperty(SearchUtil.HIGHLIGHT_WITH_BORDER));
     final boolean isLabelFromTabbedPane = Boolean.TRUE.equals(lightComponent.getClientProperty(JBTabbedPane.LABEL_FROM_TABBED_PANE));
 
-    if ((insetsToIgnore == null || (UIUtil.isUnderAquaLookAndFeel() && lightComponent instanceof JButton)) || isWithBorder) {
+    if (insetsToIgnore == null || isWithBorder) {
       insetsToIgnore = EMPTY_INSETS;
     }
 

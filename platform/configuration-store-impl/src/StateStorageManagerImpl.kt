@@ -1,49 +1,40 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
-import com.intellij.openapi.components.StateStorage.SaveSession
 import com.intellij.openapi.components.StateStorageChooserEx.Resolution
 import com.intellij.openapi.roots.ProjectModelElement
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtilRt
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.openapi.vfs.newvfs.events.VFileEvent
-import com.intellij.util.PathUtilRt
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.SmartList
 import com.intellij.util.ThreeState
-import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.io.systemIndependentPath
-import gnu.trove.THashMap
 import org.jdom.Element
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.TestOnly
-import java.io.IOException
 import java.nio.file.Path
-import java.nio.file.Paths
-import java.util.*
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import java.util.regex.Pattern
 import kotlin.concurrent.read
 import kotlin.concurrent.write
-
-private val MACRO_PATTERN = Pattern.compile("(\\$[^$]*\\$)")
 
 /**
  * If componentManager not specified, storage will not add file tracker
  */
-open class StateStorageManagerImpl(private val rootTagName: String,
-                                   override final val macroSubstitutor: TrackingPathMacroSubstitutor? = null,
+open class StateStorageManagerImpl(@NonNls private val rootTagName: String,
+                                   final override val macroSubstitutor: PathMacroSubstitutor? = null,
                                    override val componentManager: ComponentManager? = null,
-                                   private val virtualFileTracker: StorageVirtualFileTracker? = StateStorageManagerImpl.createDefaultVirtualTracker(componentManager) ) : StateStorageManager {
-  private val macros: MutableList<Macro> = ContainerUtil.createLockFreeCopyOnWriteList()
-  private val storageLock = ReentrantReadWriteLock()
-  private val storages = THashMap<String, StateStorage>()
+                                   private val virtualFileTracker: StorageVirtualFileTracker? = createDefaultVirtualTracker(componentManager)) : StateStorageManager {
+  @Volatile
+  protected var macros: List<Macro> = emptyList()
 
-  val compoundStreamProvider = CompoundStreamProvider()
+  protected val storageLock = ReentrantReadWriteLock()
+  private val storages = HashMap<String, StateStorage>()
+
+  val compoundStreamProvider: CompoundStreamProvider = CompoundStreamProvider()
 
   override fun addStreamProvider(provider: StreamProvider, first: Boolean) {
     if (first) {
@@ -60,12 +51,14 @@ open class StateStorageManagerImpl(private val rootTagName: String,
 
   // access under storageLock
   @Suppress("LeakingThis")
-  private var isUseVfsListener = if (componentManager == null || !isUseVfsForWrite) ThreeState.NO else ThreeState.UNSURE // unsure because depends on stream provider state
+  private var isUseVfsListener = when (componentManager) {
+    null, is Application -> ThreeState.NO
+    else -> ThreeState.UNSURE // unsure because depends on stream provider state
+  }
+
+  open fun getFileBasedStorageConfiguration(fileSpec: String) = defaultFileBasedStorageConfiguration
 
   protected open val isUseXmlProlog: Boolean
-    get() = true
-
-  protected open val isUseVfsForWrite: Boolean
     get() = true
 
   companion object {
@@ -78,7 +71,8 @@ open class StateStorageManagerImpl(private val rootTagName: String,
           StorageVirtualFileTracker(componentManager.messageBus)
         }
         else -> {
-          val tracker = (ApplicationManager.getApplication().stateStore.storageManager as? StateStorageManagerImpl)?.virtualFileTracker ?: return null
+          val tracker = (ApplicationManager.getApplication().stateStore.storageManager as? StateStorageManagerImpl)?.virtualFileTracker
+                        ?: return null
           Disposer.register(componentManager, Disposable {
             tracker.remove { it.storageManager.componentManager == componentManager }
           })
@@ -88,54 +82,20 @@ open class StateStorageManagerImpl(private val rootTagName: String,
     }
   }
 
-  private data class Macro(val key: String, var value: String)
-
-  @TestOnly fun getVirtualFileTracker() = virtualFileTracker
+  @TestOnly
+  fun getVirtualFileTracker() = virtualFileTracker
 
   /**
-   * @param expansion System-independent
+   * Returns old map.
    */
-  fun addMacro(key: String, expansion: String): Boolean {
-    LOG.assertTrue(!key.isEmpty())
-
-    val value: String
-    if (expansion.contains("\\")) {
-      val message = "Macro $key set to system-dependent expansion $expansion"
-      if (ApplicationManager.getApplication().isUnitTestMode) {
-        throw IllegalArgumentException(message)
-      }
-      else {
-        LOG.warn(message)
-        value = FileUtilRt.toSystemIndependentName(expansion)
-      }
-    }
-    else {
-      value = expansion
-    }
-
-    // e.g ModuleImpl.setModuleFilePath update macro value
-    for (macro in macros) {
-      if (key == macro.key) {
-        macro.value = value
-        return false
-      }
-    }
-
-    macros.add(Macro(key, value))
-    return true
-  }
-
-  // system-independent paths
-  open fun pathRenamed(oldPath: String, newPath: String, event: VFileEvent?) {
-    for (macro in macros) {
-      if (oldPath == macro.value) {
-        macro.value = newPath
-      }
-    }
+  fun setMacros(map: List<Macro>): List<Macro> {
+    val oldValue = macros
+    macros = map
+    return oldValue
   }
 
   @Suppress("CAST_NEVER_SUCCEEDS")
-  override final fun getStateStorage(storageSpec: Storage) = getOrCreateStorage(
+  final override fun getStateStorage(storageSpec: Storage) = getOrCreateStorage(
     storageSpec.path,
     storageSpec.roamingType,
     storageSpec.storageClass.java,
@@ -152,28 +112,20 @@ open class StateStorageManagerImpl(private val rootTagName: String,
 
   // storageCustomizer - to ensure that other threads will use fully constructed and configured storage (invoked under the same lock as created)
   fun getOrCreateStorage(collapsedPath: String,
-                         roamingType: RoamingType = RoamingType.DEFAULT,
+                         roamingType: RoamingType,
                          storageClass: Class<out StateStorage> = StateStorage::class.java,
                          @Suppress("DEPRECATION") stateSplitter: Class<out StateSplitter> = StateSplitterEx::class.java,
                          exclusive: Boolean = false,
                          storageCustomizer: (StateStorage.() -> Unit)? = null,
                          storageCreator: StorageCreator? = null): StateStorage {
     val normalizedCollapsedPath = normalizeFileSpec(collapsedPath)
-    val key: String
-    if (storageClass == StateStorage::class.java) {
-      if (normalizedCollapsedPath.isEmpty()) {
-        throw Exception("Normalized path is empty, raw path '$collapsedPath'")
-      }
-      key = storageCreator?.key ?: normalizedCollapsedPath
-    }
-    else {
-      key = storageClass.name!!
-    }
-
+    val key = computeStorageKey(storageClass, normalizedCollapsedPath, collapsedPath, storageCreator)
     val storage = storageLock.read { storages.get(key) } ?: return storageLock.write {
       storages.getOrPut(key) {
-        @Suppress("IfThenToElvis")
-        val storage = if (storageCreator == null) createStateStorage(storageClass, normalizedCollapsedPath, roamingType, stateSplitter, exclusive) else storageCreator.create(this)
+        val storage = when (storageCreator) {
+          null -> createStateStorage(storageClass, normalizedCollapsedPath, roamingType, stateSplitter, exclusive)
+          else -> storageCreator.create(this)
+        }
         storageCustomizer?.let { storage.it() }
         storage
       }
@@ -183,23 +135,37 @@ open class StateStorageManagerImpl(private val rootTagName: String,
     return storage
   }
 
-  fun getCachedFileStorages() = storageLock.read { storages.values.toSet() }
-
-  fun findCachedFileStorage(name: String) : StateStorage? = storageLock.read { storages.get(name) }
-
-  fun getCachedFileStorages(changed: Collection<String>, deleted: Collection<String>, pathNormalizer: ((String) -> String)? = null) = storageLock.read {
-    Pair(getCachedFileStorages(changed, pathNormalizer), getCachedFileStorages(deleted, pathNormalizer))
+  private fun computeStorageKey(storageClass: Class<out StateStorage>, normalizedCollapsedPath: String, collapsedPath: String, storageCreator: StorageCreator?): String {
+    if (storageClass != StateStorage::class.java) {
+      return storageClass.name
+    }
+    if (normalizedCollapsedPath.isEmpty()) {
+      throw Exception("Normalized path is empty, raw path '$collapsedPath'")
+    }
+    return storageCreator?.key ?: normalizedCollapsedPath
   }
 
-  fun updatePath(spec: String, newPath: String) {
+  fun getCachedFileStorages(): Set<StateStorage> = storageLock.read { storages.values.toSet() }
+
+  fun findCachedFileStorage(name: String): StateStorage? = storageLock.read { storages.get(name) }
+
+  fun getCachedFileStorages(changed: Collection<String>,
+                            deleted: Collection<String>,
+                            pathNormalizer: ((String) -> String)? = null): Pair<Collection<FileBasedStorage>, Collection<FileBasedStorage>> {
+    return storageLock.read {
+      Pair(getCachedFileStorages(changed, pathNormalizer), getCachedFileStorages(deleted, pathNormalizer))
+    }
+  }
+
+  fun updatePath(spec: String, newPath: Path) {
     val storage = getCachedFileStorages(listOf(spec)).firstOrNull() ?: return
     if (storage is StorageVirtualFileTracker.TrackedStorage) {
       virtualFileTracker?.let { tracker ->
         tracker.remove(storage.file.systemIndependentPath)
-        tracker.put(newPath, storage)
+        tracker.put(newPath.systemIndependentPath, storage)
       }
     }
-    storage.setFile(null, Paths.get(newPath))
+    storage.setFile(null, newPath)
   }
 
   fun getCachedFileStorages(fileSpecs: Collection<String>, pathNormalizer: ((String) -> String)? = null): Collection<FileBasedStorage> {
@@ -214,7 +180,7 @@ open class StateStorageManagerImpl(private val rootTagName: String,
         val storage = storages.get(path)
         if (storage is FileBasedStorage) {
           if (result == null) {
-            result = SmartList<FileBasedStorage>()
+            result = SmartList()
           }
           result.add(storage)
         }
@@ -245,56 +211,71 @@ open class StateStorageManagerImpl(private val rootTagName: String,
       isUseVfsListener = ThreeState.fromBoolean(!compoundStreamProvider.isApplicable(collapsedPath, effectiveRoamingType))
     }
 
-    val filePath = expandMacros(collapsedPath)
+    val filePath = expandMacro(collapsedPath)
     @Suppress("DEPRECATION")
     if (stateSplitter != StateSplitter::class.java && stateSplitter != StateSplitterEx::class.java) {
       val storage = createDirectoryBasedStorage(filePath, collapsedPath, ReflectionUtil.newInstance(stateSplitter))
       if (storage is StorageVirtualFileTracker.TrackedStorage) {
-        virtualFileTracker?.put(filePath, storage)
+        virtualFileTracker?.put(filePath.systemIndependentPath, storage)
       }
       return storage
     }
 
-    if (!ApplicationManager.getApplication().isHeadlessEnvironment && PathUtilRt.getFileName(filePath).lastIndexOf('.') < 0) {
-      throw IllegalArgumentException("Extension is missing for storage file: $filePath")
+    val app = ApplicationManager.getApplication()
+    if (app != null && !app.isHeadlessEnvironment && !collapsedPath.endsWith('$') && !collapsedPath.contains('.')) {
+      throw IllegalArgumentException("Extension is missing for storage file: $collapsedPath")
     }
 
-    val storage = createFileBasedStorage(filePath, collapsedPath, effectiveRoamingType, if (exclusive) null else this.rootTagName)
+    val storage = createFileBasedStorage(filePath, collapsedPath, effectiveRoamingType, if (exclusive) null else rootTagName)
     if (isUseVfsListener == ThreeState.YES && storage is StorageVirtualFileTracker.TrackedStorage) {
-      virtualFileTracker?.put(filePath, storage)
+      virtualFileTracker?.put(filePath.systemIndependentPath, storage)
     }
     return storage
   }
 
   // open for upsource
-  protected open fun createFileBasedStorage(path: String, collapsedPath: String, roamingType: RoamingType, rootTagName: String?): StateStorage
-      = MyFileStorage(this, Paths.get(path), collapsedPath, rootTagName, roamingType, getMacroSubstitutor(collapsedPath), if (roamingType == RoamingType.DISABLED) null else compoundStreamProvider)
+  protected open fun createFileBasedStorage(path: Path,
+                                            collapsedPath: String,
+                                            roamingType: RoamingType,
+                                            rootTagName: String?): StateStorage {
+    val provider = if (roamingType == RoamingType.DISABLED) {
+      // remove to ensure that repository doesn't store non-roamable files
+      compoundStreamProvider.delete(collapsedPath, roamingType)
+      null
+    }
+    else {
+      compoundStreamProvider
+    }
+    return MyFileStorage(this, path, collapsedPath, rootTagName, roamingType, getMacroSubstitutor(collapsedPath), provider)
+  }
 
   // open for upsource
-  protected open fun createDirectoryBasedStorage(path: String, collapsedPath: String, @Suppress("DEPRECATION") splitter: StateSplitter): StateStorage
-      = MyDirectoryStorage(this, Paths.get(path), splitter)
-
-  private class MyDirectoryStorage(override val storageManager: StateStorageManagerImpl, file: Path, @Suppress("DEPRECATION") splitter: StateSplitter) :
-    DirectoryBasedStorage(file, splitter, storageManager.macroSubstitutor), StorageVirtualFileTracker.TrackedStorage
+  protected open fun createDirectoryBasedStorage(file: Path, collapsedPath: String, @Suppress("DEPRECATION") splitter: StateSplitter): StateStorage {
+    return object : DirectoryBasedStorage(file, splitter, macroSubstitutor), StorageVirtualFileTracker.TrackedStorage {
+      override val storageManager = this@StateStorageManagerImpl
+    }
+  }
 
   protected open class MyFileStorage(override val storageManager: StateStorageManagerImpl,
                                      file: Path,
                                      fileSpec: String,
                                      rootElementName: String?,
                                      roamingType: RoamingType,
-                                     pathMacroManager: TrackingPathMacroSubstitutor? = null,
-                                     provider: StreamProvider? = null) : FileBasedStorage(file, fileSpec, rootElementName, pathMacroManager, roamingType, provider), StorageVirtualFileTracker.TrackedStorage {
+                                     pathMacroManager: PathMacroSubstitutor? = null,
+                                     provider: StreamProvider? = null) : FileBasedStorage(file, fileSpec, rootElementName, pathMacroManager,
+                                                                                          roamingType,
+                                                                                          provider), StorageVirtualFileTracker.TrackedStorage {
     override val isUseXmlProlog: Boolean
-      get() = rootElementName != null && storageManager.isUseXmlProlog
+      get() = rootElementName != null && storageManager.isUseXmlProlog && !isSpecialStorage(fileSpec)
 
-    override val isUseVfsForWrite: Boolean
-      get() = storageManager.isUseVfsForWrite
+    override val configuration: FileBasedStorageConfiguration
+      get() = storageManager.getFileBasedStorageConfiguration(fileSpec)
 
-    override fun beforeElementSaved(element: Element) {
+    override fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
       if (rootElementName != null) {
-        storageManager.beforeElementSaved(element)
+        storageManager.beforeElementSaved(elements, rootAttributes)
       }
-      super.beforeElementSaved(element)
+      super.beforeElementSaved(elements, rootAttributes)
     }
 
     override fun beforeElementLoaded(element: Element) {
@@ -302,9 +283,9 @@ open class StateStorageManagerImpl(private val rootTagName: String,
       super.beforeElementLoaded(element)
     }
 
-    override fun providerDataStateChanged(element: Element?, type: DataStateChanged) {
-      storageManager.providerDataStateChanged(this, element, type)
-      super.providerDataStateChanged(element, type)
+    override fun providerDataStateChanged(writer: DataWriter?, type: DataStateChanged) {
+      storageManager.providerDataStateChanged(this, writer, type)
+      super.providerDataStateChanged(writer, type)
     }
 
     override fun getResolution(component: PersistentStateComponent<*>, operation: StateStorageOperation): Resolution {
@@ -318,46 +299,21 @@ open class StateStorageManagerImpl(private val rootTagName: String,
   open val isExternalSystemStorageEnabled: Boolean
     get() = false
 
-  protected open fun beforeElementSaved(element: Element) {
+  // function must be pure and do not use anything outside of passed arguments
+  protected open fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
   }
 
-  protected open fun providerDataStateChanged(storage: FileBasedStorage, element: Element?, type: DataStateChanged) {
+  protected open fun providerDataStateChanged(storage: FileBasedStorage, writer: DataWriter?, type: DataStateChanged) {
   }
 
   protected open fun beforeElementLoaded(element: Element) {
   }
 
-  override final fun rename(path: String, newName: String) {
-    storageLock.write {
-      val storage = getOrCreateStorage(collapseMacros(path), RoamingType.DEFAULT) as FileBasedStorage
-
-      val file = storage.virtualFile
-      try {
-        if (file != null) {
-          file.rename(storage, newName)
-        }
-        else if (storage.file.fileName.toString() != newName) {
-          // old file didn't exist or renaming failed
-          val expandedPath = expandMacros(path)
-          val parentPath = PathUtilRt.getParentPath(expandedPath)
-          storage.setFile(null, Paths.get(parentPath, newName))
-          pathRenamed(expandedPath, "$parentPath/$newName", null)
-        }
-      }
-      catch (e: IOException) {
-        LOG.debug(e)
-      }
-    }
-  }
-
   fun clearStorages() {
     storageLock.write {
       try {
-        virtualFileTracker?.let {
-          storages.forEachEntry { collapsedPath, _ ->
-            it.remove(expandMacros(collapsedPath))
-            true
-          }
+        if (virtualFileTracker != null) {
+          clearVirtualFileTracker(virtualFileTracker)
         }
       }
       finally {
@@ -366,113 +322,40 @@ open class StateStorageManagerImpl(private val rootTagName: String,
     }
   }
 
-  protected open fun getMacroSubstitutor(fileSpec: String): TrackingPathMacroSubstitutor? = macroSubstitutor
-
-  override fun expandMacros(path: String): String {
-    // replacement can contains $ (php tests), so, this check must be performed before expand
-    val matcher = MACRO_PATTERN.matcher(path)
-    matcherLoop@
-    while (matcher.find()) {
-      val m = matcher.group(1)
-      for ((key) in macros) {
-        if (key == m) {
-          continue@matcherLoop
-        }
-      }
-      throw IllegalArgumentException("Unknown macro: $m in storage file spec: $path")
+  protected open fun clearVirtualFileTracker(virtualFileTracker: StorageVirtualFileTracker) {
+    for (collapsedPath in storages.keys) {
+      virtualFileTracker.remove(expandMacro(collapsedPath).systemIndependentPath)
     }
-
-    var expanded = path
-    for ((key, value) in macros) {
-      expanded = StringUtil.replace(expanded, key, value)
-    }
-    return expanded
   }
 
-  fun expandMacro(macro: String): String {
+  protected open fun getMacroSubstitutor(fileSpec: String): PathMacroSubstitutor? = macroSubstitutor
+
+  override fun expandMacro(collapsedPath: String): Path {
     for ((key, value) in macros) {
-      if (key == macro) {
+      if (key == collapsedPath) {
         return value
       }
+
+      if (collapsedPath.length > (key.length + 2) && collapsedPath[key.length] == '/' && collapsedPath.startsWith(key)) {
+        return value.resolve(collapsedPath.substring(key.length + 1))
+      }
     }
 
-    throw IllegalArgumentException("Unknown macro $macro")
+    throw IllegalStateException("Cannot resolve $collapsedPath in $macros")
   }
 
-  fun collapseMacros(path: String): String {
-    var result = path
+  fun collapseMacro(path: String): String {
     for ((key, value) in macros) {
-      result = result.replace(value, key)
+      @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
+      val result = (path as java.lang.String).replace(value.systemIndependentPath, key)
+      if (result !== path) {
+        return result
+      }
     }
-    return normalizeFileSpec(result)
+    return normalizeFileSpec(path)
   }
 
-  override final fun startExternalization() = object : StateStorageManager.ExternalizationSession {
-    private val sessions = LinkedHashMap<StateStorage, StateStorage.ExternalizationSession>()
-
-    override fun setState(storageSpecs: List<Storage>, component: Any, componentName: String, state: Any) {
-      val stateStorageChooser = component as? StateStorageChooserEx
-      for (storageSpec in storageSpecs) {
-        @Suppress("IfThenToElvis")
-        var resolution = if (stateStorageChooser == null) Resolution.DO else stateStorageChooser.getResolution(storageSpec, StateStorageOperation.WRITE)
-        if (resolution == Resolution.SKIP) {
-          continue
-        }
-
-        val storage = getStateStorage(storageSpec)
-
-        if (resolution == Resolution.DO && component is PersistentStateComponent<*>) {
-          resolution = storage.getResolution(component, StateStorageOperation.WRITE)
-          if (resolution == Resolution.SKIP) {
-            continue
-          }
-        }
-
-        getExternalizationSession(storage)?.setState(component, componentName, if (storageSpec.deprecated || resolution == Resolution.CLEAR) Element("empty") else state)
-      }
-    }
-
-    override fun setStateInOldStorage(component: Any, componentName: String, state: Any) {
-      getOldStorage(component, componentName, StateStorageOperation.WRITE)?.let {
-        getExternalizationSession(it)?.setState(component, componentName, state)
-      }
-    }
-
-    private fun getExternalizationSession(storage: StateStorage): StateStorage.ExternalizationSession? {
-      var session = sessions.get(storage)
-      if (session == null) {
-        session = storage.startExternalization()
-        if (session != null) {
-          sessions.put(storage, session)
-        }
-      }
-      return session
-    }
-
-    override fun createSaveSessions(): List<SaveSession> {
-      if (sessions.isEmpty()) {
-        return emptyList()
-      }
-
-      var saveSessions: MutableList<SaveSession>? = null
-      val externalizationSessions = sessions.values
-      for (session in externalizationSessions) {
-        val saveSession = session.createSaveSession()
-        if (saveSession != null) {
-          if (saveSessions == null) {
-            if (externalizationSessions.size == 1) {
-              return listOf(saveSession)
-            }
-            saveSessions = SmartList<SaveSession>()
-          }
-          saveSessions.add(saveSession)
-        }
-      }
-      return saveSessions ?: emptyList()
-    }
-  }
-
-  override final fun getOldStorage(component: Any, componentName: String, operation: StateStorageOperation): StateStorage? {
+  final override fun getOldStorage(component: Any, componentName: String, operation: StateStorageOperation): StateStorage? {
     val oldStorageSpec = getOldStorageSpec(component, componentName, operation) ?: return null
     return getOrCreateStorage(oldStorageSpec, RoamingType.DEFAULT)
   }
@@ -480,23 +363,22 @@ open class StateStorageManagerImpl(private val rootTagName: String,
   protected open fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation): String? = null
 }
 
-private fun String.startsWithMacro(macro: String): Boolean {
+fun removeMacroIfStartsWith(path: String, macro: String): String {
   val i = macro.length
-  return getOrNull(i) == '/' && startsWith(macro)
+  return if (path.getOrNull(i) == '/' && path.startsWith(macro)) path.substring(i + 1) else path
 }
-
-fun removeMacroIfStartsWith(path: String, macro: String) = if (path.startsWithMacro(macro)) path.substring(macro.length + 1) else path
 
 @Suppress("DEPRECATION")
 internal val Storage.path: String
   get() = if (value.isEmpty()) file else value
 
-
 internal fun getEffectiveRoamingType(roamingType: RoamingType, collapsedPath: String): RoamingType {
-  if (roamingType != RoamingType.DISABLED && (collapsedPath == StoragePathMacros.WORKSPACE_FILE || collapsedPath == "other.xml")) {
+  if (roamingType != RoamingType.DISABLED && (collapsedPath == StoragePathMacros.WORKSPACE_FILE || collapsedPath == StoragePathMacros.NON_ROAMABLE_FILE || isSpecialStorage(collapsedPath))) {
     return RoamingType.DISABLED
   }
   else {
     return roamingType
   }
 }
+
+data class Macro(val key: String, var value: Path)

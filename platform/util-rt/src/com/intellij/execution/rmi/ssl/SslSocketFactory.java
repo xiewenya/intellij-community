@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.rmi.ssl;
 
 import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.security.CompositeX509TrustManager;
-import com.intellij.util.containers.ContainerUtilRt;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,6 +15,7 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -38,10 +24,11 @@ public class SslSocketFactory extends SSLSocketFactory {
   public static final String SSL_CLIENT_CERT_PATH = "sslClientCertPath";
   public static final String SSL_CLIENT_KEY_PATH = "sslClientKeyPath";
   public static final String SSL_TRUST_EVERYBODY = "sslTrustEverybody";
+  public static final String SSL_USE_FACTORY = "sslUseFactory";
   private static final String END_CERTIFICATE = "-----END CERTIFICATE-----";
   private final SSLSocketFactory myFactory;
 
-  public SslSocketFactory() throws GeneralSecurityException, IOException {
+  public SslSocketFactory() throws GeneralSecurityException {
     super();
     SSLContext ctx = SSLContext.getInstance("TLS");
     TrustManager[] tms;
@@ -50,7 +37,7 @@ public class SslSocketFactory extends SSLSocketFactory {
       String caCertPath = System.getProperty(SSL_CA_CERT_PATH);
       String clientCertPath = System.getProperty(SSL_CLIENT_CERT_PATH);
       String clientKeyPath = System.getProperty(SSL_CLIENT_KEY_PATH);
-      boolean trustEverybody = StringUtilRt.parseBoolean(System.getProperty(SSL_TRUST_EVERYBODY), false);
+      boolean trustEverybody = Boolean.parseBoolean(System.getProperty(SSL_TRUST_EVERYBODY));
 
       tms = trustEverybody ? new TrustManager[]{new MyTrustEverybodyManager()} :
             caCertPath == null ? new TrustManager[]{} : createTrustManagers(caCertPath);
@@ -68,14 +55,26 @@ public class SslSocketFactory extends SSLSocketFactory {
 
   @NotNull
   public static TrustManager[] createTrustManagers(@NotNull String caCertPath) throws Exception {
+    List<X509Certificate> certs = loadCertificates(caCertPath);
+    List<TrustManager> result = new ArrayList<TrustManager>(certs.size());
+    for (X509Certificate cert : certs) {
+      result.add(new MyTrustManager(cert));
+    }
+
+    return new TrustManager[]{new CompositeX509TrustManager(result.toArray(new TrustManager[0]))};
+  }
+
+  @NotNull
+  public static List<X509Certificate> loadCertificates(@NotNull String caCertPath)
+    throws IOException, CertificateException {
     String string = FileUtilRt.loadFile(new File(caCertPath));
     String[] tokens = string.split(END_CERTIFICATE);
-    List<TrustManager> result = ContainerUtilRt.newArrayListWithCapacity(tokens.length);
+    List<X509Certificate> certs = new ArrayList<X509Certificate>(tokens.length);
     for (String token : tokens) {
       if (token == null || token.trim().length() == 0) continue;
-      result.add(new MyTrustManager(readCertificate(stringStream(token + END_CERTIFICATE))));
+      certs.add(readCertificate(stringStream(token + END_CERTIFICATE)));
     }
-    return new TrustManager[]{new CompositeX509TrustManager(result.toArray(new TrustManager[0]))};
+    return certs;
   }
 
   @NotNull
@@ -88,35 +87,42 @@ public class SslSocketFactory extends SSLSocketFactory {
     }
   }
 
+  @Override
   @NotNull
   public Socket createSocket(InetAddress host, int port) throws IOException {
     return myFactory.createSocket(host, port);
   }
 
+  @Override
   @NotNull
   public Socket createSocket(String host, int port) throws IOException {
     return myFactory.createSocket(host, port);
   }
 
+  @Override
   @NotNull
   public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
     return myFactory.createSocket(host, port, localHost, localPort);
   }
 
+  @Override
   @NotNull
   public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
     return myFactory.createSocket(address, port, localAddress, localPort);
   }
 
+  @Override
   public Socket createSocket(Socket socket, String host, int port, boolean autoClose) throws IOException {
     return myFactory.createSocket(socket, host, port, autoClose);
   }
 
+  @Override
   @NotNull
   public String[] getDefaultCipherSuites() {
     return myFactory.getDefaultCipherSuites();
   }
 
+  @Override
   @NotNull
   public String[] getSupportedCipherSuites() {
     return myFactory.getSupportedCipherSuites();
@@ -136,10 +142,15 @@ public class SslSocketFactory extends SSLSocketFactory {
 
   @NotNull
   public static PrivateKey readPrivateKey(@NotNull String filePath) throws IOException {
-    return new PrivateKeyReader(filePath).getPrivateKey();
+    return readPrivateKey(filePath, null);
   }
 
-  private static class MyTrustManager implements X509TrustManager {
+  @NotNull
+  public static PrivateKey readPrivateKey(@NotNull String filePath, @Nullable char[] password) throws IOException {
+    return new PrivateKeyReader(filePath, password).getPrivateKey();
+  }
+
+  private static final class MyTrustManager implements X509TrustManager {
     private X509TrustManager trustManager;
 
     private MyTrustManager(@NotNull X509Certificate caCertPath) throws Exception {
@@ -164,14 +175,17 @@ public class SslSocketFactory extends SSLSocketFactory {
       return ks;
     }
 
-    public void checkClientTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
+    @Override
+    public void checkClientTrusted(X509Certificate[] x509Certificates, String s) {
     }
 
+    @Override
     public void checkServerTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
       if (trustManager == null) throw new RuntimeException("No X509TrustManager found");
       trustManager.checkServerTrusted(x509Certificates, s);
     }
 
+    @Override
     @NotNull
     public X509Certificate[] getAcceptedIssuers() {
       return new X509Certificate[0];
@@ -179,19 +193,22 @@ public class SslSocketFactory extends SSLSocketFactory {
   }
 
   private static class MyTrustEverybodyManager implements X509TrustManager {
-    public void checkClientTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
+    @Override
+    public void checkClientTrusted(X509Certificate[] x509Certificates, String s) {
     }
 
-    public void checkServerTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
+    @Override
+    public void checkServerTrusted(X509Certificate[] x509Certificates, String s) {
     }
 
+    @Override
     @NotNull
     public X509Certificate[] getAcceptedIssuers() {
       return new X509Certificate[0];
     }
   }
 
-  private static class MyKeyManager extends X509ExtendedKeyManager {
+  private static final class MyKeyManager extends X509ExtendedKeyManager {
     private final String myAlias = UUID.randomUUID().toString();
     @NotNull private final X509Certificate[] myCertificates;
     @NotNull private final PrivateKey myPrivateKey;
@@ -201,30 +218,36 @@ public class SslSocketFactory extends SSLSocketFactory {
       myPrivateKey = readPrivateKey(keyPath);
     }
 
+    @Override
     @NotNull
     public String[] getClientAliases(String s, Principal[] principals) {
-      return new String[]{};
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
 
+    @Override
     public String chooseClientAlias(String[] strings, Principal[] principals, Socket socket) {
       return myAlias;
     }
 
+    @Override
     @NotNull
     public String[] getServerAliases(String s, Principal[] principals) {
-      return new String[]{};
+      return ArrayUtilRt.EMPTY_STRING_ARRAY;
     }
 
+    @Override
     @Nullable
     public String chooseServerAlias(String s, Principal[] principals, Socket socket) {
       return null;
     }
 
+    @Override
     @NotNull
     public X509Certificate[] getCertificateChain(String s) {
       return myCertificates;
     }
 
+    @Override
     @NotNull
     public PrivateKey getPrivateKey(String s) {
       return myPrivateKey;

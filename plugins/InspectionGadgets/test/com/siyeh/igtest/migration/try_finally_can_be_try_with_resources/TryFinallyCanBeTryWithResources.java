@@ -63,6 +63,15 @@ class TryFinallyCanBeTryWithResources {
       fileInputStream.close();
     }
   }
+
+  public void resourceListExists() throws IOException {
+    FileInputStream f1 = new FileInputStream("1");
+    <warning descr="'try' can use automatic resource management">try</warning> (FileInputStream f2 = new FileInputStream("2");/**/) {
+
+    } finally {
+      f1.close();
+    }
+  }
 }
 
 class Java9 {
@@ -74,5 +83,40 @@ class Java9 {
     } finally {
       printStream.close();
     }
+  }
+}
+
+class FinallyContainsTry {
+  void test() throws FileNotFoundException {
+    PrintStream printStream = null;
+    try {
+      printStream = new PrintStream("");
+    printStream.print(true);
+    } finally {
+      if (printStream != null) {
+        try {
+          printStream.close();
+          System.out.println("USEFUL");
+        } catch (Exception e) {}
+      }
+    }
+  }
+}
+
+class NonResourceBeforeTry {
+  public static String test(String str) throws IOException {
+    final InputStream stream = new ByteArrayInputStream(str.getBytes());
+    final StringBuilder res = new StringBuilder();
+    try {
+      int entry;
+      while ((entry = stream.read()) > -1) {
+        res.append(entry).append("\n");
+      }
+    }
+    finally {
+      stream.close();
+    }
+
+    return res.toString();
   }
 }

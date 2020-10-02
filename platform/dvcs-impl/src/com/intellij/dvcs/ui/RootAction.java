@@ -20,6 +20,8 @@ import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.project.DumbAware;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,13 +29,13 @@ import org.jetbrains.annotations.Nullable;
  * The element of the branch popup which allows to show branches of the selected repository.
  * It is available only in projects with multiple roots.
  */
-public class RootAction<T extends Repository> extends ActionGroup implements PopupElementWithAdditionalInfo {
+public class RootAction<T extends Repository> extends ActionGroup implements PopupElementWithAdditionalInfo, DumbAware {
 
   @NotNull protected final T myRepository;
   @NotNull private final ActionGroup myGroup;
-  @Nullable private final String myBranchText;
+  @Nullable private final @Nls String myBranchText;
 
-  public RootAction(@NotNull T repository, @NotNull ActionGroup actionsGroup, @Nullable String branchText) {
+  public RootAction(@NotNull T repository, @NotNull ActionGroup actionsGroup, @Nullable @Nls String branchText) {
     super("", true);
     myRepository = repository;
     myGroup = actionsGroup;
@@ -41,9 +43,8 @@ public class RootAction<T extends Repository> extends ActionGroup implements Pop
     getTemplatePresentation().setText(DvcsUtil.getShortRepositoryName(repository), false);
   }
 
-  @NotNull
   @Override
-  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+  public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     return myGroup.getChildren(e);
   }
 

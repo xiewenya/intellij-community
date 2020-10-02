@@ -18,18 +18,20 @@ package com.intellij.java.codeInsight.daemon.quickFix;
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.MoveFieldAssignmentToInitializerInspection;
+import com.intellij.testFramework.LightProjectDescriptor;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
-public class MoveFieldAssignmentToInitializerInspectionTest extends LightQuickFixParameterizedTestCase {
-  public void test() { doAllTests(); }
+import static com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase.JAVA_15;
 
-  @NotNull
+public class MoveFieldAssignmentToInitializerInspectionTest extends LightQuickFixParameterizedTestCase {
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new MoveFieldAssignmentToInitializerInspection()};
+  }
+
+  @Override
+  protected @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_15;
   }
 
   @Override

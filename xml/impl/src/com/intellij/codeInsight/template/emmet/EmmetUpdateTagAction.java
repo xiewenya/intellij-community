@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.emmet;
 
 import com.intellij.application.options.emmet.EmmetOptions;
@@ -22,11 +8,11 @@ import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.emmet.EmmetAbbreviationBalloon.EmmetContextHelp;
 import com.intellij.codeInsight.template.emmet.generators.XmlZenCodingGeneratorImpl;
 import com.intellij.codeInsight.template.impl.TemplateImpl;
+import com.intellij.ide.highlighter.HtmlFileType;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.PopupAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -42,26 +28,17 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.xml.XmlBundle;
 import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Map;
+import java.util.*;
 
 public class EmmetUpdateTagAction extends BaseCodeInsightAction implements DumbAware, PopupAction {
   private static final String EMMET_RECENT_UPDATE_ABBREVIATIONS_KEY = "emmet.recent.update.abbreviations";
   private static final String EMMET_LAST_UPDATE_ABBREVIATIONS_KEY = "emmet.last.update.abbreviations";
-  private static final String DOCUMENTATION = "Update HTML tag with Emmet abbreviation:<br/>" +
-                                              ".class[attribute] to overwrite value;<br/>" +
-                                              ".+class[attribute] to append value;<br/>" +
-                                              ".-class[attribute] to remove value.<br/>" +
-                                              "<p/>" +
-                                              "For example, <code>.+c2[title=Hello]</code> abbreviation updates<br/>" +
-                                              "<code>&lt;div class=\"c1\"&gt;</code> to<br/>" +
-                                              "<code>&lt;div class=\"c1 c2\" title=\"Hello\"&gt;</code>.";
-  private static final EmmetContextHelp CONTEXT_HELP = new EmmetContextHelp(DOCUMENTATION);
+  private static final EmmetContextHelp CONTEXT_HELP = new EmmetContextHelp(XmlBundle.message("emmet.context.help.tooltip"));
 
   @NotNull
   @Override
@@ -99,9 +76,9 @@ public class EmmetUpdateTagAction extends BaseCodeInsightAction implements DumbA
     if (tag.isValid()) {
       String templateText = expandTemplate(abbreviation, file, editor);
 
-      final Collection<String> classNames = ContainerUtil.newLinkedHashSet();
+      final Collection<String> classNames = new LinkedHashSet<>();
       ContainerUtil.addAll(classNames, HtmlUtil.splitClassNames(tag.getAttributeValue(HtmlUtil.CLASS_ATTRIBUTE_NAME)));
-      final Map<String, String> attributes = ContainerUtil.newLinkedHashMap();
+      final Map<String, String> attributes = new LinkedHashMap<>();
       final Ref<String> newTagName = Ref.create();
       processTags(file.getProject(), templateText, (tag1, firstTag) -> {
         if (firstTag && !abbreviation.isEmpty() && StringUtil.isJavaIdentifierPart(abbreviation.charAt(0))) {
@@ -148,10 +125,10 @@ public class EmmetUpdateTagAction extends BaseCodeInsightAction implements DumbA
 
   private static void processTags(@NotNull Project project,
                                   @Nullable String templateText,
-                                  @NotNull PairProcessor<XmlTag, Boolean> processor) {
+                                  @NotNull PairProcessor<? super XmlTag, ? super Boolean> processor) {
     if (StringUtil.isNotEmpty(templateText)) {
       final PsiFileFactory psiFileFactory = PsiFileFactory.getInstance(project);
-      XmlFile xmlFile = (XmlFile)psiFileFactory.createFileFromText("dummy.xml", StdFileTypes.HTML, templateText);
+      XmlFile xmlFile = (XmlFile)psiFileFactory.createFileFromText("dummy.xml", HtmlFileType.INSTANCE, templateText);
       XmlTag tag = xmlFile.getRootTag();
       boolean firstTag = true;
 
@@ -171,7 +148,7 @@ public class EmmetUpdateTagAction extends BaseCodeInsightAction implements DumbA
                                                          @NotNull final Map<String, String> attributes) {
     return ()->{
       if (tag.isValid()) {
-        if (!ReadonlyStatusHandler.getInstance(file.getProject()).ensureFilesWritable(file.getVirtualFile()).hasReadonlyFiles()) {
+        if (!ReadonlyStatusHandler.getInstance(file.getProject()).ensureFilesWritable(Collections.singletonList(file.getVirtualFile())).hasReadonlyFiles()) {
           tag.setAttribute(HtmlUtil.CLASS_ATTRIBUTE_NAME, StringUtil.join(classes, " ").trim());
 
           for (Map.Entry<String, String> attribute : attributes.entrySet()) {
@@ -206,7 +183,7 @@ public class EmmetUpdateTagAction extends BaseCodeInsightAction implements DumbA
 
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     super.update(event);
     event.getPresentation().setVisible(event.getPresentation().isEnabled());
   }

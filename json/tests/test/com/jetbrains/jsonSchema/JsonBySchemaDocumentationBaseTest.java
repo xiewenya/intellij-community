@@ -22,6 +22,7 @@ import com.intellij.lang.documentation.DocumentationProvider;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiUtilBase;
 import com.jetbrains.jsonSchema.impl.JsonSchemaDocumentationProvider;
+import com.jetbrains.jsonSchema.impl.JsonSchemaVersion;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 
@@ -39,22 +40,22 @@ public abstract class JsonBySchemaDocumentationBaseTest extends JsonSchemaHeavyA
       skeleton(new Callback() {
         @Override
         public void registerSchemes() {
-          final String moduleDir = getModuleDir(getProject());
           final ArrayList<UserDefinedJsonSchemaConfiguration.Item> patterns = new ArrayList<>();
           patterns.add(new UserDefinedJsonSchemaConfiguration.Item(getTestName(true) + "*", true, false));
           addSchema(
-            new UserDefinedJsonSchemaConfiguration("testDoc", moduleDir + "/" + getTestName(true) + "Schema.json", false,
+            new UserDefinedJsonSchemaConfiguration("testDoc", JsonSchemaVersion.SCHEMA_4,
+                                                    getUrlUnderTestRoot(getTestName(true) + "Schema.json"), false,
                                                    patterns));
         }
 
         @Override
         public void configureFiles() {
-          configureByFiles(null, "/" + getTestName(true) + "." + extension, "/" + getTestName(true) + "Schema.json");
+          myFixture.configureByFiles("/" + getTestName(true) + "." + extension, "/" + getTestName(true) + "Schema.json");
         }
 
         @Override
         public void doCheck() {
-          final PsiElement psiElement = PsiUtilBase.getElementAtCaret(myEditor);
+          final PsiElement psiElement = PsiUtilBase.getElementAtCaret(myFixture.getEditor());
           Assert.assertNotNull(psiElement);
           assertDocumentation(psiElement, psiElement, hasDoc);
         }

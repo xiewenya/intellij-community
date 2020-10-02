@@ -1,43 +1,31 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInspection.ex.InspectionElementsMerger;
+import com.intellij.configurationStore.XmlSerializer;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.serialization.SerializationException;
 import com.intellij.util.ResourceUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.SerializationFilter;
-import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
-import com.intellij.util.xmlb.XmlSerializationException;
-import com.intellij.util.xmlb.XmlSerializer;
-import gnu.trove.THashSet;
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.xmlb.annotations.Property;
+import it.unimi.dsi.fastutil.Hash;
+import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -47,20 +35,16 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/**
- * @author anna
- * @since 28-Nov-2005
- */
+@Property(assertIfNoBindings = false)
 public abstract class InspectionProfileEntry implements BatchSuppressableTool {
-  public static final String GENERAL_GROUP_NAME = InspectionsBundle.message("inspection.general.tools.group.name");
+  private static final Logger LOG = Logger.getInstance(InspectionProfileEntry.class);
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.InspectionProfileEntry");
-
-  private static final SerializationFilter DEFAULT_FILTER = new SkipDefaultValuesSerializationFilters();
   private static Set<String> ourBlackList;
   private static final Object BLACK_LIST_LOCK = new Object();
   private Boolean myUseNewSerializer;
@@ -69,14 +53,17 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    * For global tools read-only, for local tools would be used instead getID for modules with alternative classpath storage
    */
   @NonNls
-  @Nullable
-  public String getAlternativeID() {
+  public @Nullable String getAlternativeID() {
     return null;
   }
 
   @Override
   public boolean isSuppressedFor(@NotNull PsiElement element) {
     Set<InspectionSuppressor> suppressors = getSuppressors(element);
+    return !suppressors.isEmpty() && isSuppressedFor(element, suppressors);
+  }
+
+  private boolean isSuppressedFor(@NotNull PsiElement element, Set<InspectionSuppressor> suppressors) {
     String toolId = getSuppressId();
     for (InspectionSuppressor suppressor : suppressors) {
       if (isSuppressed(toolId, suppressor, element)) {
@@ -84,36 +71,42 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
       }
     }
 
-    final InspectionElementsMerger merger = InspectionElementsMerger.getMerger(getShortName());
-    if (merger != null) {
-      String[] suppressIds = merger.getSuppressIds();
-      String[] sourceToolIds = suppressIds.length != 0 ? suppressIds : merger.getSourceToolNames();
-      for (String sourceToolId : sourceToolIds) {
-        for (InspectionSuppressor suppressor : suppressors) {
-          if (suppressor.isSuppressedFor(element, sourceToolId)) {
-            return true;
-          }
+    InspectionElementsMerger merger = InspectionElementsMerger.getMerger(getShortName());
+    return merger != null && isSuppressedForMerger(element, suppressors, merger);
+  }
+
+  private static boolean isSuppressedForMerger(PsiElement element, Set<InspectionSuppressor> suppressors, InspectionElementsMerger merger) {
+    String[] suppressIds = merger.getSuppressIds();
+    String[] sourceToolIds = suppressIds.length != 0 ? suppressIds : merger.getSourceToolNames();
+    for (String sourceToolId : sourceToolIds) {
+      for (InspectionSuppressor suppressor : suppressors) {
+        if (suppressor.isSuppressedFor(element, sourceToolId)) {
+          return true;
         }
       }
     }
-
     return false;
   }
 
-  @NotNull
-  protected String getSuppressId() {
+  /**
+   * Tool ID passed to {@link InspectionSuppressor}.
+   */
+  @NonNls
+  protected @NotNull String getSuppressId() {
     return getShortName();
   }
 
-  @NotNull
   @Override
-  public SuppressQuickFix[] getBatchSuppressActions(@Nullable PsiElement element) {
+  public SuppressQuickFix @NotNull [] getBatchSuppressActions(@Nullable PsiElement element) {
     if (element == null) {
       return SuppressQuickFix.EMPTY_ARRAY;
     }
-    Set<SuppressQuickFix> fixes = new THashSet<>(new TObjectHashingStrategy<SuppressQuickFix>() {
+    Set<SuppressQuickFix> fixes = new ObjectOpenCustomHashSet<>(new Hash.Strategy < SuppressQuickFix > () {
       @Override
-      public int computeHashCode(SuppressQuickFix object) {
+      public int hashCode(@Nullable SuppressQuickFix object) {
+        if (object == null) {
+          return 0;
+        }
         int result = object instanceof InjectionAwareSuppressQuickFix
                      ? ((InjectionAwareSuppressQuickFix)object).isShouldBeAppliedToInjectionHost().hashCode()
                      : 0;
@@ -122,6 +115,13 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
 
       @Override
       public boolean equals(SuppressQuickFix o1, SuppressQuickFix o2) {
+        if (o1 == o2) {
+          return true;
+        }
+        if (o1 == null || o2 == null) {
+          return false;
+        }
+
         if (o1 instanceof InjectionAwareSuppressQuickFix && o2 instanceof InjectionAwareSuppressQuickFix) {
           if (((InjectionAwareSuppressQuickFix)o1).isShouldBeAppliedToInjectionHost() !=
               ((InjectionAwareSuppressQuickFix)o2).isShouldBeAppliedToInjectionHost()) {
@@ -147,7 +147,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return fixes.toArray(SuppressQuickFix.EMPTY_ARRAY);
   }
 
-  private static void addAllSuppressActions(@NotNull Set<SuppressQuickFix> fixes,
+  private static void addAllSuppressActions(@NotNull Collection<? super SuppressQuickFix> fixes,
                                             @NotNull PsiElement element,
                                             @NotNull InspectionSuppressor suppressor,
                                             @NotNull ThreeState appliedToInjectionHost,
@@ -171,8 +171,8 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return alternativeId != null && !alternativeId.equals(toolId) && suppressor.isSuppressedFor(element, alternativeId);
   }
 
-  @NotNull
-  public static Set<InspectionSuppressor> getSuppressors(@NotNull PsiElement element) {
+  public static @NotNull Set<InspectionSuppressor> getSuppressors(@NotNull PsiElement element) {
+    PsiUtilCore.ensureValid(element);
     FileViewProvider viewProvider = element.getContainingFile().getViewProvider();
     final List<InspectionSuppressor> elementLanguageSuppressor = LanguageInspectionSuppressors.INSTANCE.allForLanguage(element.getLanguage());
     if (viewProvider instanceof TemplateLanguageFileViewProvider) {
@@ -198,17 +198,36 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
       case 1:
         return Collections.singleton(elementLanguageSuppressor.get(0));
       default:
-        return new java.util.HashSet<>(elementLanguageSuppressor);
+        return new HashSet<>(elementLanguageSuppressor);
     }
   }
 
   public void cleanup(@NotNull Project project) {
   }
 
+  public void initialize(@NotNull GlobalInspectionContext context) {
+  }
+
   interface DefaultNameProvider {
-    @Nullable String getDefaultShortName();
-    @Nullable String getDefaultDisplayName();
-    @Nullable String getDefaultGroupDisplayName();
+
+    @NonNls
+    @Nullable
+    String getDefaultShortName();
+
+    /**
+     * Unlocalized inspection group name
+     */
+    @NonNls
+    @Nullable
+    String getGroupKey();
+
+    @Nls(capitalization = Nls.Capitalization.Sentence)
+    @Nullable
+    String getDefaultDisplayName();
+
+    @Nls(capitalization = Nls.Capitalization.Sentence)
+    @Nullable
+    String getDefaultGroupDisplayName();
   }
 
   protected volatile DefaultNameProvider myNameProvider;
@@ -218,27 +237,35 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    * @see InspectionEP#groupKey
    * @see InspectionEP#groupBundle
    */
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getGroupDisplayName() {
     if (myNameProvider != null) {
       final String name = myNameProvider.getDefaultGroupDisplayName();
       if (name != null) {
         return name;
       }
     }
-    LOG.error(getClass() + ": group display name should be overridden or configured via XML " + getClass());
+    PluginException.logPluginError(LOG, getClass() + ": group display name should be overridden or configured via XML ", null, getClass());
     return "";
+  }
+
+  /**
+   * @see InspectionEP#groupKey
+   */
+  @NonNls
+  public @Nullable String getGroupKey() {
+    if (myNameProvider != null) {
+      return myNameProvider.getGroupKey();
+    }
+    return null;
   }
 
   /**
    * @see InspectionEP#groupPath
    */
-  @NotNull
-  public String[] getGroupPath() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) String @NotNull [] getGroupPath() {
     String groupDisplayName = getGroupDisplayName();
     if (groupDisplayName.isEmpty()) {
-      groupDisplayName = GENERAL_GROUP_NAME;
+      groupDisplayName = getGeneralGroupName();
     }
     return new String[]{groupDisplayName};
   }
@@ -248,16 +275,16 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    * @see InspectionEP#key
    * @see InspectionEP#bundle
    */
-  @Nls
-  @NotNull
-  public String getDisplayName() {
+  public @Nls(capitalization = Nls.Capitalization.Sentence) @NotNull String getDisplayName() {
     if (myNameProvider != null) {
       final String name = myNameProvider.getDefaultDisplayName();
       if (name != null) {
         return name;
       }
     }
-    LOG.error(getClass() + ": display name should be overridden or configured via XML " + getClass());
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
+      PluginException.logPluginError(LOG, getClass() + ": display name should be overridden or configured via XML ", null, getClass());
+    }
     return "";
   }
 
@@ -267,8 +294,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    * @see InspectionEP#shortName
    */
   @NonNls
-  @NotNull
-  public String getShortName() {
+  public @NotNull String getShortName() {
     if (myNameProvider != null) {
       final String name = myNameProvider.getDefaultShortName();
       if (name != null) {
@@ -278,8 +304,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     return getShortName(getClass().getSimpleName());
   }
 
-  @NotNull
-  public static String getShortName(@NotNull String className) {
+  public static @NotNull String getShortName(@NotNull String className) {
     return StringUtil.trimEnd(StringUtil.trimEnd(className, "Inspection"), "InspectionBase");
   }
 
@@ -288,8 +313,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    *
    * @see InspectionEP#level
    */
-  @NotNull
-  public HighlightDisplayLevel getDefaultLevel() {
+  public @NotNull HighlightDisplayLevel getDefaultLevel() {
     return HighlightDisplayLevel.WARNING;
   }
 
@@ -305,11 +329,18 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
   /**
    * This method is called each time UI is shown.
    *
-   * @return null if no UI options required.
+   * @return {@code null} if no UI options required.
    */
-  @Nullable
-  public JComponent createOptionsPanel() {
+  public @Nullable JComponent createOptionsPanel() {
     return null;
+  }
+
+  /**
+   * @return true iff default configuration options should be shown for the tool. E.g. scope-severity settings.
+   * @apiNote if {@code false} returned, only panel provided by {@link #createOptionsPanel()} is shown if any.
+   */
+  public boolean showDefaultConfigurationOptions() {
+    return true;
   }
 
   /**
@@ -324,9 +355,9 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
   public void readSettings(@NotNull Element node) {
     if (useNewSerializer()) {
       try {
-        XmlSerializer.deserializeInto(this, node);
+        XmlSerializer.deserializeInto(node, this);
       }
-      catch (XmlSerializationException e) {
+      catch (SerializationException e) {
         throw new InvalidDataException(e);
       }
     }
@@ -341,11 +372,10 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    * and bean-style getters/setters (like {@code int getToolOption(), void setToolOption(int)}) to store your options.
    *
    * @param node to store settings to.
-   * @throws WriteExternalException if no data should be saved for this component.
    */
   public void writeSettings(@NotNull Element node) {
     if (useNewSerializer()) {
-      XmlSerializer.serializeInto(this, node, getSerializationFilter());
+      XmlSerializer.serializeObjectInto(this, node, getSerializationFilter());
     }
     else {
       //noinspection deprecation
@@ -361,19 +391,21 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
   }
 
   private static void loadBlackList() {
-    ourBlackList = ContainerUtil.newHashSet();
+    ourBlackList = new HashSet<>();
 
-    final URL url = InspectionProfileEntry.class.getResource("inspection-black-list.txt");
+    URL url = InspectionProfileEntry.class.getResource("inspection-black-list.txt");
     if (url == null) {
       LOG.error("Resource not found");
       return;
     }
 
-    try (BufferedReader reader = new BufferedReader(new InputStreamReader(url.openStream()))) {
+    try (BufferedReader reader = new BufferedReader(new InputStreamReader(url.openStream(), StandardCharsets.UTF_8))) {
       String line;
       while ((line = reader.readLine()) != null) {
         line = line.trim();
-        if (!line.isEmpty()) ourBlackList.add(line);
+        if (!line.isEmpty()) {
+          ourBlackList.add(line);
+        }
       }
     }
     catch (IOException e) {
@@ -381,8 +413,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
     }
   }
 
-  @NotNull
-  public static Collection<String> getBlackList() {
+  public static @NotNull Collection<String> getBlackList() {
     synchronized (BLACK_LIST_LOCK) {
       if (ourBlackList == null) {
         loadBlackList();
@@ -397,36 +428,26 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
    *
    * @return serialization filter.
    */
-  @SuppressWarnings("MethodMayBeStatic")
-  @Nullable
-  protected SerializationFilter getSerializationFilter() {
-    return DEFAULT_FILTER;
+  @SuppressWarnings({"DeprecatedIsStillUsed"})
+  @Deprecated
+  protected @Nullable SerializationFilter getSerializationFilter() {
+    return XmlSerializer.getJdomSerializer().getDefaultSerializationFilter();
   }
 
   /**
-   * Override this method to return a html inspection description. Otherwise it will be loaded from resources using ID.
+   * Override this method to return a HTML inspection description. Otherwise it will be loaded from resources using ID.
    *
-   * @return hard-code inspection description.
+   * @return hard-coded inspection description.
    */
-  @Nullable
-  public String getStaticDescription() {
+  public @Nullable @Nls String getStaticDescription() {
     return null;
   }
 
-  @Nullable
-  public String getDescriptionFileName() {
+  public @Nullable String getDescriptionFileName() {
     return null;
   }
 
-  @Nullable
-  protected URL getDescriptionUrl() {
-    final String fileName = getDescriptionFileName();
-    if (fileName == null) return null;
-    return ResourceUtil.getResource(getDescriptionContextClass(), "/inspectionDescriptions", fileName);
-  }
-
-  @NotNull
-  protected Class<? extends InspectionProfileEntry> getDescriptionContextClass() {
+  protected @NotNull Class<? extends InspectionProfileEntry> getDescriptionContextClass() {
     return getClass();
   }
 
@@ -437,24 +458,31 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool {
   /**
    * @return short name of tool whose results will be used
    */
-  @Nullable
-  public String getMainToolId() {
+  @NonNls
+  public @Nullable String getMainToolId() {
     return null;
   }
 
-  @Nullable
-  public String loadDescription() {
+  public @Nullable @Nls String loadDescription() {
     final String description = getStaticDescription();
     if (description != null) return description;
 
     try {
-      URL descriptionUrl = getDescriptionUrl();
-      if (descriptionUrl == null) return null;
-      return ResourceUtil.loadText(descriptionUrl);
+      InputStream descriptionStream = null;
+      final String fileName = getDescriptionFileName();
+      if (fileName != null) {
+        descriptionStream = ResourceUtil.getResourceAsStream(getDescriptionContextClass(), "/inspectionDescriptions", fileName);
+      }
+      //noinspection HardCodedStringLiteral(IDEA-249976)
+      return descriptionStream != null ? ResourceUtil.loadText(descriptionStream) : null;
     }
     catch (IOException ignored) {
     }
 
     return null;
+  }
+
+  public static @Nls String getGeneralGroupName() {
+    return InspectionsBundle.message("inspection.general.tools.group.name");
   }
 }

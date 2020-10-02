@@ -23,22 +23,15 @@ public class CommandLineParser implements PsiParser, LightPsiParser {
     boolean r;
     b = adapt_builder_(t, b, this, null);
     Marker m = enter_section_(b, 0, _COLLAPSE_, null);
-    if (t == ARGUMENT) {
-      r = argument(b, 0);
-    }
-    else if (t == COMMAND) {
-      r = command(b, 0);
-    }
-    else if (t == OPTION) {
-      r = option(b, 0);
-    }
-    else {
-      r = parse_root_(t, b, 0);
-    }
+    r = parse_root_(t, b);
     exit_section_(b, 0, m, t, r, true, TRUE_CONDITION);
   }
 
-  protected boolean parse_root_(IElementType t, PsiBuilder b, int l) {
+  protected boolean parse_root_(IElementType t, PsiBuilder b) {
+    return parse_root_(t, b, 0);
+  }
+
+  static boolean parse_root_(IElementType t, PsiBuilder b, int l) {
     return root(b, l + 1);
   }
 
@@ -147,11 +140,10 @@ public class CommandLineParser implements PsiParser, LightPsiParser {
   // (argument | option ) *
   private static boolean root_1(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "root_1")) return false;
-    int c = current_position_(b);
     while (true) {
+      int c = current_position_(b);
       if (!root_1_0(b, l + 1)) break;
       if (!empty_element_parsed_guard_(b, "root_1", c)) break;
-      c = current_position_(b);
     }
     return true;
   }
@@ -160,10 +152,8 @@ public class CommandLineParser implements PsiParser, LightPsiParser {
   private static boolean root_1_0(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "root_1_0")) return false;
     boolean r;
-    Marker m = enter_section_(b);
     r = argument(b, l + 1);
     if (!r) r = option(b, l + 1);
-    exit_section_(b, m, null, r);
     return r;
   }
 

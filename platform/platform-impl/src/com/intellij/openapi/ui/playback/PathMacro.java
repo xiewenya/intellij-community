@@ -17,7 +17,6 @@ package com.intellij.openapi.ui.playback;
 
 import java.io.File;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,8 +37,7 @@ public class PathMacro {
   public File resolveFile(String path, File defaultDir) {
     Set<String> macros = myMap.keySet();
     String actualtPath = path;
-    for (Iterator<String> iterator = macros.iterator(); iterator.hasNext(); ) {
-      String each = iterator.next();
+    for (String each : macros) {
       actualtPath = actualtPath.replaceAll(each, myMap.get(each).getAbsolutePath());
     }
 

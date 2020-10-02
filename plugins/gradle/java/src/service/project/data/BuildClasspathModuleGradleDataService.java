@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.service.project.data;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -23,9 +21,8 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.HashSetInterner;
+import com.intellij.util.containers.Interner;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,7 +39,6 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 8/27/13
  */
 @Order(ExternalSystemConstants.UNORDERED)
 public class BuildClasspathModuleGradleDataService extends AbstractProjectDataService<BuildScriptClasspathData, Module> {
@@ -78,11 +74,12 @@ public class BuildClasspathModuleGradleDataService extends AbstractProjectDataSe
     }
     final GradleProjectSettings settings = GradleSettings.getInstance(project).getLinkedProjectSettings(linkedExternalProjectPath);
 
-    final NotNullLazyValue<Set<String>> externalProjectGradleSdkLibs = new NotNullLazyValue<Set<String>>() {
+    Interner<List<String>> interner = new HashSetInterner<>();
+    final NotNullLazyValue<List<String>> externalProjectGradleSdkLibs = new NotNullLazyValue<List<String>>() {
       @NotNull
       @Override
-      protected Set<String> compute() {
-        final Set<String> gradleSdkLibraries = ContainerUtil.newLinkedHashSet();
+      protected List<String> compute() {
+        final Set<String> gradleSdkLibraries = new LinkedHashSet<>();
         File gradleHome = gradleInstallationManager.getGradleHome(project, linkedExternalProjectPath);
         if (gradleHome != null && gradleHome.isDirectory()) {
           final Collection<File> libraries = gradleInstallationManager.getClassRoots(project, linkedExternalProjectPath);
@@ -92,31 +89,12 @@ public class BuildClasspathModuleGradleDataService extends AbstractProjectDataSe
             }
           }
         }
-        return gradleSdkLibraries;
-      }
-    };
-
-    final NotNullLazyValue<Set<String>> buildSrcProjectsRoots = new NotNullLazyValue<Set<String>>() {
-      @NotNull
-      @Override
-      protected Set<String> compute() {
-        Set<String> result = new LinkedHashSet<>();
-        //// add main java root of buildSrc project
-        result.add(linkedExternalProjectPath + "/buildSrc/src/main/java");
-        //// add main groovy root of buildSrc project
-        result.add(linkedExternalProjectPath + "/buildSrc/src/main/groovy");
-        for (Module module : modelsProvider.getModules(projectData)) {
-          final String projectPath = ExternalSystemApiUtil.getExternalProjectPath(module);
-          if(projectPath != null && StringUtil.startsWith(projectPath, linkedExternalProjectPath + "/buildSrc")) {
-            final List<String> sourceRoots = ContainerUtil.map(modelsProvider.getSourceRoots(module, false), VirtualFile::getPath);
-            result.addAll(sourceRoots);
-          }
-        }
-        return result;
+        return interner.intern(new ArrayList<>(gradleSdkLibraries));
       }
     };
 
     final Map<String, ExternalProjectBuildClasspathPojo> localProjectBuildClasspath = new THashMap<>(localSettings.getProjectBuildClasspath());
+
     for (final DataNode<BuildScriptClasspathData> node : toImport) {
       if (GradleConstants.SYSTEM_ID.equals(node.getData().getOwner())) {
         DataNode<ModuleData> moduleDataNode = ExternalSystemApiUtil.findParent(node, ProjectKeys.MODULE);
@@ -127,31 +105,35 @@ public class BuildClasspathModuleGradleDataService extends AbstractProjectDataSe
           LOG.warn("Gradle SDK distribution type was not configured for the project at " + linkedExternalProjectPath);
         }
 
-        final Set<String> buildClasspath = ContainerUtil.newLinkedHashSet();
+        final Set<String> buildClasspathSources = new LinkedHashSet<>();
+        final Set<String> buildClasspathClasses = new LinkedHashSet<>();
         BuildScriptClasspathData buildScriptClasspathData = node.getData();
         for (BuildScriptClasspathData.ClasspathEntry classpathEntry : buildScriptClasspathData.getClasspathEntries()) {
           for (String path : classpathEntry.getSourcesFile()) {
-            buildClasspath.add(FileUtil.toCanonicalPath(path));
+            buildClasspathSources.add(FileUtil.toCanonicalPath(path));
           }
 
           for (String path : classpathEntry.getClassesFile()) {
-            buildClasspath.add(FileUtil.toCanonicalPath(path));
+            buildClasspathClasses.add(FileUtil.toCanonicalPath(path));
           }
         }
 
         ExternalProjectBuildClasspathPojo projectBuildClasspathPojo = localProjectBuildClasspath.get(linkedExternalProjectPath);
         if (projectBuildClasspathPojo == null) {
           projectBuildClasspathPojo = new ExternalProjectBuildClasspathPojo(
-            moduleDataNode.getData().getExternalName(), ContainerUtil.newArrayList(), ContainerUtil.newHashMap());
+            moduleDataNode.getData().getExternalName(), new ArrayList<>(), new HashMap<>());
           localProjectBuildClasspath.put(linkedExternalProjectPath, projectBuildClasspathPojo);
         }
 
-        List<String> projectBuildClasspath = ContainerUtil.newArrayList(externalProjectGradleSdkLibs.getValue());
-        projectBuildClasspath.addAll(buildSrcProjectsRoots.getValue());
+        projectBuildClasspathPojo.setProjectBuildClasspath(externalProjectGradleSdkLibs.getValue());
 
-        projectBuildClasspathPojo.setProjectBuildClasspath(projectBuildClasspath);
-        projectBuildClasspathPojo.getModulesBuildClasspath().put(
-          externalModulePath, new ExternalModuleBuildClasspathPojo(externalModulePath, ContainerUtil.newArrayList(buildClasspath)));
+        List<String> buildClasspath = new ArrayList<>(buildClasspathSources.size() + buildClasspathClasses.size());
+        buildClasspath.addAll(buildClasspathSources);
+        buildClasspath.addAll(buildClasspathClasses);
+        buildClasspath = interner.intern(buildClasspath);
+
+        projectBuildClasspathPojo.getModulesBuildClasspath().put(externalModulePath,
+                                                                 new ExternalModuleBuildClasspathPojo(externalModulePath, buildClasspath));
       }
     }
     localSettings.setProjectBuildClasspath(localProjectBuildClasspath);

@@ -27,8 +27,6 @@ import javax.swing.*;
  * Represents a node in debugger tree. This interface isn't supposed to be implemented by a plugin.
  *
  * @see XValue
- *
- * @author nik
  */
 public interface XValueNode extends Obsolescent {
   /**
@@ -57,6 +55,7 @@ public interface XValueNode extends Obsolescent {
   /**
    * @deprecated use {@link #setPresentation(Icon, XValuePresentation, boolean)}
    */
+  @Deprecated
   void setPresentation(@Nullable Icon icon, @NonNls @Nullable String type, @NonNls @NotNull String separator, @NonNls @Nullable String value, boolean hasChildren);
 
   /**

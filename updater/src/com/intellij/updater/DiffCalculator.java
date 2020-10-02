@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.File;
@@ -20,13 +6,13 @@ import java.util.*;
 
 public class DiffCalculator {
   public static Result calculate(Map<String, Long> oldChecksums, Map<String, Long> newChecksums) {
-    return calculate(oldChecksums, newChecksums, Collections.emptyList(), Collections.emptyList(), false);
+    return calculate(oldChecksums, newChecksums, Collections.emptySet(), Collections.emptySet(), false);
   }
 
   public static Result calculate(Map<String, Long> oldChecksums,
                                  Map<String, Long> newChecksums,
-                                 List<String> critical,
-                                 List<String> optional,
+                                 Set<String> critical,
+                                 Set<String> optional,
                                  boolean lookForMoved) {
     Result result = new Result();
     result.commonFiles = collect(oldChecksums, newChecksums, critical, true);
@@ -90,7 +76,7 @@ public class DiffCalculator {
     return matches;
   }
 
-  private static String findBestCandidateForMove(List<String> paths, String path, List<String> optional) {
+  private static String findBestCandidateForMove(List<String> paths, String path, Set<String> optional) {
     if (paths == null) return null;
 
     boolean mandatory = !optional.contains(path);
@@ -125,7 +111,7 @@ public class DiffCalculator {
     Map<Long, List<String>> result = new HashMap<>();
     for (Map.Entry<String, Long> entry : map.entrySet()) {
       String path = entry.getKey();
-      if (!path.endsWith("/")) {
+      if (Digester.isFile(entry.getValue())) {
         Long hash = entry.getValue();
         List<String> paths = result.get(hash);
         if (paths == null) result.put(hash, (paths = new LinkedList<>()));
@@ -135,10 +121,11 @@ public class DiffCalculator {
     return result;
   }
 
-  private static Map<String, List<String>> groupFilesByName(Map<String, Long> toDelete) {
+  private static Map<String, List<String>> groupFilesByName(Map<String, Long> map) {
     Map<String, List<String>> result = new HashMap<>();
-    for (String path : toDelete.keySet()) {
-      if (!path.endsWith("/")) {
+    for (Map.Entry<String, Long> entry : map.entrySet()) {
+      String path = entry.getKey();
+      if (Digester.isFile(entry.getValue())) {
         String name = new File(path).getName();
         List<String> paths = result.get(name);
         if (paths == null) result.put(name, (paths = new LinkedList<>()));
@@ -156,7 +143,7 @@ public class DiffCalculator {
     return result;
   }
 
-  private static Map<String, Long> collect(Map<String, Long> older, Map<String, Long> newer, List<String> critical, boolean equal) {
+  private static Map<String, Long> collect(Map<String, Long> older, Map<String, Long> newer, Set<String> critical, boolean equal) {
     Map<String, Long> result = new LinkedHashMap<>();
     for (Map.Entry<String, Long> each : newer.entrySet()) {
       String file = each.getKey();

@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.darcula.ui;
 
-import com.intellij.ide.ui.laf.darcula.DarculaUIUtil;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.MacUIUtil;
@@ -23,11 +9,14 @@ import com.intellij.util.ui.MacUIUtil;
 import javax.swing.*;
 import javax.swing.plaf.ComponentUI;
 import javax.swing.plaf.basic.BasicPasswordFieldUI;
+import javax.swing.text.Caret;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import java.awt.geom.Rectangle2D;
+
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.*;
 
 /**
  * @author Konstantin Bulenkov
@@ -45,11 +34,13 @@ public class DarculaPasswordFieldUI extends BasicPasswordFieldUI {
     super.installListeners();
     JTextComponent passwordField = getComponent();
     focusListener = new FocusListener() {
-      @Override public void focusGained(FocusEvent e) {
+      @Override
+      public void focusGained(FocusEvent e) {
         passwordField.repaint();
       }
 
-      @Override public void focusLost(FocusEvent e) {
+      @Override
+      public void focusLost(FocusEvent e) {
         passwordField.repaint();
       }
     };
@@ -68,8 +59,28 @@ public class DarculaPasswordFieldUI extends BasicPasswordFieldUI {
   @Override
   public Dimension getPreferredSize(JComponent c) {
     Dimension size = super.getPreferredSize(c);
-    Insets i = getComponent().getInsets();
-    return new Dimension(size.width, Math.max(size.height, JBUI.scale(20) + i.top + i.bottom));
+    if (size != null) updatePreferredSize(c, size);
+    return size;
+  }
+
+  protected Dimension updatePreferredSize(JComponent c, Dimension size) {
+    JBInsets.addTo(size, ((JTextComponent)c).getMargin());
+    size.height = Math.max(size.height, getMinimumHeight(size.height));
+    size.width = Math.max(size.width, MINIMUM_WIDTH.get());
+    return size;
+  }
+
+  protected int getMinimumHeight(int originHeight) {
+    JComponent component = getComponent();
+    Insets insets = component.getInsets();
+    return (isCompact(component) ? COMPACT_HEIGHT.get() : MINIMUM_HEIGHT.get()) + insets.top + insets.bottom;
+  }
+
+  @Override
+  public Dimension getMinimumSize(JComponent c) {
+    Dimension size = super.getMinimumSize(c);
+    if (size != null) updatePreferredSize(c, size);
+    return size;
   }
 
   @Override
@@ -92,16 +103,47 @@ public class DarculaPasswordFieldUI extends BasicPasswordFieldUI {
                             MacUIUtil.USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
         g2.translate(r.x, r.y);
 
-        float bw = DarculaUIUtil.bw();
+        float bw = BW.getFloat();
 
         if (component.isEnabled() && component.isEditable()) {
           g2.setColor(component.getBackground());
         }
 
         g2.fill(new Rectangle2D.Float(bw, bw, r.width - bw * 2, r.height - bw * 2));
-      } finally {
+      }
+      finally {
         g2.dispose();
       }
+    }
+  }
+
+  @Override
+  protected Rectangle getVisibleEditorRect() {
+    JTextComponent c = getComponent();
+    Rectangle bounds = new Rectangle(c.getSize());
+    JBInsets.removeFrom(bounds, c.getInsets());
+    JBInsets.removeFrom(bounds, c.getMargin());
+    return bounds;
+  }
+
+  @Override
+  public void installUI(JComponent c) {
+    super.installUI(c);
+    getComponent().setMargin(JBInsets.create(2, 5));
+  }
+
+  @Override
+  protected Caret createCaret() {
+    return new TextFieldWithPopupHandlerUI.MarginAwareCaret();
+  }
+
+  @Override
+  protected void installDefaults() {
+    super.installDefaults();
+
+    JTextComponent component = getComponent();
+    if (SystemInfo.isMac) {
+      LookAndFeel.installProperty(component, "echoChar", '•');
     }
   }
 }

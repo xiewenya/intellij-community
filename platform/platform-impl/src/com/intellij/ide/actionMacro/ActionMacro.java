@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actionMacro;
 
 import com.intellij.ide.IdeBundle;
@@ -23,6 +9,7 @@ import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.ui.playback.commands.KeyCodeTypeCommand;
 import com.intellij.openapi.ui.playback.commands.TypeCommand;
 import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jdom.Element;
@@ -32,9 +19,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author max
- */
 public class ActionMacro {
   private String myName;
 
@@ -65,6 +49,7 @@ public class ActionMacro {
     myName = name;
   }
 
+  @NlsSafe
   public String getName() {
     return myName;
   }
@@ -140,10 +125,12 @@ public class ActionMacro {
     }
   }
 
+  @Override
   public String toString() {
     return myName;
   }
 
+  @Override
   protected Object clone() {
     ActionMacro copy = new ActionMacro(myName);
     for (int i = 0; i < myActions.size(); i++) {
@@ -154,6 +141,7 @@ public class ActionMacro {
     return copy;
   }
 
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (!(o instanceof ActionMacro)) return false;
@@ -166,6 +154,7 @@ public class ActionMacro {
     return true;
   }
 
+  @Override
   public int hashCode() {
     int result;
     result = myName.hashCode();
@@ -238,20 +227,24 @@ public class ActionMacro {
       return myText;
     }
 
+    @Override
     public Object clone() {
       return new TypedDescriptor(myText, myKeyCodes, myModifiers);
     }
 
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof TypedDescriptor)) return false;
       return myText.equals(((TypedDescriptor)o).myText);
     }
 
+    @Override
     public int hashCode() {
       return myText.hashCode();
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       if (TypeCommand.containsUnicode(myText)) {
         script.append(KeyCodeTypeCommand.PREFIX).append(" ");
@@ -273,13 +266,16 @@ public class ActionMacro {
       }
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.typing", myText);
     }
 
+    @Override
     public void playBack(DataContext context) {
       Editor editor = CommonDataKeys.EDITOR.getData(context);
-      final TypedAction typedAction = EditorActionManager.getInstance().getTypedAction();
+      EditorActionManager.getInstance();
+      final TypedAction typedAction = TypedAction.getInstance();
       for (final char aChar : myText.toCharArray()) {
         typedAction.actionPerformed(editor, aChar, context);
       }
@@ -302,17 +298,21 @@ public class ActionMacro {
       myKeyStroke = stroke;
     }
 
+    @Override
     public Object clone() {
       return new ShortcutActionDesciption(myKeyStroke);
     }
 
+    @Override
     public void playBack(DataContext context) {
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       script.append("%[").append(myKeyStroke).append("]\n");
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.keystroke", myKeyStroke);
     }
@@ -333,24 +333,29 @@ public class ActionMacro {
       return actionId;
     }
 
+    @Override
     public String toString() {
       return IdeBundle.message("action.descriptor.action", actionId);
     }
 
+    @Override
     public Object clone() {
       return new IdActionDescriptor(actionId);
     }
 
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof IdActionDescriptor)) return false;
       return actionId.equals(((IdActionDescriptor)o).actionId);
     }
 
+    @Override
     public int hashCode() {
       return actionId.hashCode();
     }
 
+    @Override
     public void playBack(DataContext context) {
       AnAction action = ActionManager.getInstance().getAction(getActionId());
       if (action == null) return;
@@ -363,6 +368,7 @@ public class ActionMacro {
       action.actionPerformed(event);
     }
 
+    @Override
     public void generateTo(StringBuffer script) {
       script.append("%action ").append(getActionId()).append("\n");
     }

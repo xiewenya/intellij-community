@@ -1,27 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.project;
 
 import com.intellij.openapi.components.ComponentManager;
 import com.intellij.openapi.extensions.AreaInstance;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.SystemDependent;
-import org.jetbrains.annotations.SystemIndependent;
+import org.jetbrains.annotations.*;
 
 /**
  * An object representing an IntelliJ project.
@@ -43,24 +27,28 @@ public interface Project extends ComponentManager, AreaInstance {
    * @return project name
    */
   @NotNull
-  String getName();
+  @NlsSafe String getName();
 
   /**
    * Returns a project base directory - a parent directory of a {@code .ipr} file or {@code .idea} directory.<br/>
    * Returns {@code null} for default project.
    *
-   * @return project base directory, or {@code null} for default project
+   * @see com.intellij.openapi.project.ProjectUtil#guessProjectDir
+   * @see #getBasePath()
+   *
+   * @deprecated No such concept as "project root". Project consists of module set, each has own content root set.
    */
+  @Deprecated
   VirtualFile getBaseDir();
 
   /**
    * Returns a path to a project base directory (see {@linkplain #getBaseDir()}).<br/>
    * Returns {@code null} for default project.
    *
-   * @return a path to a project base directory, or {@code null} for default project
+   * @see com.intellij.openapi.project.ProjectUtil#guessProjectDir
    */
   @Nullable
-  @SystemIndependent
+  @SystemIndependent @NonNls
   String getBasePath();
 
   /**
@@ -80,19 +68,18 @@ public interface Project extends ComponentManager, AreaInstance {
    * @return a path to project file (see {@linkplain #getProjectFile()}) or {@code null} for default project.
    */
   @Nullable
-  @SystemIndependent
+  @SystemIndependent @NonNls
   String getProjectFilePath();
 
   /**
    * Returns presentable project path:
    * {@linkplain #getProjectFilePath()} for file-based projects, {@linkplain #getBasePath()} for directory-based ones.<br/>
-   * * Returns {@code null} for default project.
+   * Returns {@code null} for default project.
    * <b>Note:</b> the word "presentable" here implies file system presentation, not a UI one.
-   *
-   * @return presentable project path
    */
   @Nullable
-  default @SystemDependent String getPresentableUrl() {
+  @SystemDependent @NonNls
+  default String getPresentableUrl() {
     return null;
   }
 
@@ -109,7 +96,7 @@ public interface Project extends ComponentManager, AreaInstance {
   @Nullable
   VirtualFile getWorkspaceFile();
 
-  @NotNull
+  @NotNull @NonNls
   String getLocationHash();
 
   void save();
@@ -118,5 +105,7 @@ public interface Project extends ComponentManager, AreaInstance {
 
   boolean isInitialized();
 
-  boolean isDefault();
+  default boolean isDefault() {
+    return false;
+  }
 }

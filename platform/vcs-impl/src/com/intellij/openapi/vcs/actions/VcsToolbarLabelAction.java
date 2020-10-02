@@ -2,33 +2,30 @@
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.Presentation;
-import com.intellij.openapi.actionSystem.ex.CustomComponentAction;
-import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.actionSystem.ex.ToolbarLabelAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.ui.components.JBLabel;
-import com.intellij.util.ui.JBUI;
+import com.intellij.openapi.vcs.VcsBundle;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-
-public class VcsToolbarLabelAction extends DumbAwareAction implements CustomComponentAction {
+public class VcsToolbarLabelAction extends ToolbarLabelAction {
   @Override
-  public void update(AnActionEvent e) {
-    e.getPresentation().setEnabled(false);
+  public void update(@NotNull AnActionEvent e) {
+    super.update(e);
+
     Project project = e.getProject();
     e.getPresentation().setVisible(project != null && ProjectLevelVcsManager.getInstance(project).hasActiveVcss());
+    e.getPresentation().setText(getConsolidatedVcsName(project));
   }
 
-  @Override
-  public void actionPerformed(AnActionEvent e) {
-    //do nothing
-  }
-
-  @Override
-  public JComponent createCustomComponent(Presentation presentation) {
-    return new JBLabel("VCS:")
-      .withFont(JBUI.Fonts.toolbarFont())
-      .withBorder(JBUI.Borders.empty(0, 6, 0, 5));
+  @NlsContexts.Label
+  private static String getConsolidatedVcsName(@Nullable Project project) {
+    String name = VcsBundle.message("vcs.common.labels.vcs");
+    if (project != null) {
+      name = ProjectLevelVcsManager.getInstance(project).getConsolidatedVcsName() + ":";
+    }
+    return name;
   }
 }

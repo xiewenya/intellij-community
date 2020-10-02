@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.CommonClassNames;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.CharTable;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.text.CharArrayUtil;
@@ -29,10 +15,7 @@ import org.jetbrains.annotations.Nullable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
-/**
- * @author max
- */
-public class CharTableImpl implements CharTable {
+public final class CharTableImpl implements CharTable {
   private static final int INTERN_THRESHOLD = 40; // 40 or more characters long tokens won't be interned.
 
   private static final StringHashToCharSequencesMap STATIC_ENTRIES = newStaticSet();
@@ -181,7 +164,7 @@ public class CharTableImpl implements CharTable {
     r.add("</");
     r.add("/>");
     r.add("\"");
-    r.add("\'");
+    r.add("'");
     r.add("<![CDATA[");
     r.add("]]>");
     r.add("<!--");
@@ -216,7 +199,7 @@ public class CharTableImpl implements CharTable {
     }
   }
 
-  private static class StringHashToCharSequencesMap extends TIntObjectHashMap<Object> {
+  private static final class StringHashToCharSequencesMap extends TIntObjectHashMap<Object> {
     private StringHashToCharSequencesMap(int capacity, float loadFactor) {
       super(capacity, loadFactor);
     }
@@ -273,31 +256,36 @@ public class CharTableImpl implements CharTable {
     @NotNull
     private CharSequence getOrAddSubSequenceWithHashCode(int hashCode, @NotNull CharSequence sequence, int startOffset, int endOffset) {
       int index = index(hashCode);
-      String addedSequence = null;
+      String addedSequence;
 
       if (index < 0) {
-        put(hashCode, addedSequence = createSequence(sequence, startOffset, endOffset));
-      } else {
+        addedSequence = createSequence(sequence, startOffset, endOffset);
+        put(hashCode, addedSequence);
+      }
+      else {
         Object value = _values[index];
         if (value instanceof CharSequence) {
           CharSequence existingSequence = (CharSequence)value;
           if (charSequenceSubSequenceEquals(existingSequence, sequence, startOffset, endOffset)) {
             return existingSequence;
           }
-          put(hashCode, new CharSequence[] {existingSequence, addedSequence = createSequence(sequence, startOffset, endOffset)});
-        } else if (value instanceof CharSequence[]) {
+          addedSequence = createSequence(sequence, startOffset, endOffset);
+          put(hashCode, new CharSequence[]{existingSequence, addedSequence});
+        }
+        else if (value instanceof CharSequence[]) {
           CharSequence[] existingSequenceArray = (CharSequence[])value;
-          for(CharSequence cs:existingSequenceArray) {
+          for (CharSequence cs : existingSequenceArray) {
             if (charSequenceSubSequenceEquals(cs, sequence, startOffset, endOffset)) {
               return cs;
             }
           }
-          CharSequence[] newSequenceArray = new CharSequence[existingSequenceArray.length + 1];
-          System.arraycopy(existingSequenceArray, 0, newSequenceArray, 0, existingSequenceArray.length);
-          newSequenceArray[existingSequenceArray.length] = addedSequence = createSequence(sequence, startOffset, endOffset);
+          addedSequence = createSequence(sequence, startOffset, endOffset);
+          CharSequence[] newSequenceArray = ArrayUtil.append(existingSequenceArray, addedSequence, CharSequence[]::new);
           put(hashCode, newSequenceArray);
-        } else {
-          assert false:value.getClass();
+        }
+        else {
+          assert false : value.getClass();
+          return null;
         }
       }
       return addedSequence;

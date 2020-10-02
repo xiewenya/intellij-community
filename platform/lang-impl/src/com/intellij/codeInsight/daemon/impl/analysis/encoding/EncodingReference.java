@@ -46,11 +46,13 @@ public class EncodingReference implements PsiReference, EmptyResolveMessageProvi
     myRangeInElement = rangeInElement;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return myElement;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return myRangeInElement;
@@ -72,7 +74,7 @@ public class EncodingReference implements PsiReference, EmptyResolveMessageProvi
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     return null;
   }
 
@@ -82,13 +84,12 @@ public class EncodingReference implements PsiReference, EmptyResolveMessageProvi
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return false;
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     Charset[] charsets = CharsetToolkit.getAvailableCharsets();
     List<LookupElement> suggestions = new ArrayList<>(charsets.length);
     for (Charset charset : charsets) {

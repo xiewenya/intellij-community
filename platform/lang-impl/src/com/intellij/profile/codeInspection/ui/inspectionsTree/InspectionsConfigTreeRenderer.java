@@ -8,6 +8,7 @@ import com.intellij.codeInspection.ex.GlobalInspectionToolWrapper;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
 import com.intellij.ide.ui.search.SearchUtil;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.treeStructure.treetable.TreeTableTree;
@@ -35,11 +36,10 @@ public abstract class InspectionsConfigTreeRenderer extends DefaultTreeRenderer 
     InspectionConfigTreeNode node = (InspectionConfigTreeNode)value;
 
     boolean reallyHasFocus = ((TreeTableTree)tree).getTreeTable().hasFocus();
-    final Color background = selected ? (reallyHasFocus ? UIUtil.getTreeSelectionBackground() : UIUtil.getTreeUnfocusedSelectionBackground())
-                                      : UIUtil.getTreeTextBackground();
+    Color background = UIUtil.getTreeBackground(selected, reallyHasFocus);
     UIUtil.changeBackGround(component, background);
     Color foreground =
-      selected ? UIUtil.getTreeSelectionForeground() : node.isProperSetting() ? PlatformColors.BLUE : UIUtil.getTreeTextForeground();
+      selected ? UIUtil.getTreeSelectionForeground(reallyHasFocus) : node.isProperSetting() ? PlatformColors.BLUE : UIUtil.getTreeForeground();
 
     int style = SimpleTextAttributes.STYLE_PLAIN;
     String hint = null;
@@ -60,8 +60,12 @@ public abstract class InspectionsConfigTreeRenderer extends DefaultTreeRenderer 
   }
 
   @Nullable
-  private static String getHint(final Descriptor descriptor) {
+  private static @NlsContexts.Label String getHint(final Descriptor descriptor) {
     final InspectionToolWrapper toolWrapper = descriptor.getToolWrapper();
+
+    if (toolWrapper.getTool() instanceof InspectionToolWrapperWithHint) {
+      return ((InspectionToolWrapperWithHint)toolWrapper.getTool()).getHint();
+    }
     if (toolWrapper instanceof LocalInspectionToolWrapper ||
         toolWrapper instanceof GlobalInspectionToolWrapper && !((GlobalInspectionToolWrapper)toolWrapper).worksInBatchModeOnly()) {
       return null;

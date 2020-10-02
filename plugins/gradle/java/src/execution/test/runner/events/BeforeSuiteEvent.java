@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.execution.test.runner.events;
 
 import com.intellij.execution.testframework.JavaTestLocator;
@@ -20,15 +6,15 @@ import com.intellij.execution.testframework.sm.runner.SMTestProxy;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.execution.test.runner.GradleConsoleProperties;
 import org.jetbrains.plugins.gradle.execution.test.runner.GradleSMTestProxy;
 import org.jetbrains.plugins.gradle.execution.test.runner.GradleTestsExecutionConsole;
+
+import java.util.Objects;
 
 import static com.intellij.util.io.URLUtil.SCHEME_SEPARATOR;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/28/14
  */
 public class BeforeSuiteEvent extends AbstractTestEvent {
   public BeforeSuiteEvent(GradleTestsExecutionConsole executionConsole) {
@@ -51,16 +37,33 @@ public class BeforeSuiteEvent extends AbstractTestEvent {
         registerTestProxy(testId, parentTest);
       }
       else {
+        boolean combineTestsOfTheSameSuite = !showInternalTestNodes();
+        String sameSuiteId = name + fqClassName;
+        if (combineTestsOfTheSameSuite) {
+          SMTestProxy testProxy = findTestProxy(sameSuiteId);
+          if (testProxy instanceof GradleSMTestProxy && Objects.equals(testProxy.getParent(), parentTest)) {
+            registerTestProxy(testId, testProxy);
+            if (!testProxy.isInProgress()) {
+              testProxy.setStarted();
+            }
+            return;
+          }
+        }
+
         String locationUrl = findLocationUrl(null, fqClassName);
         final GradleSMTestProxy testProxy = new GradleSMTestProxy(name, true, locationUrl, null);
         testProxy.setLocator(getExecutionConsole().getUrlProvider());
         testProxy.setParentId(parentTestId);
         testProxy.setStarted();
         registerTestProxy(testId, testProxy);
+        if (combineTestsOfTheSameSuite) {
+          registerTestProxy(sameSuiteId, testProxy);
+        }
       }
     }
   }
 
+  @Override
   @NotNull
   protected String findLocationUrl(@Nullable String name, @NotNull String fqClassName) {
     return name == null
@@ -70,7 +73,7 @@ public class BeforeSuiteEvent extends AbstractTestEvent {
 
   private boolean isHiddenTestNode(String name, SMTestProxy parentTest) {
     return parentTest != null &&
-           !GradleConsoleProperties.SHOW_INTERNAL_TEST_NODES.value(getProperties()) &&
+           !showInternalTestNodes() &&
            StringUtil.startsWith(name, "Gradle Test Executor");
   }
 }

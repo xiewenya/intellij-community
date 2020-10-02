@@ -1,10 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.offlineViewer;
 
-import com.intellij.codeInspection.InspectionApplication;
+import com.intellij.codeInspection.InspectionsResultUtil;
 import com.intellij.codeInspection.offline.OfflineProblemDescriptor;
 import com.intellij.codeInspection.reference.SmartRefElementPointerImpl;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.containers.Interner;
 import com.thoughtworks.xstream.io.xml.XppReader;
 import gnu.trove.THashSet;
 import gnu.trove.TObjectIntHashMap;
@@ -12,10 +14,10 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 import org.xmlpull.mxp1.MXParser;
 
-import java.io.StringReader;
+import java.io.*;
 import java.util.*;
 
-public class OfflineViewParseUtil {
+public final class OfflineViewParseUtil {
   @NonNls private static final String PACKAGE = "package";
   @NonNls private static final String DESCRIPTION = "description";
   @NonNls private static final String HINTS = "hints";
@@ -25,10 +27,23 @@ public class OfflineViewParseUtil {
   private OfflineViewParseUtil() {
   }
 
-  public static Map<String, Set<OfflineProblemDescriptor>> parse(final String problems) {
-    final TObjectIntHashMap<String> fqName2IdxMap = new TObjectIntHashMap<>();
-    final Map<String, Set<OfflineProblemDescriptor>> package2Result = new HashMap<>();
-    final XppReader reader = new XppReader(new StringReader(problems), new MXParser());
+  public static Map<String, Set<OfflineProblemDescriptor>> parse(File problemFile) throws FileNotFoundException {
+    return parse(new FileReader(problemFile));
+  }
+
+  /**
+   * @deprecated use {@link #parse(File)} or {@link #parse(Reader)}
+   */
+  @Deprecated
+  public static Map<String, Set<OfflineProblemDescriptor>> parse(String problemText) {
+    return parse(new StringReader(problemText));
+  }
+
+  public static Map<String, Set<OfflineProblemDescriptor>> parse(Reader problemReader) {
+    TObjectIntHashMap<String> fqName2IdxMap = new TObjectIntHashMap<>();
+    Interner<@NlsSafe String> stringInterner = Interner.createStringInterner();
+    Map<String, Set<OfflineProblemDescriptor>> package2Result = new HashMap<>();
+    XppReader reader = new XppReader(problemReader, new MXParser());
     try {
       while(reader.hasMoreChildren()) {
         reader.moveDown(); //problem
@@ -49,13 +64,13 @@ public class OfflineViewParseUtil {
             fqName2IdxMap.put(fqName, idx + 1);
           }
           if (DESCRIPTION.equals(reader.getNodeName())) {
-            descriptor.setDescription(reader.getValue());
+            descriptor.setDescription(stringInterner.intern(reader.getValue()));
           }
           if (LINE.equals(reader.getNodeName())) {
             descriptor.setLine(Integer.parseInt(reader.getValue()));
           }
           if (MODULE.equals(reader.getNodeName())) {
-            descriptor.setModule(reader.getValue());
+            descriptor.setModule(stringInterner.intern(reader.getValue()));
           }
           if (HINTS.equals(reader.getNodeName())) {
             while(reader.hasMoreChildren()) {
@@ -65,7 +80,7 @@ public class OfflineViewParseUtil {
                 hints = new ArrayList<>();
                 descriptor.setHints(hints);
               }
-              hints.add(reader.getAttribute("value"));
+              hints.add(stringInterner.intern(reader.getAttribute("value")));
               reader.moveUp();
             }
           }
@@ -93,6 +108,35 @@ public class OfflineViewParseUtil {
     return package2Result;
   }
 
+
+  @Nullable
+  public static String parseProfileName(File descriptorFile) throws FileNotFoundException {
+    return parseProfileName(new FileReader(descriptorFile));
+  }
+
+  /**
+   * @deprecated use {@link #parseProfileName(File)} or {@link #parseProfileName(Reader)}
+   */
+  @Deprecated
+  @Nullable
+  public static String parseProfileName(String descriptorText) {
+    return parseProfileName(new StringReader(descriptorText));
+  }
+
+  @Nullable
+  public static String parseProfileName(Reader descriptorReader) {
+    final XppReader reader = new XppReader(descriptorReader, new MXParser());
+    try {
+      return reader.getAttribute(InspectionsResultUtil.PROFILE);
+    }
+    catch (Exception e) {
+      return null;
+    }
+    finally {
+      reader.close();
+    }
+  }
+
   private static void appendDescriptor(final Map<String, Set<OfflineProblemDescriptor>> package2Result,
                                        final String packageName,
                                        final OfflineProblemDescriptor descriptor) {
@@ -102,19 +146,5 @@ public class OfflineViewParseUtil {
       package2Result.put(packageName, descriptors);
     }
     descriptors.add(descriptor);
-  }
-
-  @Nullable
-  public static String parseProfileName(String descriptors) {
-    final XppReader reader = new XppReader(new StringReader(descriptors), new MXParser());
-    try {
-      return reader.getAttribute(InspectionApplication.PROFILE);
-    }
-    catch (Exception e) {
-      return null;
-    }
-    finally {
-      reader.close();
-    }
   }
 }

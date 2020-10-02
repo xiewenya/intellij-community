@@ -15,19 +15,21 @@
  */
 package com.intellij.codeInspection.htmlInspections;
 
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.codeInsight.daemon.impl.analysis.XmlHighlightingAwareElementDescriptor;
 import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlToken;
 import com.intellij.xml.XmlAttributeDescriptor;
-import com.intellij.xml.XmlBundle;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlExtension;
+import com.intellij.xml.analysis.XmlAnalysisBundle;
 import com.intellij.xml.impl.schema.AnyXmlElementDescriptor;
 import com.intellij.xml.util.HtmlUtil;
 import com.intellij.xml.util.XmlTagUtil;
@@ -43,8 +45,8 @@ import static com.intellij.codeInsight.daemon.impl.analysis.XmlHighlightVisitor.
 
 public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool implements XmlEntitiesInspection {
   @NonNls public static final Key<InspectionProfileEntry> SHORT_NAME_KEY = Key.create(REQUIRED_ATTRIBUTES_SHORT_NAME);
-  protected static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.htmlInspections.RequiredAttributesInspection");
-  public String myAdditionalRequiredHtmlAttributes = "";
+  protected static final Logger LOG = Logger.getInstance(RequiredAttributesInspectionBase.class);
+  public @NlsSafe String myAdditionalRequiredHtmlAttributes = "";
 
   private static String appendName(String toAppend, String text) {
     if (!toAppend.isEmpty()) {
@@ -54,18 +56,6 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
       toAppend = text;
     }
     return toAppend;
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return XmlInspectionGroupNames.HTML_INSPECTIONS;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionsBundle.message("inspection.required.attributes.display.name");
   }
 
   @Override
@@ -86,7 +76,8 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
   }
 
   public static LocalQuickFix getIntentionAction(String name) {
-    return new AddHtmlTagOrAttributeToCustomsIntention(SHORT_NAME_KEY, name, XmlBundle.message("add.optional.html.attribute", name));
+    return new AddHtmlTagOrAttributeToCustomsIntention(SHORT_NAME_KEY, name, XmlAnalysisBundle.message(
+      "html.quickfix.add.optional.html.attribute", name));
   }
 
   @Override
@@ -122,14 +113,15 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
             !XmlExtension.getExtension(tag.getContainingFile()).isRequiredAttributeImplicitlyPresent(tag, attrName)) {
 
           LocalQuickFix insertRequiredAttributeIntention = isOnTheFly ? XmlQuickFixFactory.getInstance().insertRequiredAttributeFix(tag, attrName) : null;
-          final String localizedMessage = XmlErrorMessages.message("element.doesnt.have.required.attribute", name, attrName);
+          final String localizedMessage = XmlAnalysisBundle.message("xml.inspections.element.doesnt.have.required.attribute", name, attrName);
           reportOneTagProblem(
             tag,
             attrName,
             localizedMessage,
             insertRequiredAttributeIntention,
             holder,
-            getIntentionAction(attrName)
+            getIntentionAction(attrName),
+            isOnTheFly
           );
         }
       }
@@ -147,10 +139,11 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
 
   private void reportOneTagProblem(final XmlTag tag,
                                    final String name,
-                                   @NotNull String localizedMessage,
+                                   @NotNull @InspectionMessage String localizedMessage,
                                    final LocalQuickFix basicIntention,
                                    ProblemsHolder holder,
-                                   final LocalQuickFix addAttributeFix) {
+                                   final LocalQuickFix addAttributeFix,
+                                   boolean isOnTheFly) {
     boolean htmlTag = false;
 
     if (tag instanceof HtmlTag) {
@@ -168,19 +161,22 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
       fixes = basicIntention == null ? LocalQuickFix.EMPTY_ARRAY : new LocalQuickFix[] {basicIntention};
       highlightType = ProblemHighlightType.ERROR;
     }
-    addElementsForTag(tag, localizedMessage, highlightType, holder, fixes);
+    addElementsForTag(tag, localizedMessage, highlightType, holder, isOnTheFly, fixes);
   }
 
   private static void addElementsForTag(XmlTag tag,
-                                        String message,
+                                        @InspectionMessage String message,
                                         ProblemHighlightType error,
                                         ProblemsHolder holder,
+                                        boolean isOnTheFly,
                                         LocalQuickFix... fixes) {
     registerProblem(message, error, holder, XmlTagUtil.getStartTagNameElement(tag), fixes);
-    registerProblem(message, error, holder, XmlTagUtil.getEndTagNameElement(tag), fixes);
+    if (isOnTheFly) {
+      registerProblem(message, error, holder, XmlTagUtil.getEndTagNameElement(tag), fixes);
+    }
   }
 
-  private static void registerProblem(String message,
+  private static void registerProblem(@InspectionMessage String message,
                                       ProblemHighlightType error,
                                       ProblemsHolder holder,
                                       XmlToken start,
@@ -191,7 +187,7 @@ public class RequiredAttributesInspectionBase extends HtmlLocalInspectionTool im
   }
 
   private static boolean isAdditionallyDeclared(final String additional, String name) {
-    name = name.toLowerCase();
+    name = StringUtil.toLowerCase(name);
     if (!additional.contains(name)) return false;
 
     StringTokenizer tokenizer = new StringTokenizer(additional, ", ");

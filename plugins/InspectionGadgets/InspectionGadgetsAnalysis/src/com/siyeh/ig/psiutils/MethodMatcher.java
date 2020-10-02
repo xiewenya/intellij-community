@@ -1,34 +1,19 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.psiutils;
 
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
-import com.intellij.psi.PsiCall;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.BaseInspection;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -40,9 +25,9 @@ import java.util.regex.PatternSyntaxException;
  */
 public class MethodMatcher {
 
-  private final List<String> myMethodNamePatterns = ContainerUtil.newArrayList();
-  private final List<String> myClassNames = ContainerUtil.newArrayList();
-  private final Map<String, Pattern> myPatternCache = ContainerUtil.newHashMap();
+  private final List<String> myMethodNamePatterns = new ArrayList<>();
+  private final List<String> myClassNames = new ArrayList<>();
+  private final Map<String, Pattern> myPatternCache = new HashMap<>();
   private final boolean myWriteDefaults;
   private final String myOptionName;
   private String myDefaultSettings = null;
@@ -51,12 +36,12 @@ public class MethodMatcher {
     this(false, "METHOD_MATCHER_CONFIG");
   }
 
-  public MethodMatcher(boolean writeDefaults, String optionName) {
+  public MethodMatcher(boolean writeDefaults, @NonNls String optionName) {
     myWriteDefaults = writeDefaults;
     myOptionName = optionName;
   }
 
-  public MethodMatcher add(@NotNull String className, @NotNull String methodNamePattern) {
+  public MethodMatcher add(@NonNls @NotNull String className, @NonNls @NotNull String methodNamePattern) {
     myClassNames.add(className);
     myMethodNamePatterns.add(methodNamePattern);
     return this;
@@ -129,8 +114,12 @@ public class MethodMatcher {
         continue;
       }
       final String className = myClassNames.get(i);
-      if (InheritanceUtil.isInheritor(aClass, className)) {
-        return true;
+      final PsiClass base = JavaPsiFacade.getInstance(method.getProject()).findClass(className, aClass.getResolveScope());
+      if (InheritanceUtil.isInheritorOrSelf(aClass, base, true)) {
+        if (base.findMethodsBySignature(method, false).length > 0) {
+          // is method present in base class and not introduced in some subclass
+          return true;
+        }
       }
     }
     return false;
@@ -164,7 +153,8 @@ public class MethodMatcher {
   public void readSettings(@NotNull Element node) throws InvalidDataException {
     String settings = null;
     for (Element option : node.getChildren("option")) {
-      if (option.getAttributeValue("name").equals(getOptionName())) {
+      final String value = option.getAttributeValue("name");
+      if (value != null && value.equals(getOptionName())) {
         settings = option.getAttributeValue("value");
         break;
       }

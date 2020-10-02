@@ -17,16 +17,22 @@
 package org.jetbrains.uast.java
 
 import com.intellij.psi.PsiAssertStatement
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiType
+import com.intellij.psi.ResolveResult
 import org.jetbrains.uast.*
 
 
 class JavaUAssertExpression(
-  override val psi: PsiAssertStatement,
+  override val sourcePsi: PsiAssertStatement,
   givenParent: UElement?
-) : JavaAbstractUExpression(givenParent), UCallExpressionEx {
-  val condition: UExpression by lz { JavaConverter.convertOrEmpty(psi.assertCondition, this) }
-  val message: UExpression? by lz { JavaConverter.convertOrNull(psi.assertDescription, this) }
+) : JavaAbstractUExpression(givenParent), UCallExpressionEx, UMultiResolvable {
+  val condition: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.assertCondition, this) }
+  val message: UExpression? by lz { JavaConverter.convertOrNull(sourcePsi.assertDescription, this) }
+
+  @Suppress("OverridingDeprecatedMember")
+  override val psi: PsiAssertStatement
+    get() = sourcePsi
 
   override val methodIdentifier: UIdentifier?
     get() = null
@@ -46,7 +52,7 @@ class JavaUAssertExpression(
   override val valueArgumentCount: Int
     get() = if (message != null) 2 else 1
 
-  override val valueArguments by lz {
+  override val valueArguments: List<UExpression> by lz {
     val message = this.message
     if (message != null) listOf(condition, message) else listOf(condition)
   }
@@ -65,5 +71,7 @@ class JavaUAssertExpression(
   override val kind: UastCallKind
     get() = JavaUastCallKinds.ASSERT
 
-  override fun resolve() = null
+  override fun resolve(): Nothing? = null
+
+  override fun multiResolve(): Iterable<ResolveResult> = emptyList()
 }

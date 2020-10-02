@@ -1,11 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.idea.eclipse.conversion;
 
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.OrderRootType;
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
@@ -28,7 +27,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-public class EclipseUserLibrariesHelper {
+public final class EclipseUserLibrariesHelper {
   //private static final String ORG_ECLIPSE_JDT_CORE_PREFS = "org.eclipse.jdt.core.prefs";
   //private static final String ORG_ECLIPSE_JDT_CORE_USER_LIBRARY = "org.eclipse.jdt.core.userLibrary.";
 
@@ -59,7 +58,7 @@ public class EclipseUserLibrariesHelper {
       if (!parentFile.mkdir()) return;
     }
     final Element userLibsElement = new Element("eclipse-userlibraries");
-    final List<Library> libraries = new ArrayList<>(Arrays.asList(ProjectLibraryTable.getInstance(project).getLibraries()));
+    final List<Library> libraries = new ArrayList<>(Arrays.asList(LibraryTablesRegistrar.getInstance().getLibraryTable(project).getLibraries()));
     ContainerUtil.addAll(libraries, LibraryTablesRegistrar.getInstance().getLibraryTable().getLibraries());
     for (Library library : libraries) {
       Element libElement = new Element("library");
@@ -77,7 +76,7 @@ public class EclipseUserLibrariesHelper {
       return;
     }
 
-    LibraryTable libraryTable = ProjectLibraryTable.getInstance(project);
+    LibraryTable libraryTable = LibraryTablesRegistrar.getInstance().getLibraryTable(project);
     Element element = JDOMUtil.load(exportedFile.getInputStream());
     WriteAction.run(() -> {
       for (Element libElement : element.getChildren("library")) {

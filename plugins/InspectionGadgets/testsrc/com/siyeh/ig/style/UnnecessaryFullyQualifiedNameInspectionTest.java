@@ -1,26 +1,25 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.style;
 
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.JavaPsiFacade;
+import com.intellij.psi.PsiClass;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
-import com.intellij.testFramework.IdeaTestUtil;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.siyeh.ig.IGInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 
 public class UnnecessaryFullyQualifiedNameInspectionTest extends IGInspectionTestCase {
   private static final String BASE_DIR = "com/siyeh/igtest/style/";
-
-  @Override
-  protected Sdk getTestProjectSdk() {
-    // uses awt
-    return IdeaTestUtil.getMockJdk17();
-  }
 
   public void testFqnInJavadoc_Unnecessary_WhenFullyQualifyIfNotImported() {
     doTestWithFqnInJavadocSetting(BASE_DIR + "unnecessary_fqn_javadoc_fully_qualify_if_not_imported", JavaCodeStyleSettings.FULLY_QUALIFY_NAMES_IF_NOT_IMPORTED);
   }
 
   public void testFqnInJavadoc_Unnecessary_WhenShortNamesAlways() {
+    final PsiClass aClass =
+      JavaPsiFacade.getInstance(getProject()).findClass("java.lang.Appendable", GlobalSearchScope.allScope(getProject()));
+    assertNotNull(aClass); // test needs this class to be present
     doTestWithFqnInJavadocSetting(BASE_DIR + "unnecessary_fully_qualified_name/", JavaCodeStyleSettings.SHORTEN_NAMES_ALWAYS_AND_ADD_IMPORT);
   }
 
@@ -33,16 +32,14 @@ public class UnnecessaryFullyQualifiedNameInspectionTest extends IGInspectionTes
   }
 
   private void doTestWithFqnInJavadocSetting(String dirPath, int classNamesInJavadoc) {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
-    JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
+    JavaCodeStyleSettings javaSettings = JavaCodeStyleSettings.getInstance(getProject());
 
-    int oldClassNamesInJavadoc = javaSettings.CLASS_NAMES_IN_JAVADOC;
-    try {
-      javaSettings.CLASS_NAMES_IN_JAVADOC = classNamesInJavadoc;
-      doTest(dirPath, new UnnecessaryFullyQualifiedNameInspection());
-    }
-    finally {
-      javaSettings.CLASS_NAMES_IN_JAVADOC = oldClassNamesInJavadoc;
-    }
+    javaSettings.CLASS_NAMES_IN_JAVADOC = classNamesInJavadoc;
+    doTest(dirPath, new UnnecessaryFullyQualifiedNameInspection());
+  }
+
+  @Override
+  protected @NotNull LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_11;
   }
 }

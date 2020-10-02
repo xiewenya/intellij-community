@@ -1,90 +1,64 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
+import com.intellij.application.options.CodeStyle;
+import com.intellij.codeInsight.ExpectedTypeInfo;
 import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static com.intellij.codeInsight.completion.ReferenceExpressionCompletionContributor.getSpace;
-import static com.intellij.patterns.PsiJavaPatterns.psiElement;
 
 /**
  * @author peter
  */
-class SlowerTypeConversions implements Runnable {
-  private static final PrefixMatcher TRUE_MATCHER = new PrefixMatcher("") {
-    @Override
-    public boolean prefixMatches(@NotNull String name) {
-      return true;
-    }
+final class SlowerTypeConversions {
+  static void addChainedSuggestions(CompletionParameters parameters,
+                                    CompletionResultSet result,
+                                    Set<ExpectedTypeInfo> expectedInfos,
+                                    List<LookupElement> base) {
+    PsiElement position = parameters.getPosition();
+    PsiJavaCodeReferenceElement reference = (PsiJavaCodeReferenceElement)position.getParent();
+    List<LookupElement> chainable = ContainerUtil.filter(base, item -> isChainable(item.getObject()));
+    if (chainable.isEmpty()) return;
 
-    @NotNull
-    @Override
-    public PrefixMatcher cloneWithPrefix(@NotNull String prefix) {
-      return this;
-    }
-  };
-  private final Set<LookupElement> myBase;
-  private final PsiElement myElement;
-  private final PsiJavaCodeReferenceElement myReference;
-  private final JavaSmartCompletionParameters myParameters;
-  private final Consumer<LookupElement> myResult;
+    for (ExpectedTypeInfo info : expectedInfos) {
+      Set<Pair<LookupElement, String>> processedChains = new HashSet<>();
+      JavaSmartCompletionParameters smartParams = new JavaSmartCompletionParameters(parameters, info);
+      for (LookupElement item : chainable) {
+        addSecondCompletionVariants(position, reference, item, smartParams, lookupElement -> {
+          ContainerUtil.addIfNotNull(processedChains, chainInfo(lookupElement));
+          result.consume(JavaSmartCompletionContributor.decorate(lookupElement, expectedInfos));
+        });
+      }
+      if (!reference.isQualified()) {
+        BasicExpressionCompletionContributor.processDataflowExpressionTypes(smartParams, null, PrefixMatcher.ALWAYS_TRUE,
+                                                                            baseItem -> addSecondCompletionVariants(position, reference, baseItem, smartParams, lookupElement -> {
+                                                                              if (!processedChains.contains(chainInfo(lookupElement))) {
+                                                                                result.consume(JavaSmartCompletionContributor.decorate(lookupElement, expectedInfos));
+                                                                              }
+                                                                            }));
+      }
 
-  SlowerTypeConversions(Set<LookupElement> base,
-                        PsiElement element,
-                        PsiJavaCodeReferenceElement reference,
-                        JavaSmartCompletionParameters parameters, Consumer<LookupElement> result) {
-    myBase = base;
-    myElement = element;
-    myReference = reference;
-    myParameters = parameters;
-    myResult = result;
+    }
   }
 
-  @Override
-  public void run() {
-    final Set<Pair<LookupElement, String>> processedChains = ContainerUtil.newHashSet();
-    for (final LookupElement item : myBase) {
-      addSecondCompletionVariants(myElement, myReference, item, myParameters, lookupElement -> {
-        ContainerUtil.addIfNotNull(processedChains, chainInfo(lookupElement));
-        myResult.consume(lookupElement);
-      });
-    }
-    if (!psiElement().afterLeaf(".").accepts(myElement)) {
-      BasicExpressionCompletionContributor.processDataflowExpressionTypes(myElement, null, TRUE_MATCHER,
-                                                                          baseItem -> addSecondCompletionVariants(myElement, myReference, baseItem, myParameters, lookupElement -> {
-                                                                            if (!processedChains.contains(chainInfo(lookupElement))) {
-                                                                              myResult.consume(lookupElement);
-                                                                            }
-                                                                          }));
-    }
+  private static boolean isChainable(Object object) {
+    return object instanceof PsiVariable || object instanceof PsiMethod || object instanceof PsiExpression;
   }
 
   private static void addSecondCompletionVariants(PsiElement element, PsiReference reference, LookupElement baseItem,
-                                                  JavaSmartCompletionParameters parameters, Consumer<LookupElement> result) {
+                                                  JavaSmartCompletionParameters parameters, Consumer<? super LookupElement> result) {
     final Object object = baseItem.getObject();
 
     try {
@@ -93,7 +67,7 @@ class SlowerTypeConversions implements Runnable {
         itemType = ((PsiWildcardType)itemType).getExtendsBound();
       }
       if (itemType == null) return;
-      assert itemType.isValid() : baseItem + "; " + baseItem.getClass();
+      PsiUtil.ensureValidType(itemType, baseItem + "; " + baseItem.getClass());
 
       final PsiElement element1 = reference.getElement();
       final PsiElement qualifier =
@@ -101,12 +75,13 @@ class SlowerTypeConversions implements Runnable {
       final PsiType expectedType = parameters.getExpectedType();
       ChainedCallCompletion.addChains(element, baseItem, result, itemType, expectedType, parameters);
 
-      final String prefix = getItemText(object);
+      final PsiFile file = parameters.getParameters().getOriginalFile();
+      final String prefix = getItemText(file, object);
       if (prefix == null) return;
 
       FromArrayConversion.addConversions(element, prefix, itemType, result, qualifier, expectedType);
 
-      ToArrayConversion.addConversions(element, prefix, itemType, result, qualifier, expectedType);
+      ToArrayConversion.addConversions(file, element, prefix, itemType, result, qualifier, expectedType);
 
       ArrayMemberAccess.addMemberAccessors(element, prefix, itemType, qualifier, result, (PsiModifierListOwner)object, expectedType);
     }
@@ -115,15 +90,14 @@ class SlowerTypeConversions implements Runnable {
   }
 
   @Nullable
-  private static String getItemText(Object o) {
+  private static String getItemText(@NotNull PsiFile file, Object o) {
     if (o instanceof PsiMethod) {
       final PsiMethod method = (PsiMethod)o;
       final PsiType type = method.getReturnType();
       if (PsiType.VOID.equals(type) || PsiType.NULL.equals(type)) return null;
       if (!method.getParameterList().isEmpty()) return null;
       return method.getName() + "(" +
-             getSpace(CodeStyleSettingsManager.getSettings(method.getProject())
-                        .getCommonSettings(JavaLanguage.INSTANCE).SPACE_WITHIN_METHOD_CALL_PARENTHESES) + ")";
+             getSpace(CodeStyle.getLanguageSettings(file).SPACE_WITHIN_EMPTY_METHOD_CALL_PARENTHESES) + ")";
     }
     else if (o instanceof PsiVariable) {
       return ((PsiVariable)o).getName();

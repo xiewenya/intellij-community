@@ -1,28 +1,35 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.StateStorage
 import com.intellij.openapi.components.impl.stores.BatchUpdateListener
-import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.debugOrInfoIfTestMode
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.util.messages.MessageBus
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicReference
 
-private val LOG = logger<StateStorageBase<*>>()
-
 abstract class StateStorageBase<T : Any> : StateStorage {
-  private var mySavingDisabled = false
+  companion object {
+    private val LOG = logger<StateStorageBase<*>>()
+  }
+
+  private var isSavingDisabled = false
 
   protected val storageDataRef: AtomicReference<T> = AtomicReference()
 
-  override final fun <S : Any> getState(component: Any?, componentName: String, stateClass: Class<S>, mergeInto: S?, reload: Boolean): S? {
+  override fun <T : Any> getState(component: Any?, componentName: String, stateClass: Class<T>, mergeInto: T?, reload: Boolean): T? {
     return getState(component, componentName, stateClass, reload, mergeInto)
   }
 
-  fun <S: Any> getState(component: Any?, componentName: String, stateClass: Class<S>, reload: Boolean = false, mergeInto: S? = null): S? {
-    return deserializeState(getSerializedState(getStorageData(reload), component, componentName, archive = true), stateClass, mergeInto)
+  fun <T : Any> getState(component: Any?, componentName: String, stateClass: Class<T>, reload: Boolean = false, mergeInto: T? = null): T? {
+    return deserializeState(getSerializedState(getStorageData(reload), component, componentName, archive = false), stateClass, mergeInto)
   }
+
+  @ApiStatus.Internal
+  fun getStorageData(): T = getStorageData(false)
 
   open fun <S: Any> deserializeState(serializedState: Element?, stateClass: Class<S>, mergeInto: S?): S? {
     return com.intellij.configurationStore.deserializeState(serializedState, stateClass, mergeInto)
@@ -32,7 +39,7 @@ abstract class StateStorageBase<T : Any> : StateStorage {
 
   protected abstract fun hasState(storageData: T, componentName: String): Boolean
 
-  override final fun hasState(componentName: String, reloadData: Boolean): Boolean {
+  final override fun hasState(componentName: String, reloadData: Boolean): Boolean {
     return hasState(getStorageData(reloadData), componentName)
   }
 
@@ -54,23 +61,28 @@ abstract class StateStorageBase<T : Any> : StateStorage {
   protected abstract fun loadData(): T
 
   fun disableSaving() {
-    LOG.debug { "Disabled saving for ${toString()}" }
-    mySavingDisabled = true
+    LOG.debugOrInfoIfTestMode { "Disable saving: ${toString()}" }
+    isSavingDisabled = true
   }
 
   fun enableSaving() {
-    LOG.debug { "Enabled saving ${toString()}" }
-    mySavingDisabled = false
+    LOG.debugOrInfoIfTestMode { "Enable saving: ${toString()}" }
+    isSavingDisabled = false
   }
 
   protected fun checkIsSavingDisabled(): Boolean {
-    LOG.debug { "Saving disabled for ${toString()}" }
-    return mySavingDisabled
+    if (isSavingDisabled) {
+      LOG.debugOrInfoIfTestMode { "Saving disabled: ${toString()}" }
+      return true
+    }
+    else {
+      return false
+    }
   }
 }
 
-inline fun <T> runBatchUpdate(messageBus: MessageBus, runnable: () -> T): T {
-  val publisher = messageBus.syncPublisher(BatchUpdateListener.TOPIC)
+inline fun <T> runBatchUpdate(project: Project, runnable: () -> T): T {
+  val publisher = project.messageBus.syncPublisher(BatchUpdateListener.TOPIC)
   publisher.onBatchUpdateStarted()
   try {
     return runnable()
@@ -79,3 +91,5 @@ inline fun <T> runBatchUpdate(messageBus: MessageBus, runnable: () -> T): T {
     publisher.onBatchUpdateFinished()
   }
 }
+
+class UnresolvedReadOnlyFilesException(val files: List<VirtualFile>) : RuntimeException()

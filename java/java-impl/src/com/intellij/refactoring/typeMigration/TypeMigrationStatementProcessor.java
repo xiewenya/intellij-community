@@ -1,28 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
 import com.intellij.codeInsight.generation.GetterSetterPrototypeProvider;
-import com.intellij.codeInsight.intention.impl.SplitDeclarationAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.DefUseUtil;
-import com.intellij.psi.impl.PsiSubstitutorImpl;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.tree.IElementType;
@@ -30,7 +14,7 @@ import com.intellij.psi.util.*;
 import com.intellij.refactoring.typeMigration.usageInfo.TypeMigrationUsageInfo;
 import com.intellij.util.CommonProcessors;
 import com.intellij.util.IncorrectOperationException;
-import java.util.HashMap;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
@@ -39,13 +23,15 @@ import java.util.Map;
 /**
  * @author anna
  */
+//return from lambda is processed inside visitReturnStatement
+@SuppressWarnings("UnsafeReturnStatementVisitor")
 class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
   private final PsiElement myStatement;
   private final TypeMigrationLabeler myLabeler;
   private static final Logger LOG = Logger.getInstance(TypeMigrationStatementProcessor.class);
   private final TypeEvaluator myTypeEvaluator;
 
-  public TypeMigrationStatementProcessor(final PsiElement expression, TypeMigrationLabeler labeler) {
+  TypeMigrationStatementProcessor(final PsiElement expression, TypeMigrationLabeler labeler) {
     myStatement = expression;
     myLabeler = labeler;
     myTypeEvaluator = myLabeler.getTypeEvaluator();
@@ -240,6 +226,12 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
         }
       }
     }
+    else if (PsiUtil.isCondition(expression, expression.getParent())) {
+      final TypeView view = new TypeView(expression);
+      if (view.isChanged()) { //means that boolean condition becomes non-boolean
+        findConversionOrFail(expression, expression, view.getTypePair());
+      }
+    }
   }
 
   @Override
@@ -319,7 +311,7 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
 
     return aSubstitutor.substitute(itClass.getTypeParameters()[0]);
   }
-  
+
   @Override
   public void visitNewExpression(final PsiNewExpression expression) {
     super.visitNewExpression(expression);
@@ -577,8 +569,7 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
             final PsiDeclarationStatement decl = PsiTreeUtil.getParentOfType(var, PsiDeclarationStatement.class);
             if (decl == null) return null;
             final Project project = var.getProject();
-            final PsiAssignmentExpression assignment =
-              SplitDeclarationAction.invokeOnDeclarationStatement(decl, PsiManager.getInstance(project), project);
+            final PsiAssignmentExpression assignment = ExpressionUtils.splitDeclaration(decl, project);
             final PsiExpression rExpression = assignment.getRExpression();
             if (rExpression == null) return null;
             assignment.replace(rExpression);
@@ -637,24 +628,22 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
     final PsiType myType;
     final boolean myChanged;
 
-    public TypeView(@NotNull PsiExpression expr) {
+    TypeView(@NotNull PsiExpression expr) {
       PsiType exprType = expr.getType();
-      exprType = exprType instanceof PsiEllipsisType ? ((PsiEllipsisType)exprType).toArrayType() : exprType;
       myOriginType = GenericsUtil.getVariableTypeByExpressionType(exprType);
       PsiType type = myTypeEvaluator.evaluateType(expr);
-      type = type instanceof PsiEllipsisType ? ((PsiEllipsisType)type).toArrayType() : type;
       myType = GenericsUtil.getVariableTypeByExpressionType(type);
       myChanged = !(myOriginType == null || myType == null) && !myType.equals(myOriginType);
     }
 
-    public TypeView(PsiVariable var, PsiSubstitutor varSubstitutor, PsiSubstitutor evalSubstitutor) {
+    TypeView(PsiVariable var, PsiSubstitutor varSubstitutor, PsiSubstitutor evalSubstitutor) {
       myOriginType = varSubstitutor != null ? varSubstitutor.substitute(var.getType()) : var.getType();
 
-      Map<PsiTypeParameter, PsiType> realMap = new HashMap<>();
-      if (varSubstitutor != null) realMap.putAll(varSubstitutor.getSubstitutionMap());
-      if (evalSubstitutor != null) realMap.putAll(evalSubstitutor.getSubstitutionMap());
+      PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
+      if (varSubstitutor != null) substitutor = substitutor.putAll(varSubstitutor);
+      if (evalSubstitutor != null) substitutor = substitutor.putAll(evalSubstitutor);
 
-      myType = PsiSubstitutorImpl.createSubstitutor(realMap).substitute(myTypeEvaluator.getType(var));
+      myType = substitutor.substitute(myTypeEvaluator.getType(var));
       myChanged = !(myOriginType == null || myType == null) && !myType.equals(myOriginType);
     }
 
@@ -675,7 +664,7 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
     }
   }
 
-  private static class TypeInfection {
+  private static final class TypeInfection {
     static final int NONE_INFECTED = 0;
     static final int LEFT_INFECTED = 1;
     static final int RIGHT_INFECTED = 2;
@@ -731,7 +720,7 @@ class TypeMigrationStatementProcessor extends JavaRecursiveElementVisitor {
     if (required == PsiSubstitutor.EMPTY) {
       return actual;
     }
-    PsiSubstitutor result = PsiSubstitutorImpl.createSubstitutor(actual.getSubstitutionMap());
+    PsiSubstitutor result = PsiSubstitutor.createSubstitutor(actual.getSubstitutionMap());
     for (Map.Entry<PsiTypeParameter, PsiType> e : required.getSubstitutionMap().entrySet()) {
       final PsiTypeParameter typeParameter = e.getKey();
       final PsiType requiredType = e.getValue();

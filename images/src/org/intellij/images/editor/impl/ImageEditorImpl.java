@@ -30,6 +30,7 @@ import org.intellij.images.vfs.IfsUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.awt.*;
 
 /**
  * Image viewer implementation.
@@ -43,10 +44,17 @@ public final class ImageEditorImpl implements ImageEditor {
   private boolean disposed;
 
   public ImageEditorImpl(@NotNull Project project, @NotNull VirtualFile file) {
+    this(project, file, false);
+  }
+
+    /**
+     * @param isEmbedded if it's true the toolbar and the image info are disabled and an image is left-side aligned
+     */
+  public ImageEditorImpl(@NotNull Project project, @NotNull VirtualFile file, boolean isEmbedded) {
     this.project = project;
     this.file = file;
 
-    editorUI = new ImageEditorUI(this);
+    editorUI = new ImageEditorUI(this, isEmbedded);
     Disposer.register(this, editorUI);
 
     VirtualFileManager.getInstance().addVirtualFileListener(new VirtualFileListener() {
@@ -64,7 +72,7 @@ public final class ImageEditorImpl implements ImageEditor {
     setValue(file);
   }
 
-  private void setValue(VirtualFile file) {
+  void setValue(VirtualFile file) {
     try {
       editorUI.setImageProvider(IfsUtil.getImageProvider(file), IfsUtil.getFormat(file));
     }
@@ -74,64 +82,88 @@ public final class ImageEditorImpl implements ImageEditor {
     }
   }
 
+  @Override
   public boolean isValid() {
     ImageDocument document = editorUI.getImageComponent().getDocument();
     return document.getValue() != null;
   }
 
+  @Override
   public ImageEditorUI getComponent() {
     return editorUI;
   }
 
+  @Override
   public JComponent getContentComponent() {
     return editorUI.getImageComponent();
   }
 
+  @Override
   @NotNull
   public VirtualFile getFile() {
     return file;
   }
 
+  @Override
   @NotNull
   public Project getProject() {
     return project;
   }
 
+  @Override
   public ImageDocument getDocument() {
     return editorUI.getImageComponent().getDocument();
   }
 
+  @Override
   public void setTransparencyChessboardVisible(boolean visible) {
     editorUI.getImageComponent().setTransparencyChessboardVisible(visible);
     editorUI.repaint();
   }
 
+  @Override
   public boolean isTransparencyChessboardVisible() {
     return editorUI.getImageComponent().isTransparencyChessboardVisible();
   }
 
+  @Override
   public boolean isEnabledForActionPlace(String place) {
     // Disable for thumbnails action
     return !ThumbnailViewActions.ACTION_PLACE.equals(place);
   }
 
+  @Override
   public void setGridVisible(boolean visible) {
     editorUI.getImageComponent().setGridVisible(visible);
     editorUI.repaint();
   }
 
+  @Override
+  public void setEditorBackground(Color color) {
+    editorUI.getImageComponent().getParent().setBackground(color);
+  }
+
+  @Override
+  public void setBorderVisible(boolean visible) {
+    editorUI.getImageComponent().setBorderVisible(visible);
+  }
+
+  @Override
   public boolean isGridVisible() {
     return editorUI.getImageComponent().isGridVisible();
   }
 
+  @Override
   public boolean isDisposed() {
     return disposed;
   }
 
+  @Override
   public ImageZoomModel getZoomModel() {
     return editorUI.getZoomModel();
   }
 
+  @Override
   public void dispose() {
     disposed = true;
   }

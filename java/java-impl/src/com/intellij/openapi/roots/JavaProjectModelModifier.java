@@ -31,8 +31,6 @@ import java.util.Collection;
  * extensions refuse to handle modification by returning {@code null}.
  *
  * @see JavaProjectModelModificationService
- *
- * @author nik
  */
 public abstract class JavaProjectModelModifier {
   public static final ExtensionPointName<JavaProjectModelModifier> EP_NAME = ExtensionPointName.create("com.intellij.projectModelModifier");
@@ -46,9 +44,8 @@ public abstract class JavaProjectModelModifier {
    * {@code null} otherwise
    */
   @Nullable
-  @SuppressWarnings("deprecation")
   public Promise<Void> addModuleDependency(@NotNull Module from, @NotNull Module to, @NotNull DependencyScope scope, boolean exported) {
-    return addModuleDependency(from, to, scope);
+    throw new UnsupportedOperationException("#addModuleDependency(Module, Module, DependencyScope) called on " + this);
   }
 
   /**
@@ -61,9 +58,8 @@ public abstract class JavaProjectModelModifier {
    * {@code null} otherwise
    */
   @Nullable
-  @SuppressWarnings("deprecation")
   public Promise<Void> addLibraryDependency(@NotNull Module from, @NotNull Library library, @NotNull DependencyScope scope, boolean exported) {
-    return addLibraryDependency(from, library, scope);
+    throw new UnsupportedOperationException("#addLibraryDependency(Module, Library, DependencyScope) called on " + this);
   }
 
   /**
@@ -76,7 +72,7 @@ public abstract class JavaProjectModelModifier {
    * {@code null} otherwise
    */
   @Nullable
-  public abstract Promise<Void> addExternalLibraryDependency(@NotNull Collection<Module> modules,
+  public abstract Promise<Void> addExternalLibraryDependency(@NotNull Collection<? extends Module> modules,
                                                              @NotNull ExternalLibraryDescriptor descriptor,
                                                              @NotNull DependencyScope scope);
 
@@ -90,18 +86,4 @@ public abstract class JavaProjectModelModifier {
    */
   @Nullable
   public abstract Promise<Void> changeLanguageLevel(@NotNull Module module, @NotNull LanguageLevel level);
-
-  //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated implement {@link #addModuleDependency(Module, Module, DependencyScope, boolean)} (to be removed in IDEA 2019) */
-  @SuppressWarnings({"DeprecatedIsStillUsed", "unused"})
-  public Promise<Void> addModuleDependency(@NotNull Module from, @NotNull Module to, @NotNull DependencyScope scope) {
-    throw new UnsupportedOperationException("#addModuleDependency(Module, Module, DependencyScope) called on " + this);
-  }
-
-  /** @deprecated implement {@link #addLibraryDependency(Module, Library, DependencyScope, boolean)} (to be removed in IDEA 2019) */
-  @SuppressWarnings({"DeprecatedIsStillUsed", "unused"})
-  public Promise<Void> addLibraryDependency(@NotNull Module from, @NotNull Library library, @NotNull DependencyScope scope) {
-    throw new UnsupportedOperationException("#addLibraryDependency(Module, Library, DependencyScope) called on " + this);
-  }
-  //</editor-fold>
 }

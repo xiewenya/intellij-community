@@ -1,30 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.changeSignature;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.changeSignature.CallerChooserBase;
 import com.intellij.refactoring.changeSignature.ChangeSignatureDialogBase;
 import com.intellij.refactoring.changeSignature.ExceptionsTableModel;
@@ -75,8 +62,9 @@ public class GrChangeSignatureDialog extends ChangeSignatureDialogBase<GrParamet
     return GroovyFileType.GROOVY_FILE_TYPE;
   }
 
+  @NotNull
   @Override
-  protected GrParameterTableModel createParametersInfoModel(GrMethodDescriptor method) {
+  protected GrParameterTableModel createParametersInfoModel(@NotNull GrMethodDescriptor method) {
     final PsiParameterList parameterList = method.getMethod().getParameterList();
     return new GrParameterTableModel(parameterList, myDefaultValueContext, this);
   }
@@ -89,21 +77,19 @@ public class GrChangeSignatureDialog extends ChangeSignatureDialogBase<GrParamet
     return new GrChangeSignatureProcessor(myProject, info);
   }
 
-  @NotNull
   @Override
-  protected List<Pair<String, JPanel>> createAdditionalPanels() {
+  protected @NotNull List<Pair<@NlsContexts.TabTitle String, JPanel>> createAdditionalPanels() {
     // this method is invoked before constructor body
     myExceptionsModel = new ExceptionsTableModel(myMethod.getMethod().getThrowsList());
     myExceptionsModel.setTypeInfos(myMethod.getMethod());
 
     final JBTable table = new JBTable(myExceptionsModel);
-    table.setStriped(true);
     table.setRowHeight(20);
     table.getColumnModel().getColumn(0).setCellRenderer(new CodeFragmentTableCellRenderer(myProject));
     final JavaCodeFragmentTableCellEditor cellEditor = new JavaCodeFragmentTableCellEditor(myProject);
     cellEditor.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         final int row = table.getSelectedRow();
         final int col = table.getSelectedColumn();
         myExceptionsModel.setValueAt(cellEditor.getCellEditorValue(), row, col);
@@ -144,7 +130,7 @@ public class GrChangeSignatureDialog extends ChangeSignatureDialogBase<GrParamet
     myExceptionsModel.addTableModelListener(mySignatureUpdater);
 
     final ArrayList<Pair<String, JPanel>> result = new ArrayList<>();
-    final String message = RefactoringBundle.message("changeSignature.exceptions.panel.border.title");
+    final String message = JavaRefactoringBundle.message("changeSignature.exceptions.panel.border.title");
     result.add(Pair.create(message, panel));
     return result;
 

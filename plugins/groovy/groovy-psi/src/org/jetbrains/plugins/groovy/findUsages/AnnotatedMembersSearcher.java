@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.findUsages;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -30,6 +16,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.index.GrAnnotatedMemberIndex;
@@ -70,7 +57,7 @@ public class AnnotatedMembersSearcher implements QueryExecutor<PsiModifierListOw
   }
 
   @Override
-  public boolean execute(@NotNull final AnnotatedElementsSearch.Parameters p, @NotNull final Processor<PsiModifierListOwner> consumer) {
+  public boolean execute(@NotNull final AnnotatedElementsSearch.Parameters p, @NotNull final Processor<? super PsiModifierListOwner> consumer) {
     final PsiClass annClass = p.getAnnotationClass();
     assert annClass.isAnnotationType() : "Annotation type should be passed to annotated members search";
 
@@ -108,9 +95,9 @@ public class AnnotatedMembersSearcher implements QueryExecutor<PsiModifierListOw
       boolean accepted = ReadAction.compute(() -> {
         if (AnnotatedElementsSearcher.isInstanceof(candidate, p.getTypes())) {
           PsiModifierList list = candidate.getModifierList();
-          if (list != null) {
-            for (PsiAnnotation annotation : list.getAnnotations()) {
-              if ((p.isApproximate() || annotationFQN.equals(annotation.getQualifiedName())) && !consumer.process(candidate)) {
+          if (list instanceof GrModifierList) {
+            for (PsiAnnotation annotation : ((GrModifierList)list).getRawAnnotations()) {
+              if ((p.isApproximate() || annotation.hasQualifiedName(annotationFQN)) && !consumer.process(candidate)) {
                 return false;
               }
             }

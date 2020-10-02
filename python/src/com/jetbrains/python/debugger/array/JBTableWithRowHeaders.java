@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.array;
 
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -28,16 +13,18 @@ import java.awt.*;
 import java.awt.event.MouseListener;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author amarch
  */
-public class JBTableWithRowHeaders extends JBTable {
+public class JBTableWithRowHeaders extends AbstractDataViewTable {
+  private static final int MAX_INIT_COLUMN_WIDTH = 250;
   private final JBScrollPane myScrollPane;
   private boolean myAutoResize;
   private final RowHeaderTable myRowHeaderTable;
-  private final Set<Integer> myNotAdjustableColumns = ContainerUtil.newHashSet();
+  private final Set<Integer> myNotAdjustableColumns = new HashSet<>();
 
   public JBTableWithRowHeaders(boolean autoResize) {
     myAutoResize = autoResize;
@@ -52,8 +39,7 @@ public class JBTableWithRowHeaders extends JBTable {
     myRowHeaderTable = new JBTableWithRowHeaders.RowHeaderTable(this);
     myRowHeaderTable.getEmptyText().setText("");
     myScrollPane.setRowHeaderView(myRowHeaderTable);
-    myScrollPane.setCorner(ScrollPaneConstants.UPPER_LEFT_CORNER,
-                         myRowHeaderTable.getTableHeader());
+    myScrollPane.setCorner(ScrollPaneConstants.UPPER_LEFT_CORNER, myRowHeaderTable.getTableHeader()); //NON-NLS
   }
 
   @NotNull
@@ -68,24 +54,33 @@ public class JBTableWithRowHeaders extends JBTable {
     return component;
   }
 
+  @Override
   public void setAutoResize(boolean autoResize) {
     myNotAdjustableColumns.clear();
     myAutoResize = autoResize;
     setAutoResizeMode(myAutoResize ? AUTO_RESIZE_OFF : AUTO_RESIZE_SUBSEQUENT_COLUMNS);
   }
 
+  @Override
+  public void setEmpty() {
+    setModel(new DefaultTableModel());
+    myRowHeaderTable.setModel(new DefaultTableModel());
+  }
+
   private static int updateColumnWidth(int column, int width, @NotNull JTable table) {
     TableColumn tableColumn = table.getColumnModel().getColumn(column);
     int headerWidth = new ColumnHeaderRenderer().getTableCellRendererComponent(table, tableColumn.getHeaderValue(), false, false, -1, column).getPreferredSize().width + 4;
     int newWidth = Math.max(width, headerWidth) + 2 * table.getIntercellSpacing().width;
-    tableColumn.setPreferredWidth(Math.max(newWidth, tableColumn.getPreferredWidth()));
+    tableColumn.setPreferredWidth(Math.min(Math.max(newWidth, tableColumn.getPreferredWidth()), MAX_INIT_COLUMN_WIDTH));
     return newWidth;
   }
 
+  @Override
   public JBScrollPane getScrollPane() {
     return myScrollPane;
   }
 
+  @Override
   public boolean getScrollableTracksViewportWidth() {
     return getPreferredSize().width < getParent().getWidth();
   }
@@ -156,6 +151,7 @@ public class JBTableWithRowHeaders extends JBTable {
     }
 
 
+    @Override
     public void propertyChange(PropertyChangeEvent e) {
       if ("selectionModel".equals(e.getPropertyName())) {
         setSelectionModel(myMainTable.getSelectionModel());
@@ -172,10 +168,11 @@ public class JBTableWithRowHeaders extends JBTable {
 
 
     private class RowNumberRenderer extends DefaultTableCellRenderer {
-      public RowNumberRenderer() {
+      RowNumberRenderer() {
         setHorizontalAlignment(SwingConstants.CENTER);
       }
 
+      @Override
       public Component getTableCellRendererComponent(
         JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
         if (table != null) {
@@ -192,7 +189,7 @@ public class JBTableWithRowHeaders extends JBTable {
           setFont(getFont().deriveFont(Font.BOLD));
         }
 
-        setText((value == null) ? "" : value.toString());
+        setText((value == null) ? "" : value.toString()); //NON-NLS
         setBorder(UIManager.getBorder("TableHeader.cellBorder"));
 
         return this;
@@ -255,10 +252,5 @@ public class JBTableWithRowHeaders extends JBTable {
       setBorder(UIManager.getBorder("TableHeader.cellBorder"));
       return this;
     }
-  }
-
-  public void setEmpty() {
-    setModel(new DefaultTableModel());
-    myRowHeaderTable.setModel(new DefaultTableModel());
   }
 }

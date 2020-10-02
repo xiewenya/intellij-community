@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.maven.compiler;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,6 +25,7 @@ import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,9 +35,6 @@ import static com.intellij.openapi.util.io.FileUtil.toSystemIndependentName;
 import static com.intellij.openapi.util.text.StringUtil.trimEnd;
 import static com.intellij.openapi.util.text.StringUtil.trimStart;
 
-/**
- * @author nik
- */
 public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopyingHandlerProvider {
   private static final Logger LOG = Logger.getInstance(MavenWebArtifactRootCopyingHandlerProvider.class);
 
@@ -88,9 +73,14 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
         if (relativeDirInWar == null) return null;
       }
       ResourceRootConfiguration warRootConfig = getWarRootConfig(artifactResourceConfiguration, moduleResourceConfiguration);
+      if (root.isFile()) {
+        root = root.getParentFile();
+      }
       warRootConfig.directory = root.getPath();
-      warRootConfig.includes.addAll(artifactResourceConfiguration.warSourceIncludes);
-      warRootConfig.excludes.addAll(artifactResourceConfiguration.warSourceExcludes);
+      if (relativeDirInWar == null) {
+        warRootConfig.includes.addAll(artifactResourceConfiguration.warSourceIncludes);
+        warRootConfig.excludes.addAll(artifactResourceConfiguration.warSourceExcludes);
+      }
       return new MavenWebArtifactCopyingHandler(warRootConfig, moduleResourceConfiguration, relativeDirInWar);
     }
 
@@ -103,7 +93,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     private final ResourceRootConfiguration myWarRootConfig;
     private final MavenModuleResourceConfiguration myModuleResourceConfig;
 
-    public MavenWebArtifactCopyingHandler(@NotNull MavenWebArtifactConfiguration artifactConfig,
+    MavenWebArtifactCopyingHandler(@NotNull MavenWebArtifactConfiguration artifactConfig,
                                           @NotNull MavenModuleResourceConfiguration moduleResourceConfig,
                                           @Nullable String relativeDirectoryPath) {
       this(getWarRootConfig(artifactConfig, moduleResourceConfig), moduleResourceConfig, relativeDirectoryPath);
@@ -155,7 +145,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     private final File myTargetDir;
     private final List<ResourceRootConfiguration> myWebResources;
 
-    public MavenClassesCopyingHandler(@NotNull File targetDir,
+    MavenClassesCopyingHandler(@NotNull File targetDir,
                                       @NotNull MavenWebArtifactConfiguration artifactConfig,
                                       @NotNull MavenModuleResourceConfiguration moduleResourceConfig) {
       this(targetDir, getWarRootConfig(artifactConfig, moduleResourceConfig),
@@ -178,7 +168,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     private static List<ResourceRootConfiguration> getWebResources(@NotNull File targetDir,
                                                                    @NotNull MavenWebArtifactConfiguration artifactConfig) {
       String webInfClassesPath = toSystemIndependentName(new File(targetDir, "WEB-INF" + File.separator + "classes").getPath());
-      List<ResourceRootConfiguration> result = ContainerUtil.newSmartList();
+      List<ResourceRootConfiguration> result = new SmartList<>();
       for (ResourceRootConfiguration webResource : artifactConfig.webResources) {
         if (!webResource.isFiltered) continue;
 
@@ -192,6 +182,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
       return result;
     }
 
+    @Override
     protected int configurationHash() {
       int hash = super.configurationHash();
       hash = 31 * hash + FileUtil.fileHashCode(myTargetDir);
@@ -205,9 +196,9 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
 
     private static class ClassesFilter extends MavenResourceFileFilter {
       private final File myTargetDir;
-      private final Map<ResourceRootConfiguration, FileFilter> myWebResourcesMap = ContainerUtil.newHashMap();
+      private final Map<ResourceRootConfiguration, FileFilter> myWebResourcesMap = new HashMap<>();
 
-      public ClassesFilter(@NotNull File targetDir,
+      ClassesFilter(@NotNull File targetDir,
                            @NotNull ResourceRootConfiguration warRootConfig,
                            @NotNull List<ResourceRootConfiguration> webResources) {
         super(targetDir, warRootConfig);
@@ -238,7 +229,7 @@ public class MavenWebArtifactRootCopyingHandlerProvider extends ArtifactRootCopy
     }
   }
 
-  private static class MavenWebRootCopyingHandler extends MavenWebArtifactCopyingHandler {
+  private static final class MavenWebRootCopyingHandler extends MavenWebArtifactCopyingHandler {
     private final MavenResourceFileProcessor myFileProcessor;
     @NotNull private final ResourceRootConfiguration myRootConfiguration;
     private final FileFilter myFilteringFilter;

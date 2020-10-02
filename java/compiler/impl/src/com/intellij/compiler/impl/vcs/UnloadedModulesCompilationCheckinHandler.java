@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.impl.vcs;
 
 import com.intellij.CommonBundle;
@@ -8,7 +8,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.CompileStatusNotification;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -19,6 +19,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vcs.CheckinProjectPanel;
 import com.intellij.openapi.vcs.changes.CommitContext;
 import com.intellij.openapi.vcs.changes.CommitExecutor;
+import com.intellij.openapi.vcs.changes.ui.BooleanCommitOption;
 import com.intellij.openapi.vcs.checkin.CheckinHandler;
 import com.intellij.openapi.vcs.checkin.CheckinHandlerFactory;
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent;
@@ -26,22 +27,16 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.ui.NonFocusableCheckBox;
 import com.intellij.util.PairConsumer;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.JBUI;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * @author nik
- */
 public class UnloadedModulesCompilationCheckinHandler extends CheckinHandler {
   private final Project myProject;
   private final CheckinProjectPanel myCheckinPanel;
@@ -58,33 +53,15 @@ public class UnloadedModulesCompilationCheckinHandler extends CheckinHandler {
       return null;
     }
 
-    JCheckBox checkBox = new NonFocusableCheckBox(CompilerBundle.message("checkbox.text.compile.affected.unloaded.modules"));
-    return new RefreshableOnComponent() {
-      @Override
-      public JComponent getComponent() {
-        return JBUI.Panels.simplePanel().addToLeft(checkBox);
-      }
-
-      @Override
-      public void refresh() {
-      }
-
-      @Override
-      public void saveState() {
-        CompilerWorkspaceConfiguration.getInstance(myProject).COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT = checkBox.isSelected();
-      }
-
-      @Override
-      public void restoreState() {
-        checkBox.setSelected(CompilerWorkspaceConfiguration.getInstance(myProject).COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT);
-      }
-    };
+    return new BooleanCommitOption(myCheckinPanel, JavaCompilerBundle.message("checkbox.text.compile.affected.unloaded.modules"), false,
+                                   () -> getSettings().COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT,
+                                   value -> getSettings().COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT = value);
   }
 
   @Override
   public ReturnResult beforeCheckin(@Nullable CommitExecutor executor, PairConsumer<Object, Object> additionalDataConsumer) {
-    if (!CompilerWorkspaceConfiguration.getInstance(myProject).COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT
-        || ModuleManager.getInstance(myProject).getUnloadedModuleDescriptions().isEmpty()) {
+    if (!getSettings().COMPILE_AFFECTED_UNLOADED_MODULES_BEFORE_COMMIT ||
+        ModuleManager.getInstance(myProject).getUnloadedModuleDescriptions().isEmpty()) {
       return ReturnResult.COMMIT;
     }
 
@@ -110,7 +87,7 @@ public class UnloadedModulesCompilationCheckinHandler extends CheckinHandler {
     compilerManager.makeWithModalProgress(new ModuleCompileScope(myProject, affectedModules, affectedUnloadedModules, true, false),
                                           new CompileStatusNotification() {
                                             @Override
-                                            public void finished(boolean aborted, int errors, int warnings, CompileContext compileContext) {
+                                            public void finished(boolean aborted, int errors, int warnings, @NotNull CompileContext compileContext) {
                                               result.set(
                                                 aborted ? BuildResult.CANCELED : errors > 0 ? BuildResult.FAILED : BuildResult.SUCCESSFUL);
                                             }
@@ -119,10 +96,11 @@ public class UnloadedModulesCompilationCheckinHandler extends CheckinHandler {
     if (result.get() == BuildResult.SUCCESSFUL) {
       return ReturnResult.COMMIT;
     }
-    String message = CompilerBundle.message("dialog.message.compilation.of.unloaded.modules.failed");
-    int answer = Messages.showYesNoCancelDialog(myProject, XmlStringUtil.wrapInHtml(message), CompilerBundle.message("dialog.title.compilation.failed"),
-                                                CompilerBundle.message("button.text.checkin.handler.commit"),
-                                                CompilerBundle.message("button.text.checkin.handler.show.errors"),
+    String message = JavaCompilerBundle.message("dialog.message.compilation.of.unloaded.modules.failed");
+    int answer = Messages.showYesNoCancelDialog(myProject, XmlStringUtil.wrapInHtml(message), JavaCompilerBundle
+                                                  .message("dialog.title.compilation.failed"),
+                                                JavaCompilerBundle.message("button.text.checkin.handler.commit"),
+                                                JavaCompilerBundle.message("button.text.checkin.handler.show.errors"),
                                                 CommonBundle.getCancelButtonText(), null);
 
     if (answer == Messages.CANCEL) {
@@ -140,6 +118,11 @@ public class UnloadedModulesCompilationCheckinHandler extends CheckinHandler {
       }, ModalityState.NON_MODAL);
       return ReturnResult.CLOSE_WINDOW;
     }
+  }
+
+  @NotNull
+  private CompilerWorkspaceConfiguration getSettings() {
+    return CompilerWorkspaceConfiguration.getInstance(myProject);
   }
 
   private enum BuildResult { SUCCESSFUL, FAILED, CANCELED }

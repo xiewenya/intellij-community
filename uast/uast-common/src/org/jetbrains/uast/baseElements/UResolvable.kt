@@ -16,6 +16,8 @@
 package org.jetbrains.uast
 
 import com.intellij.psi.PsiElement
+import com.intellij.psi.ResolveResult
+import org.jetbrains.annotations.ApiStatus
 
 interface UResolvable {
   /**
@@ -25,6 +27,16 @@ interface UResolvable {
    * @return the resolved element, or null if the reference couldn't be resolved.
    */
   fun resolve(): PsiElement?
+}
+
+interface UMultiResolvable {
+  /**
+   * Returns multiple elements where the reference could be resolved.
+   * It could happen if there is an ambiguity in code: it is incomplete or resolve target cannot be statically determined
+   *
+   * @see [com.intellij.psi.PsiPolyVariantReference] as a similar entity for plain PSI
+   */
+  fun multiResolve(): Iterable<ResolveResult>
 }
 
 fun UResolvable.resolveToUElement(): UElement? = resolve().toUElement()

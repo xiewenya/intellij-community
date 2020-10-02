@@ -20,12 +20,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.tasks.Comment;
 import com.intellij.tasks.Task;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.ui.CollectionListModel;
-import com.intellij.ui.ColoredListCellRenderer;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.unscramble.AnalyzeStacktraceUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nls;
 
 import javax.swing.*;
 import javax.swing.event.ListSelectionEvent;
@@ -39,7 +40,7 @@ import java.util.Date;
  */
 public class ChooseStacktraceDialog extends DialogWrapper {
 
-  private JList myList;
+  private JList<Comment> myList;
   private JPanel myPanel;
   private JPanel myEditorPanel;
   private final AnalyzeStacktraceUtil.StacktraceEditorPanel myEditor;
@@ -47,7 +48,7 @@ public class ChooseStacktraceDialog extends DialogWrapper {
   public ChooseStacktraceDialog(Project project, final Task issue) {
     super(project, false);
 
-    setTitle("Choose Stacktrace to Analyze");
+    setTitle(TaskBundle.message("dialog.title.choose.stacktrace.to.analyze"));
     Comment[] comments = issue.getComments();
     ArrayList<Comment> list = new ArrayList<>(comments.length + 1);
     final String description = issue.getDescription();
@@ -57,29 +58,16 @@ public class ChooseStacktraceDialog extends DialogWrapper {
     ContainerUtil.addAll(list, comments);
 
     myList.setModel(new CollectionListModel<>(list));
-    myList.setCellRenderer(new ColoredListCellRenderer() {
-      @Override
-      protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
-        if (value instanceof Description) {
-          append("Description");
-        }
-        else {
-          append("Commented by " + ((Comment)value).getAuthor() + " (" + ((Comment)value).getDate() + ")");
-        }
-      }
-    });
-
+    myList.setCellRenderer(SimpleListCellRenderer.create("", o ->
+      o instanceof Description ? TaskBundle.message("label.description") :
+      TaskBundle.message("label.commented.by", o.getAuthor(), o.getDate())));
     myEditor = AnalyzeStacktraceUtil.createEditorPanel(project, myDisposable);
     myEditorPanel.add(myEditor, BorderLayout.CENTER);
     myList.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
-        Object value = myList.getSelectedValue();
-        if (value instanceof Comment) {
-          myEditor.setText(((Comment)value).getText());
-        }
-        else {
-          myEditor.setText("");
-        }
+        Comment value = myList.getSelectedValue();
+        myEditor.setText(value != null ? value.getText() : "");
       }
     });
     myList.setSelectedValue(list.get(0), false);
@@ -91,18 +79,19 @@ public class ChooseStacktraceDialog extends DialogWrapper {
     return myList;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
 
   public Comment[] getTraces() {
-    return ArrayUtil.toObjectArray(Comment.class, myList.getSelectedValues());
+    return ArrayUtil.toObjectArray(Comment.class, myList.getSelectedValuesList());
   }
 
   private static class Description extends Comment {
-    private final String myDescription;
+    private final @Nls String myDescription;
 
-    public Description(String description) {
+    Description(@Nls String description) {
       myDescription = description;
     }
 

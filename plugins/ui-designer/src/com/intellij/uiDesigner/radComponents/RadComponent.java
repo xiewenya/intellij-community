@@ -1,30 +1,16 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.radComponents;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.uiDesigner.*;
 import com.intellij.uiDesigner.compiler.Utils;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.Util;
 import com.intellij.uiDesigner.designSurface.EventProcessor;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
-import com.intellij.uiDesigner.designSurface.InsertComponentProcessor;
 import com.intellij.uiDesigner.lw.*;
 import com.intellij.uiDesigner.palette.ComponentItem;
 import com.intellij.uiDesigner.palette.Palette;
@@ -33,8 +19,8 @@ import com.intellij.uiDesigner.propertyInspector.Property;
 import com.intellij.uiDesigner.propertyInspector.properties.ClientPropertiesProperty;
 import com.intellij.uiDesigner.propertyInspector.properties.ClientPropertyProperty;
 import com.intellij.uiDesigner.propertyInspector.properties.IntroStringProperty;
-import com.intellij.uiDesigner.snapShooter.SnapshotContext;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,7 +39,7 @@ import java.util.HashSet;
  * @author Vladimir Kondratyev
  */
 public abstract class RadComponent implements IComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.uiDesigner.radComponents.RadComponent");
+  private static final Logger LOG = Logger.getInstance(RadComponent.class);
 
   /**
    * Shared instance of empty array of RadComponenets
@@ -159,7 +145,7 @@ public abstract class RadComponent implements IComponent {
 
     constructor.setAccessible(true);
     try {
-      myDelegee = (JComponent)constructor.newInstance(ArrayUtil.EMPTY_OBJECT_ARRAY);
+      myDelegee = (JComponent)constructor.newInstance(ArrayUtilRt.EMPTY_OBJECT_ARRAY);
     }
     catch (Exception e) {
       throw new RuntimeException(e);
@@ -228,12 +214,14 @@ public abstract class RadComponent implements IComponent {
   /**
    * @return the component's id. It is unique within the form.
    */
+  @Override
   @NotNull
   public final String getId() {
     return myId;
   }
 
-  public final String getBinding() {
+  @Override
+  public final @NlsSafe String getBinding() {
     return myBinding;
   }
 
@@ -242,6 +230,7 @@ public abstract class RadComponent implements IComponent {
     myBinding = binding;
   }
 
+  @Override
   public boolean isCustomCreate() {
     return myCustomCreate;
   }
@@ -308,11 +297,13 @@ public abstract class RadComponent implements IComponent {
     return myClass;
   }
 
+  @Override
   @NotNull
-  public String getComponentClassName() {
+  public @NlsSafe String getComponentClassName() {
     return myClass.getName();
   }
 
+  @Override
   public final Object getCustomLayoutConstraints() {
     return myCustomLayoutConstraints;
   }
@@ -402,6 +393,7 @@ public abstract class RadComponent implements IComponent {
   /**
    * @return component's constarints.
    */
+  @Override
   @NotNull
   public final GridConstraints getConstraints() {
     return myConstraints;
@@ -430,6 +422,7 @@ public abstract class RadComponent implements IComponent {
   /**
    * @see JComponent#getClientProperty(Object)
    */
+  @Override
   public final Object getClientProperty(@NotNull final Object key) {
     return myDelegee.getClientProperty(key);
   }
@@ -437,6 +430,7 @@ public abstract class RadComponent implements IComponent {
   /**
    * @see JComponent#putClientProperty(Object, Object)
    */
+  @Override
   public final void putClientProperty(@NotNull final Object key, final Object value) {
     myDelegee.putClientProperty(key, value);
   }
@@ -657,6 +651,7 @@ public abstract class RadComponent implements IComponent {
     firePropertyChanged(PROP_CONSTRAINTS, oldConstraints, myConstraints);
   }
 
+  @Override
   public IProperty[] getModifiedProperties() {
     IntrospectedProperty[] props = getPalette().getIntrospectedProperties(this);
     ArrayList<IProperty> result = new ArrayList<>();
@@ -668,6 +663,7 @@ public abstract class RadComponent implements IComponent {
     return result.toArray(new IProperty[0]);
   }
 
+  @Override
   public IContainer getParentContainer() {
     return myParent;
   }
@@ -676,10 +672,12 @@ public abstract class RadComponent implements IComponent {
     return true;
   }
 
+  @Override
   public boolean accept(ComponentVisitor visitor) {
     return visitor.visit(this);
   }
 
+  @Override
   public boolean areChildrenExclusive() {
     return false;
   }
@@ -708,95 +706,7 @@ public abstract class RadComponent implements IComponent {
   }
 
   @Nullable
-  public static RadComponent createSnapshotComponent(final SnapshotContext context, final JComponent component) {
-    String id = context.newId();
-    RadComponent result;
-
-    Class componentClass = component.getClass();
-    if (componentClass.isAnonymousClass()) {
-      componentClass = componentClass.getSuperclass();
-    }
-    if (component instanceof JPanel && !isCompositeComponent(component)) {
-      RadContainer container = new RadContainer(componentClass, id, context.getPalette());
-      final RadLayoutManager manager = LayoutManagerRegistry.createFromLayout(component.getLayout());
-      if (manager == null) {
-        return null;
-      }
-      container.setLayoutManager(manager);
-      result = container;
-    }
-    else if (component instanceof Box.Filler) {
-      Box.Filler filler = (Box.Filler)component;
-      if (filler.getMaximumSize().height == Short.MAX_VALUE) {
-        result = new RadVSpacer(null, id);
-        result.getConstraints().setVSizePolicy(GridConstraints.SIZEPOLICY_CAN_GROW | GridConstraints.SIZEPOLICY_WANT_GROW);
-      }
-      else {
-        result = new RadHSpacer(null, id);
-        result.getConstraints().setHSizePolicy(GridConstraints.SIZEPOLICY_CAN_GROW | GridConstraints.SIZEPOLICY_WANT_GROW);
-      }
-    }
-    else {
-      final RadComponentFactory factory = InsertComponentProcessor.getRadComponentFactory(componentClass);
-      if (factory == null) {
-        result = new RadAtomicComponent(componentClass, id, context.getPalette());
-      }
-      else {
-        result = factory.newInstance(componentClass, id, context.getPalette());
-      }
-    }
-
-    context.registerComponent(component, result);
-    result.importSnapshotComponent(context, component);
-
-    final IntrospectedProperty[] properties = context.getPalette().getIntrospectedProperties(component.getClass(),
-                                                                                             result.getDelegee().getClass());
-    for (IntrospectedProperty prop : properties) {
-      if (component instanceof AbstractButton) {
-        AbstractButton btn = (AbstractButton)component;
-        if (prop.getName().equals(SwingProperties.LABEL) && btn.getLabel().equals(btn.getText())) {
-          continue;
-        }
-        if (prop.getName().equals(SwingProperties.ACTION_COMMAND) && btn.getActionCommand().equals(btn.getText())) {
-          continue;
-        }
-      }
-      prop.importSnapshotValue(context, component, result);
-    }
-
-    if (component instanceof AbstractButton) {
-      AbstractButton btn = (AbstractButton)component;
-      if (btn.getModel() instanceof DefaultButtonModel) {
-        DefaultButtonModel model = (DefaultButtonModel)btn.getModel();
-        if (model.getGroup() != null) {
-          context.registerButtonGroup(model.getGroup());
-        }
-      }
-    }
-
-    return result;
-  }
-
-  private static boolean isCompositeComponent(final JComponent component) {
-    if (component.getComponentCount() == 0) {
-      return false;
-    }
-
-    JComponent instance;
-    try {
-      instance = component.getClass().newInstance();
-    }
-    catch (Exception ex) {
-      return false;
-    }
-    return instance.getComponentCount() == component.getComponentCount();
-  }
-
-  protected void importSnapshotComponent(final SnapshotContext context, final JComponent component) {
-  }
-
-  @Nullable
-  public String getComponentTitle() {
+  public @NlsSafe String getComponentTitle() {
     Palette palette = Palette.getInstance(getProject());
     IntrospectedProperty[] props = palette.getIntrospectedProperties(this);
     for (IntrospectedProperty prop : props) {

@@ -1,17 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage.view;
 
 import com.intellij.CommonBundle;
+import com.intellij.coverage.CoverageBundle;
 import com.intellij.coverage.CoverageDataManager;
 import com.intellij.coverage.CoverageSuitesBundle;
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.impl.RunDialog;
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.actions.CloseTabToolbarAction;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.openapi.Disposable;
@@ -22,6 +22,7 @@ import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
@@ -39,6 +40,8 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.awt.event.*;
 
@@ -52,7 +55,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
   private final CoverageViewBuilder myBuilder;
   private final Project myProject;
   private final CoverageViewManager.StateBean myStateBean;
- 
+
 
   public CoverageView(final Project project, final CoverageDataManager dataManager, CoverageViewManager.StateBean stateBean) {
     myProject = project;
@@ -64,24 +67,28 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
 
     myTable = new JBTable(myModel);
     final StatusText emptyText = myTable.getEmptyText();
-    emptyText.setText("No coverage results.");
+    emptyText.setText(CoverageBundle.message("coverage.view.no.coverage.results"));
     final RunConfigurationBase configuration = suitesBundle.getRunConfiguration();
     if (configuration != null) {
-      emptyText.appendText(" Click ");
-      emptyText.appendText("Edit", SimpleTextAttributes.LINK_ATTRIBUTES, new ActionListener() {
+      emptyText.appendText(" " + CoverageBundle.message("coverage.view.edit.run.configuration.0") + " ");
+      emptyText.appendText(CoverageBundle.message("coverage.view.edit.run.configuration.1"), SimpleTextAttributes.LINK_ATTRIBUTES, new ActionListener() {
+        @Override
         public void actionPerformed(final ActionEvent e) {
-          final String configurationName = configuration.getName();
-          final RunnerAndConfigurationSettings configurationSettings = RunManager.getInstance(project).findConfigurationByName(configurationName);
+          final RunnerAndConfigurationSettings configurationSettings = RunManager.getInstance(project).findSettings(configuration);
           if (configurationSettings != null) {
-            RunDialog.editConfiguration(project, configurationSettings, "Edit Run Configuration");
-          } else {
-            Messages.showErrorDialog(project, "Configuration \'" + configurationName + "\' was not found", CommonBundle.getErrorTitle());
+            RunDialog.editConfiguration(project, configurationSettings, ExecutionBundle.message("edit.run.configuration.for.item.dialog.title", configuration.getName()));
+          }
+          else {
+            Messages.showErrorDialog(project, CoverageBundle.message("coverage.view.configuration.was.not.found", configuration.getName()), CommonBundle.getErrorTitle());
           }
         }
       });
-      emptyText.appendText(" to fix configuration settings.");
+      emptyText.appendText(" " + CoverageBundle.message("coverage.view.edit.run.configuration.2"));
     }
-    myTable.getColumnModel().getColumn(0).setCellRenderer(new NodeDescriptorTableCellRenderer());
+    TableColumnModel columnModel = myTable.getColumnModel();
+    TableColumn nameColumn = columnModel.getColumn(0);
+    nameColumn.setCellRenderer(new NodeDescriptorTableCellRenderer());
+    nameColumn.setPreferredWidth(myStateBean.myElementSize);
     myTable.getTableHeader().setReorderingAllowed(false);
     JPanel centerPanel = JBUI.Panels.simplePanel()
       .addToCenter(ScrollPaneFactory.createScrollPane(myTable))
@@ -90,9 +97,10 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     final CoverageViewTreeStructure structure = new CoverageViewTreeStructure(project, suitesBundle, stateBean);
     myBuilder = new CoverageViewBuilder(project, new JBList(), myModel, structure, myTable);
     myBuilder.setParentTitle(titleLabel);
+    Disposer.register(this, myBuilder);
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         drillDown(structure);
         return true;
       }
@@ -103,8 +111,8 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     ScrollingUtil.installActions(myTable);
 
     myTable.registerKeyboardAction(new ActionListener() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
-        if (myBuilder == null) return;
         myBuilder.buildRoot();
       }
     }, KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SLASH, SystemInfo.isMac ? InputEvent.META_MASK : InputEvent.CTRL_MASK), JComponent.WHEN_FOCUSED);
@@ -113,6 +121,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     myTable.getInputMap(WHEN_FOCUSED).put(
       KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_DOWN, SystemInfo.isMac ? InputEvent.META_MASK : InputEvent.CTRL_MASK), ACTION_DRILL_DOWN);
     myTable.getActionMap().put(ACTION_DRILL_DOWN, new AbstractAction() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         drillDown(structure);
       }
@@ -121,6 +130,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
       KeyStroke.getKeyStroke(KeyEvent.VK_PAGE_UP, SystemInfo.isMac ? InputEvent.META_MASK : InputEvent.CTRL_MASK), ACTION_GO_UP);
     myTable.getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), ACTION_GO_UP);
     myTable.getActionMap().put(ACTION_GO_UP, new AbstractAction() {
+      @Override
       public void actionPerformed(final ActionEvent e) {
         goUp();
       }
@@ -136,6 +146,10 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     if (!myProject.isDisposed()) {
       CoverageDataManager.getInstance(myProject).chooseSuitesBundle(null);
     }
+  }
+
+  public void saveSize() {
+    myStateBean.myElementSize = myTable.getColumnModel().getColumn(0).getWidth();
   }
 
   private static ActionGroup createPopupGroup() {
@@ -155,12 +169,6 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     installAutoScrollFromSource(actionGroup);
 
     actionGroup.add(ActionManager.getInstance().getAction("GenerateCoverageReport"));
-    actionGroup.add(new CloseTabToolbarAction() {
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        CoverageDataManager.getInstance(myProject).chooseSuitesBundle(null);
-      }
-    });
     return actionGroup;
   }
 
@@ -208,7 +216,7 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
   public void updateParentTitle() {
     myBuilder.updateParentTitle();
   }
-  
+
   private AbstractTreeNode getSelectedValue() {
     return (AbstractTreeNode)myBuilder.getSelectedValue();
   }
@@ -233,7 +241,8 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     myBuilder.select(file);
   }
 
-  public Object getData(@NonNls String dataId) {
+  @Override
+  public Object getData(@NotNull @NonNls String dataId) {
     if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
       return getSelectedValue();
     }
@@ -262,19 +271,19 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
     }
   }
 
-  private class FlattenPackagesAction extends ToggleAction {
+  private final class FlattenPackagesAction extends ToggleAction {
 
     private FlattenPackagesAction() {
-      super("Flatten Packages", "Flatten Packages", AllIcons.ObjectBrowser.FlattenPackages);
+      super(IdeBundle.messagePointer("action.flatten.packages"), IdeBundle.messagePointer("action.flatten.packages"), AllIcons.ObjectBrowser.FlattenPackages);
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myStateBean.myFlattenPackages;
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       myStateBean.myFlattenPackages = state;
       final Object selectedValue = myBuilder.getSelectedValue();
       myBuilder.buildRoot();
@@ -286,30 +295,30 @@ public class CoverageView extends BorderLayoutPanel implements DataProvider, Dis
       myBuilder.updateParentTitle();
     }
   }
-  
+
   private class GoUpAction extends DumbAwareAction {
 
     private final CoverageViewTreeStructure myTreeStructure;
 
-    public GoUpAction(CoverageViewTreeStructure treeStructure) {
-      super("Go Up", "Go to Upper Level", AllIcons.Nodes.UpLevel);
+    GoUpAction(CoverageViewTreeStructure treeStructure) {
+      super(CoverageBundle.message("coverage.view.action.go.up"), CoverageBundle.message("coverage.view.action.go.up.description"), AllIcons.Nodes.UpLevel);
       myTreeStructure = treeStructure;
       registerCustomShortcutSet(KeyEvent.VK_BACK_SPACE, 0, myTable);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       goUp();
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(!topElementIsSelected(myTreeStructure));
     }
   }
 
   private class MyAutoScrollFromSourceHandler extends AutoScrollFromSourceHandler {
-    public MyAutoScrollFromSourceHandler() {
+    MyAutoScrollFromSourceHandler() {
       super(CoverageView.this.myProject, CoverageView.this, CoverageView.this);
     }
 

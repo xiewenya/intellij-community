@@ -53,18 +53,18 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.action.GradleRerunFailedTestsAction;
 import org.jetbrains.plugins.gradle.execution.filters.ReRunTaskFilter;
 import org.jetbrains.plugins.gradle.service.project.GradleProjectResolverUtil;
-import org.jetbrains.plugins.gradle.service.resolve.GradleCommonClassNames;
 import org.jetbrains.plugins.gradle.util.GradleBundle;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 
 import java.io.File;
 
+import static org.jetbrains.plugins.gradle.util.GradleConstants.RUN_TASK_AS_TEST;
+
 /**
  * @author Vladislav.Soroka
- * @since 2/18/14
  */
 public class GradleTestsExecutionConsoleManager
-  implements ExternalSystemExecutionConsoleManager<ExternalSystemRunConfiguration, GradleTestsExecutionConsole, ProcessHandler> {
+  implements ExternalSystemExecutionConsoleManager<GradleTestsExecutionConsole, ProcessHandler> {
 
   @NotNull
   @Override
@@ -125,7 +125,9 @@ public class GradleTestsExecutionConsoleManager
       }
     }
     SMTestProxy.SMRootTestProxy testsRootNode = resultsViewer.getTestsRootNode();
+    testsRootNode.setExecutionId(env.getExecutionId());
     testsRootNode.setSuiteStarted();
+    consoleView.getEventPublisher().onTestingStarted(testsRootNode);
     if (processHandler != null) {
       processHandler.addProcessListener(new ProcessAdapter() {
         @Override
@@ -138,6 +140,7 @@ public class GradleTestsExecutionConsoleManager
               else {
                 testsRootNode.setFinished();
               }
+              resultsViewer.onBeforeTestingFinished(testsRootNode);
               resultsViewer.onTestingFinished(testsRootNode);
             });
           }
@@ -147,7 +150,7 @@ public class GradleTestsExecutionConsoleManager
 
     if (task instanceof ExternalSystemExecuteTaskTask) {
       final ExternalSystemExecuteTaskTask executeTask = (ExternalSystemExecuteTaskTask)task;
-      if (executeTask.getArguments() == null || !StringUtil.contains(executeTask.getArguments(), "--tests")) {
+      if (executeTask.getArguments() == null || !StringUtil.contains(executeTask.getArguments(), GradleConstants.TESTS_ARG_NAME)) {
         executeTask.appendArguments("--tests *");
       }
       consoleView.addMessageFilter(new ReRunTaskFilter((ExternalSystemExecuteTaskTask)task, env));
@@ -170,7 +173,12 @@ public class GradleTestsExecutionConsoleManager
       final ExternalSystemExecuteTaskTask taskTask = (ExternalSystemExecuteTaskTask)task;
       if (!StringUtil.equals(taskTask.getExternalSystemId().getId(), GradleConstants.SYSTEM_ID.getId())) return false;
 
-      return ContainerUtil.find(taskTask.getTasksToExecute(), taskToExecute -> {
+      boolean isApplicable;
+
+      final String arguments = taskTask.getArguments();
+      isApplicable = arguments != null && StringUtil.contains(arguments, GradleConstants.TESTS_ARG_NAME);
+
+      isApplicable = isApplicable || ContainerUtil.find(taskTask.getTasksToExecute(), taskToExecute -> {
         String projectPath = taskTask.getExternalProjectPath();
         File file = new File(projectPath);
         if (file.isFile()) {
@@ -183,9 +191,15 @@ public class GradleTestsExecutionConsoleManager
         final DataNode<TaskData> taskDataNode = GradleProjectResolverUtil.findTask(
           externalProjectInfo.getExternalProjectStructure(), projectPath, taskToExecute);
         return taskDataNode != null &&
-               (("check".equals(taskDataNode.getData().getName()) && "verification".equals(taskDataNode.getData().getGroup())
-                 || GradleCommonClassNames.GRADLE_API_TASKS_TESTING_TEST.equals(taskDataNode.getData().getType())));
+               (taskDataNode.getData().isTest() ||
+                "check".equals(taskDataNode.getData().getName()) && "verification".equals(taskDataNode.getData().getGroup()));
       }) != null;
+
+      if (isApplicable) {
+        taskTask.putUserData(RUN_TASK_AS_TEST, true);
+      }
+
+      return isApplicable;
     }
     return false;
   }

@@ -16,10 +16,7 @@
 package com.intellij.codeInsight.generation;
 
 import com.intellij.openapi.editor.Editor;
-import com.intellij.psi.JavaTokenType;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMember;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -33,7 +30,6 @@ public abstract class GenerationInfoBase implements GenerationInfo {
   @Override
   public abstract void insert(@NotNull PsiClass aClass, PsiElement anchor, boolean before) throws IncorrectOperationException;
 
-  @NotNull
   @Override
   public abstract PsiMember getPsiMember();
 
@@ -43,6 +39,10 @@ public abstract class GenerationInfoBase implements GenerationInfo {
     PsiElement element = leaf;
     while (element.getParent() != aClass) {
       element = element.getParent();
+      if (element == null) return null;
+    }
+    if (element instanceof PsiErrorElement) {
+      return null;
     }
 
     PsiElement lBrace = aClass.getLBrace();
@@ -61,6 +61,9 @@ public abstract class GenerationInfoBase implements GenerationInfo {
 
   @Override
   public void positionCaret(@NotNull Editor editor, boolean toEditMethodBody) {
-    GenerateMembersUtil.positionCaret(editor, getPsiMember(), toEditMethodBody);
+    PsiMember member = getPsiMember();
+    if (member != null) {
+      GenerateMembersUtil.positionCaret(editor, member, toEditMethodBody);
+    }
   }
 }

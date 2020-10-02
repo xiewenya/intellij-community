@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.array;
 
 import com.google.common.cache.CacheBuilder;
@@ -20,6 +6,11 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListenableFutureTask;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.util.NlsContexts.ProgressTitle;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.ui.UIUtil;
@@ -28,17 +19,17 @@ import com.intellij.util.ui.update.Update;
 import com.jetbrains.python.debugger.ArrayChunk;
 import com.jetbrains.python.debugger.ArrayChunkBuilder;
 import com.jetbrains.python.debugger.PyDebugValue;
+import com.jetbrains.python.debugger.PyDebuggerException;
 import com.jetbrains.python.debugger.containerview.DataViewStrategy;
 import com.jetbrains.python.debugger.containerview.PyDataViewerPanel;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.event.TableModelEvent;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
-/**
- * @author traff
- */
 public class AsyncArrayTableModel extends AbstractTableModel {
   private static final int CHUNK_COL_SIZE = 30;
   private static final int CHUNK_ROW_SIZE = 30;
@@ -55,7 +46,7 @@ public class AsyncArrayTableModel extends AbstractTableModel {
   private PyDebugValue myDebugValue;
   private final DataViewStrategy myStrategy;
   private final LoadingCache<Pair<Integer, Integer>, ListenableFuture<ArrayChunk>> myChunkCache = CacheBuilder.newBuilder().build(
-    new CacheLoader<Pair<Integer, Integer>, ListenableFuture<ArrayChunk>>() {
+    new CacheLoader<>() {
       @Override
       public ListenableFuture<ArrayChunk> load(@NotNull final Pair<Integer, Integer> key) throws Exception {
 
@@ -81,11 +72,20 @@ public class AsyncArrayTableModel extends AbstractTableModel {
     myStrategy = strategy;
   }
 
+
+  @Override
+  public void fireTableDataChanged() {
+    fireTableChanged(
+      new TableModelEvent(this, 0, getRowCount() - 1, TableModelEvent.ALL_COLUMNS, TableModelEvent.UPDATE)
+    );
+  }
+
   @Override
   public boolean isCellEditable(int row, int col) {
     return false;
   }
 
+  @Override
   public Object getValueAt(final int row, final int col) {
     Pair<Integer, Integer> key = itemToChunkKey(row, col);
 
@@ -119,11 +119,43 @@ public class AsyncArrayTableModel extends AbstractTableModel {
     }
   }
 
+  public void loadValues(@NotNull @ProgressTitle String updateMessage,
+                         int fromRow,
+                         int toRow,
+                         int fromCol,
+                         int toCol,
+                         @NotNull Consumer<ArrayChunk> whenLoaded) {
+
+    myQueue.queue(new Update(updateMessage) {
+      @Override
+      public void run() {
+        ProgressManager.getInstance().run(new Task.Backgroundable(null, updateMessage, false) {
+          @Override
+          public void run(@NotNull ProgressIndicator indicator) {
+            indicator.setIndeterminate(true);
+            try {
+              ArrayChunk chunk = myDebugValue.getFrameAccessor()
+                .getArrayItems(myDebugValue, fromRow, fromCol, toRow - fromRow + 1, toCol - fromCol + 1,
+                               myDataProvider.getFormat());
+
+              if (chunk != null) {
+                whenLoaded.accept(chunk);
+              }
+            }
+            catch (PyDebuggerException e) {
+              Logger.getInstance(this.getClass()).error(e);
+            }
+          }
+        });
+      }
+    });
+  }
+
   public String correctStringValue(@NotNull Object value) {
     if (value instanceof String) {
       String corrected = (String)value;
       if (myStrategy.isNumeric(myDebugValue.getType())) {
-        if (corrected.startsWith("\'") || corrected.startsWith("\"")) {
+        if (corrected.startsWith("'") || corrected.startsWith("\"")) {
           corrected = corrected.substring(1, corrected.length() - 1);
         }
       }
@@ -147,14 +179,17 @@ public class AsyncArrayTableModel extends AbstractTableModel {
     return colOffset - (colOffset % CHUNK_COL_SIZE);
   }
 
+  @Override
   public int getColumnCount() {
     return myColumns;
   }
 
+  @Override
   public String getColumnName(int col) {
     return String.valueOf(col);
   }
 
+  @Override
   public int getRowCount() {
     return myRows;
   }
@@ -176,7 +211,16 @@ public class AsyncArrayTableModel extends AbstractTableModel {
 
   public void addToCache(final ArrayChunk chunk) {
     Object[][] data = chunk.getData();
+    if (data == null) {
+      invalidateCache();
+      handleChunkAdded(0, 0, chunk);
+      return;
+    }
+
     int rows = data.length;
+    if (rows == 0)
+      return;
+
     int cols = data[0].length;
     for (int roffset = 0; roffset < rows / CHUNK_ROW_SIZE; roffset++) {
       for (int coffset = 0; coffset < cols / CHUNK_COL_SIZE; coffset++) {
@@ -268,5 +312,9 @@ public class AsyncArrayTableModel extends AbstractTableModel {
 
   public void setDebugValue(PyDebugValue debugValue) {
     myDebugValue = debugValue;
+  }
+
+  public DataViewStrategy getStrategy() {
+    return myStrategy;
   }
 }

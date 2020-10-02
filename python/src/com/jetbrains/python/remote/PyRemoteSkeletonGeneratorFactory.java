@@ -37,8 +37,18 @@ public abstract class PyRemoteSkeletonGeneratorFactory {
   public abstract PySkeletonGenerator createRemoteSkeletonGenerator(@Nullable Project project,
                                                                     @Nullable Component ownerComponent,
                                                                     @NotNull Sdk sdk,
-                                                                    String skeletonPath) throws ExecutionException;
+                                                                    @NotNull String skeletonPath) throws ExecutionException;
 
+  /**
+   * Returns an instance of {@link PyRemoteSkeletonGeneratorFactory} that
+   * corresponds to the provided additional SDK data.
+   *
+   * @param sdkAdditionalData additional SDK data
+   * @return an instance of {@link PyRemoteSkeletonGeneratorFactory}
+   * @throws UnsupportedPythonSdkTypeException if support cannot be found for
+   *                                           the type of the provided
+   *                                           additional SDK data
+   */
   @NotNull
   public static PyRemoteSkeletonGeneratorFactory getInstance(@NotNull PyRemoteSdkAdditionalDataBase sdkAdditionalData) {
     for (PyRemoteSkeletonGeneratorFactory manager : EP_NAME.getExtensions()) {
@@ -46,6 +56,6 @@ public abstract class PyRemoteSkeletonGeneratorFactory {
         return manager;
       }
     }
-    throw new IllegalStateException("Failed to find extension " + EP_NAME + " that supports " + sdkAdditionalData);
+    throw new UnsupportedPythonSdkTypeException();
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.codeInsight.folding.impl.FoldingUtil;
@@ -7,20 +7,24 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.SmartList;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.*;
 import com.intellij.xdebugger.impl.DebuggerSupport;
+import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.impl.XSourcePositionImpl;
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointItem;
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointPanelProvider;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,18 +35,17 @@ import java.util.List;
 
 import static org.jetbrains.concurrency.Promises.rejectedPromise;
 
-/**
- * @author nik
- */
-public class XBreakpointUtil {
+public final class XBreakpointUtil {
   private XBreakpointUtil() {
   }
 
+  @Nls
   public static <B extends XBreakpoint> String getShortText(B breakpoint) {
     //noinspection unchecked
     return StringUtil.shortenTextWithEllipsis(StringUtil.notNullize(breakpoint.getType().getShortText(breakpoint)), 70, 5);
   }
 
+  @Nls
   public static <B extends XBreakpoint> String getDisplayText(@NotNull B breakpoint) {
     //noinspection unchecked
     return breakpoint.getType().getDisplayText(breakpoint);
@@ -53,8 +56,8 @@ public class XBreakpointUtil {
     return breakpointTypes().filter(breakpointType -> id.equals(breakpointType.getId())).findFirst().orElse(null);
   }
 
-  public static StreamEx<XBreakpointType> breakpointTypes() {
-    return StreamEx.of(XBreakpointType.EXTENSION_POINT_NAME.getExtensions());
+  public static @NotNull StreamEx<XBreakpointType> breakpointTypes() {
+    return StreamEx.of(XBreakpointType.EXTENSION_POINT_NAME.getExtensionList());
   }
 
   @NotNull
@@ -62,21 +65,34 @@ public class XBreakpointUtil {
     int offset = editor.getCaretModel().getOffset();
     Document editorDocument = editor.getDocument();
 
+    final int textLength = editorDocument.getTextLength();
+    if (offset > textLength) {
+      offset = textLength;
+    }
+
     DebuggerSupport[] debuggerSupports = DebuggerSupport.getDebuggerSupports();
     for (DebuggerSupport debuggerSupport : debuggerSupports) {
-      final BreakpointPanelProvider<?> provider = debuggerSupport.getBreakpointPanelProvider();
-
-      final int textLength = editor.getDocument().getTextLength();
-      if (offset > textLength) {
-        offset = textLength;
-      }
-
+      BreakpointPanelProvider<?> provider = debuggerSupport.getBreakpointPanelProvider();
       Object breakpoint = provider.findBreakpoint(project, editorDocument, offset);
       if (breakpoint != null) {
-        final GutterIconRenderer iconRenderer = provider.getBreakpointGutterIconRenderer(breakpoint);
-        return Pair.create(iconRenderer, breakpoint);
+        return Pair.create(provider.getBreakpointGutterIconRenderer(breakpoint), breakpoint);
       }
     }
+
+    XDebugSessionImpl session = (XDebugSessionImpl)XDebuggerManager.getInstance(project).getCurrentSession();
+    if (session != null) {
+      XBreakpoint<?> breakpoint = session.getActiveNonLineBreakpoint();
+      if (breakpoint != null) {
+        XSourcePosition position = session.getCurrentPosition();
+        if (position != null) {
+          if (position.getFile().equals(FileDocumentManager.getInstance().getFile(editorDocument)) &&
+              editorDocument.getLineNumber(offset) == position.getLine()) {
+            return Pair.create(((XBreakpointBase)breakpoint).createGutterIconRenderer(), breakpoint);
+          }
+        }
+      }
+    }
+
     return Pair.create(null, null);
   }
 
@@ -128,26 +144,38 @@ public class XBreakpointUtil {
 
     final XBreakpointManager breakpointManager = XDebuggerManager.getInstance(project).getBreakpointManager();
     XLineBreakpointType<?>[] lineTypes = XDebuggerUtil.getInstance().getLineBreakpointTypes();
-    XLineBreakpointType<?> typeWinner = null;
+    List<XLineBreakpointType> typeWinner = new SmartList<>();
     int lineWinner = -1;
-    for (int line = lineStart; line <= linesEnd; line++) {
-      int maxPriority = 0;
-      for (XLineBreakpointType<?> type : lineTypes) {
-        maxPriority = Math.max(maxPriority, type.getPriority());
-        XLineBreakpoint<? extends XBreakpointProperties> breakpoint = breakpointManager.findBreakpointAtLine(type, file, line);
-        if ((type.canPutAt(file, line, project) || breakpoint != null) &&
-            (typeWinner == null || type.getPriority() > typeWinner.getPriority())) {
-          typeWinner = type;
-          lineWinner = line;
+    if (linesEnd != lineStart) { // folding mode
+      for (int line = lineStart; line <= linesEnd; line++) {
+        int maxPriority = 0;
+        for (XLineBreakpointType<?> type : lineTypes) {
+          maxPriority = Math.max(maxPriority, type.getPriority());
+          XLineBreakpoint<? extends XBreakpointProperties> breakpoint = breakpointManager.findBreakpointAtLine(type, file, line);
+          if ((type.canPutAt(file, line, project) || breakpoint != null) &&
+              (typeWinner.isEmpty() || type.getPriority() > typeWinner.get(0).getPriority())) {
+            typeWinner.clear();
+            typeWinner.add(type);
+            lineWinner = line;
+          }
+        }
+        // already found max priority type - stop
+        if (!typeWinner.isEmpty() && typeWinner.get(0).getPriority() == maxPriority) {
+          break;
         }
       }
-      // already found max priority type - stop
-      if (typeWinner != null && typeWinner.getPriority() == maxPriority) {
-        break;
+    }
+    else {
+      for (XLineBreakpointType<?> type : lineTypes) {
+        XLineBreakpoint<? extends XBreakpointProperties> breakpoint = breakpointManager.findBreakpointAtLine(type, file, lineStart);
+        if ((type.canPutAt(file, lineStart, project) || breakpoint != null)) {
+          typeWinner.add(type);
+          lineWinner = lineStart;
+        }
       }
     }
 
-    if (typeWinner == null) {
+    if (typeWinner.isEmpty()) {
       return rejectedPromise(new RuntimeException("Cannot find appropriate type"));
     }
 

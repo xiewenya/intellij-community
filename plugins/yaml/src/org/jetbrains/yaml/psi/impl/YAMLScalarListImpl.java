@@ -4,11 +4,14 @@ import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiElementVisitor;
+import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.YAMLUtil;
 import org.jetbrains.yaml.psi.YAMLScalarList;
+import org.jetbrains.yaml.psi.YamlPsiElementVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,22 +33,12 @@ public class YAMLScalarListImpl extends YAMLBlockScalarImpl implements YAMLScala
 
   @NotNull
   @Override
-  public String getTextValue() {
-    return super.getTextValue() + "\n";
-  }
-
-  @NotNull
-  @Override
   protected String getRangesJoiner(@NotNull CharSequence text, @NotNull List<TextRange> contentRanges, int indexBefore) {
     return "\n";
   }
 
   @Override
   protected List<Pair<TextRange, String>> getEncodeReplacements(@NotNull CharSequence input) throws IllegalArgumentException {
-    if (!StringUtil.endsWithChar(input, '\n')) {
-      throw new IllegalArgumentException("Should end with a line break");
-    }
-
     int indent = locateIndent();
     if (indent == 0) {
       indent = YAMLUtil.getIndentToThisElement(this) + DEFAULT_CONTENT_INDENT;
@@ -63,7 +56,48 @@ public class YAMLScalarListImpl extends YAMLBlockScalarImpl implements YAMLScala
   }
 
   @Override
+  public PsiLanguageInjectionHost updateText(@NotNull String text) {
+    String original = getNode().getText();
+    int commonPrefixLength = StringUtil.commonPrefixLength(original, text);
+    int commonSuffixLength = StringUtil.commonSuffixLength(original, text);
+    int indent = locateIndent();
+
+    ASTNode scalarEol = getNode().findChildByType(YAMLTokenTypes.SCALAR_EOL);
+    if (scalarEol == null) {
+      // a very strange situation
+      return super.updateText(text);
+    }
+
+    int eolOffsetInParent = scalarEol.getStartOffsetInParent();
+
+    int startContent = eolOffsetInParent + indent + 1;
+    if (startContent >= commonPrefixLength) {
+      // a very strange situation
+      return super.updateText(text);
+    }
+
+    String originalRowPrefix = original.substring(startContent, commonPrefixLength);
+    String indentString = StringUtil.repeatSymbol(' ', indent);
+
+    String prefix = originalRowPrefix.replaceAll("\n" + indentString, "\n");
+    String suffix = text.substring(text.length() - commonSuffixLength).replaceAll("\n" + indentString, "\n");
+
+    String result = prefix + text.substring(commonPrefixLength, text.length() - commonSuffixLength) + suffix;
+    return super.updateText(result);
+  }
+
+  @Override
   public String toString() {
     return "YAML scalar list";
+  }
+
+  @Override
+  public void accept(@NotNull PsiElementVisitor visitor) {
+    if (visitor instanceof YamlPsiElementVisitor) {
+      ((YamlPsiElementVisitor)visitor).visitScalarList(this);
+    }
+    else {
+      super.accept(visitor);
+    }
   }
 }

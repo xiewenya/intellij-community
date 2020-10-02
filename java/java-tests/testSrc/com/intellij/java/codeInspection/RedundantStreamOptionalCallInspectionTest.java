@@ -21,13 +21,10 @@ import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.RedundantStreamOptionalCallInspection;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
-public class RedundantStreamOptionalCallInspectionTest extends LightInspectionTestCase {
+public class RedundantStreamOptionalCallInspectionTest extends LightJavaInspectionTestCase {
   public static final String TEST_DATA_DIR = "/inspection/redundantStreamOptionalCall/";
 
   public void testRedundantStreamOptionalCall() {
@@ -51,14 +48,9 @@ public class RedundantStreamOptionalCallInspectionTest extends LightInspectionTe
   }
 
   public static class RedundantStreamOptionalCallFixTest extends LightQuickFixParameterizedTestCase {
-    @NotNull
     @Override
-    protected LocalInspectionTool[] configureLocalInspectionTools() {
+    protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
       return new LocalInspectionTool[]{new RedundantStreamOptionalCallInspection()};
-    }
-
-    public void test() {
-      doAllTests();
     }
 
     @Override

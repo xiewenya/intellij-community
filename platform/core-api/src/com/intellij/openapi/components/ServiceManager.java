@@ -1,79 +1,58 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.components;
 
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NotNullLazyKey;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.picocontainer.PicoContainer;
 
 /**
  * For old-style components, the contract specifies a lifecycle: the component gets created and notified during the project opening process.
  * For services, there's no such contract, so we don't even load the class implementing the service until someone requests it.
+ *
+ * In a new code please use {@link ComponentManager#getService(Class)} or {@link ComponentManager#getServiceIfCreated(Class)}.
  */
-public class ServiceManager {
-  private static final Logger LOG = Logger.getInstance(ServiceManager.class);
-
+public final class ServiceManager {
   private ServiceManager() { }
 
   public static <T> T getService(@NotNull Class<T> serviceClass) {
-    Application application = ApplicationManager.getApplication();
-    return doGetService(application, serviceClass);
+    return ApplicationManager.getApplication().getService(serviceClass);
   }
 
   public static <T> T getService(@NotNull Project project, @NotNull Class<T> serviceClass) {
-    return doGetService(project, serviceClass);
-  }
-
-  @Nullable
-  private static <T> T doGetService(ComponentManager componentManager, @NotNull Class<T> serviceClass) {
-    PicoContainer picoContainer = componentManager.getPicoContainer();
-    @SuppressWarnings("unchecked") T instance = (T)picoContainer.getComponentInstance(serviceClass.getName());
-    if (instance == null) {
-      ProgressManager.checkCanceled();
-      instance = componentManager.getComponent(serviceClass);
-      if (instance != null) {
-        Application app = ApplicationManager.getApplication();
-        String message = serviceClass.getName() + " requested as a service, but it is a component - convert it to a service or change call to " +
-                         (componentManager == app ? "ApplicationManager.getApplication().getComponent()" : "project.getComponent()");
-        if (app.isUnitTestMode()) {
-          LOG.error(message);
-        }
-        else {
-          LOG.warn(message);
-        }
-      }
-    }
-    return instance;
+    return project.getService(serviceClass);
   }
 
   /**
-   * Creates lazy caching key to store project-level service instance from {@link #getService(Project, Class)}.
+   * @deprecated Use {@link ComponentManager#getServiceIfCreated(Class)}.
+   */
+  @Deprecated
+  public static @Nullable <T> T getServiceIfCreated(@NotNull Project project, @NotNull Class<T> serviceClass) {
+    return project.getServiceIfCreated(serviceClass);
+  }
+
+  /**
+   * @deprecated Use {@link ComponentManager#getServiceIfCreated(Class)}.
+   */
+  @Deprecated
+  public static @Nullable <T> T getServiceIfCreated(@NotNull Class<T> serviceClass) {
+    Application application = ApplicationManager.getApplication();
+    if (application == null) return null;
+    return application.getServiceIfCreated(serviceClass);
+  }
+
+  /**
+   * Creates lazy caching key to store project-level service instance from {@link Project#getService(Class)}.
    *
    * @param serviceClass Service class to create key for.
    * @param <T>          Service class type.
    * @return Key instance.
+   * @deprecated Don't use this method; it has no benefit over normal ServiceManager.getService
    */
-  @NotNull
-  public static <T> NotNullLazyKey<T, Project> createLazyKey(@NotNull final Class<T> serviceClass) {
-    return NotNullLazyKey.create("Service: " + serviceClass.getName(), project -> getService(project, serviceClass));
+  @Deprecated
+  public static @NotNull <T> NotNullLazyKey<T, Project> createLazyKey(final @NotNull Class<? extends T> serviceClass) {
+    return NotNullLazyKey.create("Service: " + serviceClass.getName(), project -> project.getService(serviceClass));
   }
 }

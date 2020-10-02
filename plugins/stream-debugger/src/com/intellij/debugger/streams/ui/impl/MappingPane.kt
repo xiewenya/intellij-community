@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.streams.ui.impl
 
 import com.intellij.debugger.streams.ui.LinkedValuesMapping
@@ -6,9 +6,11 @@ import com.intellij.debugger.streams.ui.TraceController
 import com.intellij.debugger.streams.ui.ValueWithPosition
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import org.jetbrains.annotations.Nls
 import java.awt.*
 import javax.swing.JPanel
 import javax.swing.SwingConstants
@@ -17,7 +19,7 @@ import javax.swing.SwingConstants
 /**
  * @author Vitaliy.Bibaev
  */
-class MappingPane(name: String,
+class MappingPane(@Nls name: String,
                   fullCallExpression: String,
                   private val beforeValues: List<ValueWithPosition>,
                   private val mapping: LinkedValuesMapping,
@@ -30,7 +32,7 @@ class MappingPane(name: String,
                                         selected = JBColor({ Color(0, 96, 229) }),
                                         inactive = JBColor({ Color(204, 204, 204) }))
 
-    val STROKE = BasicStroke(JBUI.scale(1.toFloat()))
+    val STROKE = BasicStroke(JBUIScale.scale(1.toFloat()))
   }
 
   init {

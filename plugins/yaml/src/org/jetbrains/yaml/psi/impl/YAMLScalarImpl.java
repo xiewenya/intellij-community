@@ -1,12 +1,10 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.ElementManipulators;
-import com.intellij.psi.LiteralTextEscaper;
-import com.intellij.psi.PsiLanguageInjectionHost;
-import com.intellij.psi.PsiReference;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -15,6 +13,7 @@ import org.jetbrains.yaml.YAMLElementTypes;
 import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.lexer.YAMLGrammarCharUtil;
 import org.jetbrains.yaml.psi.YAMLScalar;
+import org.jetbrains.yaml.psi.YamlPsiElementVisitor;
 
 import java.util.Collections;
 import java.util.List;
@@ -68,8 +67,8 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
     return references.length == 1 ? references[0] : null;
   }
 
-  @NotNull
-  public PsiReference[] getReferences() {
+  @Override
+  public PsiReference @NotNull [] getReferences() {
     return ReferenceProvidersRegistry.getReferencesFromProviders(this);
   }
 
@@ -80,7 +79,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
   @Override
   public PsiLanguageInjectionHost updateText(@NotNull String text) {
-    return ElementManipulators.getManipulator(this).handleContentChange(this, text);
+    return ElementManipulators.handleContentChange(this, text);
   }
 
   @NotNull
@@ -91,7 +90,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
   @NotNull
   static String processReplacements(@NotNull CharSequence input,
-                                    @NotNull List<Pair<TextRange, String>> replacements) throws IndexOutOfBoundsException {
+                                    @NotNull List<? extends Pair<TextRange, String>> replacements) throws IndexOutOfBoundsException {
     StringBuilder result = new StringBuilder();
     int currentOffset = 0;
     for (Pair<TextRange, String> replacement : replacements) {
@@ -119,7 +118,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
   }
 
   private static class MyLiteralTextEscaper extends LiteralTextEscaper<YAMLScalarImpl> {
-    public MyLiteralTextEscaper(YAMLScalarImpl scalar) {
+    MyLiteralTextEscaper(YAMLScalarImpl scalar) {
       super(scalar);
     }
 
@@ -170,7 +169,17 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
     @Override
     public boolean isOneLine() {
-      return myHost.isMultiline();
+      return !myHost.isMultiline();
+    }
+  }
+
+  @Override
+  public void accept(@NotNull PsiElementVisitor visitor) {
+    if (visitor instanceof YamlPsiElementVisitor) {
+      ((YamlPsiElementVisitor)visitor).visitScalar(this);
+    }
+    else {
+      super.accept(visitor);
     }
   }
 }

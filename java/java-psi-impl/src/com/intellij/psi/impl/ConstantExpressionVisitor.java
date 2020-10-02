@@ -1,39 +1,26 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.PsiClassReferenceType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.ConstantEvaluationOverflowException;
 import com.intellij.psi.util.ConstantExpressionUtil;
-import java.util.HashMap;
-import com.intellij.util.containers.StringInterner;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.containers.Interner;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
 @SuppressWarnings("UnnecessaryBoxing")
-class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstantEvaluationHelper.AuxEvaluator {
-  
-  private final StringInterner myInterner = new StringInterner();
+final class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstantEvaluationHelper.AuxEvaluator {
+  private final Interner<String> myInterner = Interner.createStringInterner();
 
   private Set<PsiVariable> myVisitedVars;
   private final Map<PsiElement, Object> myCachedValues = new HashMap<>();
@@ -82,6 +69,11 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
     }
 
     PsiType castType = castTypeElement.getType();
+    // According to JLS 15.28 Constant Expressions, only casts to primitive types and to String type are considered constant
+    if (!(castType instanceof PsiPrimitiveType) && !castType.equalsToText(CommonClassNames.JAVA_LANG_STRING)) {
+      myResult = null;
+      return;
+    }
     myResult = ConstantExpressionUtil.computeCastTo(opValue, castType);
   }
 
@@ -134,8 +126,8 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
     Object value = null;
     if (tokenType == JavaTokenType.PLUS) {
       if (lOperandValue instanceof String || rOperandValue instanceof String) {
-        String l = lOperandValue.toString();
-        String r = rOperandValue.toString();
+        String l = computeValueToString(lOperandValue);
+        String r = computeValueToString(rOperandValue);
         value = l + r;
       }
       else {
@@ -210,40 +202,12 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
         value = Boolean.valueOf(((Boolean)lOperandValue).booleanValue() || ((Boolean)rOperandValue).booleanValue());
       }
     }
-    else if (tokenType == JavaTokenType.LT) {
-      if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
-      if (rOperandValue instanceof Character) rOperandValue = Integer.valueOf(((Character)rOperandValue).charValue());
-      if (lOperandValue instanceof Number && rOperandValue instanceof Number) {
-        value = Boolean.valueOf(((Number)lOperandValue).doubleValue() < ((Number)rOperandValue).doubleValue());
-      }
+    else if (tokenType == JavaTokenType.LT || tokenType == JavaTokenType.LE ||
+             tokenType == JavaTokenType.GT || tokenType == JavaTokenType.GE) {
+      value = compareNumbers(lOperandValue, rOperandValue, tokenType);
     }
-    else if (tokenType == JavaTokenType.LE) {
-      if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
-      if (rOperandValue instanceof Character) rOperandValue = Integer.valueOf(((Character)rOperandValue).charValue());
-      if (lOperandValue instanceof Number && rOperandValue instanceof Number) {
-        value = Boolean.valueOf(((Number)lOperandValue).doubleValue() <= ((Number)rOperandValue).doubleValue());
-      }
-    }
-    else if (tokenType == JavaTokenType.GT) {
-      if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
-      if (rOperandValue instanceof Character) rOperandValue = Integer.valueOf(((Character)rOperandValue).charValue());
-      if (lOperandValue instanceof Number && rOperandValue instanceof Number) {
-        value = Boolean.valueOf(((Number)lOperandValue).doubleValue() > ((Number)rOperandValue).doubleValue());
-      }
-    }
-    else if (tokenType == JavaTokenType.GE) {
-      if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
-      if (rOperandValue instanceof Character) rOperandValue = Integer.valueOf(((Character)rOperandValue).charValue());
-      if (lOperandValue instanceof Number && rOperandValue instanceof Number) {
-        value = Boolean.valueOf(((Number)lOperandValue).doubleValue() >= ((Number)rOperandValue).doubleValue());
-      }
-    }
-    else if (tokenType == JavaTokenType.EQEQ) {
-      value = areValuesEqual(lOperandValue, rOperandValue, expression);
-    }
-    else if (tokenType == JavaTokenType.NE) {
-      Boolean eq = areValuesEqual(lOperandValue, rOperandValue, expression);
-      if (eq != null) value = !eq;
+    else if (tokenType == JavaTokenType.EQEQ || tokenType == JavaTokenType.NE) {
+      value = handleEqualityComparison(lOperandValue, rOperandValue, tokenType);
     }
     else if (tokenType == JavaTokenType.ASTERISK) {
       if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
@@ -415,23 +379,66 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
     return value;
   }
 
-  @Nullable
-  private static Boolean areValuesEqual(Object lOperandValue, Object rOperandValue, PsiPolyadicExpression expression) {
-    if (lOperandValue instanceof Character) lOperandValue = Integer.valueOf(((Character)lOperandValue).charValue());
-    if (rOperandValue instanceof Character) rOperandValue = Integer.valueOf(((Character)rOperandValue).charValue());
-    if (lOperandValue instanceof Number && rOperandValue instanceof Number) {
-      return isBoxedComparison(expression) ? lOperandValue == rOperandValue
-                                           : ((Number)lOperandValue).doubleValue() == ((Number)rOperandValue).doubleValue();
+  private static String computeValueToString(Object value) {
+    if (value instanceof PsiType) {
+      if (value instanceof PsiArrayType) {
+        return "class " + ClassUtil.getClassObjectPresentation((PsiType)value);
+      }
+
+      PsiClass psiClass = PsiUtil.resolveClassInType((PsiType)value);
+      String prefix = psiClass == null ? "" : psiClass.isInterface() ? "interface " : "class ";
+      return prefix + ((PsiType)value).getCanonicalText();
     }
-    if (lOperandValue instanceof String && rOperandValue instanceof String ||
-        lOperandValue instanceof Boolean && rOperandValue instanceof Boolean) {
-      return lOperandValue.equals(rOperandValue);
+    else {
+      return value.toString();
     }
-    return null;
   }
 
-  private static boolean isBoxedComparison(PsiPolyadicExpression expression) {
-    return Arrays.stream(expression.getOperands()).anyMatch(op -> op.getType() instanceof PsiClassType);
+  @Nullable
+  private static Boolean handleEqualityComparison(Object lOperandValue, Object rOperandValue, IElementType tokenType) {
+    if (lOperandValue instanceof String && rOperandValue instanceof String ||
+        lOperandValue instanceof Boolean && rOperandValue instanceof Boolean) {
+      return lOperandValue.equals(rOperandValue) == (tokenType == JavaTokenType.EQEQ);
+    }
+    return compareNumbers(lOperandValue, rOperandValue, tokenType);
+  }
+
+  private static Boolean compareNumbers(Object o1, Object o2, IElementType op) {
+    // JLS 15.20.1. Numerical Comparison Operators <, <=, >, and >=
+    // JLS 15.21.1. Numerical Equality Operators == and !=
+    // JLS 5.6.2 Binary Numeric Promotion
+    if (o1 instanceof Character) o1 = (int)((Character)o1).charValue();
+    if (o2 instanceof Character) o2 = (int)((Character)o2).charValue();
+    if (!(o1 instanceof Number) || !(o2 instanceof Number)) return null;
+    Number n1 = (Number)o1;
+    Number n2 = (Number)o2;
+    int result;
+    if (n1 instanceof Double || n2 instanceof Double) {
+      double v1 = n1.doubleValue();
+      double v2 = n2.doubleValue();
+      if (Double.isNaN(v1) || Double.isNaN(v2)) return op == JavaTokenType.NE;
+      //Cannot use Double.compare as we don't need special treatment of 0.0 and -0.0 here
+      //noinspection UseCompareMethod
+      result = v1 < v2 ? -1 : v1 == v2 ? 0 : 1;
+    } else if (n1 instanceof Float || n2 instanceof Float) {
+      float v1 = n1.floatValue();
+      float v2 = n2.floatValue();
+      if (Float.isNaN(v1) || Float.isNaN(v2)) return op == JavaTokenType.NE;
+      //Cannot use Float.compare as we don't need special treatment of 0.0 and -0.0 here
+      //noinspection UseCompareMethod
+      result = v1 < v2 ? -1 : v1 == v2 ? 0 : 1;
+    } else if (n1 instanceof Long || n2 instanceof Long) {
+      result = Long.compare(n1.longValue(), n2.longValue());
+    } else {
+      result = Integer.compare(n1.intValue(), n2.intValue());
+    }
+    if (op == JavaTokenType.EQEQ) return result == 0;
+    if (op == JavaTokenType.LT) return result < 0;
+    if (op == JavaTokenType.LE) return result <= 0;
+    if (op == JavaTokenType.GT) return result > 0;
+    if (op == JavaTokenType.GE) return result >= 0;
+    if (op == JavaTokenType.NE) return result != 0;
+    throw new IllegalArgumentException("Unexpected operator: " + op);
   }
 
   @Override public void visitPrefixExpression(PsiPrefixExpression expression) {
@@ -507,7 +514,14 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
 
   @Override
   public void visitClassObjectAccessExpression(PsiClassObjectAccessExpression expression) {
-    myResult = expression.getOperand().getType();
+    PsiType type = expression.getOperand().getType();
+    if (type instanceof PsiClassReferenceType) {
+      PsiClass aClass = ((PsiClassReferenceType)type).resolve();
+      if (aClass != null) {
+        type = JavaPsiFacade.getElementFactory(expression.getProject()).createType(aClass, ((PsiClassReferenceType)type).getParameters());
+      }
+    }
+    myResult = type;
   }
 
   @Override public void visitReferenceExpression(PsiReferenceExpression expression) {
@@ -531,7 +545,6 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
     PsiElement resolvedExpression = expression.resolve();
     if (resolvedExpression instanceof PsiEnumConstant) {
       String constant = ((PsiEnumConstant)resolvedExpression).getName();
-      if (constant == null) return;
       PsiReferenceExpression qualifier = (PsiReferenceExpression)expression.getQualifier();
       if (qualifier == null) return;
       PsiElement element = qualifier.resolve();
@@ -605,10 +618,11 @@ class ConstantExpressionVisitor extends JavaElementVisitor implements PsiConstan
   }
 
   @Override
-  public Object computeExpression(final PsiExpression expression, final PsiConstantEvaluationHelper.AuxEvaluator auxEvaluator) {
+  public Object computeExpression(@NotNull final PsiExpression expression, @NotNull final PsiConstantEvaluationHelper.AuxEvaluator auxEvaluator) {
     return JavaConstantExpressionEvaluator.computeConstantExpression(expression, myVisitedVars, myThrowExceptionOnOverflow, auxEvaluator);
   }
 
+  @NotNull
   @Override
   public ConcurrentMap<PsiElement, Object> getCacheMap(final boolean overflow) {
     throw new AssertionError("should not be called");

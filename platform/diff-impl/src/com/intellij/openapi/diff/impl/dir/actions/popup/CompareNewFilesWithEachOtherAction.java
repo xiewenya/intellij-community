@@ -2,20 +2,19 @@
 package com.intellij.openapi.diff.impl.dir.actions.popup;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.diff.impl.dir.DirDiffElementImpl;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.Couple;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class CompareNewFilesWithEachOtherAction extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     DirDiffTableModel model = SetOperationToBase.getModel(e);
     if (model == null) return;
 
@@ -27,17 +26,18 @@ public class CompareNewFilesWithEachOtherAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     DirDiffTableModel model = SetOperationToBase.getModel(e);
     if (model != null) {
       Couple<DirDiffElementImpl> target = getSelectedSourceAndTarget(model);
       if (target != null) {
         e.getPresentation().setEnabled(true);
-        e.getPresentation().setDescription("Compare '" + target.first.getSourceName() + "' with '" + target.second.getTargetName() + "'");
+        e.getPresentation().setDescription(DiffBundle.message("compare.0.with.1", target.first.getSourcePresentableName(),
+                                                      target.second.getTargetPresentableName()));
         return;
       }
     }
-    e.getPresentation().setDescription("Compare selected new files on the left side and on the right side with each other.");
+    e.getPresentation().setDescription(DiffBundle.message("compare.selected.new.files"));
     e.getPresentation().setEnabled(false);
   }
 

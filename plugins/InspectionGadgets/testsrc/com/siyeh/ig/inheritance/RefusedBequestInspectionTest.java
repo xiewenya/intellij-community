@@ -4,16 +4,17 @@
 package com.siyeh.ig.inheritance;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class RefusedBequestInspectionTest extends LightInspectionTestCase {
+public class RefusedBequestInspectionTest extends LightJavaInspectionTestCase {
 
   public void testRefusedBequest() { doTest(); }
   public void testCloneCallsSuperClone() { doTest(); }
   public void testSetupCallsSuperSetup() { doTest(); }
   public void testFinalizeCallsSuperFinalize() { doTest(); }
   public void testGenericsSignatures() { doTest(); }
+  public void testDefaultMethods() { doTest(); }
   public void testSetupCallsSuperSetup2() {
     myFixture.enableInspections(new RefusedBequestInspection());
     doTest();
@@ -24,6 +25,7 @@ public class RefusedBequestInspectionTest extends LightInspectionTestCase {
   protected InspectionProfileEntry getInspection() {
     RefusedBequestInspection inspection = new RefusedBequestInspection();
     inspection.onlyReportWhenAnnotated = false;
+    inspection.ignoreDefaultSuperMethods = true;
     return inspection;
   }
 

@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl.watch;
 
 import com.intellij.debugger.SourcePosition;
@@ -10,12 +8,14 @@ import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.settings.ThreadsViewSettings;
+import com.intellij.debugger.ui.breakpoints.BreakpointIntentionAction;
 import com.intellij.debugger.ui.tree.StackFrameDescriptor;
 import com.intellij.debugger.ui.tree.render.DescriptorLabelListener;
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiFile;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.EmptyIcon;
-import com.intellij.util.ui.JBUI;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.frame.XValueMarkers;
@@ -25,6 +25,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Nodes of this type cannot be updated, because StackFrame objects become invalid as soon as VM has been resumed
@@ -40,7 +42,7 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
   private ObjectReference myThisObject;
   private SourcePosition mySourcePosition;
 
-  private Icon myIcon = AllIcons.Debugger.StackFrame;
+  private Icon myIcon = AllIcons.Debugger.Frame;
 
   public StackFrameDescriptorImpl(@NotNull StackFrameProxyImpl frame, @NotNull MethodsTracker tracker) {
     myFrame = frame;
@@ -48,14 +50,8 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
     try {
       myUiIndex = frame.getFrameIndex();
       myLocation = frame.location();
-      try {
-        myThisObject = frame.thisObject();
-      } catch (EvaluateException e) {
-        // catch internal exceptions here
-        if (!(e.getCause() instanceof InternalException)) {
-          throw e;
-        }
-        LOG.info(e);
+      if (!getValueMarkers().isEmpty()) {
+        getThisObject(); // init this object for markup
       }
       myMethodOccurrence = tracker.getMethodOccurrence(myUiIndex, DebuggerUtilsEx.getMethod(myLocation));
       myIsSynthetic = DebuggerUtils.isSynthetic(myMethodOccurrence.getMethod());
@@ -103,21 +99,27 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
 
   @Nullable
   public ValueMarkup getValueMarkup() {
-    if (myThisObject != null) {
-      DebugProcess process = myFrame.getVirtualMachine().getDebugProcess();
-      if (process instanceof DebugProcessImpl) {
-        XDebugSession session = ((DebugProcessImpl)process).getSession().getXDebugSession();
-        if (session instanceof XDebugSessionImpl) {
-          XValueMarkers<?, ?> markers = ((XDebugSessionImpl)session).getValueMarkers();
-          if (markers != null) {
-            return markers.getAllMarkers().get(myThisObject);
-          }
-        }
-      }
+    Map<?, ValueMarkup> markers = getValueMarkers();
+    if (!markers.isEmpty() && myThisObject != null) {
+      return markers.get(myThisObject);
     }
     return null;
   }
-  
+
+  private Map<?, ValueMarkup> getValueMarkers() {
+    DebugProcess process = myFrame.getVirtualMachine().getDebugProcess();
+    if (process instanceof DebugProcessImpl) {
+      XDebugSession session = ((DebugProcessImpl)process).getSession().getXDebugSession();
+      if (session instanceof XDebugSessionImpl) {
+        XValueMarkers<?, ?> markers = ((XDebugSessionImpl)session).getValueMarkers();
+        if (markers != null) {
+          return markers.getAllMarkers();
+        }
+      }
+    }
+    return Collections.emptyMap();
+  }
+
   @Override
   public String getName() {
     return myName;
@@ -127,18 +129,20 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener descriptorLabelListener) throws EvaluateException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
 
+    myIcon = calcIcon();
+
     if (myLocation == null) {
       return "";
     }
     ThreadsViewSettings settings = ThreadsViewSettings.getInstance();
-    StringBuilder label = new StringBuilder();
+    @NlsSafe StringBuilder label = new StringBuilder();
     Method method = myMethodOccurrence.getMethod();
     if (method != null) {
       myName = method.name();
       label.append(settings.SHOW_ARGUMENTS_TYPES ? DebuggerUtilsEx.methodNameWithArguments(method) : myName);
     }
     if (settings.SHOW_LINE_NUMBER) {
-      label.append(':').append(Integer.toString(DebuggerUtilsEx.getLineNumber(myLocation, false)));
+      label.append(':').append(DebuggerUtilsEx.getLineNumber(myLocation, false));
     }
     if (settings.SHOW_CLASS_NAME) {
       String name;
@@ -178,7 +182,6 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
 
   @Override
   public final void setContext(EvaluationContextImpl context) {
-    myIcon = calcIcon();
   }
 
   public boolean isSynthetic() {
@@ -206,14 +209,27 @@ public class StackFrameDescriptorImpl extends NodeDescriptorImpl implements Stac
     }
     catch (EvaluateException ignored) {
     }
-    return JBUI.scale(EmptyIcon.create(6));//AllIcons.Debugger.StackFrame;
+    //AllIcons.Debugger.StackFrame;
+    return JBUIScale.scaleIcon(EmptyIcon.create(6));
   }
 
   public Icon getIcon() {
     return myIcon;
   }
 
+  @Nullable
   public ObjectReference getThisObject() {
+    if (myThisObject == null) {
+      try {
+        myThisObject = myFrame.thisObject();
+      } catch (EvaluateException e) {
+        LOG.info(e);
+      }
+      if (myThisObject != null) {
+        putUserData(BreakpointIntentionAction.THIS_ID_KEY, myThisObject.uniqueID());
+        putUserData(BreakpointIntentionAction.THIS_TYPE_KEY, myThisObject.type().name());
+      }
+    }
     return myThisObject;
   }
 }

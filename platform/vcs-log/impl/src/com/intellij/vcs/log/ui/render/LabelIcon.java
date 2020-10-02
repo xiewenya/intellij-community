@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.ui.render;
 
 import com.intellij.openapi.ui.GraphicsConfig;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.GraphicsUtil;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.ImageUtil;
+import com.intellij.util.ui.StartupUiUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -26,26 +14,36 @@ import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 public class LabelIcon implements Icon {
   public static final float SIZE = 6.25f;
   private final int mySize;
-  @NotNull private final Color[] myColors;
+  @NotNull private final List<? extends Color> myColors;
   @NotNull private final Color myBgColor;
-  @NotNull private final BufferedImage myImage;
+  @NotNull private BufferedImage myImage;
 
-  public LabelIcon(int size, @NotNull Color bgColor, @NotNull Color... colors) {
+  public LabelIcon(@NotNull JComponent component, int size, @NotNull Color bgColor, @NotNull List<? extends Color> colors) {
     mySize = size;
     myBgColor = bgColor;
     myColors = colors;
+    myImage = createImage(component, null);
+  }
 
-    myImage = UIUtil.createImage(getIconWidth(), getIconHeight(), BufferedImage.TYPE_INT_ARGB);
-    paintIcon(myImage.createGraphics());
+  private BufferedImage createImage(Component c, Graphics2D g) {
+    BufferedImage image = c != null ?
+                          ImageUtil.createImage(c.getGraphicsConfiguration(), getIconWidth(), getIconHeight(), BufferedImage.TYPE_INT_ARGB)
+                                    : ImageUtil.createImage(g, getIconWidth(), getIconHeight(), BufferedImage.TYPE_INT_ARGB);
+    paintIcon(image.createGraphics());
+    return image;
   }
 
   @Override
   public void paintIcon(Component c, Graphics g, int x, int y) {
-    UIUtil.drawImage(g, myImage, x, y, null);
+    if (ImageUtil.getImageScale(myImage) != JBUIScale.sysScale((Graphics2D)g)) {
+      myImage = createImage(null, (Graphics2D)g);
+    }
+    StartupUiUtil.drawImage(g, myImage, x, y, null);
   }
 
   private void paintIcon(@NotNull Graphics2D g2) {
@@ -53,12 +51,12 @@ public class LabelIcon implements Icon {
 
     float scale = mySize / SIZE;
 
-    for (int i = myColors.length - 1; i >= 0; i--) {
-      if (i != myColors.length - 1) {
+    for (int i = myColors.size() - 1; i >= 0; i--) {
+      if (i != myColors.size() - 1) {
         g2.setColor(myBgColor);
         paintTag(g2, scale, scale * 2 * i + 1, 0);
       }
-      g2.setColor(myColors[i]);
+      g2.setColor(myColors.get(i));
       paintTag(g2, scale, scale * 2 * i, 0);
     }
 
@@ -84,7 +82,7 @@ public class LabelIcon implements Icon {
 
   @Override
   public int getIconWidth() {
-    return getWidth(myColors.length);
+    return getWidth(myColors.size());
   }
 
   protected int getWidth(int labelsCount) {

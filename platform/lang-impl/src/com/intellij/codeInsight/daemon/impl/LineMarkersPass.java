@@ -1,11 +1,6 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
-import com.intellij.codeHighlighting.Pass;
 import com.intellij.codeHighlighting.TextEditorHighlightingPass;
 import com.intellij.codeInsight.daemon.*;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager;
@@ -13,6 +8,7 @@ import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
@@ -24,7 +20,6 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
@@ -33,8 +28,6 @@ import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.impl.source.tree.injected.InjectedFileViewProvider;
-import com.intellij.util.FunctionUtil;
 import com.intellij.util.PairConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.NotNullList;
@@ -45,10 +38,10 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.util.*;
 
-public class LineMarkersPass extends TextEditorHighlightingPass implements DumbAware {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.LineMarkersPass");
+public class LineMarkersPass extends TextEditorHighlightingPass {
+  private static final Logger LOG = Logger.getInstance(LineMarkersPass.class);
 
-  private volatile List<LineMarkerInfo<PsiElement>> myMarkers = Collections.emptyList();
+  private volatile List<LineMarkerInfo<?>> myMarkers = Collections.emptyList();
 
   @NotNull private final PsiFile myFile;
   @NotNull private final TextRange myPriorityBounds;
@@ -65,13 +58,6 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
     myRestrictRange = restrictRange;
   }
 
-  @NotNull
-  @Override
-  public Document getDocument() {
-    //noinspection ConstantConditions
-    return super.getDocument();
-  }
-
   @Override
   public void doApplyInformationToEditor() {
     try {
@@ -83,7 +69,7 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
 
   @Override
   public void doCollectInformation(@NotNull ProgressIndicator progress) {
-    final List<LineMarkerInfo<PsiElement>> lineMarkers = new ArrayList<>();
+    final List<LineMarkerInfo<?>> lineMarkers = new ArrayList<>();
     FileViewProvider viewProvider = myFile.getViewProvider();
     for (Language language : viewProvider.getLanguages()) {
       final PsiFile root = viewProvider.getPsi(language);
@@ -114,19 +100,19 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
   }
 
   @NotNull
-  private static List<LineMarkerInfo<PsiElement>> mergeLineMarkers(@NotNull List<LineMarkerInfo<PsiElement>> markers, @NotNull Document document) {
-    List<MergeableLineMarkerInfo> forMerge = new ArrayList<>();
-    TIntObjectHashMap<List<MergeableLineMarkerInfo>> sameLineMarkers = new TIntObjectHashMap<>();
+  private static List<LineMarkerInfo<?>> mergeLineMarkers(@NotNull List<LineMarkerInfo<?>> markers, @NotNull Document document) {
+    List<MergeableLineMarkerInfo<?>> forMerge = new ArrayList<>();
+    TIntObjectHashMap<List<MergeableLineMarkerInfo<?>>> sameLineMarkers = new TIntObjectHashMap<>();
 
     for (int i = markers.size() - 1; i >= 0; i--) {
-      LineMarkerInfo marker = markers.get(i);
+      LineMarkerInfo<?> marker = markers.get(i);
       if (marker instanceof MergeableLineMarkerInfo) {
-        MergeableLineMarkerInfo mergeable = (MergeableLineMarkerInfo)marker;
+        MergeableLineMarkerInfo<?> mergeable = (MergeableLineMarkerInfo<?>)marker;
         forMerge.add(mergeable);
         markers.remove(i);
 
         int line = document.getLineNumber(marker.startOffset);
-        List<MergeableLineMarkerInfo> infos = sameLineMarkers.get(line);
+        List<MergeableLineMarkerInfo<?>> infos = sameLineMarkers.get(line);
         if (infos == null) {
           infos = new ArrayList<>();
           sameLineMarkers.put(line, infos);
@@ -137,29 +123,26 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
 
     if (forMerge.isEmpty()) return markers;
 
-    List<LineMarkerInfo<PsiElement>> result = new ArrayList<>(markers);
+    List<LineMarkerInfo<?>> result = new ArrayList<>(markers);
 
-    for (Object v : sameLineMarkers.getValues()) {
-      List<MergeableLineMarkerInfo> infos = (List<MergeableLineMarkerInfo>)v;
-      result.addAll(MergeableLineMarkerInfo.merge(infos));
-    }
+    sameLineMarkers.forEachValue(infos -> result.addAll(MergeableLineMarkerInfo.merge(infos)));
 
     return result;
   }
 
   @NotNull
   public static List<LineMarkerProvider> getMarkerProviders(@NotNull Language language, @NotNull final Project project) {
-    List<LineMarkerProvider> forLanguage = LineMarkerProviders.INSTANCE.allForLanguageOrAny(language);
+    List<LineMarkerProvider> forLanguage = LineMarkerProviders.getInstance().allForLanguageOrAny(language);
     List<LineMarkerProvider> providers = DumbService.getInstance(project).filterByDumbAwareness(forLanguage);
     final LineMarkerSettings settings = LineMarkerSettings.getSettings();
     return ContainerUtil.filter(providers, provider -> !(provider instanceof LineMarkerProviderDescriptor)
                                                        || settings.isEnabled((LineMarkerProviderDescriptor)provider));
   }
 
-  private static void queryProviders(@NotNull List<PsiElement> elements,
+  private static void queryProviders(@NotNull List<? extends PsiElement> elements,
                                      @NotNull PsiFile containingFile,
-                                     @NotNull List<LineMarkerProvider> providers,
-                                     @NotNull PairConsumer<PsiElement, LineMarkerInfo> consumer) {
+                                     @NotNull List<? extends LineMarkerProvider> providers,
+                                     @NotNull PairConsumer<? super PsiElement, ? super LineMarkerInfo<?>> consumer) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     Set<PsiFile> visitedInjectedFiles = new THashSet<>();
     //noinspection ForLoopReplaceableByForEach
@@ -170,7 +153,7 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
       for (int j = 0; j < providers.size(); j++) {
         ProgressManager.checkCanceled();
         LineMarkerProvider provider = providers.get(j);
-        LineMarkerInfo info;
+        LineMarkerInfo<?> info;
         try {
           info = provider.getLineMarkerInfo(element);
         }
@@ -178,7 +161,8 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
           throw e;
         }
         catch (Exception e) {
-          LOG.error(e);
+          LOG.error("During querying provider " + provider + " (" + provider.getClass() + ")", e,
+                    new Attachment(containingFile.getViewProvider().getVirtualFile().getName(), containingFile.getText()));
           continue;
         }
         if (info != null) {
@@ -189,7 +173,7 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
       queryLineMarkersForInjected(element, containingFile, visitedInjectedFiles, consumer);
     }
 
-    List<LineMarkerInfo> slowLineMarkers = new NotNullList<>();
+    List<LineMarkerInfo<?>> slowLineMarkers = new NotNullList<>();
     //noinspection ForLoopReplaceableByForEach
     for (int j = 0; j < providers.size(); j++) {
       ProgressManager.checkCanceled();
@@ -208,7 +192,7 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
       if (!slowLineMarkers.isEmpty()) {
         //noinspection ForLoopReplaceableByForEach
         for (int k = 0; k < slowLineMarkers.size(); k++) {
-          LineMarkerInfo slowInfo = slowLineMarkers.get(k);
+          LineMarkerInfo<?> slowInfo = slowLineMarkers.get(k);
           PsiElement element = slowInfo.getElement();
           consumer.consume(element, slowInfo);
         }
@@ -219,10 +203,10 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
 
   private static void queryLineMarkersForInjected(@NotNull PsiElement element,
                                                   @NotNull final PsiFile containingFile,
-                                                  @NotNull Set<PsiFile> visitedInjectedFiles,
-                                                  @NotNull final PairConsumer<PsiElement, LineMarkerInfo> consumer) {
-    if (containingFile.getViewProvider() instanceof InjectedFileViewProvider) return;
+                                                  @NotNull Set<? super PsiFile> visitedInjectedFiles,
+                                                  @NotNull final PairConsumer<? super PsiElement, ? super LineMarkerInfo<?>> consumer) {
     final InjectedLanguageManager manager = InjectedLanguageManager.getInstance(containingFile.getProject());
+    if (manager.isInjectedFragment(containingFile)) return;
 
     InjectedLanguageManager.getInstance(containingFile.getProject()).enumerateEx(element, containingFile, false, (injectedPsi, places) -> {
       if (!visitedInjectedFiles.add(injectedPsi)) return; // there may be several concatenated literals making the one injected file
@@ -239,11 +223,14 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
         for (TextRange editable : editables) {
           TextRange hostRange = manager.injectedToHost(injectedPsi, editable);
           Icon icon = gutterRenderer == null ? null : gutterRenderer.getIcon();
-          GutterIconNavigationHandler<PsiElement> navigationHandler = injectedMarker.getNavigationHandler();
-          LineMarkerInfo<PsiElement> converted =
-            new LineMarkerInfo<>(injectedElement, hostRange, icon, injectedMarker.updatePass,
-                                 e -> injectedMarker.getLineMarkerTooltip(), navigationHandler,
-                                 GutterIconRenderer.Alignment.RIGHT);
+          GutterIconNavigationHandler<PsiElement> navigationHandler = (GutterIconNavigationHandler<PsiElement>)injectedMarker.getNavigationHandler();
+          //noinspection deprecation
+          LineMarkerInfo<PsiElement> converted = icon == null
+                                                 ? new LineMarkerInfo<>(injectedElement, hostRange)
+                                                 : new LineMarkerInfo<>(injectedElement, hostRange, icon,
+                                                                        e -> injectedMarker.getLineMarkerTooltip(),
+                                                                        navigationHandler, GutterIconRenderer.Alignment.RIGHT,
+                                                                        () -> gutterRenderer.getAccessibleName());
           consumer.consume(injectedElement, converted);
         }
       });
@@ -251,7 +238,7 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
   }
 
   @NotNull
-  public static Collection<LineMarkerInfo<PsiElement>> queryLineMarkers(@NotNull PsiFile file, @NotNull Document document) {
+  public static Collection<LineMarkerInfo<?>> queryLineMarkers(@NotNull PsiFile file, @NotNull Document document) {
     if (file.getNode() == null) {
       // binary file? see IDEADEV-2809
       return Collections.emptyList();
@@ -262,16 +249,8 @@ public class LineMarkersPass extends TextEditorHighlightingPass implements DumbA
   }
 
   @NotNull
-  public static LineMarkerInfo createMethodSeparatorLineMarker(@NotNull PsiElement startFrom, @NotNull EditorColorsManager colorsManager) {
-    LineMarkerInfo info = new LineMarkerInfo<>(
-      startFrom,
-      startFrom.getTextRange(),
-      null,
-      Pass.LINE_MARKERS,
-      FunctionUtil.<Object, String>nullConstant(),
-      null,
-      GutterIconRenderer.Alignment.RIGHT
-    );
+  public static LineMarkerInfo<PsiElement> createMethodSeparatorLineMarker(@NotNull PsiElement startFrom, @NotNull EditorColorsManager colorsManager) {
+    LineMarkerInfo<PsiElement> info = new LineMarkerInfo<>(startFrom, startFrom.getTextRange());
     EditorColorsScheme scheme = colorsManager.getGlobalScheme();
     info.separatorColor = scheme.getColor(CodeInsightColors.METHOD_SEPARATORS_COLOR);
     info.separatorPlacement = SeparatorPlacement.TOP;

@@ -35,9 +35,8 @@ public class Suppress15InspectionsTest extends LightQuickFixParameterizedTestCas
     enableInspectionTools(new UnusedDeclarationInspection());
   }
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new RedundantThrowsDeclarationLocalInspection(),
       new SillyAssignmentInspection(),
@@ -48,8 +47,6 @@ public class Suppress15InspectionsTest extends LightQuickFixParameterizedTestCas
       new DuplicateThrowsInspection()
     };
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

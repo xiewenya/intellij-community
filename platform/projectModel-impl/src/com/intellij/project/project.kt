@@ -1,46 +1,29 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.project
 
-import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.openapi.components.StorageScheme
-import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.IProjectStore
+import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.util.io.basicAttributesIfExists
-import com.intellij.util.io.exists
-import java.nio.file.InvalidPathException
-import java.nio.file.Paths
+import org.jetbrains.annotations.ApiStatus
+import java.nio.file.Path
 
 val Project.stateStore: IProjectStore
-  get() = picoContainer.getComponentInstance(IComponentStore::class.java) as IProjectStore
+  get() = (this as ProjectStoreOwner).componentStore
+
+@ApiStatus.Internal
+interface ProjectStoreOwner {
+  val componentStore: IProjectStore
+}
 
 val Project.isDirectoryBased: Boolean
-  get() = !isDefault && StorageScheme.DIRECTORY_BASED == stateStore.storageScheme
+  get() = !isDefault && StorageScheme.DIRECTORY_BASED == (stateStore as IProjectStore).storageScheme
 
 fun getProjectStoreDirectory(file: VirtualFile): VirtualFile? {
   return if (file.isDirectory) file.findChild(Project.DIRECTORY_STORE_FOLDER) else null
 }
 
-@JvmOverloads
-fun isValidProjectPath(path: String, anyRegularFileIsValid: Boolean = false): Boolean {
-  val file = try {
-    Paths.get(path)
-  }
-  catch (e: InvalidPathException) {
-    return false
-  }
-
-  val attributes = file.basicAttributesIfExists() ?: return false
-  return if (attributes.isDirectory) {
-    file.resolve(Project.DIRECTORY_STORE_FOLDER).exists()
-  }
-  else {
-    anyRegularFileIsValid || path.endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION)
-  }
-}
-
-fun isEqualToProjectFileStorePath(project: Project, filePath: String, storePath: String): Boolean {
-  return project.isDirectoryBased && filePath.equals(project.stateStore.storageManager.expandMacros(storePath), !SystemInfo.isFileSystemCaseSensitive)
+fun isEqualToProjectFileStorePath(project: Project, filePath: Path, storePath: String): Boolean {
+  return project.isDirectoryBased && filePath == project.stateStore.storageManager.expandMacro(storePath)
 }

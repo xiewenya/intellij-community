@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.update;
 
 import com.intellij.openapi.util.InvalidDataException;
@@ -14,10 +14,10 @@ import java.util.List;
  * Container for files which have been affected by an update/integrate/status operation.
  * The files are grouped by file status.
  *
- * @see com.intellij.openapi.vcs.update.UpdateEnvironment#fillGroups
- * @see com.intellij.openapi.vcs.update.UpdateEnvironment#updateDirectories
+ * @see UpdateEnvironment#fillGroups
+ * @see UpdateEnvironment#updateDirectories
  */
-public class UpdatedFiles implements JDOMExternalizable {
+public final class UpdatedFiles implements JDOMExternalizable {
   private final List<FileGroup> myGroups = new ArrayList<>();
 
   private UpdatedFiles() {
@@ -30,10 +30,12 @@ public class UpdatedFiles implements JDOMExternalizable {
     return fileGroup;
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     FileGroup.writeGroupsToElement(myGroups, element);
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     FileGroup.readGroupsFromElement(myGroups, element);
   }
@@ -51,7 +53,7 @@ public class UpdatedFiles implements JDOMExternalizable {
     return findByIdIn(myGroups, id);
   }
 
-  private static FileGroup findByIdIn(List<FileGroup> groups, String id) {
+  private static FileGroup findByIdIn(List<? extends FileGroup> groups, String id) {
     for (FileGroup fileGroup : groups) {
       if (id.equals(fileGroup.getId())) return fileGroup;
       FileGroup foundInChildren = findByIdIn(fileGroup.getChildren(), id);

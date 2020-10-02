@@ -19,8 +19,11 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.LineHandlerHelper;
 import com.intellij.vcs.VcsLocaleHelper;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,7 +34,7 @@ import java.util.List;
 public final class ShellCommand {
   private final GeneralCommandLine myCommandLine;
 
-  public ShellCommand(@NotNull List<String> commandLine, @Nullable String dir, @Nullable Charset charset) {
+  public ShellCommand(@NotNull List<@NonNls String> commandLine, @Nullable @NonNls String dir, @Nullable Charset charset) {
     if (commandLine.isEmpty()) {
       throw new IllegalArgumentException("commandLine is empty");
     }
@@ -60,11 +63,13 @@ public final class ShellCommand {
     throws ShellCommandException {
     ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
     try {
-      OSProcessHandler processHandler = isBinary ? new BinaryOSProcessHandler(myCommandLine) : new OSProcessHandler(myCommandLine);
+      OSProcessHandler processHandler = isBinary
+                                        ? new BinaryOSProcessHandler(myCommandLine)
+                                        : new KillableProcessHandler(myCommandLine, Registry.is("hg4idea.execute.with.mediator"));
       ProcessAdapter outputAdapter = new ProcessAdapter() {
         @Override
         public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
-          for (String line : LineHandlerHelper.splitText(event.getText())) {
+          for (@NlsSafe String line : LineHandlerHelper.splitText(event.getText())) {
             if (ProcessOutputTypes.STDOUT == outputType && indicator != null && showTextOnIndicator) {
               indicator.setText2(line);
             }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.customization;
 
 import com.intellij.openapi.actionSystem.ActionGroup;
@@ -40,8 +26,8 @@ import java.awt.event.MouseListener;
 import java.util.ArrayList;
 import java.util.List;
 
-public class CustomizationUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.ui.customization.CustomizationUtil");
+public final class CustomizationUtil {
+  private static final Logger LOG = Logger.getInstance(CustomizationUtil.class);
 
   private CustomizationUtil() {
   }
@@ -49,10 +35,12 @@ public class CustomizationUtil {
   public static ActionGroup correctActionGroup(final ActionGroup group,
                                                final CustomActionsSchema schema,
                                                final String defaultGroupName,
-                                               final String rootGroupName) {
-    if (!schema.isCorrectActionGroup(group, defaultGroupName)){
-       return group;
-     }
+                                               final String rootGroupName,
+                                               boolean force) {
+    if (!force && !schema.isCorrectActionGroup(group, defaultGroupName)) {
+      return group;
+    }
+
     String text = group.getTemplatePresentation().getText();
     final int mnemonic = group.getTemplatePresentation().getMnemonic();
     if (text != null) {
@@ -64,7 +52,7 @@ public class CustomizationUtil {
       }
     }
 
-    return new CustomisedActionGroup(text, group.isPopup(), group, schema, defaultGroupName, rootGroupName);
+    return new CustomisedActionGroup(text, group, schema, defaultGroupName, rootGroupName);
   }
 
 
@@ -112,7 +100,7 @@ public class CustomizationUtil {
     for (int i = 0; i < reorderedChildren.size(); i++) {
       if (reorderedChildren.get(i) instanceof ActionGroup) {
         final ActionGroup groupToCorrect = (ActionGroup)reorderedChildren.get(i);
-        final AnAction correctedAction = correctActionGroup(groupToCorrect, schema, "", rootGroupName);
+        final AnAction correctedAction = correctActionGroup(groupToCorrect, schema, "", rootGroupName, false);
         reorderedChildren.set(i, correctedAction);
       }
     }
@@ -159,7 +147,7 @@ public class CustomizationUtil {
 
   private static void computeDiff(final ActionUrl[] defaultUserObjects,
                                   final ActionUrl[] currentUserObjects,
-                                  @NotNull List<ActionUrl> actions) {
+                                  @NotNull List<? super ActionUrl> actions) {
     Diff.Change change = null;
     try {
       change = Diff.buildChanges(defaultUserObjects, currentUserObjects);
@@ -279,9 +267,8 @@ public class CustomizationUtil {
   public static MouseListener installPopupHandler(JComponent component, @NotNull String groupId, String place) {
     return PopupHandler.installPopupHandler(
       component, new ActionGroup() {
-        @NotNull
         @Override
-        public AnAction[] getChildren(@Nullable AnActionEvent e) {
+        public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
           ActionGroup group = (ActionGroup)CustomActionsSchema.getInstance().getCorrectedAction(groupId);
           return group == null ? EMPTY_ARRAY : group.getChildren(e);
         }

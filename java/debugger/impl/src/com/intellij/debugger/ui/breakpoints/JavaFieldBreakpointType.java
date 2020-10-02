@@ -1,8 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.breakpoints;
 
 import com.intellij.CommonBundle;
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.HelpID;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.application.WriteAction;
@@ -17,6 +17,7 @@ import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaFieldBreakpointProperties;
@@ -26,11 +27,9 @@ import javax.swing.*;
 /**
  * @author Eugene Zhuravlev
  */
-public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFieldBreakpointProperties>
-                                     implements JavaBreakpointType<JavaFieldBreakpointProperties> {
-
+public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFieldBreakpointProperties> {
   public JavaFieldBreakpointType() {
-    super("java-field", DebuggerBundle.message("field.watchpoints.tab.title"));
+    super("java-field", JavaDebuggerBundle.message("field.watchpoints.tab.title"));
   }
 
   @Override
@@ -52,6 +51,12 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
 
   @NotNull
   @Override
+  public Icon getSuspendNoneIcon() {
+    return AllIcons.Debugger.Db_no_suspend_field_breakpoint;
+  }
+
+  @NotNull
+  @Override
   public Icon getMutedEnabledIcon() {
     return AllIcons.Debugger.Db_muted_field_breakpoint;
   }
@@ -62,6 +67,12 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
     return AllIcons.Debugger.Db_muted_disabled_field_breakpoint;
   }
 
+  @NotNull
+  @Override
+  public Icon getInactiveDependentIcon() {
+    return AllIcons.Debugger.Db_dep_field_breakpoint;
+  }
+
   //@Override
   protected String getHelpID() {
     return HelpID.FIELD_WATCHPOINTS;
@@ -69,7 +80,7 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
 
   //@Override
   public String getDisplayName() {
-    return DebuggerBundle.message("field.watchpoints.tab.title");
+    return JavaDebuggerBundle.message("field.watchpoints.tab.title");
   }
 
   @Override
@@ -77,9 +88,10 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
     return getText(breakpoint);
   }
 
+  @Nls
   public String getText(XLineBreakpoint<JavaFieldBreakpointProperties> breakpoint) {
     //if(!isValid()) {
-    //  return DebuggerBundle.message("status.breakpoint.invalid");
+    //  return JavaDebuggerBundle.message("status.breakpoint.invalid");
     //}
 
     JavaFieldBreakpointProperties properties = breakpoint.getProperties();
@@ -110,17 +122,18 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
   public XLineBreakpoint<JavaFieldBreakpointProperties> addBreakpoint(final Project project, JComponent parentComponent) {
     final Ref<XLineBreakpoint<JavaFieldBreakpointProperties>> result = Ref.create(null);
     AddFieldBreakpointDialog dialog = new AddFieldBreakpointDialog(project) {
+      @Override
       protected boolean validateData() {
         final String className = getClassName();
         if (className.length() == 0) {
-          Messages.showMessageDialog(project, DebuggerBundle.message("error.field.breakpoint.class.name.not.specified"),
-                                     DebuggerBundle.message("add.field.breakpoint.dialog.title"), Messages.getErrorIcon());
+          Messages.showMessageDialog(project, JavaDebuggerBundle.message("error.field.breakpoint.class.name.not.specified"),
+                                     JavaDebuggerBundle.message("add.field.breakpoint.dialog.title"), Messages.getErrorIcon());
           return false;
         }
         final String fieldName = getFieldName();
         if (fieldName.length() == 0) {
-          Messages.showMessageDialog(project, DebuggerBundle.message("error.field.breakpoint.field.name.not.specified"),
-                                     DebuggerBundle.message("add.field.breakpoint.dialog.title"), Messages.getErrorIcon());
+          Messages.showMessageDialog(project, JavaDebuggerBundle.message("error.field.breakpoint.field.name.not.specified"),
+                                     JavaDebuggerBundle.message("add.field.breakpoint.dialog.title"), Messages.getErrorIcon());
           return false;
         }
         PsiClass psiClass = JavaPsiFacade.getInstance(project).findClass(className, GlobalSearchScope.allScope(project));
@@ -128,7 +141,7 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
           final PsiFile psiFile  = psiClass.getContainingFile();
           Document document = PsiDocumentManager.getInstance(project).getDocument(psiFile);
           if(document != null) {
-            PsiField field = psiClass.findFieldByName(fieldName, true);
+            PsiField field = psiClass.findFieldByName(fieldName, false);
             if(field != null) {
               final int line = document.getLineNumber(field.getTextOffset());
               WriteAction.run(() -> {
@@ -140,7 +153,8 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
             }
             else {
               Messages.showMessageDialog(project,
-                                         DebuggerBundle.message("error.field.breakpoint.field.not.found", className, fieldName, fieldName),
+                                         JavaDebuggerBundle
+                                           .message("error.field.breakpoint.field.not.found", className, fieldName, fieldName),
                                          CommonBundle.getErrorTitle(),
                                          Messages.getErrorIcon()
               );
@@ -148,7 +162,8 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
           }
         } else {
           Messages.showMessageDialog(project,
-                                     DebuggerBundle.message("error.field.breakpoint.class.sources.not.found", className, fieldName, className),
+                                     JavaDebuggerBundle
+                                       .message("error.field.breakpoint.class.sources.not.found", className, fieldName, className),
                                      CommonBundle.getErrorTitle(),
                                      Messages.getErrorIcon()
           );
@@ -169,5 +184,10 @@ public class JavaFieldBreakpointType extends JavaLineBreakpointTypeBase<JavaFiel
   @Override
   public boolean canBeHitInOtherPlaces() {
     return true;
+  }
+
+  @Override
+  public boolean canPutAt(@NotNull VirtualFile file, int line, @NotNull Project project) {
+    return canPutAtElement(file, line, project, (element, document) -> element instanceof PsiField);
   }
 }

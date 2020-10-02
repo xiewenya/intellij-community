@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.artifacts;
 
 import com.intellij.openapi.module.Module;
@@ -9,10 +10,7 @@ import com.intellij.packaging.elements.CompositePackagingElement;
 import com.intellij.packaging.elements.PackagingElement;
 import com.intellij.packaging.elements.PackagingElementFactory;
 
-/**
-* @author nik
-*/
-public class TestPackagingElementBuilder {
+public final class TestPackagingElementBuilder {
   private final CompositePackagingElement<?> myElement;
   private final TestPackagingElementBuilder myParent;
   private final Project myProject;
@@ -68,6 +66,11 @@ public class TestPackagingElementBuilder {
 
   public TestPackagingElementBuilder module(Module module) {
     myElement.addOrFindChild(getFactory().createModuleOutput(module));
+    return this;
+  }
+
+  public TestPackagingElementBuilder moduleSource(Module module) {
+    myElement.addOrFindChild(getFactory().createModuleSource(module));
     return this;
   }
 

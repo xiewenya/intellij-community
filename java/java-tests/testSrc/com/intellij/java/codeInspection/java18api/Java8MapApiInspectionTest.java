@@ -21,20 +21,12 @@ import com.intellij.codeInspection.java18api.Java8MapApiInspection;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
-/**
- * @author Tagir Valeev
- */
 public class Java8MapApiInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     Java8MapApiInspection inspection = new Java8MapApiInspection();
     inspection.myTreatGetNullAsContainsKey = true;
     return new LocalInspectionTool[]{inspection};
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   public static class ImplTest {

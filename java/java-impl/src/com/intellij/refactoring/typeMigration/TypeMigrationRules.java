@@ -1,9 +1,6 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.impl.LibraryScopeCache;
 import com.intellij.openapi.util.Pair;
@@ -14,15 +11,11 @@ import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.typeMigration.rules.DisjunctionTypeConversionRule;
 import com.intellij.refactoring.typeMigration.rules.RootTypeConversionRule;
 import com.intellij.refactoring.typeMigration.rules.TypeConversionRule;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * @author db
@@ -35,11 +28,11 @@ public class TypeMigrationRules {
 
   public TypeMigrationRules(@NotNull Project project) {
     myProject = project;
-    final TypeConversionRule[] extensions = Extensions.getExtensions(TypeConversionRule.EP_NAME);
-    myConversionRules = new ArrayList<>(extensions.length + 2);
+    final List<TypeConversionRule> extensions = TypeConversionRule.EP_NAME.getExtensionList();
+    myConversionRules = new ArrayList<>(extensions.size() + 2);
     myConversionRules.add(new RootTypeConversionRule());
     myConversionRules.add(new DisjunctionTypeConversionRule());
-    ContainerUtil.addAll(myConversionRules, extensions);
+    myConversionRules.addAll(extensions);
     addConversionRuleSettings(new MigrateGetterNameSetting());
   }
 

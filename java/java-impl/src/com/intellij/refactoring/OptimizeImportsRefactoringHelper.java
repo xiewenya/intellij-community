@@ -15,11 +15,13 @@
  */
 package com.intellij.refactoring;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -29,15 +31,14 @@ import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SequentialModalProgressTask;
 import com.intellij.util.SequentialTask;
-import java.util.HashSet;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
 public class OptimizeImportsRefactoringHelper implements RefactoringHelper<Set<PsiJavaFile>> {
-  private static final String REMOVING_REDUNDANT_IMPORTS_TITLE = "Removing redundant imports";
 
   @Override
-  public Set<PsiJavaFile> prepareOperation(final UsageInfo[] usages) {
+  public Set<PsiJavaFile> prepareOperation(final UsageInfo @NotNull [] usages) {
     Set<PsiJavaFile> javaFiles = new HashSet<>();
     for (UsageInfo usage : usages) {
       if (usage.isNonCodeUsage) continue;
@@ -50,10 +51,11 @@ public class OptimizeImportsRefactoringHelper implements RefactoringHelper<Set<P
   }
 
   @Override
-  public void performOperation(final Project project, final Set<PsiJavaFile> javaFiles) {
+  public void performOperation(@NotNull final Project project, final Set<PsiJavaFile> javaFiles) {
     CodeStyleManager.getInstance(project).performActionWithFormatterDisabled(
       (Runnable)() -> PsiDocumentManager.getInstance(project).commitAllDocuments());
 
+    DumbService.getInstance(project).completeJustSubmittedTasks();
     final List<SmartPsiElementPointer<PsiImportStatementBase>> redundants = new ArrayList<>();
     final Runnable findRedundantImports = () -> ReadAction.run(() -> {
       final JavaCodeStyleManager styleManager = JavaCodeStyleManager.getInstance(project);
@@ -83,10 +85,11 @@ public class OptimizeImportsRefactoringHelper implements RefactoringHelper<Set<P
       }
     });
 
-    if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(findRedundantImports, REMOVING_REDUNDANT_IMPORTS_TITLE, false, project)) return;
+    String removingRedundantImportsTitle = JavaRefactoringBundle.message("removing.redundant.imports.progress.title");
+    if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(findRedundantImports, removingRedundantImportsTitle, false, project)) return;
 
     ApplicationManager.getApplication().runWriteAction(() -> {
-      final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, REMOVING_REDUNDANT_IMPORTS_TITLE, false);
+      final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, removingRedundantImportsTitle, false);
       progressTask.setMinIterationTime(200);
       progressTask.setTask(new OptimizeImportsTask(progressTask, redundants));
       ProgressManager.getInstance().run(progressTask);
@@ -104,14 +107,10 @@ class OptimizeImportsTask implements SequentialTask {
   private int myCount;
   private final Map<PsiFile, Set<String>> myDuplicates = new HashMap<>();
 
-  public OptimizeImportsTask(SequentialModalProgressTask progressTask, Collection<SmartPsiElementPointer<PsiImportStatementBase>> pointers) {
+  OptimizeImportsTask(SequentialModalProgressTask progressTask, Collection<SmartPsiElementPointer<PsiImportStatementBase>> pointers) {
     myTask = progressTask;
     myTotal = pointers.size();
     myPointers = pointers.iterator();
-  }
-
-  @Override
-  public void prepare() {
   }
 
   @Override
@@ -155,9 +154,5 @@ class OptimizeImportsTask implements SequentialTask {
     }
 
     return isDone();
-  }
-
-  @Override
-  public void stop() {
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,17 +21,10 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.threading.NestedSynchronizedStatementInspection;
+import com.siyeh.ig.psiutils.ControlFlowUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class NestedTryStatementInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "nested.try.statement.display.name");
-  }
 
   @Override
   @NotNull
@@ -62,7 +55,7 @@ public class NestedTryStatementInspection extends BaseInspection {
       if (!PsiTreeUtil.isAncestor(tryBlock, statement, true)) {
         return;
       }
-      if (NestedSynchronizedStatementInspection.isNestedStatement(statement, PsiTryStatement.class)) {
+      if (ControlFlowUtils.isNestedElement(statement, PsiTryStatement.class)) {
         registerStatementError(statement);
       }
     }

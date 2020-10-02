@@ -15,15 +15,17 @@
  */
 package com.intellij.codeInsight.template;
 
-import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.lang.Language;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiErrorElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.xml.XmlComment;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlText;
 import com.intellij.psi.xml.XmlTokenType;
+import com.intellij.xml.XmlBundle;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -31,15 +33,16 @@ import org.jetbrains.annotations.NotNull;
  */
 public class HtmlTextContextType extends TemplateContextType {
   public HtmlTextContextType() {
-    super("HTML_TEXT", CodeInsightBundle.message("dialog.edit.template.checkbox.html.text"), HtmlContextType.class);
+    super("HTML_TEXT", XmlBundle.message("dialog.edit.template.checkbox.html.text"), HtmlContextType.class);
   }
 
   @Override
   public boolean isInContext(@NotNull PsiFile file, int offset) {
-    if (!HtmlContextType.isMyLanguage(file.getLanguage())) {
+    Language language = PsiUtilCore.getLanguageAtOffset(file, offset);
+    if (!HtmlContextType.isMyLanguage(language)) {
       return false;
     }
-    PsiElement element = file.findElementAt(offset);
+    PsiElement element = file.getViewProvider().findElementAt(offset, language);
     return element == null || isInContext(element);
   }
 

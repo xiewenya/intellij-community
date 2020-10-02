@@ -1,5 +1,7 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.net.ssl;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
@@ -8,16 +10,17 @@ import com.intellij.ide.util.treeView.PresentableNodeDescriptor;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Function;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.TreePath;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.List;
@@ -50,7 +53,7 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
     initRootNode();
   }
 
-  public void reset(@NotNull Collection<X509Certificate> certificates) {
+  public void reset(@NotNull Collection<? extends X509Certificate> certificates) {
     myCertificates.clear();
     for (X509Certificate certificate : certificates) {
       addCertificate(certificate);
@@ -76,7 +79,7 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
   }
 
   public List<X509Certificate> getCertificates() {
-    return ContainerUtil.map(myCertificates.values(), (Function<CertificateWrapper, X509Certificate>)wrapper -> wrapper.getCertificate());
+    return ContainerUtil.map(myCertificates.values(), wrapper -> wrapper.getCertificate());
   }
 
   public boolean isEmpty() {
@@ -88,11 +91,8 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
   }
 
   public void selectFirstCertificate() {
-    if (!isEmpty()) {
-      Tree tree = (Tree)getTree();
-      TreePath path = TreeUtil.getFirstLeafNodePath(tree);
-      tree.addSelectionPath(path);
-    }
+    JTree tree = isEmpty() ? null : getTree();
+    if (tree != null) TreeUtil.promiseSelectFirstLeaf(tree);
   }
 
   /**
@@ -142,25 +142,26 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
   }
 
   class MyTreeStructure extends AbstractTreeStructure {
+    @NotNull
     @Override
     public Object getRootElement() {
       return RootDescriptor.ROOT;
     }
 
     @Override
-    public Object[] getChildElements(Object element) {
+    public Object @NotNull [] getChildElements(@NotNull Object element) {
       if (element == RootDescriptor.ROOT) {
-        return ArrayUtil.toStringArray(myCertificates.keySet());
+        return ArrayUtilRt.toStringArray(myCertificates.keySet());
       }
       else if (element instanceof String) {
         return ArrayUtil.toObjectArray(myCertificates.get((String)element));
       }
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
+      return ArrayUtilRt.EMPTY_OBJECT_ARRAY;
     }
 
     @Nullable
     @Override
-    public Object getParentElement(Object element) {
+    public Object getParentElement(@NotNull Object element) {
       if (element == RootDescriptor.ROOT) {
         return null;
       }
@@ -172,7 +173,7 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
 
     @NotNull
     @Override
-    public NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+    public NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
       if (element == RootDescriptor.ROOT) {
         return ROOT_DESCRIPTOR;
       }
@@ -210,7 +211,7 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
     }
   }
 
-  static class RootDescriptor extends MyNodeDescriptor<Object> {
+  static final class RootDescriptor extends MyNodeDescriptor<Object> {
     public static final Object ROOT = new Object();
 
     private RootDescriptor() {
@@ -218,29 +219,29 @@ public class CertificateTreeBuilder extends AbstractTreeBuilder {
     }
 
     @Override
-    protected void update(PresentationData presentation) {
-      presentation.addText("<root>", SimpleTextAttributes.REGULAR_ATTRIBUTES);
+    protected void update(@NotNull PresentationData presentation) {
+      presentation.addText(IdeBundle.message("label.certificate.root"), SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }
   }
 
-  static class OrganizationDescriptor extends MyNodeDescriptor<String> {
-    private OrganizationDescriptor(@Nullable NodeDescriptor parentDescriptor, @NotNull String object) {
+  static final class OrganizationDescriptor extends MyNodeDescriptor<@Nls String> {
+    private OrganizationDescriptor(@Nullable NodeDescriptor parentDescriptor, @Nls @NotNull String object) {
       super(parentDescriptor, object);
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       presentation.addText(getElement(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
     }
   }
 
-  static class CertificateDescriptor extends MyNodeDescriptor<CertificateWrapper> {
+  static final class CertificateDescriptor extends MyNodeDescriptor<CertificateWrapper> {
     private CertificateDescriptor(@Nullable NodeDescriptor parentDescriptor, @NotNull CertificateWrapper object) {
       super(parentDescriptor, object);
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       CertificateWrapper wrapper = getElement();
       SimpleTextAttributes attr = wrapper.isValid() ? SimpleTextAttributes.REGULAR_ATTRIBUTES : STRIKEOUT_ATTRIBUTES;
       presentation.addText(wrapper.getSubjectField(COMMON_NAME), attr);

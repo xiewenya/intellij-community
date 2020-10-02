@@ -1,27 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.speedSearch;
 
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.util.PopupUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.LightColors;
@@ -39,33 +22,36 @@ import javax.swing.event.DocumentEvent;
 import java.awt.*;
 import java.awt.event.FocusEvent;
 
-public class ListWithFilter<T> extends JPanel implements DataProvider {
+public final class ListWithFilter<T> extends JPanel implements DataProvider {
   private final JList<T> myList;
   private final SearchTextField mySearchField = new SearchTextField(false);
   private final NameFilteringListModel<T> myModel;
   private final JScrollPane myScrollPane;
   private final MySpeedSearch mySpeedSearch;
+  private boolean myAutoPackHeight = true;
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (SpeedSearchSupply.SPEED_SEARCH_CURRENT_QUERY.is(dataId)) {
       return mySearchField.getText();
     }
     return null;
   }
 
-  public static <T> JComponent wrap(@NotNull JList<T> list, @NotNull JScrollPane scrollPane, @Nullable Function<T, String> namer) {
+  @NotNull
+  public static <T> JComponent wrap(@NotNull JList<? extends T> list, @NotNull JScrollPane scrollPane, @Nullable Function<? super T, String> namer) {
     return wrap(list, scrollPane, namer, false);
   }
 
-  public static <T> JComponent wrap(@NotNull JList<T> list, @NotNull JScrollPane scrollPane, @Nullable Function<T, String> namer, 
+  @NotNull
+  public static <T> JComponent wrap(@NotNull JList<? extends T> list, @NotNull JScrollPane scrollPane, @Nullable Function<? super T, String> namer,
                                     boolean highlightAllOccurrences) {
     return new ListWithFilter<>(list, scrollPane, namer, highlightAllOccurrences);
   }
 
   private ListWithFilter(@NotNull JList<T> list,
                          @NotNull JScrollPane scrollPane,
-                         @Nullable Function<T, String> namer,
+                         @Nullable Function<? super T, String> namer,
                          boolean highlightAllOccurrences) {
     super(new BorderLayout());
 
@@ -88,7 +74,10 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     myList.addKeyListener(mySpeedSearch);
     int selectedIndex = myList.getSelectedIndex();
     int modelSize = myList.getModel().getSize();
-    myModel = new NameFilteringListModel<>(myList, namer, s -> mySpeedSearch.shouldBeShowing(s), mySpeedSearch);
+    myModel = new NameFilteringListModel<>(
+      myList.getModel(), namer, mySpeedSearch::shouldBeShowing,
+      () -> StringUtil.notNullize(mySpeedSearch.getFilter()));
+    myList.setModel(myModel);
     if (myModel.getSize() == modelSize) {
       myList.setSelectedIndex(selectedIndex);
     }
@@ -101,9 +90,7 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
   protected void processFocusEvent(FocusEvent e) {
     super.processFocusEvent(e);
     if (e.getID() == FocusEvent.FOCUS_GAINED) {
-      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-        IdeFocusManager.getGlobalInstance().requestFocus(myList, true);
-      });
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
     }
   }
 
@@ -119,7 +106,7 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     return mySpeedSearch;
   }
 
-  private class MySpeedSearch extends SpeedSearch {
+  private final class MySpeedSearch extends SpeedSearch {
     boolean searchFieldShown;
     boolean myInUpdate;
 
@@ -128,7 +115,7 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
       // native mac "clear button" is not captured by SearchTextField.onFieldCleared
       mySearchField.addDocumentListener(new DocumentAdapter() {
         @Override
-        protected void textChanged(DocumentEvent e) {
+        protected void textChanged(@NotNull DocumentEvent e) {
           if (myInUpdate) return;
           if (mySearchField.getText().isEmpty()) {
             mySpeedSearch.reset();
@@ -138,6 +125,7 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
       installSupplyTo(myList);
     }
 
+    @Override
     public void update() {
       myInUpdate = true;
       mySearchField.getTextEditor().setBackground(UIUtil.getTextFieldBackground());
@@ -164,7 +152,7 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     private void revalidate() {
       JBPopup popup = PopupUtil.getPopupContainerFor(mySearchField);
       if (popup != null) {
-        popup.pack(false, true);
+        popup.pack(false, myAutoPackHeight);
       }
       ListWithFilter.this.revalidate();
     }
@@ -189,18 +177,22 @@ public class ListWithFilter<T> extends JPanel implements DataProvider {
     }
   }
 
-  public JList getList() {
+  @NotNull
+  public JList<T> getList() {
     return myList;
   }
 
+  @NotNull
   public JScrollPane getScrollPane() {
     return myScrollPane;
   }
 
+  public void setAutoPackHeight(boolean autoPackHeight) {
+    myAutoPackHeight = autoPackHeight;
+  }
+
   @Override
   public void requestFocus() {
-    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-      IdeFocusManager.getGlobalInstance().requestFocus(myList, true);
-    });
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
   }
 }

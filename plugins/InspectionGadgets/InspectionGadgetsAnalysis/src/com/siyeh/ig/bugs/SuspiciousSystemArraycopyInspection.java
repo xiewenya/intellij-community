@@ -15,22 +15,20 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.intellij.codeInsight.PsiEquivalenceUtil;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.SpecialField;
+import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
+import com.intellij.codeInspection.dataFlow.types.DfIntType;
 import com.intellij.psi.*;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class SuspiciousSystemArraycopyInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("suspicious.system.arraycopy.display.name");
-  }
 
   @Override
   @NotNull
@@ -63,18 +61,11 @@ public class SuspiciousSystemArraycopyInspection extends BaseInspection {
         return;
       }
       final PsiExpression srcPos = arguments[1];
-      if (isNegativeArgument(srcPos)) {
-        registerError(srcPos, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor1"));
-      }
       final PsiExpression destPos = arguments[3];
-      if (isNegativeArgument(destPos)) {
-        registerError(destPos, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor2"));
-      }
       final PsiExpression length = arguments[4];
-      if (isNegativeArgument(length)) {
-        registerError(length, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor3"));
-      }
       final PsiExpression src = arguments[0];
+      final PsiExpression dest = arguments[2];
+      checkRanges(src, srcPos, dest, destPos, length, expression);
       final PsiType srcType = src.getType();
       if (srcType == null) {
         return;
@@ -84,7 +75,6 @@ public class SuspiciousSystemArraycopyInspection extends BaseInspection {
         registerError(src, InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor4"));
         notArrayReported = true;
       }
-      final PsiExpression dest = arguments[2];
       final PsiType destType = dest.getType();
       if (destType == null) {
         return;
@@ -114,13 +104,52 @@ public class SuspiciousSystemArraycopyInspection extends BaseInspection {
       }
     }
 
-    private static boolean isNegativeArgument(@NotNull PsiExpression argument) {
-      final Object constant = ExpressionUtils.computeConstantExpression(argument);
-      if (!(constant instanceof Integer)) {
-        return false;
+    private void checkRanges(@NotNull PsiExpression src,
+                             @NotNull PsiExpression srcPos,
+                             @NotNull PsiExpression dest,
+                             @NotNull PsiExpression destPos,
+                             @NotNull PsiExpression length,
+                             @NotNull PsiMethodCallExpression call) {
+      CommonDataflow.DataflowResult result = CommonDataflow.getDataflowResult(src);
+      if (result == null) return;
+
+      LongRangeSet srcLengthSet = DfIntType.extractRange(SpecialField.ARRAY_LENGTH.getFromQualifier(result.getDfType(src)));
+      LongRangeSet destLengthSet = DfIntType.extractRange(SpecialField.ARRAY_LENGTH.getFromQualifier(result.getDfType(dest)));
+      LongRangeSet srcPosSet = DfIntType.extractRange(result.getDfType(srcPos));
+      LongRangeSet destPosSet = DfIntType.extractRange(result.getDfType(destPos));
+      LongRangeSet lengthSet = DfIntType.extractRange(result.getDfType(length));
+      LongRangeSet srcPossibleLengthToCopy = srcLengthSet.minus(srcPosSet, false);
+      LongRangeSet destPossibleLengthToCopy = destLengthSet.minus(destPosSet, false);
+      long lengthMin = lengthSet.min();
+      if (lengthMin > destPossibleLengthToCopy.max()) {
+        registerError(length, InspectionGadgetsBundle
+          .message("suspicious.system.arraycopy.problem.descriptor.length.bigger.dest", lengthSet.toString()));
+        return;
       }
-      final Integer integer = (Integer)constant;
-      return integer.intValue() < 0;
+      if (lengthMin > srcPossibleLengthToCopy.max()) {
+        registerError(length, InspectionGadgetsBundle
+          .message("suspicious.system.arraycopy.problem.descriptor.length.bigger.src", lengthSet.toString()));
+        return;
+      }
+
+      if (!PsiEquivalenceUtil.areElementsEquivalent(src, dest)) return;
+      LongRangeSet srcRange = getDefiniteRange(srcPosSet, lengthSet);
+      LongRangeSet destRange = getDefiniteRange(destPosSet, lengthSet);
+      if (srcRange.intersects(destRange)) {
+        PsiElement name = call.getMethodExpression().getReferenceNameElement();
+        PsiElement elementToHighlight = name == null ? call : name;
+        registerError(elementToHighlight,
+                      InspectionGadgetsBundle.message("suspicious.system.arraycopy.problem.descriptor.ranges.intersect"));
+      }
+    }
+
+    @NotNull
+    private static LongRangeSet getDefiniteRange(@NotNull LongRangeSet startSet, @NotNull LongRangeSet lengthSet) {
+      long maxLeftBorder = startSet.max();
+      LongRangeSet lengthMinusOne = lengthSet.minus(LongRangeSet.point(1), false);
+      long minRightBorder = startSet.plus(lengthMinusOne, false).min();
+      if (maxLeftBorder > minRightBorder) return LongRangeSet.empty();
+      return LongRangeSet.range(maxLeftBorder, minRightBorder);
     }
   }
 }

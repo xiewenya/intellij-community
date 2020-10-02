@@ -1,7 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
-import com.intellij.debugger.engine.events.DebuggerCommandImpl;
+import com.intellij.debugger.impl.PrioritizedTask;
 import com.intellij.debugger.ui.breakpoints.*;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XBreakpointHandler;
@@ -9,9 +9,6 @@ import com.intellij.xdebugger.breakpoints.XBreakpointType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author egor
- */
 public class JavaBreakpointHandler extends XBreakpointHandler {
   protected final DebugProcessImpl myProcess;
 
@@ -36,17 +33,7 @@ public class JavaBreakpointHandler extends XBreakpointHandler {
       final Breakpoint bpt = javaBreakpoint;
       BreakpointManager.addBreakpoint(bpt);
       // use schedule not to block initBreakpoints
-      myProcess.getManagerThread().schedule(new DebuggerCommandImpl() {
-        @Override
-        protected void action() {
-          bpt.createRequest(myProcess);
-        }
-
-        @Override
-        public Priority getPriority() {
-          return Priority.HIGH;
-        }
-      });
+      myProcess.getManagerThread().schedule(PrioritizedTask.Priority.HIGH, () -> bpt.createRequest(myProcess));
     }
   }
 
@@ -55,17 +42,8 @@ public class JavaBreakpointHandler extends XBreakpointHandler {
     final Breakpoint javaBreakpoint = BreakpointManager.getJavaBreakpoint(breakpoint);
     if (javaBreakpoint != null) {
       // use schedule not to block initBreakpoints
-      myProcess.getManagerThread().schedule(new DebuggerCommandImpl() {
-        @Override
-        protected void action() {
-          myProcess.getRequestsManager().deleteRequest(javaBreakpoint);
-        }
-
-        @Override
-        public Priority getPriority() {
-          return Priority.HIGH;
-        }
-      });
+      myProcess.getManagerThread().schedule(PrioritizedTask.Priority.HIGH,
+                                            () -> myProcess.getRequestsManager().deleteRequest(javaBreakpoint));
     }
   }
 

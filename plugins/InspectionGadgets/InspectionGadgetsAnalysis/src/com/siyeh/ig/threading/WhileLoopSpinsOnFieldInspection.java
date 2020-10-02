@@ -48,13 +48,6 @@ public class WhileLoopSpinsOnFieldInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "while.loop.spins.on.field.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "while.loop.spins.on.field.problem.descriptor");
@@ -104,7 +97,7 @@ public class WhileLoopSpinsOnFieldInspection extends BaseInspection {
       registerStatementError(statement, field, shouldAddSpinWait);
     }
 
-    private boolean containsCall(@Nullable PsiElement element, Predicate<PsiMethodCallExpression> predicate) {
+    private boolean containsCall(@Nullable PsiElement element, Predicate<? super PsiMethodCallExpression> predicate) {
       if(element == null) return false;
       final boolean[] result = new boolean[1];
       element.accept(new JavaRecursiveElementWalkingVisitor() {
@@ -189,7 +182,7 @@ public class WhileLoopSpinsOnFieldInspection extends BaseInspection {
     private final boolean myAddOnSpinWait;
     private final boolean myAddVolatile;
 
-    public SpinLoopFix(PsiField field, boolean addOnSpinWait) {
+    SpinLoopFix(PsiField field, boolean addOnSpinWait) {
       myFieldPointer = SmartPointerManager.getInstance(field.getProject()).createSmartPsiElementPointer(field);
       myFieldName = field.getName();
       myAddOnSpinWait = addOnSpinWait;

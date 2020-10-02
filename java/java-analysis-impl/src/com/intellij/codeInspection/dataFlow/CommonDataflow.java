@@ -1,39 +1,137 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.dataFlow;
 
-import com.intellij.codeInspection.dataFlow.instructions.ArrayAccessInstruction;
-import com.intellij.codeInspection.dataFlow.instructions.BinopInstruction;
-import com.intellij.codeInspection.dataFlow.instructions.MethodCallInstruction;
-import com.intellij.codeInspection.dataFlow.instructions.PushInstruction;
-import com.intellij.codeInspection.dataFlow.value.DfaConstValue;
+import com.intellij.codeInspection.dataFlow.instructions.EndOfInitializerInstruction;
+import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
+import com.intellij.codeInspection.dataFlow.types.*;
+import com.intellij.codeInspection.dataFlow.value.DfaTypeValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
+import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.*;
-import com.intellij.util.ObjectUtils;
+import com.intellij.util.JavaPsiConstructorUtil;
+import com.intellij.util.ThreeState;
 import com.siyeh.ig.psiutils.ExpressionUtils;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RejectedExecutionException;
 
-public class CommonDataflow {
+import static com.intellij.codeInspection.dataFlow.DfaUtil.hasImplicitImpureSuperCall;
+
+public final class CommonDataflow {
+  private static class DataflowPoint {
+    @NotNull DfType myDfType = DfTypes.BOTTOM;
+    // empty = top; null = bottom
+    @Nullable Set<Object> myPossibleValues = Collections.emptySet();
+    boolean myMayFailByContract = false;
+
+    DataflowPoint() {}
+
+    DataflowPoint(DataflowPoint other) {
+      myDfType = other.myDfType;
+      myPossibleValues = other.myPossibleValues;
+      myMayFailByContract = other.myMayFailByContract;
+    }
+
+    void addValue(DfaMemoryState memState, DfaValue value) {
+      if (myPossibleValues == null) return;
+      DfType dfType = memState.getDfType(value);
+      if (!(dfType instanceof DfConstantType)) {
+        myPossibleValues = null;
+        return;
+      }
+      Object newValue = ((DfConstantType<?>)dfType).getValue();
+      if (myPossibleValues.contains(newValue)) return;
+      if (myPossibleValues.isEmpty()) {
+        myPossibleValues = Collections.singleton(newValue);
+      }
+      else {
+        myPossibleValues = new HashSet<>(myPossibleValues);
+        myPossibleValues.add(newValue);
+      }
+    }
+
+    void addFacts(DfaMemoryState memState, DfaValue value) {
+      if (myDfType == DfTypes.TOP) return;
+      DfType newType = memState.getDfType(value);
+      if (value instanceof DfaVariableValue) {
+        SpecialField field = SpecialField.fromQualifier(value);
+        if (field != null && newType instanceof DfReferenceType) {
+          DfaValue specialField = field.createValue(value.getFactory(), value);
+          DfType withSpecialField = field.asDfType(memState.getDfType(specialField));
+          newType = newType
+            .meet(withSpecialField instanceof DfReferenceType ? ((DfReferenceType)withSpecialField).dropNullability() : withSpecialField);
+        }
+      }
+      myDfType = myDfType.join(newType);
+    }
+  }
+
   /**
    * Represents the result of dataflow applied to some code fragment (usually a method)
    */
-  public static class DataflowResult {
-    private final Map<PsiExpression, DfaFactMap> myFacts = new HashMap<>();
+  public static final class DataflowResult {
+    private final @NotNull Map<PsiExpression, DataflowPoint> myData = new HashMap<>();
+    private @NotNull Map<PsiExpression, DataflowPoint> myDataAssertionsDisabled = myData;
+    private final RunnerResult myResult;
 
-    void add(PsiExpression expression, DfaMemoryStateImpl memState, DfaValue value) {
-      DfaFactMap existing = myFacts.get(expression);
-      if(existing != DfaFactMap.EMPTY) {
-        DfaFactMap newMap = memState.getFactMap(value);
-        if (!Boolean.FALSE.equals(newMap.get(DfaFactType.CAN_BE_NULL)) && memState.isNotNull(value)) {
-          newMap = newMap.with(DfaFactType.CAN_BE_NULL, false);
+    public DataflowResult(RunnerResult result) {
+      myResult = result;
+    }
+
+    @NotNull
+    DataflowResult copy() {
+      DataflowResult copy = new DataflowResult(myResult);
+      myData.forEach((expression, point) -> copy.myData.put(expression, new DataflowPoint(point)));
+      return copy;
+    }
+
+    void add(PsiExpression expression, DfaMemoryState memState, DfaValue value) {
+      DfaVariableValue assertionDisabled = value.getFactory().getAssertionDisabled();
+      if (assertionDisabled == null) {
+        assert myData == myDataAssertionsDisabled;
+        updateDataPoint(myData, expression, memState, value);
+      } else {
+        DfType type = memState.getDfType(assertionDisabled);
+        if (type == DfTypes.TRUE || type == DfTypes.FALSE) {
+          if (myData == myDataAssertionsDisabled) {
+            myDataAssertionsDisabled = new HashMap<>(myData);
+          }
+          updateDataPoint(type == DfTypes.TRUE ? myDataAssertionsDisabled : myData, expression, memState, value);
+        } else {
+          updateDataPoint(myData, expression, memState, value);
+          if (myData != myDataAssertionsDisabled) {
+            updateDataPoint(myDataAssertionsDisabled, expression, memState, value);
+          }
         }
-        myFacts.put(expression, existing == null ? newMap : existing.union(newMap));
       }
+    }
+
+    private void updateDataPoint(Map<PsiExpression, DataflowPoint> data,
+                                 PsiExpression expression,
+                                 DfaMemoryState memState,
+                                 DfaValue value) {
+      DataflowPoint point = data.computeIfAbsent(expression, e -> new DataflowPoint());
+      if (DfaTypeValue.isContractFail(value)) {
+        point.myMayFailByContract = true;
+        return;
+      }
+      if (point.myDfType != DfTypes.TOP) {
+        PsiElement parent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
+        if (parent instanceof PsiConditionalExpression &&
+            !PsiTreeUtil.isAncestor(((PsiConditionalExpression)parent).getCondition(), expression, false)) {
+          add((PsiExpression)parent, memState, value);
+        }
+      }
+      point.addFacts(memState, value);
+      point.addValue(memState, value);
     }
 
     /**
@@ -46,120 +144,91 @@ public class CommonDataflow {
      * the dataflow implementation details.
      */
     public boolean expressionWasAnalyzed(PsiExpression expression) {
-      assert !(expression instanceof PsiParenthesizedExpression);
-      return myFacts.containsKey(expression);
+      if (expression instanceof PsiParenthesizedExpression) {
+        throw new IllegalArgumentException("Should not pass parenthesized expression");
+      }
+      return myData.containsKey(expression);
     }
 
     /**
-     * Returns a fact of specific type which is known for given expression or null if fact is not known
+     * Returns true if given call cannot fail according to its contracts
+     * (e.g. {@code Optional.get()} executed under {@code Optional.isPresent()}).
      *
-     * @param expression expression to get the fact
-     * @param type a fact type
-     * @param <T> resulting type
-     * @return a fact value or null if fact of given type is not known for given expression
+     * @param call call to check
+     * @return true if it cannot fail by contract; false if unknown or can fail
      */
-    @Nullable
-    public <T> T getExpressionFact(PsiExpression expression, DfaFactType<T> type) {
-      DfaFactMap map = this.myFacts.get(expression);
-      return map == null ? null : map.get(type);
+    public boolean cannotFailByContract(PsiCallExpression call) {
+      DataflowPoint point = myData.get(call);
+      return point != null && !point.myMayFailByContract;
     }
 
     /**
-     * Returns the fact map which represents all the facts known for given expression
+     * Returns a set of expression values if known. If non-empty set is returned, then given expression
+     * is guaranteed to have one of returned values.
      *
-     * @param expression an expression to check
-     * @return the fact map which represents all the facts known for given expression; empty map if the expression was
-     * analyzed, but no particular facts were inferred; null if the expression was not analyzed.
+     * @param expression an expression to get its value
+     * @return a set of possible values or empty set if not known
      */
-    @Nullable
-    public DfaFactMap getAllFacts(PsiExpression expression) {
-      return this.myFacts.get(expression);
+    @NotNull
+    public Set<Object> getExpressionValues(@Nullable PsiExpression expression) {
+      DataflowPoint point = myData.get(expression);
+      if (point == null) return Collections.emptySet();
+      Set<Object> values = point.myPossibleValues;
+      return values == null ? Collections.emptySet() : Collections.unmodifiableSet(values);
+    }
+
+    /**
+     * @param expression an expression to infer the DfType, must be deparenthesized.
+     * @return DfType for that expression, assuming assertions are disabled.
+     * May return {@link DfTypes#TOP} if no information from dataflow is known about this expression
+     * @see #getDfTypeNoAssertions(PsiExpression)
+     */
+    @NotNull
+    public DfType getDfType(PsiExpression expression) {
+      DataflowPoint point = myData.get(expression);
+      return point == null ? DfTypes.TOP : point.myDfType;
+    }
+
+    /**
+     * @param expression an expression to infer the DfType, must be deparenthesized.
+     * @return DfType for that expression, assuming assertions are disabled.
+     * May return {@link DfTypes#TOP} if no information from dataflow is known about this expression
+     * @see #getDfType(PsiExpression)
+     */
+    @NotNull
+    public DfType getDfTypeNoAssertions(PsiExpression expression) {
+      DataflowPoint point = myDataAssertionsDisabled.get(expression);
+      return point == null ? DfTypes.TOP : point.myDfType;
     }
   }
 
-  @Contract("null -> null")
-  @Nullable
+  @NotNull
   private static DataflowResult runDFA(@Nullable PsiElement block) {
-    if (block == null) return null;
-    DataFlowRunner runner = new DataFlowRunner(false, block);
-    DfaConstValue fail = runner.getFactory().getConstFactory().getContractFail();
-    DataflowResult dfr = new DataflowResult();
-    StandardInstructionVisitor visitor = new StandardInstructionVisitor() {
-      @Override
-      public DfaInstructionState[] visitPush(PushInstruction instruction, DataFlowRunner runner, DfaMemoryState memState) {
-        DfaInstructionState[] states = super.visitPush(instruction, runner, memState);
-        PsiExpression place = instruction.getPlace();
-        if (place != null && !instruction.isReferenceWrite()) {
-          for (DfaInstructionState state : states) {
-            DfaMemoryState afterState = state.getMemoryState();
-            dfr.add(place, (DfaMemoryStateImpl)afterState, instruction.getValue());
-          }
-        }
-        return states;
-      }
-
-      @Override
-      public DfaInstructionState[] visitArrayAccess(ArrayAccessInstruction instruction, DataFlowRunner runner, DfaMemoryState memState) {
-        DfaInstructionState[] states = super.visitArrayAccess(instruction, runner, memState);
-        PsiArrayAccessExpression anchor = instruction.getExpression();
-        for (DfaInstructionState state : states) {
-          DfaMemoryState afterState = state.getMemoryState();
-          dfr.add(anchor, (DfaMemoryStateImpl)afterState, afterState.peek());
-        }
-        return states;
-      }
-
-      @Override
-      public DfaInstructionState[] visitBinop(BinopInstruction instruction, DataFlowRunner runner, DfaMemoryState memState) {
-        DfaInstructionState[] states = super.visitBinop(instruction, runner, memState);
-        PsiElement anchor = instruction.getPsiAnchor();
-        if(anchor instanceof PsiExpression) {
-          for (DfaInstructionState state : states) {
-            DfaMemoryState afterState = state.getMemoryState();
-            dfr.add((PsiExpression)anchor, (DfaMemoryStateImpl)afterState, afterState.peek());
-          }
-        }
-        return states;
-      }
-
-      @NotNull
-      @Override
-      protected DfaCallArguments popCall(MethodCallInstruction instruction,
-                                         DataFlowRunner runner,
-                                         DfaMemoryState memState,
-                                         boolean contractOnly) {
-        DfaCallArguments arguments = super.popCall(instruction, runner, memState, contractOnly);
-        PsiElement context = instruction.getContext();
-        if (instruction.getMethodType() == MethodCallInstruction.MethodType.REGULAR_METHOD_CALL &&
-            context instanceof PsiMethodCallExpression) {
-          PsiExpression qualifier =
-            PsiUtil.skipParenthesizedExprDown(((PsiMethodCallExpression)context).getMethodExpression().getQualifierExpression());
-          if (qualifier != null) {
-            dfr.add(qualifier, (DfaMemoryStateImpl)memState, arguments.myQualifier);
-          }
-        }
-        return arguments;
-      }
-
-      @Override
-      public DfaInstructionState[] visitMethodCall(MethodCallInstruction instruction,
-                                                   DataFlowRunner runner,
-                                                   DfaMemoryState memState) {
-        DfaInstructionState[] states = super.visitMethodCall(instruction, runner, memState);
-        PsiExpression context = ObjectUtils.tryCast(instruction.getContext(), PsiExpression.class);
-        if (context != null && ExpressionUtils.getCallForQualifier(context) == null) {
-          for (DfaInstructionState state : states) {
-            DfaValue value = state.getMemoryState().peek();
-            if(value != fail) {
-              dfr.add(context, (DfaMemoryStateImpl)state.getMemoryState(), value);
-            }
-          }
-        }
-        return states;
-      }
-    };
+    if (block == null) return new DataflowResult(RunnerResult.NOT_APPLICABLE);
+    DataFlowRunner runner = new DataFlowRunner(block.getProject(), block, false, ThreeState.UNSURE);
+    CommonDataflowVisitor visitor = new CommonDataflowVisitor();
     RunnerResult result = runner.analyzeMethodRecursively(block, visitor);
-    return result == RunnerResult.OK ? dfr : null;
+    if (result != RunnerResult.OK) return new DataflowResult(result);
+    if (!(block instanceof PsiClass)) return visitor.myResult;
+    DataflowResult dfr = visitor.myResult.copy();
+    List<DfaMemoryState> states = visitor.myEndOfInitializerStates;
+    for (PsiMethod method : ((PsiClass)block).getConstructors()) {
+      List<DfaMemoryState> initialStates;
+      PsiCodeBlock body = method.getBody();
+      if (body == null) continue;
+      PsiMethodCallExpression call = JavaPsiConstructorUtil.findThisOrSuperCallInConstructor(method);
+      if (JavaPsiConstructorUtil.isChainedConstructorCall(call) || (call == null && hasImplicitImpureSuperCall((PsiClass)block, method))) {
+        initialStates = Collections.singletonList(runner.createMemoryState());
+      } else {
+        initialStates = StreamEx.of(states).map(DfaMemoryState::createCopy).toList();
+      }
+      if(runner.analyzeBlockRecursively(body, initialStates, visitor) == RunnerResult.OK) {
+        dfr = visitor.myResult.copy();
+      } else {
+        visitor.myResult = dfr;
+      }
+    }
+    return dfr;
   }
 
   /**
@@ -169,27 +238,113 @@ public class CommonDataflow {
    */
   @Nullable
   public static DataflowResult getDataflowResult(PsiExpression context) {
-    PsiMember member = PsiTreeUtil.getParentOfType(context, PsiMember.class);
-    if(!(member instanceof PsiMethod) && !(member instanceof PsiField) && !(member instanceof PsiClassInitializer)) return null;
-    PsiElement body = member instanceof PsiMethod ? ((PsiMethod)member).getBody() : member.getContainingClass();
+    PsiElement body = DfaUtil.getDataflowContext(context);
     if (body == null) return null;
-    return CachedValuesManager.getCachedValue(body, () -> {
-      DataflowResult result = runDFA(body);
-      return CachedValueProvider.Result.create(result, PsiModificationTracker.MODIFICATION_COUNT);
-    });
+    ConcurrentHashMap<PsiElement, DataflowResult> fileMap =
+      CachedValuesManager.getCachedValue(body.getContainingFile(), () ->
+        CachedValueProvider.Result.create(new ConcurrentHashMap<>(), PsiModificationTracker.MODIFICATION_COUNT));
+    class ManagedCompute implements ForkJoinPool.ManagedBlocker {
+      DataflowResult myResult;
+
+      @Override
+      public boolean block() {
+        myResult = fileMap.computeIfAbsent(body, CommonDataflow::runDFA);
+        return true;
+      }
+
+      @Override
+      public boolean isReleasable() {
+        myResult = fileMap.get(body);
+        return myResult != null;
+      }
+
+      DataflowResult getResult() {
+        return myResult == null || myResult.myResult != RunnerResult.OK ? null : myResult;
+      }
+    }
+    ManagedCompute managedCompute = new ManagedCompute();
+    try {
+      ForkJoinPool.managedBlock(managedCompute);
+    }
+    catch (RejectedExecutionException ex) {
+      // Too many FJP threads: execute anyway in current thread
+      managedCompute.block();
+    }
+    catch (InterruptedException ex) {
+      // Should not happen
+      throw new AssertionError(ex);
+    }
+    return managedCompute.getResult();
   }
 
   /**
-   * Returns a fact of specific type which is known for given expression or null if fact is not known
-   *
-   * @param expression expression to get the fact
-   * @param type a fact type
-   * @param <T> resulting type
-   * @return a fact value or null if fact of given type is not known for given expression
+   * @param expression an expression to infer the DfType
+   * @return DfType for that expression. May return {@link DfTypes#TOP} if no information from dataflow is known about this expression
    */
-  public static <T> T getExpressionFact(PsiExpression expression, DfaFactType<T> type) {
+  @NotNull
+  public static DfType getDfType(PsiExpression expression) {
     DataflowResult result = getDataflowResult(expression);
-    if (result == null) return null;
-    return result.getExpressionFact(PsiUtil.skipParenthesizedExprDown(expression), type);
+    if (result == null) return DfTypes.TOP;
+    return result.getDfType(PsiUtil.skipParenthesizedExprDown(expression));
+  }
+
+  /**
+   * Returns long range set for expression or null if range is unknown.
+   * This method first tries to compute expression using {@link com.intellij.psi.impl.ConstantExpressionEvaluator}
+   * and only then calls {@link #getDfType(PsiExpression)}.
+   *
+   * @param expression expression to get its range
+   * @return long range set
+   */
+  @Contract("null -> null")
+  @Nullable
+  public static LongRangeSet getExpressionRange(@Nullable PsiExpression expression) {
+    if (expression == null) return null;
+    Object value = ExpressionUtils.computeConstantExpression(expression);
+    LongRangeSet rangeSet = LongRangeSet.fromConstant(value);
+    if (rangeSet != null) return rangeSet;
+    DfType dfType = getDfType(expression);
+    return dfType instanceof DfIntegralType ? ((DfIntegralType)dfType).getRange() : null;
+  }
+
+  /**
+   * Returns the value of given expression calculated via dataflow; or null if value is null or unknown.
+   *
+   * @param expression expression to analyze
+   * @return expression value if known
+   */
+  @Contract("null -> null")
+  public static Object computeValue(@Nullable PsiExpression expression) {
+    PsiExpression expressionToAnalyze = PsiUtil.skipParenthesizedExprDown(expression);
+    if (expressionToAnalyze == null) return null;
+    Object computed = ExpressionUtils.computeConstantExpression(expressionToAnalyze);
+    if (computed != null) return computed;
+    return DfConstantType.getConstantOfType(getDfType(expressionToAnalyze), Object.class);
+  }
+
+  private static class CommonDataflowVisitor extends StandardInstructionVisitor {
+    private DataflowResult myResult = new DataflowResult(RunnerResult.OK);
+    private final List<DfaMemoryState> myEndOfInitializerStates = new ArrayList<>();
+
+    @Override
+    public DfaInstructionState[] visitEndOfInitializer(EndOfInitializerInstruction instruction,
+                                                       DataFlowRunner runner,
+                                                       DfaMemoryState state) {
+      if (!instruction.isStatic()) {
+        myEndOfInitializerStates.add(state.createCopy());
+      }
+      return super.visitEndOfInitializer(instruction, runner, state);
+    }
+
+    @Override
+    protected void beforeExpressionPush(@NotNull DfaValue value,
+                                     @NotNull PsiExpression expression,
+                                     @Nullable TextRange range,
+                                     @NotNull DfaMemoryState state) {
+      if (range == null) {
+        // Do not track instructions which cover part of expression
+        myResult.add(expression, state, value);
+      }
+    }
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.history.actions;
 
 import com.intellij.history.LocalHistory;
@@ -34,6 +20,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
@@ -52,13 +39,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.Collections;
 
 public class GetVersionAction extends AnAction implements DumbAware {
   private static final Logger LOG = Logger.getInstance(GetVersionAction.class);
 
   public GetVersionAction() {
-    super(VcsBundle.message("action.name.get.file.content.from.repository"),
-          VcsBundle.message("action.description.get.file.content.from.repository"), AllIcons.Actions.Get);
+    super(VcsBundle.messagePointer("action.name.get.file.content.from.repository"),
+          VcsBundle.messagePointer("action.description.get.file.content.from.repository"), AllIcons.Actions.Download);
   }
 
   @Override
@@ -123,7 +111,8 @@ public class GetVersionAction extends AnAction implements DumbAware {
       refresh = () -> vf.refresh(false, false);
     }
     if (refresh != null) {
-      ProgressManager.getInstance().runProcessWithProgressSynchronously(refresh, "Refreshing Files...", false, project);
+      ProgressManager.getInstance().runProcessWithProgressSynchronously(refresh,
+                                                                        VcsBundle.message("history.refreshing.files.progress.title"), false, project);
     }
   }
 
@@ -132,7 +121,7 @@ public class GetVersionAction extends AnAction implements DumbAware {
   }
 
   @NotNull
-  private static String createGetActionTitle(@NotNull FilePath filePath, @NotNull VcsFileRevision revision) {
+  private static @NlsContexts.Label String createGetActionTitle(@NotNull FilePath filePath, @NotNull VcsFileRevision revision) {
     return VcsBundle.message("action.name.for.file.get.version", filePath.getPath(), revision.getRevisionNumber());
   }
 
@@ -164,14 +153,12 @@ public class GetVersionAction extends AnAction implements DumbAware {
   }
 
   private static class MyWriteVersionTask extends Task.Backgroundable {
-    @NotNull private final Project myProject;
     @NotNull private final FilePath myFilePath;
     @NotNull private final VcsFileRevision myRevision;
     @Nullable private final VirtualFile myFile;
 
-    public MyWriteVersionTask(@NotNull Project project, @NotNull FilePath filePath, @NotNull VcsFileRevision revision) {
+    MyWriteVersionTask(@NotNull Project project, @NotNull FilePath filePath, @NotNull VcsFileRevision revision) {
       super(project, VcsBundle.message("show.diff.progress.title"));
-      myProject = project;
       myFilePath = filePath;
       myRevision = revision;
       myFile = filePath.getVirtualFile();
@@ -198,7 +185,7 @@ public class GetVersionAction extends AnAction implements DumbAware {
       ApplicationManager.getApplication().invokeLater(() -> {
         try {
           if (myFile != null && !myFile.isWritable() &&
-              ReadonlyStatusHandler.getInstance(myProject).ensureFilesWritable(myFile).hasReadonlyFiles()) {
+              ReadonlyStatusHandler.getInstance(myProject).ensureFilesWritable(Collections.singletonList(myFile)).hasReadonlyFiles()) {
             return;
           }
 

@@ -40,15 +40,17 @@ public class IssueNavigationConfiguration extends SimpleModificationTracker
     return myLinks;
   }
 
-  public void setLinks(final List<IssueNavigationLink> links) {
+  public void setLinks(final List<? extends IssueNavigationLink> links) {
     myLinks = new ArrayList<>(links);
     incModificationCount();
   }
 
+  @Override
   public IssueNavigationConfiguration getState() {
     return this;
   }
 
+  @Override
   public void loadState(@NotNull IssueNavigationConfiguration state) {
     XmlSerializerUtil.copyBean(state, this);
   }
@@ -70,6 +72,7 @@ public class IssueNavigationConfiguration extends SimpleModificationTracker
       return myTargetUrl;
     }
 
+    @Override
     public int compareTo(Object o) {
       if (!(o instanceof LinkMatch)) {
         return 0;
@@ -94,9 +97,11 @@ public class IssueNavigationConfiguration extends SimpleModificationTracker
           }
         }
       }
-      Matcher m = URLUtil.URL_PATTERN.matcher(text);
-      while (m.find()) {
-        addMatch(result, new TextRange(m.start(), m.end()), m.group());
+      TextRange match;
+      int lastOffset = 0;
+      while ((match = URLUtil.findUrl(text, lastOffset, text.length())) != null) {
+        addMatch(result, match, match.subSequence(text).toString());
+        lastOffset = match.getEndOffset();
       }
     }
     catch (ProcessCanceledException e) {

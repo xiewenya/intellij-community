@@ -15,30 +15,35 @@
  */
 package org.jetbrains.idea.maven.utils.library;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.jarRepository.RepositoryLibraryDefinition;
 import com.intellij.openapi.roots.DependencyScope;
-import java.util.HashMap;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.containers.ContainerUtil;
 import icons.OpenapiIcons;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor;
 
 import javax.swing.*;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 public class RepositoryLibraryDescription {
-  @NotNull
+  @NotNull @NonNls
   public static final String LatestVersionId = "LATEST";
-  @NotNull
+  @NotNull @NonNls
   public static final String LatestVersionDisplayName = "Latest";
-  @NotNull
+  @NotNull @NonNls
   public static final String ReleaseVersionId = "RELEASE";
-  @NotNull
+  @NotNull @NonNls
   public static final String DefaultVersionId = ReleaseVersionId;
-  @NotNull
+  @NotNull @NonNls
   public static final String ReleaseVersionDisplayName = "Release";
-  @NotNull
+  @NotNull @NonNls
   public static final String SnapshotVersionSuffix = "-SNAPSHOT";
 
   public static final Icon DEFAULT_ICON = OpenapiIcons.RepositoryLibraryLogo;
@@ -47,12 +52,12 @@ public class RepositoryLibraryDescription {
   
   private final String groupId;
   private final String artifactId;
-  private final String libraryName;
+  private final @NlsContexts.DialogTitle String libraryName;
 
-  protected RepositoryLibraryDescription(String groupId, String artifactId, String libraryName) {
+  protected RepositoryLibraryDescription(String groupId, String artifactId, @NlsContexts.DialogTitle String libraryName) {
     this.groupId = groupId == null? "" : groupId;
     this.artifactId = artifactId == null? "" : artifactId;
-    this.libraryName = libraryName == null? "<unknown>" : libraryName;
+    this.libraryName = libraryName == null ? CodeInsightBundle.message("unknown.node.text") : libraryName;
   }
 
   @NotNull
@@ -65,7 +70,8 @@ public class RepositoryLibraryDescription {
       }
       ourStaticallyDefinedLibraries = Collections.unmodifiableMap(Collections.synchronizedMap(map));
     }
-    final String id = groupId == null && artifactId == null? "<unknown>" : groupId + ":" + artifactId;
+    @NlsSafe
+    final String id = groupId == null && artifactId == null ? CodeInsightBundle.message("unknown.node.text") : groupId + ":" + artifactId;
     final RepositoryLibraryDescription description = ourStaticallyDefinedLibraries.get(id);
     return description != null? description : new RepositoryLibraryDescription(groupId, artifactId, id);
   }
@@ -91,7 +97,7 @@ public class RepositoryLibraryDescription {
   }
 
   @NotNull
-  public String getDisplayName() {
+  public @NlsContexts.DialogTitle String getDisplayName() {
     return libraryName;
   }
 
@@ -112,20 +118,20 @@ public class RepositoryLibraryDescription {
   }
 
   public RepositoryLibraryProperties createDefaultProperties() {
-    return new RepositoryLibraryProperties(getGroupId(), getArtifactId(), ReleaseVersionId, true);
+    return new RepositoryLibraryProperties(getGroupId(), getArtifactId(), ReleaseVersionId, true, ContainerUtil.emptyList());
   }
 
-  public String getDisplayName(String version) {
-    if (version.equals(LatestVersionId)) {
+  public @NlsSafe String getDisplayName(String version) {
+    if (LatestVersionId.equals(version)) {
       version = LatestVersionDisplayName;
     }
-    else if (version.equals(ReleaseVersionId)) {
+    else if (ReleaseVersionId.equals(version)) {
       version = ReleaseVersionDisplayName;
     }
-    return getDisplayName() + ":" + version;
+    return getDisplayName() + (version == null ? "" : ":" + version);
   }
 
-  public String getMavenCoordinates(String version) {
+  public @NlsSafe String getMavenCoordinates(String version) {
     return getGroupId() + ":" + getArtifactId() + ":" + version;
   }
 }

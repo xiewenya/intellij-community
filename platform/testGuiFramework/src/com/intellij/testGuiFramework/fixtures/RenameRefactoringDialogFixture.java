@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testGuiFramework.fixtures;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.refactoring.rename.RenameDialog;
 import com.intellij.refactoring.ui.ConflictsDialog;
+import com.intellij.testGuiFramework.framework.GuiTestUtil;
 import com.intellij.ui.EditorTextField;
 import com.intellij.xml.util.XmlStringUtil;
 import org.fest.swing.core.Robot;
@@ -32,11 +19,10 @@ import javax.swing.text.JTextComponent;
 import java.awt.event.KeyEvent;
 import java.util.regex.Pattern;
 
-import static com.intellij.testGuiFramework.framework.GuiTestUtil.findAndClickButton;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-public class RenameRefactoringDialogFixture extends IdeaDialogFixture<RenameDialog> {
+public final class RenameRefactoringDialogFixture extends IdeaDialogFixture<RenameDialog> {
   @NotNull
   public static RenameRefactoringDialogFixture find(@NotNull Robot robot) {
     return new RenameRefactoringDialogFixture(robot, find(robot, RenameDialog.class));
@@ -52,9 +38,7 @@ public class RenameRefactoringDialogFixture extends IdeaDialogFixture<RenameDial
     GuiActionRunner.execute(new GuiTask() {
       @Override
       protected void executeInEDT() throws Throwable {
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(field, true);
-        });
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(field, true));
       }
     });
     robot().pressAndReleaseKey(KeyEvent.VK_BACK_SPACE); // to make sure we don't append to existing item on Linux
@@ -64,7 +48,7 @@ public class RenameRefactoringDialogFixture extends IdeaDialogFixture<RenameDial
 
   @NotNull
   public RenameRefactoringDialogFixture clickRefactor() {
-    findAndClickButton(this, "Refactor");
+    GuiTestUtil.INSTANCE.findAndClickButton(this, "Refactor");
     return this;
   }
 
@@ -80,7 +64,7 @@ public class RenameRefactoringDialogFixture extends IdeaDialogFixture<RenameDial
 
     @NotNull
     public ConflictsDialogFixture clickContinue() {
-      findAndClickButton(this, "Continue");
+      GuiTestUtil.INSTANCE.findAndClickButton(this, "Continue");
       return this;
     }
 

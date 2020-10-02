@@ -17,23 +17,20 @@ package org.intellij.lang.regexp.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.tree.IElementType;
-
-import org.jetbrains.annotations.NotNull;
-
-import org.intellij.lang.regexp.psi.RegExpElementVisitor;
-import org.intellij.lang.regexp.psi.RegExpBoundary;
 import org.intellij.lang.regexp.RegExpTT;
+import org.intellij.lang.regexp.psi.RegExpBoundary;
+import org.intellij.lang.regexp.psi.RegExpElementVisitor;
+import org.jetbrains.annotations.NotNull;
 
 public class RegExpBoundaryImpl extends RegExpElementImpl implements RegExpBoundary {
     public RegExpBoundaryImpl(ASTNode astNode) {
         super(astNode);
     }
 
+    @Override
     @NotNull
     public Type getType() {
-        final ASTNode child = getNode().getFirstChildNode();
-        assert child != null;
-        final IElementType type = child.getElementType();
+        final IElementType type = getNode().getFirstChildNode().getElementType();
         if (type == RegExpTT.CARET) {
             return Type.LINE_START;
         } else if (type == RegExpTT.DOLLAR) {
@@ -54,12 +51,15 @@ public class RegExpBoundaryImpl extends RegExpElementImpl implements RegExpBound
                 return Type.END;
             } else if (s.equals("\\G")) {
                 return Type.PREVIOUS_MATCH;
+            } else if (s.equals("\\K")) {
+                return Type.RESET_MATCH;
             }
         }
         assert false;
         return null;
     }
 
+    @Override
     public void accept(RegExpElementVisitor visitor) {
         visitor.visitRegExpBoundary(this);
     }

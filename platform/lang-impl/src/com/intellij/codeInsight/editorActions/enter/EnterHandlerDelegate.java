@@ -36,6 +36,28 @@ public interface EnterHandlerDelegate {
   }
 
   /**
+   * Called before the actual Enter processing is done for the caret inside indent space.
+   * <b>Important Note: A document associated with the editor may have modifications which are not reflected yet in the PSI file. If any
+   * operations with PSI are needed including a search for PSI elements, the document must be committed first to update the PSI.
+   * For example:</b>
+   * <code><pre>
+   *   PsiDocumentManager.getInstance(file.getProject()).commitDocument(editor.getDocument);
+   * </pre></code>
+   *
+   * @param newLineCharOffset The end offset of the previous line;
+   *                          <code>newLineCharOffset < 0</code> for the indent space in the top line of the document.
+   * @param editor            The editor.
+   * @param dataContext       The data context passed to the Enter handler.
+   * @return <code>true</code> if the handler is responsible for Enter processing inside the indent space,
+   *         <code>false</code> invokes the default Enter processing procedure inside the indent space.
+   */
+  default boolean invokeInsideIndent(int newLineCharOffset,
+                                     @NotNull Editor editor,
+                                     @NotNull final DataContext dataContext) {
+    return false;
+  }
+
+  /**
    * Called before the actual Enter processing is done.
    * <b>Important Note: A document associated with the editor may have modifications which are not reflected yet in the PSI file. If any
    * operations with PSI are needed including a search for PSI elements, the document must be committed first to update the PSI.
@@ -46,7 +68,8 @@ public interface EnterHandlerDelegate {
    *
    * @param file            The PSI file associated with the document.
    * @param editor          The editor.
-   * @param caretOffset     A reference to the current caret offset in the document.
+   * @param caretOffset     Indicates a place where line break is to be inserted (it's a caret position initially). Method implementation
+   *                        can change this value to adjust target line break position.
    * @param caretAdvance    A reference to the number of columns by which the caret must be moved forward.
    * @param dataContext     The data context passed to the enter handler.
    * @param originalHandler The original handler.

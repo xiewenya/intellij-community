@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.ext.spock;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
@@ -38,10 +25,11 @@ import java.util.regex.Pattern;
 public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
 
   private static final Pattern PATTERN = Pattern.compile("\\#([\\w_]+)");
+  @NlsSafe private static final String UNROLL = "Unroll";
+  @NlsSafe private static final String SPOCK_LANG_UNROLL = "spock.lang.Unroll";
 
-  @NotNull
   @Override
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     GrAnnotationNameValuePair nvp = (GrAnnotationNameValuePair)element.getParent();
 
     String name = nvp.getName();
@@ -56,7 +44,7 @@ public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
     GrAnnotation annotation = (GrAnnotation)eAnnotation;
 
     String shortName = annotation.getShortName();
-    if (!shortName.equals("Unroll") && !shortName.equals("spock.lang.Unroll")) return PsiReference.EMPTY_ARRAY;
+    if (!shortName.equals(UNROLL) && !shortName.equals(SPOCK_LANG_UNROLL)) return PsiReference.EMPTY_ARRAY;
 
     PsiElement modifierList = annotation.getParent();
     if (!(modifierList instanceof GrModifierList)) return PsiReference.EMPTY_ARRAY;
@@ -66,8 +54,7 @@ public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
 
     final GrMethod method = (GrMethod)eMethod;
 
-    ElementManipulator<PsiElement> manipulator = ElementManipulators.getManipulator(element);
-    TextRange rangeInElement = manipulator.getRangeInElement(element);
+    TextRange rangeInElement = ElementManipulators.getValueTextRange(element);
 
     String text = rangeInElement.substring(element.getText());
 
@@ -86,10 +73,10 @@ public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
   private static class SpockVariableReference extends PsiReferenceBase<PsiElement> {
 
     private final PsiElement myLeafElement;
-    private final List<SpockVariableReference> myReferences;
+    private final List<? extends SpockVariableReference> myReferences;
     private final GrMethod myMethod;
 
-    public SpockVariableReference(PsiElement element, TextRange range, List<SpockVariableReference> references, GrMethod method) {
+    SpockVariableReference(PsiElement element, TextRange range, List<? extends SpockVariableReference> references, GrMethod method) {
       super(element, range);
       myReferences = references;
       myMethod = method;
@@ -105,9 +92,8 @@ public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
       return descriptor.getVariable();
     }
 
-    @NotNull
     @Override
-    public Object[] getVariants() {
+    public Object @NotNull [] getVariants() {
       Map<String, SpockVariableDescriptor> variableMap = SpockUtils.getVariableMap(myMethod);
 
       Object[] res = new Object[variableMap.size()];
@@ -121,7 +107,7 @@ public class SpockUnrollReferenceProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       if (getElement().getFirstChild() != myLeafElement) { // Element already renamed.
         return getElement();
       }

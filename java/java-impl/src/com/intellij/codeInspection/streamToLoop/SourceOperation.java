@@ -1,7 +1,6 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamToLoop;
 
-import com.intellij.codeInspection.streamToLoop.StreamToLoopInspection.StreamToLoopReplacementContext;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
@@ -19,9 +18,6 @@ import java.util.function.Consumer;
 
 import static com.intellij.codeInspection.streamToLoop.FunctionHelper.replaceVarReference;
 
-/**
- * @author Tagir Valeev
- */
 abstract class SourceOperation extends Operation {
   @Contract(value = " -> true", pure = true)
   @Override
@@ -31,13 +27,13 @@ abstract class SourceOperation extends Operation {
 
   @NotNull
   @Override
-  final String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+  final String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
     // Cannot inline "result" as wrap may register more beforeSteps
     String result = wrap(outVar, code, context);
     return context.drainBeforeSteps() + result + context.drainAfterSteps();
   }
 
-  abstract String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context);
+  abstract String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context);
 
   @Nullable
   static SourceOperation createSource(PsiMethodCallExpression call, boolean supportUnknownSources) {
@@ -87,7 +83,10 @@ abstract class SourceOperation extends Operation {
     }
     if (name.equals("stream") && args.length == 0 &&
         InheritanceUtil.isInheritor(aClass, CommonClassNames.JAVA_UTIL_COLLECTION)) {
-      return new ForEachSource(call.getMethodExpression().getQualifierExpression());
+      PsiExpression qualifier = ExpressionUtils.getEffectiveQualifier(call.getMethodExpression());
+      if (qualifier != null) {
+        return new ForEachSource(qualifier);
+      }
     }
     if (name.equals("stream") && args.length == 1 &&
         CommonClassNames.JAVA_UTIL_ARRAYS.equals(className)) {
@@ -111,26 +110,30 @@ abstract class SourceOperation extends Operation {
   }
 
   static class ForEachSource extends SourceOperation {
-    private @Nullable PsiExpression myQualifier;
+    private final boolean myEntrySet;
+    private @NotNull PsiExpression myQualifier;
 
-    ForEachSource(@Nullable PsiExpression qualifier) {
+    ForEachSource(@NotNull PsiExpression qualifier) {
+      this(qualifier, false);
+    }
+
+    ForEachSource(@NotNull PsiExpression qualifier, boolean entrySet) {
       myQualifier = qualifier;
+      myEntrySet = entrySet;
     }
 
     @Override
     void rename(String oldName, String newName, StreamToLoopReplacementContext context) {
-      if(myQualifier != null) {
-        myQualifier = replaceVarReference(myQualifier, oldName, newName, context);
-      }
+      myQualifier = replaceVarReference(myQualifier, oldName, newName, context);
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myQualifier);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       if (myQualifier instanceof PsiReferenceExpression) {
         String name = ((PsiReferenceExpression)myQualifier).getReferenceName();
         if(name != null) {
@@ -143,10 +146,9 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
-      PsiExpression iterationParameter = myQualifier == null ? ExpressionUtils
-        .getQualifierOrThis(((PsiMethodCallExpression)context.createExpression("stream()")).getMethodExpression()) : myQualifier;
-      return context.getLoopLabel() + "for(" + outVar.getDeclaration() + ": " + iterationParameter.getText() + ") {" + code + "}\n";
+    public String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
+      String iterationParameterText = myQualifier.getText() + (myEntrySet ? ".entrySet()" : "");
+      return context.getLoopLabel() + "for(" + outVar.getDeclaration() + ": " + iterationParameterText + ") {" + code + "}\n";
     }
   }
 
@@ -163,12 +165,12 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myCall.getArgumentList());
     }
 
     @Override
-    public String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    public String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       PsiType type = outVar.getType();
       String iterationParameter;
       PsiExpressionList argList = myCall.getArgumentList();
@@ -214,7 +216,7 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myFn.registerReusedElements(consumer);
       if(myLimit != null) {
         consumer.accept(myLimit);
@@ -222,7 +224,7 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       myFn.transform(context);
       String loop = "while(true)";
       if(myLimit != null) {
@@ -252,18 +254,18 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myInitializer);
       myFn.registerReusedElements(consumer);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myFn.preprocessVariable(context, outVar, 0);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       myFn.transform(context, outVar.getName());
       return context.getLoopLabel() +
              "for(" + outVar.getDeclaration() + "=" + myInitializer.getText() + ";;" +
@@ -289,15 +291,15 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myOrigin);
       consumer.accept(myBound);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String bound = myBound.getText();
-      if(!ExpressionUtils.isSafelyRecomputableExpression(context.createExpression(bound))) {
+      if(needBound(context, bound)) {
         bound = context.declare("bound", outVar.getType().getCanonicalText(), bound);
       }
       String loopVar = outVar.getName();
@@ -312,6 +314,18 @@ abstract class SourceOperation extends Operation {
              loopVar + "++) {\n" +
              reassign +
              code + "}\n";
+    }
+
+    private static boolean needBound(StreamToLoopReplacementContext context, String bound) {
+      PsiExpression expression = PsiUtil.skipParenthesizedExprDown(context.createExpression(bound));
+      while (expression instanceof PsiReferenceExpression) {
+        PsiElement ref = ((PsiReferenceExpression)expression).resolve();
+        if (!(ref instanceof PsiVariable) || !((PsiVariable)ref).hasModifierProperty(PsiModifier.FINAL)) {
+          break;
+        }
+        expression = ((PsiReferenceExpression)expression).getQualifierExpression();
+      }
+      return !ExpressionUtils.isSafelyRecomputableExpression(expression);
     }
   }
 
@@ -336,14 +350,14 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myOrigin);
       consumer.accept(myBound);
       consumer.accept(myArray);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String bound = myBound.getText();
       String array = myArray.getText();
       if (!ExpressionUtils.isSafelyRecomputableExpression(context.createExpression(array))) {
@@ -367,7 +381,7 @@ abstract class SourceOperation extends Operation {
     private final String myElementType;
     private PsiMethodCallExpression myCall;
 
-    public StreamIteratorSource(PsiMethodCallExpression call, PsiType type) {
+    StreamIteratorSource(PsiMethodCallExpression call, PsiType type) {
       myCall = call;
       myElementType = type.getCanonicalText();
     }
@@ -378,12 +392,12 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myCall);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       String name = myCall.getMethodExpression().getReferenceName();
       if (name != null) {
         String unpluralized = StringUtil.unpluralize(name);
@@ -407,7 +421,7 @@ abstract class SourceOperation extends Operation {
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String iterator = context.registerVarName(Arrays.asList("it", "iter", "iterator"));
       String declaration = getIteratorType(myElementType) + " " + iterator + "=" + myCall.getText() + ".iterator()";
       String condition = iterator + ".hasNext()";

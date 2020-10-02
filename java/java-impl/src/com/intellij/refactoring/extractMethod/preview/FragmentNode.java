@@ -7,6 +7,7 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageTreeColors;
 import com.intellij.usageView.UsageTreeColorsScheme;
@@ -18,6 +19,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * @author Pavel.Dolgov
@@ -30,7 +33,7 @@ abstract class FragmentNode extends DefaultMutableTreeNode implements Comparable
   private boolean myValid = true;
 
   protected FragmentNode(@NotNull PsiElement start, @NotNull PsiElement end, @NotNull ExtractableFragment fragment) {
-    myTextChunks = createTextChunks(start, end);
+    myTextChunks = createTextChunks(start);
     myLineNumberChunk = createNumberChunk(start, end);
     myOffset = start.getTextRange().getStartOffset();
     myFragment = fragment;
@@ -45,11 +48,12 @@ abstract class FragmentNode extends DefaultMutableTreeNode implements Comparable
     return myLineNumberChunk;
   }
 
-  protected TextChunk[] createTextChunks(@NotNull PsiElement start, @NotNull PsiElement end) {
-    UsageInfo2UsageAdapter usageStartAdapter = new UsageInfo2UsageAdapter(new UsageInfo(start));
-    String text = start.getText();
-    return ChunkExtractor.getExtractor(start.getContainingFile())
-                         .createTextChunks(usageStartAdapter, text, 0, text.length(), false, new ArrayList<>());
+  protected TextChunk @NotNull [] createTextChunks(@NotNull PsiElement element) {
+    UsageInfo2UsageAdapter usageAdapter = new UsageInfo2UsageAdapter(new UsageInfo(element));
+    PsiFile file = element.getContainingFile();
+    TextRange range = element.getTextRange();
+    return ChunkExtractor.getExtractor(file)
+                  .createTextChunks(usageAdapter, file.getText(), range.getStartOffset(), range.getEndOffset(), false, new ArrayList<>());
   }
 
   private static TextChunk createNumberChunk(@NotNull PsiElement start, @NotNull PsiElement end) {
@@ -59,7 +63,7 @@ abstract class FragmentNode extends DefaultMutableTreeNode implements Comparable
       int endLine = getLineNumber(document, end.getTextRange().getEndOffset()) + 1;
       String lineText = startLine == endLine ? Integer.toString(startLine) : startLine + ".." + endLine;
       EditorColorsScheme colorsScheme = UsageTreeColorsScheme.getInstance().getScheme();
-      return new TextChunk(colorsScheme.getAttributes(UsageTreeColors.USAGE_LOCATION), lineText + " ");
+      return new TextChunk(colorsScheme.getAttributes(UsageTreeColors.USAGE_LOCATION), lineText + "  ");
     }
     return null;
   }
@@ -84,6 +88,11 @@ abstract class FragmentNode extends DefaultMutableTreeNode implements Comparable
     return myFragment.getTextRange();
   }
 
+  @Nullable
+  public ElementsRange getElementsRange() {
+    return myFragment.getElementsRange();
+  }
+
   private static int getLineNumber(@NotNull Document document, int offset) {
     if (document.getTextLength() == 0) return 0;
     if (offset >= document.getTextLength()) return document.getLineCount();
@@ -93,5 +102,12 @@ abstract class FragmentNode extends DefaultMutableTreeNode implements Comparable
   @Override
   public int compareTo(@NotNull FragmentNode o) {
     return myOffset - o.myOffset;
+  }
+
+  @Override
+  public String toString() {
+    if (myTextChunks == null) return "";
+    String lineNumber = myLineNumberChunk != null ? myLineNumberChunk.getText().trim() + ":" : "";
+    return Stream.of(myTextChunks).map(TextChunk::getText).collect(Collectors.joining("", lineNumber, ""));
   }
 }

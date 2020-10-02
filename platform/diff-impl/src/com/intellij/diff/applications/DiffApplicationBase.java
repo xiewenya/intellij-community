@@ -15,122 +15,73 @@
  */
 package com.intellij.diff.applications;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ApplicationStarterEx;
+import com.intellij.openapi.application.ApplicationStarterBase;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.diff.DiffBundle;
+import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectLocator;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashSet;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-@SuppressWarnings({"UseOfSystemOutOrSystemErr", "CallToPrintStackTrace"})
-public abstract class DiffApplicationBase extends ApplicationStarterEx {
+public abstract class DiffApplicationBase extends ApplicationStarterBase {
+  @NlsSafe protected static final String NULL_PATH = "/dev/null";
+
   protected static final Logger LOG = Logger.getInstance(DiffApplicationBase.class);
 
-  protected abstract boolean checkArguments(@NotNull String[] args);
-
-  @NotNull
-  protected abstract String getUsageMessage();
-
-  protected abstract void processCommand(@NotNull String[] args, @Nullable String currentDirectory)
-    throws Exception;
+  protected DiffApplicationBase(@NotNull @NonNls String commandName, int... possibleArgumentsCount) {
+    super(commandName, possibleArgumentsCount);
+  }
 
   //
   // Impl
   //
 
-  @Override
-  public boolean isHeadless() {
-    return false;
-  }
-
-  @Override
-  public void processExternalCommandLine(@NotNull String[] args, @Nullable String currentDirectory) {
-    if (!checkArguments(args)) {
-      Messages.showMessageDialog(getUsageMessage(), StringUtil.toTitleCase(getCommandName()), Messages.getInformationIcon());
-      return;
-    }
-    try {
-      processCommand(args, currentDirectory);
-    }
-    catch (Exception e) {
-      Messages.showMessageDialog(String.format("Error showing %s: %s", getCommandName(), e.getMessage()),
-                                 StringUtil.toTitleCase(getCommandName()),
-                                 Messages.getErrorIcon());
-    }
-    finally {
-      saveAll();
-    }
-  }
-
-  private static void saveAll() {
-    FileDocumentManager.getInstance().saveAllDocuments();
-    ApplicationManager.getApplication().saveSettings();
-  }
-
-  @Override
-  public void premain(String[] args) {
-    if (!checkArguments(args)) {
-      System.out.println(getUsageMessage());
-      System.exit(1);
-    }
-  }
-
-  @Override
-  public void main(String[] args) {
-    try {
-      processCommand(args, null);
-    }
-    catch (Exception e) {
-      e.printStackTrace();
-      System.exit(1);
-    }
-    catch (Throwable t) {
-      t.printStackTrace();
-      System.exit(2);
-    }
-    finally {
-      saveAll();
-    }
-
-    System.exit(0);
-  }
-
   @NotNull
-  public static List<VirtualFile> findFiles(@NotNull List<String> filePaths, @Nullable String currentDirectory) throws Exception {
+  public static List<VirtualFile> findFilesOrThrow(@NotNull List<String> filePaths, @Nullable String currentDirectory) throws Exception {
     List<VirtualFile> files = new ArrayList<>();
 
     for (String path : filePaths) {
-      VirtualFile virtualFile = findFile(path, currentDirectory);
-      if (virtualFile == null) throw new Exception("Can't find file " + path);
-      files.add(virtualFile);
+      if (NULL_PATH.equals(path)) {
+        files.add(null);
+      }
+      else {
+        VirtualFile virtualFile = findFile(path, currentDirectory);
+        if (virtualFile == null) throw new Exception(DiffBundle.message("cannot.find.file.error", path));
+        files.add(virtualFile);
+      }
     }
 
-    VfsUtil.markDirtyAndRefresh(false, false, false, VfsUtilCore.toVirtualFileArray(files));
-
-    for (int i = 0; i < filePaths.size(); i++) {
-      if (!files.get(i).isValid()) throw new Exception("Can't find file " + filePaths.get(i));
-    }
+    refreshAndEnsureFilesValid(files);
 
     return files;
+  }
+
+  public static void refreshAndEnsureFilesValid(@NotNull List<? extends VirtualFile> files) throws Exception {
+    VfsUtil.markDirtyAndRefresh(false, false, false, VfsUtilCore.toVirtualFileArray(files));
+
+    for (VirtualFile file : files) {
+      if (file != null && !file.isValid()) throw new Exception(DiffBundle.message("cannot.find.file.error", file.getPresentableUrl()));
+    }
   }
 
   @Nullable
@@ -139,6 +90,22 @@ public abstract class DiffApplicationBase extends ApplicationStarterEx {
     VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
     if (virtualFile == null) {
       LOG.warn(String.format("Can't find file: current directory - %s; path - %s", currentDirectory, path));
+    }
+    return virtualFile;
+  }
+
+  @Nullable
+  public static VirtualFile findOrCreateFile(@NotNull String path, @Nullable String currentDirectory) throws IOException {
+    File file = getFile(path, currentDirectory);
+    VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
+    if (virtualFile == null) {
+      boolean wasCreated = file.createNewFile();
+      if (wasCreated) {
+        virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
+      }
+    }
+    if (virtualFile == null) {
+      LOG.warn(String.format("Can't create file: current directory - %s; path - %s", currentDirectory, path));
     }
     return virtualFile;
   }
@@ -152,13 +119,14 @@ public abstract class DiffApplicationBase extends ApplicationStarterEx {
     return file;
   }
 
-  @Override
-  public boolean canProcessExternalCommandLine() {
-    return true;
+  @NotNull
+  public static List<VirtualFile> replaceNullsWithEmptyFile(@NotNull List<? extends VirtualFile> contents) {
+    return ContainerUtil.map(contents, file -> file != null ? file : new LightVirtualFile(NULL_PATH, PlainTextFileType.INSTANCE, ""));
   }
 
+
   @Nullable
-  protected static Project guessProject(@NotNull List<VirtualFile> files) {
+  protected static Project guessProject(@NotNull List<? extends VirtualFile> files) {
     Set<Project> projects = new HashSet<>();
     for (VirtualFile file : files) {
       projects.addAll(ProjectLocator.getInstance().getProjectsForFile(file));

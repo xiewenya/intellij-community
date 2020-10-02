@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util.documentation;
 
 import com.intellij.lang.Language;
@@ -49,7 +35,7 @@ import java.util.List;
 public class XmlDocumentationProvider implements DocumentationProvider {
   private static final Key<XmlElementDescriptor> DESCRIPTOR_KEY = Key.create("Original element");
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.xml.util.documentation.XmlDocumentationProvider");
+  private static final Logger LOG = Logger.getInstance(XmlDocumentationProvider.class);
 
   @NonNls private static final String NAME_ATTR_NAME = "name";
   @NonNls private static final String BASE_SITEPOINT_URL = "http://reference.sitepoint.com/html/";
@@ -92,7 +78,7 @@ public class XmlDocumentationProvider implements DocumentationProvider {
   @Override
   public String generateDoc(PsiElement element, final PsiElement originalElement) {
     if (element instanceof XmlElementDecl) {
-      PsiElement curElement = findPreviousComment(element);
+      PsiElement curElement = XmlUtil.findPreviousComment(element);
 
       if (curElement!=null) {
         return formatDocFromComment(curElement, ((XmlElementDecl)element).getNameElement().getText());
@@ -138,7 +124,7 @@ public class XmlDocumentationProvider implements DocumentationProvider {
         }
       }
       if (processor.result == null) {
-        final PsiElement comment = findPreviousComment(element);
+        final PsiElement comment = XmlUtil.findPreviousComment(element);
         if (comment != null) {
           return formatDocFromComment(comment, ((XmlTag)element).getName());
         }
@@ -153,7 +139,7 @@ public class XmlDocumentationProvider implements DocumentationProvider {
     } else if (element instanceof XmlAttributeDecl) {
       // Check for comment before attlist, it should not be right after previous declaration
       final PsiElement parent = element.getParent();
-      final PsiElement previousComment = findPreviousComment(parent);
+      final PsiElement previousComment = XmlUtil.findPreviousComment(parent);
       final String referenceName = ((XmlAttributeDecl)element).getNameElement().getText();
 
       if (previousComment instanceof PsiComment) {
@@ -247,26 +233,6 @@ public class XmlDocumentationProvider implements DocumentationProvider {
       return formatDocFromComment(uncleElement, referenceName);
     }
     return null;
-  }
-
-  @Nullable
-  public static PsiElement findPreviousComment(final PsiElement element) {
-    PsiElement curElement = element;
-
-    while(curElement!=null && !(curElement instanceof XmlComment)) {
-      curElement = curElement.getPrevSibling();
-      if (curElement instanceof XmlText && StringUtil.isEmptyOrSpaces(curElement.getText())) {
-        continue;
-      }
-      if (!(curElement instanceof PsiWhiteSpace) &&
-          !(curElement instanceof XmlProlog) &&
-          !(curElement instanceof XmlComment)
-         ) {
-        curElement = null; // finding comment fails, we found another similar declaration
-        break;
-      }
-    }
-    return curElement;
   }
 
   private String formatDocFromComment(final PsiElement curElement, final String name) {
@@ -481,11 +447,6 @@ public class XmlDocumentationProvider implements DocumentationProvider {
     return null;
   }
 
-  @Override
-  public PsiElement getDocumentationElementForLink(final PsiManager psiManager, String link, PsiElement context) {
-    return null;
-  }
-
   private static class MyPsiElementProcessor implements PsiElementProcessor {
     String result;
     String version;
@@ -530,7 +491,7 @@ public class XmlDocumentationProvider implements DocumentationProvider {
     }
   }
 
-  private static String escapeDocumentationTextText(final String result) {
-    return StringUtil.escapeXml(result).replaceAll("&apos;","'").replaceAll("\n","<br>\n");
+  private static String escapeDocumentationTextText(@NotNull String result) {
+    return StringUtil.escapeXmlEntities(result).replaceAll("&apos;", "'").replaceAll("\n", "<br>\n");
   }
 }

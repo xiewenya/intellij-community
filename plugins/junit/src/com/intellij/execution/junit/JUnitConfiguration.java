@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.junit;
 
@@ -11,37 +11,42 @@ import com.intellij.execution.configuration.EnvironmentVariablesComponent;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.junit2.configuration.JUnitConfigurable;
+import com.intellij.execution.junit2.configuration.JUnitSettingsEditor;
 import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.execution.junit2.ui.properties.JUnitConsoleProperties;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
+import com.intellij.execution.testframework.TestRunnerBundle;
 import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.execution.testframework.sm.runner.SMTRunnerConsoleProperties;
+import com.intellij.execution.util.JavaParametersUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.options.SettingsEditorGroup;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.DefaultJDOMExternalizer;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.rt.execution.junit.RepeatCount;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jdom.Element;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.jps.model.serialization.PathMacroUtil;
 
+import java.lang.reflect.Field;
 import java.util.*;
 
-public class JUnitConfiguration extends JavaTestConfigurationBase {
-  public static final String DEFAULT_PACKAGE_NAME = ExecutionBundle.message("default.package.presentable.name");
+public class JUnitConfiguration extends JavaTestConfigurationWithDiscoverySupport implements InputRedirectAware {
   public static final byte FRAMEWORK_ID = 0x0;
 
   @NonNls public static final String TEST_CLASS = "class";
@@ -60,12 +65,14 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
   @NonNls public static final String FORK_KLASS = "class";
   @NonNls public static final String FORK_REPEAT = "repeat";
   // See #26522
-  @NonNls public static final String JUNIT_START_CLASS = "com.intellij.rt.execution.junit.JUnitStarter";
+  @NonNls public static final String JUNIT_START_CLASS = "com.intellij.rt.junit.JUnitStarter";
   @NonNls private static final String PATTERN_EL_NAME = "pattern";
   @NonNls public static final String TEST_PATTERN = PATTERN_EL_NAME;
   @NonNls private static final String TEST_CLASS_ATT_NAME = "testClass";
   @NonNls private static final String PATTERNS_EL_NAME = "patterns";
   private final Data myData;
+  private final InputRedirectAware.InputRedirectOptionsImpl myInputRedirectOptions = new InputRedirectOptionsImpl();
+
   final RefactoringListeners.Accessor<PsiPackage> myPackage = new RefactoringListeners.Accessor<PsiPackage>() {
     @Override
     public void setName(final String qualifiedName) {
@@ -106,7 +113,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       restoreOriginalModule(originalModule);
     }
   };
-  
+
   final RefactoringListeners.Accessor<PsiClass> myCategory = new RefactoringListeners.Accessor<PsiClass>() {
     @Override
     public void setName(@NotNull final String qualifiedName) {
@@ -130,19 +137,36 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     this(name, project, new Data(), configurationFactory);
   }
 
+  public JUnitConfiguration(final String name, final Project project) {
+    this(name, project, new Data(), JUnitConfigurationType.getInstance().getConfigurationFactories()[0]);
+  }
+
   protected JUnitConfiguration(final String name, final Project project, final Data data, ConfigurationFactory configurationFactory) {
-    super(name, new JavaRunConfigurationModule(project, false), configurationFactory);
+    super(name, new JavaRunConfigurationModule(project, true), configurationFactory);
+    myData = data;
+  }
+
+  protected JUnitConfiguration(@NotNull Project project, Data data, @NotNull ConfigurationFactory configurationFactory) {
+    super(new JavaRunConfigurationModule(project, true), configurationFactory);
     myData = data;
   }
 
   @Override
   public TestObject getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) throws ExecutionException {
-    return TestObject.fromString(myData.TEST_OBJECT, this, env);
+    TestObject testObject = TestObject.fromString(myData.TEST_OBJECT, this, env);
+    DumbService dumbService = DumbService.getInstance(getProject());
+    if (dumbService.isDumb() && !DumbService.isDumbAware(testObject)) {
+      throw new ExecutionException(JUnitBundle.message("running.tests.disabled.during.index.update.error.message"));
+    }
+    return testObject;
   }
 
   @Override
   @NotNull
   public SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
+    if (Registry.is("ide.new.run.config.junit", true)) {
+      return new JUnitSettingsEditor(this);
+    }
     SettingsEditorGroup<JUnitConfiguration> group = new SettingsEditorGroup<>();
     group.addEditor(ExecutionBundle.message("run.configuration.configuration.tab.title"), new JUnitConfigurable(getProject()));
     JavaRunConfigurationExtensionManager.getInstance().appendEditors(this, group);
@@ -198,7 +222,9 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       default:
         repeat = "";
     }
-    return myData.getGeneratedName(getConfigurationModule()) + repeat;
+    String generatedName = myData.getGeneratedName(getConfigurationModule());
+    if (generatedName == null) return null;
+    return generatedName + repeat;
   }
 
   @Override
@@ -213,7 +239,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
 
   @Override
   public void setVMParameters(@Nullable String value) {
-    myData.setVMParameters(value);
+    myData.setVMParameters(StringUtil.nullize(value));
   }
 
   @Override
@@ -294,6 +320,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     return !Comparing.strEqual(data.TEST_OBJECT, TEST_PACKAGE) ? null : data.getPackageName();
   }
 
+  @Override
   public void beClassConfiguration(final PsiClass testClass) {
     if (FORK_KLASS.equals(getForkMode())) {
       setForkMode(FORK_NONE);
@@ -321,11 +348,21 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
   }
 
   @Override
+  public String getTestType() {
+    return getPersistentData().TEST_OBJECT;
+  }
+
+  @Override
   public TestSearchScope getTestSearchScope() {
     return getPersistentData().getScope();
   }
 
-  public void beFromSourcePosition(PsiLocation<PsiMethod> sourceLocation) {
+  @Override
+  public void setSearchScope(TestSearchScope searchScope) {
+    getPersistentData().setScope(searchScope);
+  }
+
+  public void beFromSourcePosition(PsiLocation<? extends PsiMethod> sourceLocation) {
     myData.setTestMethod(sourceLocation);
     myData.TEST_OBJECT = BY_SOURCE_POSITION;
   }
@@ -342,6 +379,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     if (shouldUpdateName) setGeneratedName();
   }
 
+  @Override
   public void beMethodConfiguration(final Location<PsiMethod> methodLocation) {
     setForkMode(FORK_NONE);
     setModule(myData.setTestMethod(methodLocation));
@@ -349,8 +387,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
   }
 
   @Override
-  @NotNull
-  public Module[] getModules() {
+  public Module @NotNull [] getModules() {
     if (TEST_PACKAGE.equals(myData.TEST_OBJECT) &&
         getPersistentData().getScope() == TestSearchScope.WHOLE_PROJECT) {
       return Module.EMPTY_ARRAY;
@@ -360,6 +397,12 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
 
   public TestObject getTestObject() {
     return myData.getTestObject(this);
+  }
+
+  @NotNull
+  @Override
+  public InputRedirectOptions getInputRedirectOptions() {
+    return myInputRedirectOptions;
   }
 
   @Override
@@ -413,7 +456,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     if (idsElement != null) {
       List<String> ids = new ArrayList<>();
       idsElement.getChildren("uniqueId").forEach(uniqueIdElement -> ids.add(uniqueIdElement.getAttributeValue("value")));
-      getPersistentData().setUniqueIds(ArrayUtil.toStringArray(ids));
+      getPersistentData().setUniqueIds(ArrayUtilRt.toStringArray(ids));
     }
 
     Element tagElement = element.getChild("tag");
@@ -428,15 +471,21 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
         getPersistentData().setTags(StringUtil.join(tags, "|"));
       }
     }
+    myInputRedirectOptions.readExternal(element);
   }
 
   @Override
-  public void writeExternal(@NotNull final Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull final Element element) {
     super.writeExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().writeExternal(this, element);
-    DefaultJDOMExternalizer.writeExternal(this, element);
+    DefaultJDOMExternalizer.write(this, element, JavaParametersUtil.getFilter(this));
     final Data persistentData = getPersistentData();
-    DefaultJDOMExternalizer.writeExternal(persistentData, element);
+    DefaultJDOMExternalizer.write(persistentData, element, new DifferenceFilter<Data>(persistentData, new Data()) {
+      @Override
+      public boolean test(@NotNull Field field) {
+        return "TEST_OBJECT".equals(field.getName()) || super.test(field);
+      }
+    });
 
     if (!persistentData.getEnvs().isEmpty()) {
       EnvironmentVariablesComponent.writeExternal(element, persistentData.getEnvs());
@@ -456,13 +505,16 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       element.addContent(categoryNameElement);
     }
 
-    final Element patternsElement = new Element(PATTERNS_EL_NAME);
-    for (String o : persistentData.getPatterns()) {
-      final Element patternElement = new Element(PATTERN_EL_NAME);
-      patternElement.setAttribute(TEST_CLASS_ATT_NAME, o);
-      patternsElement.addContent(patternElement);
+    if (!persistentData.getPatterns().isEmpty()) {
+      final Element patternsElement = new Element(PATTERNS_EL_NAME);
+      for (String o : persistentData.getPatterns()) {
+        final Element patternElement = new Element(PATTERN_EL_NAME);
+        patternElement.setAttribute(TEST_CLASS_ATT_NAME, o);
+        patternsElement.addContent(patternElement);
+      }
+      element.addContent(patternsElement);
     }
-    element.addContent(patternsElement);
+
     final String forkMode = getForkMode();
     if (!forkMode.equals("none")) {
       final Element forkModeElement = new Element("fork_mode");
@@ -489,13 +541,14 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       tagsElement.setAttribute("value", tags);
       element.addContent(tagsElement);
     }
+    myInputRedirectOptions.writeExternal(element);
   }
 
-  public String getForkMode() {
+  public @NonNls String getForkMode() {
     return myData.FORK_MODE;
   }
 
-  public void setForkMode(@NotNull String forkMode) {
+  public void setForkMode(@NotNull @NonNls String forkMode) {
     myData.FORK_MODE = forkMode;
   }
 
@@ -504,6 +557,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     return false;
   }
 
+  @Override
   public void bePatternConfiguration(List<PsiClass> classes, PsiMethod method) {
     myData.TEST_OBJECT = TEST_PATTERN;
     final LinkedHashSet<String> patterns = new LinkedHashSet<>();
@@ -537,16 +591,17 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
     myData.REPEAT_COUNT = repeatCount;
   }
 
-  public String getRepeatMode() {
+  public @NonNls String getRepeatMode() {
     return myData.REPEAT_MODE;
   }
 
-  public void setRepeatMode(String repeatMode) {
+  public void setRepeatMode(@NonNls String repeatMode) {
     myData.REPEAT_MODE = repeatMode;
   }
 
+  @NotNull
   @Override
-  public SMTRunnerConsoleProperties createTestConsoleProperties(Executor executor) {
+  public SMTRunnerConsoleProperties createTestConsoleProperties(@NotNull Executor executor) {
     return new JUnitConsoleProperties(this, executor);
   }
 
@@ -557,45 +612,47 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
 
   public static class Data implements Cloneable {
     public String PACKAGE_NAME;
-    public String MAIN_CLASS_NAME;
+    public @NlsSafe String MAIN_CLASS_NAME;
     public String METHOD_NAME;
-    private String[] UNIQUE_ID = ArrayUtil.EMPTY_STRING_ARRAY;
+    private String[] UNIQUE_ID = ArrayUtilRt.EMPTY_STRING_ARRAY;
     private String TAGS;
     public String TEST_OBJECT = TEST_CLASS;
-    public String VM_PARAMETERS;
+    public String VM_PARAMETERS = "-ea";
     public String PARAMETERS;
-    public String WORKING_DIRECTORY;
+    public String WORKING_DIRECTORY = PathMacroUtil.MODULE_WORKING_DIR;
     public boolean PASS_PARENT_ENVS = true;
     public TestSearchScope.Wrapper TEST_SEARCH_SCOPE = new TestSearchScope.Wrapper();
     private String DIR_NAME;
     private String CATEGORY_NAME;
     private String FORK_MODE = FORK_NONE;
     private int REPEAT_COUNT = 1;
-    private String REPEAT_MODE = RepeatCount.ONCE;
+    private @NonNls String REPEAT_MODE = RepeatCount.ONCE;
     private LinkedHashSet<String> myPattern = new LinkedHashSet<>();
     private Map<String, String> myEnvs = new LinkedHashMap<>();
-    private String myChangeList = "All";
+    private @NlsSafe String myChangeList = JUnitBundle.message("combobox.changelists.all");
 
+    @Override
     public boolean equals(final Object object) {
       if (!(object instanceof Data)) return false;
       final Data second = (Data)object;
-      return Comparing.equal(TEST_OBJECT, second.TEST_OBJECT) &&
-             Comparing.equal(getMainClassName(), second.getMainClassName()) &&
-             Comparing.equal(getPackageName(), second.getPackageName()) &&
-             Comparing.equal(getMethodNameWithSignature(), second.getMethodNameWithSignature()) &&
-             Comparing.equal(getWorkingDirectory(), second.getWorkingDirectory()) &&
-             Comparing.equal(VM_PARAMETERS, second.VM_PARAMETERS) &&
-             Comparing.equal(PARAMETERS, second.PARAMETERS) &&
+      return Objects.equals(TEST_OBJECT, second.TEST_OBJECT) &&
+             Objects.equals(getMainClassName(), second.getMainClassName()) &&
+             Objects.equals(getPackageName(), second.getPackageName()) &&
+             Objects.equals(getMethodNameWithSignature(), second.getMethodNameWithSignature()) &&
+             Objects.equals(getWorkingDirectory(), second.getWorkingDirectory()) &&
+             Objects.equals(VM_PARAMETERS, second.VM_PARAMETERS) &&
+             Objects.equals(PARAMETERS, second.PARAMETERS) &&
              Comparing.equal(myPattern, second.myPattern) &&
-             Comparing.equal(FORK_MODE, second.FORK_MODE) &&
-             Comparing.equal(DIR_NAME, second.DIR_NAME) &&
-             Comparing.equal(CATEGORY_NAME, second.CATEGORY_NAME) &&
-             Comparing.equal(UNIQUE_ID, second.UNIQUE_ID) &&
-             Comparing.equal(TAGS, second.TAGS) &&
-             Comparing.equal(REPEAT_MODE, second.REPEAT_MODE) &&
+             Objects.equals(FORK_MODE, second.FORK_MODE) &&
+             Objects.equals(DIR_NAME, second.DIR_NAME) &&
+             Objects.equals(CATEGORY_NAME, second.CATEGORY_NAME) &&
+             Arrays.equals(UNIQUE_ID, second.UNIQUE_ID) &&
+             Objects.equals(TAGS, second.TAGS) &&
+             Objects.equals(REPEAT_MODE, second.REPEAT_MODE) &&
              REPEAT_COUNT == second.REPEAT_COUNT;
     }
 
+    @Override
     public int hashCode() {
       return Comparing.hashcode(TEST_OBJECT) ^
              Comparing.hashcode(getMainClassName()) ^
@@ -636,54 +693,54 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       }
     }
 
-    public String getVMParameters() {
+    public @NlsSafe String getVMParameters() {
       return VM_PARAMETERS;
     }
 
-    public void setVMParameters(String value) {
+    public void setVMParameters(@NlsSafe String value) {
       VM_PARAMETERS = value;
     }
 
-    public String getProgramParameters() {
+    public @NlsSafe String getProgramParameters() {
       return PARAMETERS;
     }
 
-    public void setProgramParameters(String value) {
+    public void setProgramParameters(@NlsSafe String value) {
       PARAMETERS = value;
     }
 
-    public String getWorkingDirectory() {
+    public @NlsSafe String getWorkingDirectory() {
       return ExternalizablePath.localPathValue(WORKING_DIRECTORY);
     }
 
-    public void setWorkingDirectory(String value) {
-      WORKING_DIRECTORY = ExternalizablePath.urlValue(value);
+    public void setWorkingDirectory(@NlsSafe String value) {
+      WORKING_DIRECTORY = StringUtil.isEmptyOrSpaces(value) ? "" : FileUtilRt.toSystemIndependentName(value.trim());
     }
 
-    public void setUniqueIds(String... uniqueId) {
+    public void setUniqueIds(@NlsSafe String... uniqueId) {
       UNIQUE_ID = uniqueId;
     }
 
-    public String[] getUniqueIds() {
+    public @NlsSafe String[] getUniqueIds() {
       return UNIQUE_ID;
     }
 
-    public Module setTestMethod(final Location<PsiMethod> methodLocation) {
+    public Module setTestMethod(final Location<? extends PsiMethod> methodLocation) {
       final PsiMethod method = methodLocation.getPsiElement();
       METHOD_NAME = getMethodPresentation(method);
       TEST_OBJECT = TEST_METHOD;
       return setMainClass(methodLocation instanceof MethodLocation ? ((MethodLocation)methodLocation).getContainingClass() : method.getContainingClass());
     }
 
-    public String getTags() {
+    public @NlsSafe String getTags() {
       return TAGS;
     }
 
-    public void setTags(String tags) {
+    public void setTags(@NlsSafe String tags) {
       TAGS = tags;
     }
 
-    public static String getMethodPresentation(PsiMethod method) {
+    public static @NlsSafe String getMethodPresentation(PsiMethod method) {
       if (!method.getParameterList().isEmpty() && MetaAnnotationUtil.isMetaAnnotated(method, JUnitUtil.TEST5_ANNOTATIONS)) {
         return method.getName() + "(" + ClassUtil.getVMParametersMethodSignature(method) + ")";
       }
@@ -692,41 +749,55 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       }
     }
 
-    public String getGeneratedName(final JavaRunConfigurationModule configurationModule) {
+    public @Nls String getGeneratedName(final JavaRunConfigurationModule configurationModule) {
       if (TEST_PACKAGE.equals(TEST_OBJECT) || TEST_DIRECTORY.equals(TEST_OBJECT)) {
         if (TEST_SEARCH_SCOPE.getScope() == TestSearchScope.WHOLE_PROJECT) {
-          return ExecutionBundle.message("default.junit.config.name.whole.project");
+          return JUnitBundle.message("default.junit.config.name.whole.project");
         }
         final String moduleName = TEST_SEARCH_SCOPE.getScope() == TestSearchScope.WHOLE_PROJECT ? "" : configurationModule.getModuleName();
-        final String packageName = TEST_PACKAGE.equals(TEST_OBJECT) ? getPackageName() : StringUtil.getShortName(getDirName(), '/');
+        final String packageName = TEST_PACKAGE.equals(TEST_OBJECT)
+                                   ? getPackageName()
+                                   : StringUtil.getShortName(FileUtil.toSystemIndependentName(getDirName()), '/');
         if (packageName.length() == 0) {
           if (moduleName.length() > 0) {
-            return ExecutionBundle.message("default.junit.config.name.all.in.module", moduleName);
+            return JUnitBundle.message("default.junit.config.name.all.in.module", moduleName);
           }
-          return DEFAULT_PACKAGE_NAME;
+          return getDefaultPackageName();
         }
         if (moduleName.length() > 0) {
-          return ExecutionBundle.message("default.junit.config.name.all.in.package.in.module", packageName, moduleName);
+          return JUnitBundle.message("default.junit.config.name.all.in.package.in.module", packageName, moduleName);
         }
         return packageName;
       }
       if (TEST_PATTERN.equals(TEST_OBJECT)) {
         final int size = myPattern.size();
-        if (size == 0) return "Temp suite";
+        if (size == 0) return JUnitBundle.message("default.junit.config.name.temp.suite");
         String fqName = myPattern.iterator().next();
         String firstName =
           fqName.contains("*") ? fqName
                                : StringUtil.getShortName(fqName.contains("(") ? StringUtil.getPackageName(fqName, '(') : fqName);
-        return firstName + (size > 1 ? " and " + (size - 1) + " more" : "");
+        if (size == 1) {
+          return firstName;
+        }
+        else {
+          return TestRunnerBundle.message("test.config.first.pattern.and.few.more", firstName, size - 1);
+        }
       }
       if (TEST_CATEGORY.equals(TEST_OBJECT)) {
-        return "@Category(" + (StringUtil.isEmpty(CATEGORY_NAME) ? "Invalid" : CATEGORY_NAME) + ")";
+        String categoryName = StringUtil.isEmpty(CATEGORY_NAME)
+                              ? JUnitBundle.message("default.junit.config.empty.category")
+                              : CATEGORY_NAME;
+        return JUnitBundle.message("default.junit.config.name.category", categoryName);
       }
       if (TEST_UNIQUE_ID.equals(TEST_OBJECT)) {
-        return UNIQUE_ID != null && UNIQUE_ID.length > 0 ? StringUtil.join(UNIQUE_ID, " ") : "Temp suite";
+        return UNIQUE_ID != null && UNIQUE_ID.length > 0
+               ? StringUtil.join(UNIQUE_ID, " ")
+               : JUnitBundle.message("default.junit.config.name.temp.suite");
       }
       if (TEST_TAGS.equals(TEST_OBJECT)) {
-        return TAGS != null && TAGS.length() > 0 ? "Tags (" + StringUtil.join(TAGS, " ") + ")" : "Temp suite";
+        return TAGS != null && TAGS.length() > 0
+               ? JUnitBundle.message("default.junit.config.name.tags", StringUtil.join(TAGS, " "))
+               : JUnitBundle.message("default.junit.config.name.temp.suite");
       }
       final String className = JavaExecutionUtil.getPresentableClassName(getMainClassName());
       if (TEST_METHOD.equals(TEST_OBJECT)) {
@@ -736,46 +807,42 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       return className;
     }
 
-    public String getMainClassName() {
+    public @NlsSafe String getMainClassName() {
       return MAIN_CLASS_NAME != null ? MAIN_CLASS_NAME : "";
     }
 
-    public String getPackageName() {
+    public @NlsSafe String getPackageName() {
       return PACKAGE_NAME != null ? PACKAGE_NAME : "";
     }
 
-    public String getMethodName() {
+    public @NlsSafe String getMethodName() {
       String signature = getMethodNameWithSignature();
       int paramsIdx = signature.lastIndexOf("(");
       return paramsIdx > -1 ? signature.substring(0, paramsIdx) : signature;
     }
 
-    public String getMethodNameWithSignature() {
+    public @NlsSafe String getMethodNameWithSignature() {
       return METHOD_NAME != null ? METHOD_NAME : "";
     }
 
-    public String getDirName() {
+    public @NlsSafe String getDirName() {
       return DIR_NAME != null ? DIR_NAME : "";
     }
 
-    public void setDirName(String dirName) {
+    public void setDirName(@NlsSafe String dirName) {
       DIR_NAME = dirName;
     }
 
-    public Set<String> getPatterns() {
+    public Set<@NlsSafe String> getPatterns() {
       return myPattern;
     }
 
-    public void setPatterns(LinkedHashSet<String> pattern) {
+    public void setPatterns(LinkedHashSet<@NlsSafe String> pattern) {
       myPattern = pattern;
     }
 
-    public String getPatternPresentation() {
-      final List<String> enabledTests = new ArrayList<>();
-      for (String pattern : myPattern) {
-        enabledTests.add(pattern);
-      }
-      return StringUtil.join(enabledTests, "||");
+    public @NlsSafe String getPatternPresentation() {
+      return StringUtil.join(myPattern, "||");
     }
 
     public TestObject getTestObject(@NotNull JUnitConfiguration configuration) {
@@ -786,8 +853,7 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
 
     public Module setMainClass(final PsiClass testClass) {
       MAIN_CLASS_NAME = JavaExecutionUtil.getRuntimeQualifiedName(testClass);
-      PsiPackage containingPackage = JUnitUtil.getContainingPackage(testClass);
-      PACKAGE_NAME = containingPackage != null ? containingPackage.getQualifiedName() : "";
+      PACKAGE_NAME = StringUtil.getPackageName(Objects.requireNonNull(testClass.getQualifiedName()));
       return JavaExecutionUtil.findModule(testClass);
     }
 
@@ -799,21 +865,24 @@ public class JUnitConfiguration extends JavaTestConfigurationBase {
       myEnvs = envs;
     }
 
-    public String getCategory() {
+    public @NlsSafe String getCategory() {
       return CATEGORY_NAME != null ? CATEGORY_NAME : "";
     }
 
-    public void setCategoryName(String categoryName) {
+    public void setCategoryName(@NlsSafe String categoryName) {
       CATEGORY_NAME = categoryName;
     }
 
-    public String getChangeList() {
+    public @NlsSafe String getChangeList() {
       return myChangeList;
     }
 
-    public void setChangeList(String changeList) {
+    public void setChangeList(@NlsSafe String changeList) {
       myChangeList = changeList;
     }
   }
 
+  public static @Nls String getDefaultPackageName() {
+    return TestRunnerBundle.message("default.package.presentable.name");
+  }
 }

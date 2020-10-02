@@ -1,6 +1,7 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.internal.daemon;
 
+import com.intellij.DynamicBundle;
 import org.gradle.internal.id.IdGenerator;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.client.DaemonClientConnection;
@@ -20,7 +21,6 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * @author Vladislav.Soroka
@@ -44,9 +44,9 @@ public class DaemonStatusAction extends DaemonAction {
     private final IdGenerator<?> idGenerator;
     private final ReportStatusDispatcher reportStatusDispatcher;
 
-    public ReportDaemonStatusClient(DaemonRegistry daemonRegistry,
-                                    DaemonConnector connector,
-                                    IdGenerator<?> idGenerator) {
+    ReportDaemonStatusClient(DaemonRegistry daemonRegistry,
+                             DaemonConnector connector,
+                             IdGenerator<?> idGenerator) {
       this.daemonRegistry = daemonRegistry;
       this.connector = connector;
       this.idGenerator = idGenerator;
@@ -65,7 +65,9 @@ public class DaemonStatusAction extends DaemonAction {
             Integer idleTimeout = connectionDaemon.getContext().getIdleTimeout();
             File registryDir = connectionDaemon.getContext().getDaemonRegistryDir();
 
-            ReportStatus statusCommand = new ReportStatus(this.idGenerator.generateId(), daemon.getToken());
+            Object id = this.idGenerator.generateId();
+            byte[] token = daemon.getToken();
+            ReportStatus statusCommand = createCommand(ReportStatus.class, id, token);
             Status status = this.reportStatusDispatcher.dispatch(connection, statusCommand);
             if (status != null) {
               daemons.add(new DaemonState(connectionDaemon.getPid(),
@@ -104,7 +106,7 @@ public class DaemonStatusAction extends DaemonAction {
       for (DaemonStopEvent stopEvent : stopEvents) {
         DaemonExpirationStatus expirationStatus = stopEvent.getStatus();
         String daemonExpirationStatus =
-          expirationStatus != null ? expirationStatus.name().replace("_", " ").toLowerCase(Locale.ENGLISH) : "";
+          expirationStatus != null ? expirationStatus.name().replace("_", " ").toLowerCase(DynamicBundle.getLocale()) : "";
         Long stopEventPid;
         if (GradleVersion.current().compareTo(GradleVersion.version("3.0")) <= 0) {
           try {

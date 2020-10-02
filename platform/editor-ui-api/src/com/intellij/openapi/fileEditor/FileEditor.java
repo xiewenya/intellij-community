@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
@@ -6,6 +6,7 @@ import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,6 +30,8 @@ public interface FileEditor extends UserDataHolder, Disposable {
    */
   @NonNls String PROP_VALID = "valid";
 
+  FileEditor[] EMPTY_ARRAY = {};
+
   /**
    * @return component which represents editor in the UI.
    * The method should never return {@code null}.
@@ -48,8 +51,7 @@ public interface FileEditor extends UserDataHolder, Disposable {
    * and "Text". So "GUI Designer" can be a name of one editor and "Text"
    * can be a name of other editor. The method should never return {@code null}.
    */
-  @NonNls @NotNull
-  String getName();
+  @Nls(capitalization = Nls.Capitalization.Title) @NotNull String getName();
 
   /**
    * @return editor's internal state. Method should never return {@code null}.
@@ -89,22 +91,24 @@ public interface FileEditor extends UserDataHolder, Disposable {
    * This can happen in two cases: editor is selected because the selected file
    * has been changed or editor for the selected file has been changed.
    */
-  void selectNotify();
+  default void selectNotify() {
+  }
 
   /**
    * This method is invoked each time when the editor is deselected.
    */
-  void deselectNotify();
+  default void deselectNotify() {
+  }
 
   /**
-   * Removes specified listener
+   * Adds specified listener.
    *
    * @param listener to be added
    */
   void addPropertyChangeListener(@NotNull PropertyChangeListener listener);
 
   /**
-   * Adds specified listener
+   * Removes specified listener.
    *
    * @param listener to be removed
    */
@@ -115,7 +119,9 @@ public interface FileEditor extends UserDataHolder, Disposable {
    * Return {@code null} if no background highlighting activity necessary for this file editor.
    */
   @Nullable
-  BackgroundEditorHighlighter getBackgroundHighlighter();
+  default BackgroundEditorHighlighter getBackgroundHighlighter() {
+    return null;
+  }
 
   /**
    * The method is optional. Currently is used only by find usages subsystem

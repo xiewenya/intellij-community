@@ -1,7 +1,7 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.actions.ThreadDumpAction;
 import com.intellij.debugger.engine.DebugProcessImpl;
@@ -21,7 +21,6 @@ import com.intellij.unscramble.ThreadState;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.ui.MessageCategory;
 import com.intellij.xdebugger.XDebugSession;
-import com.intellij.xdebugger.frame.XExecutionStack;
 import com.sun.jdi.ReferenceType;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Nullable;
@@ -39,11 +38,11 @@ import java.util.stream.IntStream;
  * @author lex
  */
 class ReloadClassesWorker {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.ReloadClassesWorker");
+  private static final Logger LOG = Logger.getInstance(ReloadClassesWorker.class);
   private final DebuggerSession  myDebuggerSession;
   private final HotSwapProgress  myProgress;
 
-  public ReloadClassesWorker(DebuggerSession session, HotSwapProgress progress) {
+  ReloadClassesWorker(DebuggerSession session, HotSwapProgress progress) {
     myDebuggerSession = session;
     myProgress = progress;
   }
@@ -58,32 +57,32 @@ class ReloadClassesWorker {
     }
 
     if (e instanceof ProcessCanceledException) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.INFORMATION, DebuggerBundle.message("error.operation.canceled"));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.INFORMATION, JavaDebuggerBundle.message("error.operation.canceled"));
       return;
     }
 
     if (e instanceof UnsupportedOperationException) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.operation.not.supported.by.vm"));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.operation.not.supported.by.vm"));
     }
     else if (e instanceof NoClassDefFoundError) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.class.def.not.found", e.getLocalizedMessage()));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.class.def.not.found", e.getLocalizedMessage()));
     }
     else if (e instanceof VerifyError) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.verification.error", e.getLocalizedMessage()));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.verification.error", e.getLocalizedMessage()));
     }
     else if (e instanceof UnsupportedClassVersionError) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.unsupported.class.version", e.getLocalizedMessage()));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.unsupported.class.version", e.getLocalizedMessage()));
     }
     else if (e instanceof ClassFormatError) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.class.format.error", e.getLocalizedMessage()));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.class.format.error", e.getLocalizedMessage()));
     }
     else if (e instanceof ClassCircularityError) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, DebuggerBundle.message("error.class.circularity.error", e.getLocalizedMessage()));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, JavaDebuggerBundle.message("error.class.circularity.error", e.getLocalizedMessage()));
     }
     else {
       myProgress.addMessage(
         myDebuggerSession, MessageCategory.ERROR,
-        DebuggerBundle.message("error.exception.while.reloading", e.getClass().getName(), e.getLocalizedMessage())
+        JavaDebuggerBundle.message("error.exception.while.reloading", e.getClass().getName(), e.getLocalizedMessage())
       );
     }
   }
@@ -92,7 +91,8 @@ class ReloadClassesWorker {
     DebuggerManagerThreadImpl.assertIsManagerThread();
 
     if(modifiedClasses == null || modifiedClasses.size() == 0) {
-      myProgress.addMessage(myDebuggerSession, MessageCategory.INFORMATION, DebuggerBundle.message("status.hotswap.loaded.classes.up.to.date"));
+      myProgress.addMessage(myDebuggerSession, MessageCategory.INFORMATION, JavaDebuggerBundle
+        .message("status.hotswap.loaded.classes.up.to.date"));
       return;
     }
 
@@ -156,11 +156,11 @@ class ReloadClassesWorker {
       if (partiallyRedefinedClassesCount == 0) {
         myProgress.addMessage(
           myDebuggerSession, MessageCategory.INFORMATION,
-          DebuggerBundle.message("status.classes.reloaded", redefineProcessor.getProcessedClassesCount())
+          JavaDebuggerBundle.message("status.classes.reloaded", redefineProcessor.getProcessedClassesCount())
         );
       }
       else {
-        final String message = DebuggerBundle.message(
+        final String message = JavaDebuggerBundle.message(
           "status.classes.not.all.versions.reloaded", partiallyRedefinedClassesCount, redefineProcessor.getProcessedClassesCount()
         );
         myProgress.addMessage(myDebuggerSession, MessageCategory.WARNING, message);
@@ -177,9 +177,9 @@ class ReloadClassesWorker {
     DebuggerContextImpl context = myDebuggerSession.getContextManager().getContext();
     SuspendContextImpl suspendContext = context.getSuspendContext();
     if (suspendContext != null) {
-      XExecutionStack stack = suspendContext.getActiveExecutionStack();
+      JavaExecutionStack stack = suspendContext.getActiveExecutionStack();
       if (stack != null) {
-        ((JavaExecutionStack)stack).initTopFrame();
+        stack.initTopFrame();
       }
     }
 
@@ -230,7 +230,7 @@ class ReloadClassesWorker {
       reason = ex.getLocalizedMessage();
     }
     if (reason == null || reason.length() == 0) {
-      reason = DebuggerBundle.message("error.io.error");
+      reason = JavaDebuggerBundle.message("error.io.error");
     }
     myProgress.addMessage(myDebuggerSession, MessageCategory.ERROR, qualifiedName + " : " + reason);
   }
@@ -246,7 +246,7 @@ class ReloadClassesWorker {
     private int myProcessedClassesCount;
     private int myPartiallyRedefinedClassesCount;
 
-    public RedefineProcessor(VirtualMachineProxyImpl virtualMachineProxy) {
+    RedefineProcessor(VirtualMachineProxyImpl virtualMachineProxy) {
       myVirtualMachineProxy = virtualMachineProxy;
     }
 

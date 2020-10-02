@@ -1,10 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
-/*
- * @author egor
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.actions;
 
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
@@ -20,9 +17,11 @@ import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ArrayUtil;
 import com.sun.jdi.Location;
 import com.sun.jdi.ReferenceType;
+import org.jetbrains.annotations.NotNull;
 
 public class AddSteppingFilterAction extends DebuggerAction {
-  public void actionPerformed(final AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final DebuggerContextImpl debuggerContext = DebuggerAction.getDebuggerContext(e.getDataContext());
     DebugProcessImpl process = debuggerContext.getDebugProcess();
     if (process == null) {
@@ -30,6 +29,7 @@ public class AddSteppingFilterAction extends DebuggerAction {
     }
     final StackFrameProxyImpl proxy = PopFrameAction.getStackFrameProxy(e);
     process.getManagerThread().schedule(new DebuggerCommandImpl() {
+      @Override
       protected void action() {
         final String name = getClassName(proxy != null ? proxy : debuggerContext.getFrameProxy());
         if (name == null) {
@@ -38,7 +38,7 @@ public class AddSteppingFilterAction extends DebuggerAction {
 
         final Project project = e.getData(CommonDataKeys.PROJECT);
         ApplicationManager.getApplication().invokeLater(() -> {
-          String filter = Messages.showInputDialog(project, "", "Add Stepping Filter", null, name, null);
+          String filter = Messages.showInputDialog(project, "", JavaDebuggerBundle.message("add.stepping.filter"), null, name, null);
           if (filter != null) {
             ClassFilter[] newFilters = ArrayUtil.append(DebuggerSettings.getInstance().getSteppingFilters(), new ClassFilter(filter));
             DebuggerSettings.getInstance().setSteppingFilters(newFilters);
@@ -48,7 +48,8 @@ public class AddSteppingFilterAction extends DebuggerAction {
     });
   }
 
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabledAndVisible(PopFrameAction.getStackFrameProxy(e) != null);
   }
 

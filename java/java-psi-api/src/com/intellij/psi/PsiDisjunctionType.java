@@ -1,33 +1,16 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Composite type resulting from Project Coin's multi-catch statements, i.e. {@code FileNotFoundException | EOFException}.
@@ -53,7 +36,7 @@ public class PsiDisjunctionType extends PsiType.Stub {
           break;
         }
       }
-      return CachedValueProvider.Result.create(lub, PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT);
+      return CachedValueProvider.Result.create(lub, PsiModificationTracker.MODIFICATION_COUNT);
     }, false);
   }
 
@@ -106,7 +89,7 @@ public class PsiDisjunctionType extends PsiType.Stub {
 
   @Override
   public boolean equalsToText(@NotNull @NonNls final String text) {
-    return Comparing.equal(text, getCanonicalText());
+    return Objects.equals(text, getCanonicalText());
   }
 
   @Override
@@ -119,9 +102,8 @@ public class PsiDisjunctionType extends PsiType.Stub {
     return getLeastUpperBound().getResolveScope();
   }
 
-  @NotNull
   @Override
-  public PsiType[] getSuperTypes() {
+  public PsiType @NotNull [] getSuperTypes() {
     final PsiType lub = getLeastUpperBound();
     if (lub instanceof PsiIntersectionType) {
       return ((PsiIntersectionType)lub).getConjuncts();
@@ -149,5 +131,34 @@ public class PsiDisjunctionType extends PsiType.Stub {
     }
 
     return true;
+  }
+
+  public static List<PsiType> flattenAndRemoveDuplicates(@NotNull List<? extends PsiType> types) {
+    Set<PsiType> disjunctionSet = new LinkedHashSet<>();
+    for (PsiType type : types) {
+      flatten(disjunctionSet, type);
+    }
+    ArrayList<PsiType> disjunctions = new ArrayList<>(disjunctionSet);
+    for (Iterator<PsiType> iterator = disjunctions.iterator(); iterator.hasNext(); ) {
+      PsiType d1 = iterator.next();
+      for (PsiType d2 : disjunctions) {
+        if (d1 != d2 && d2.isAssignableFrom(d1)) {
+          iterator.remove();
+          break;
+        }
+      }
+    }
+    return disjunctions;
+  }
+
+  private static void flatten(Set<? super PsiType> disjunctions, PsiType type) {
+    if (type instanceof PsiDisjunctionType) {
+      for (PsiType child : ((PsiDisjunctionType)type).getDisjunctions()) {
+        flatten(disjunctions, child);
+      }
+    } else {
+      disjunctions.add(type);
+    }
+
   }
 }

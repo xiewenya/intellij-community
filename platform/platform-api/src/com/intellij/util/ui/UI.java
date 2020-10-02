@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
 import com.intellij.openapi.ui.panel.ComponentPanelBuilder;
@@ -11,6 +11,12 @@ import javax.swing.*;
  * @author Konstantin Bulenkov
  */
 public class UI extends JBUI {
+
+  public enum Anchor {
+    Top,
+    Center,
+    Bottom
+  }
 
   /**
    * <p>Factory class for creating panels of components. There are two different types of panels.</p>
@@ -38,14 +44,14 @@ public class UI extends JBUI {
    * in the leftmost column and components/progress bars are in the second column expanding horizontally.
    * </p>
    *
-   * <p>{@link PanelGridBuilder} has convenient {@link PanelGridBuilder#expandVertically()} method that allows rows to expand
+   * <p>{@link PanelGridBuilder} has convenient {@link PanelGridBuilder#resize()} method that allows rows to expand
    * vertically when the grid is resized. By default all rows stick to the top of the grid and all available empty space is
    * expanded below rows.
    * </p>
    *
    * <p>For concrete examples look <code>ComponentPanelTestAction</code> test action and class.</p>
    */
-  public static class PanelFactory {
+  public static final class PanelFactory {
 
     /**
      * Creates a panel builder for arbitrary <code>JComponent</code>.

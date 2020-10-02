@@ -20,6 +20,7 @@ import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.model.MavenModel;
 import org.jetbrains.idea.maven.server.embedder.Maven2ServerEmbedderImpl;
 import org.jetbrains.idea.maven.server.embedder.Maven2ServerIndexerImpl;
+import org.jetbrains.idea.maven.server.security.MavenToken;
 
 import java.io.File;
 import java.rmi.RemoteException;
@@ -27,7 +28,9 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.Collection;
 
 public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
-  public void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener) throws RemoteException {
+  @Override
+  public void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven2ServerGlobals.set(logger, downloadListener);
     }
@@ -36,7 +39,9 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
-  public MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings) throws RemoteException {
+  @Override
+  public MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven2ServerEmbedderImpl result = Maven2ServerEmbedderImpl.create(settings.getSettings());
       UnicastRemoteObject.exportObject(result, 0);
@@ -47,7 +52,9 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
-  public MavenServerIndexer createIndexer() throws RemoteException {
+  @Override
+  public MavenServerIndexer createIndexer(MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       Maven2ServerIndexerImpl result = new Maven2ServerIndexerImpl();
       UnicastRemoteObject.exportObject(result, 0);
@@ -58,8 +65,10 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   @NotNull
-  public MavenModel interpolateAndAlignModel(MavenModel model, File basedir) {
+  public MavenModel interpolateAndAlignModel(MavenModel model, File basedir, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       return Maven2ServerEmbedderImpl.interpolateAndAlignModel(model, basedir);
     }
@@ -68,7 +77,9 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
-  public MavenModel assembleInheritance(MavenModel model, MavenModel parentModel) {
+  @Override
+  public MavenModel assembleInheritance(MavenModel model, MavenModel parentModel, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       return Maven2ServerEmbedderImpl.assembleInheritance(model, parentModel);
     }
@@ -77,10 +88,12 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   public ProfileApplicationResult applyProfiles(MavenModel model,
                                                 File basedir,
                                                 MavenExplicitProfiles explicitProfiles,
-                                                Collection<String> alwaysOnProfiles) {
+                                                Collection<String> alwaysOnProfiles, MavenToken token) {
+    MavenServerUtil.checkToken(token);
     try {
       return Maven2ServerEmbedderImpl.applyProfiles(model, basedir, explicitProfiles, alwaysOnProfiles);
     }

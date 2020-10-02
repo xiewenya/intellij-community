@@ -17,8 +17,11 @@
 package com.intellij.application.options;
 
 import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.ui.OptionGroup;
 import com.intellij.ui.components.fields.IntegerField;
 import org.jetbrains.annotations.NotNull;
@@ -29,21 +32,36 @@ import javax.swing.*;
 import static com.intellij.psi.codeStyle.CodeStyleConstraints.*;
 import static com.intellij.psi.codeStyle.CodeStyleDefaults.DEFAULT_INDENT_SIZE;
 import static com.intellij.psi.codeStyle.CodeStyleDefaults.DEFAULT_TAB_SIZE;
+import static com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider.SettingsType.INDENT_SETTINGS;
 
-@SuppressWarnings("Duplicates")
-public class IndentOptionsEditor extends OptionGroup {
-  private static final String INDENT_LABEL = ApplicationBundle.message("editbox.indent.indent");
-  private static final String TAB_SIZE_LABEL = ApplicationBundle.message("editbox.indent.tab.size");
+public class IndentOptionsEditor extends OptionGroup implements CodeStyleSettingsCustomizable {
 
-  protected JTextField myIndentField;
-  protected JCheckBox myCbUseTab;
-  protected JTextField myTabSizeField;
-  protected JLabel myTabSizeLabel;
-  protected JLabel myIndentLabel;
+  private JTextField myIndentField;
+  private JCheckBox myCbUseTab;
+  private JTextField myTabSizeField;
+  private JLabel myTabSizeLabel;
+  private JLabel myIndentLabel;
+
+  private final @Nullable LanguageCodeStyleSettingsProvider myProvider;
+
+  public IndentOptionsEditor() {
+    this(null);
+  }
+
+  /**
+   * @param provider The provider which will be used to customize the indent options editor. If {@code null} is passed, no customization
+   *                 will be carried out and thus all the available options will be shown.
+   */
+  public IndentOptionsEditor(@Nullable LanguageCodeStyleSettingsProvider provider) {
+    myProvider = provider;
+  }
 
   @Override
   public JPanel createPanel() {
     addComponents();
+    if (myProvider != null) {
+      myProvider.customizeSettings(this, INDENT_SETTINGS);
+    }
     return super.createPanel();
   }
 
@@ -54,14 +72,14 @@ public class IndentOptionsEditor extends OptionGroup {
   }
 
   protected void addIndentField() {
-    myIndentField = createIndentTextField(INDENT_LABEL, MIN_INDENT_SIZE, MAX_INDENT_SIZE, DEFAULT_INDENT_SIZE);
-    myIndentLabel = new JLabel(INDENT_LABEL);
+    myIndentField = createIndentTextField(getIndentLabel(), MIN_INDENT_SIZE, MAX_INDENT_SIZE, DEFAULT_INDENT_SIZE);
+    myIndentLabel = new JLabel(getIndentLabel());
     add(myIndentLabel, myIndentField);
   }
 
   protected void addTabSizeField() {
-    myTabSizeField = createIndentTextField(TAB_SIZE_LABEL, MIN_TAB_SIZE, MAX_TAB_SIZE, DEFAULT_TAB_SIZE);
-    myTabSizeLabel = new JLabel(TAB_SIZE_LABEL);
+    myTabSizeField = createIndentTextField(getTabSizeLabel(), MIN_TAB_SIZE, MAX_TAB_SIZE, DEFAULT_TAB_SIZE);
+    myTabSizeLabel = new JLabel(getTabSizeLabel());
     add(myTabSizeLabel, myTabSizeField);
   }
 
@@ -86,6 +104,31 @@ public class IndentOptionsEditor extends OptionGroup {
     myCbUseTab = new JCheckBox(ApplicationBundle.message("checkbox.indent.use.tab.character"));
     add(myCbUseTab);
   }
+
+  @Override
+  public void showAllStandardOptions() {
+    setVisible(true);
+  }
+
+  @Override
+  public void showStandardOptions(String... optionNames) {
+    setVisible(false);
+    for (String optionName : optionNames) {
+      if (IndentOption.INDENT_SIZE.toString().equals(optionName)) {
+        myIndentLabel.setVisible(true);
+        myIndentField.setVisible(true);
+      }
+      else if (IndentOption.TAB_SIZE.toString().equals(optionName)) {
+        myTabSizeField.setVisible(true);
+        myTabSizeLabel.setVisible(true);
+      }
+      else if (IndentOption.USE_TAB_CHARACTER.toString().equals(optionName)) {
+        myCbUseTab.setVisible(true);
+      }
+    }
+  }
+
+
 
   protected static boolean isFieldModified(JCheckBox checkBox, boolean value) {
     return checkBox.isSelected() != value;
@@ -137,6 +180,7 @@ public class IndentOptionsEditor extends OptionGroup {
   /**
    * @deprecated Create {@link IntegerField} and use {@link IntegerField#getValue()} instead.
    */
+  @Deprecated
   protected int getFieldValue(JTextField field, int minValue, int defValue) {
     if (field instanceof IntegerField) {
       return ((IntegerField)field).getValue();
@@ -157,5 +201,25 @@ public class IndentOptionsEditor extends OptionGroup {
     myTabSizeField.setEnabled(enabled);
     myTabSizeLabel.setEnabled(enabled);
     myCbUseTab.setEnabled(enabled);
+  }
+
+  protected void setVisible(boolean visible) {
+    myIndentField.setVisible(visible);
+    myIndentLabel.setVisible(visible);
+    myTabSizeField.setVisible(visible);
+    myTabSizeLabel.setVisible(visible);
+    myCbUseTab.setVisible(visible);
+  }
+
+  private static @NlsContexts.Label String getIndentLabel() {
+    return ApplicationBundle.message("editbox.indent.indent");
+  }
+
+  private static @NlsContexts.Label String getTabSizeLabel() {
+    return ApplicationBundle.message("editbox.indent.tab.size");
+  }
+
+  protected final boolean isUseTabsSelected() {
+    return myCbUseTab.isSelected();
   }
 }

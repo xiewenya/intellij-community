@@ -32,14 +32,14 @@ public final class MethodChainsSearchUtil {
   }
 
   @Nullable
-  public static PsiMethod getMethodWithMinNotPrimitiveParameters(@NotNull PsiMethod[] methods,
+  public static PsiMethod getMethodWithMinNotPrimitiveParameters(PsiMethod @NotNull [] methods,
                                                                  @NotNull PsiClass target) {
     return Stream.of(methods)
       .filter(m -> {
         for (PsiParameter parameter : m.getParameterList().getParameters()) {
           PsiType t = parameter.getType();
           PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(t);
-          if (aClass != null && aClass == target) {
+          if (aClass == target) {
             return false;
           }
         }

@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.openapi.projectRoots;
 
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.pom.java.LanguageLevel;
+import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.jps.model.java.JdkVersionDetector;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 public class JavaSdkVersionTest {
   @Test
@@ -27,6 +15,14 @@ public class JavaSdkVersionTest {
     assertEquals(JavaSdkVersion.JDK_1_3, JavaSdkVersion.fromLanguageLevel(LanguageLevel.JDK_1_3));
     assertEquals(JavaSdkVersion.JDK_1_6, JavaSdkVersion.fromLanguageLevel(LanguageLevel.JDK_1_6));
     assertEquals(JavaSdkVersion.JDK_1_8, JavaSdkVersion.fromLanguageLevel(LanguageLevel.JDK_1_8));
+    assertEquals(JavaSdkVersion.JDK_11, JavaSdkVersion.fromLanguageLevel(LanguageLevel.JDK_11));
+  }
+
+  @Test
+  public void maxLanguageLevelSanity() {
+    for (JavaSdkVersion version : JavaSdkVersion.values()) {
+      assertFalse("Fails for " + version.toString(), version.getMaxLanguageLevel().isPreview());
+    }
   }
 
   @Test
@@ -40,5 +36,14 @@ public class JavaSdkVersionTest {
     assertEquals(JavaSdkVersion.JDK_1_9, JavaSdkVersion.fromVersionString("java version \"9\""));
     assertEquals(JavaSdkVersion.JDK_1_9, JavaSdkVersion.fromVersionString("java version \"9-ea\""));
     assertEquals(JavaSdkVersion.JDK_1_9, JavaSdkVersion.fromVersionString("java version \"9.1.2\""));
+    assertEquals(JavaSdkVersion.JDK_14, JavaSdkVersion.fromVersionString("java version \"14\""));
+  }
+
+  @Test
+  public void versionStringDetectorSanity() {
+    assertTrue(JdkVersionDetector.isVersionString("java version \"9\""));
+    assertFalse(JdkVersionDetector.isVersionString("java version \"\""));
+
+    assertTrue(JdkVersionDetector.isVersionString(JdkVersionDetector.formatVersionString(JavaVersion.compose(9))));
   }
 }

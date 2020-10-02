@@ -1,9 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.update;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -25,11 +24,10 @@ import java.util.Collection;
 
 import static com.intellij.openapi.ui.Messages.showErrorDialog;
 import static org.jetbrains.idea.svn.SvnBundle.message;
-import static org.jetbrains.idea.svn.SvnUtil.append;
 import static org.jetbrains.idea.svn.SvnUtil.createUrl;
 
 public class SvnUpdateRootOptionsPanel implements SvnPanel{
-  private final static Logger LOG = Logger.getInstance("#org.jetbrains.idea.svn.update.SvnUpdateRootOptionsPanel.SvnUpdateRootOptionsPanel");
+  private final static Logger LOG = Logger.getInstance(SvnUpdateRootOptionsPanel.class);
   private TextFieldWithBrowseButton myURLText;
   private JCheckBox myRevisionBox;
   private TextFieldWithBrowseButton myRevisionText;
@@ -75,20 +73,23 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
             myRevisionText.setText("HEAD");
           }
           myRevisionText.getTextField().selectAll();
-          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-            IdeFocusManager.getGlobalInstance().requestFocus(myRevisionText, true);
-          });
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myRevisionText, true));
         }
       }
     });
 
     myRevisionText.addActionListener(e -> {
-      final Project project = vcs.getProject();
       // todo check whether ok; rather shoudl be used if checkbox is turned on
-      final SvnRepositoryLocation location = new SvnRepositoryLocation(myURLText.getText());
-      final SvnChangeList repositoryVersion = SvnSelectRevisionUtil.chooseCommittedChangeList(project, location, myRoot.getVirtualFile());
-      if (repositoryVersion != null) {
-        myRevisionText.setText(String.valueOf(repositoryVersion.getNumber()));
+      try {
+        SvnRepositoryLocation location = new SvnRepositoryLocation(createUrl(myURLText.getText(), false));
+        SvnChangeList repositoryVersion =
+          SvnSelectRevisionUtil.chooseCommittedChangeList(vcs.getProject(), location, myRoot.getVirtualFile());
+        if (repositoryVersion != null) {
+          myRevisionText.setText(String.valueOf(repositoryVersion.getNumber()));
+        }
+      }
+      catch (SvnBindException ex) {
+        showErrorDialog(myVcs.getProject(), ex.getMessage(), message("error.cannot.load.revisions"));
       }
     });
 
@@ -107,15 +108,16 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
   }
 
   private boolean isRevisionCanBeSpecifiedForRoot() {
-    final RootUrlInfo info = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot.getIOFile());
-    if (info != null) {
-      boolean isExternalOrSwitched = NestedCopyType.external.equals(info.getType()) || NestedCopyType.switched.equals(info.getType());
-      if (isExternalOrSwitched) {
-        myCopyType.setText(info.getType().getName() + " copy");
-      }
-      return !isExternalOrSwitched;
-    }
-    return true;
+    final RootUrlInfo info = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot);
+    if (info == null) return true;
+
+    boolean isExternal = NestedCopyType.external.equals(info.getType());
+    boolean isSwitched = NestedCopyType.switched.equals(info.getType());
+
+    if (isExternal) myCopyType.setText(message("label.external.copy"));
+    if (isSwitched) myCopyType.setText(message("label.switched.copy"));
+
+    return !isExternal && !isSwitched;
   }
 
   private void chooseBranch() {
@@ -126,21 +128,21 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
     SelectBranchPopup.show(myVcs.getProject(), myRoot.getVirtualFile(), (project, configuration, url, revision) -> {
       // TODO: It seems that we could reuse configuration passed as parameter to this callback
       SvnBranchConfigurationNew branchConfiguration = getBranchConfiguration();
-      String branchRelativeUrl = branchConfiguration != null ? branchConfiguration.getRelativeUrl(mySourceUrl.toString()) : null;
+      String branchRelativeUrl = branchConfiguration != null ? branchConfiguration.getRelativeUrl(mySourceUrl) : null;
 
       if (mySourceUrl == null || branchRelativeUrl == null) {
         myBranchField.setText("");
       }
       else {
         try {
-          myURLText.setText(append(createUrl(url), branchRelativeUrl, true).toDecodedString());
+          myURLText.setText(url.appendPath(branchRelativeUrl, false).toDecodedString());
         }
         catch (SvnBindException e) {
           LOG.error(e);
         }
-        myBranchField.setText(Url.tail(url));
+        myBranchField.setText(url.getTail());
       }
-    }, message("select.branch.popup.general.title"), myPanel);
+    }, message("popup.title.select.branch"), myPanel);
   }
 
   private void chooseUrl() {
@@ -156,24 +158,26 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
     }
   }
 
+  @Override
   public JPanel getPanel() {
     return myPanel;
   }
 
   @Nullable
   private Url getBranchForUrl(@Nullable Url url) {
-    final RootUrlInfo rootInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot.getIOFile());
+    final RootUrlInfo rootInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot);
 
     return rootInfo != null && url != null ? SvnUtil.getBranchForUrl(myVcs, rootInfo.getVirtualFile(), url) : null;
   }
 
   @Nullable
   private SvnBranchConfigurationNew getBranchConfiguration() {
-    final RootUrlInfo rootInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot.getIOFile());
+    final RootUrlInfo rootInfo = myVcs.getSvnFileUrlMapping().getWcRootForFilePath(myRoot);
 
     return rootInfo != null ? SvnBranchConfigurationManager.getInstance(myVcs.getProject()).get(rootInfo.getVirtualFile()) : null;
   }
 
+  @Override
   public void reset(final SvnConfiguration configuration) {
     final UpdateRootInfo rootInfo = configuration.getUpdateRootInfo(myRoot.getIOFile(), myVcs);
 
@@ -192,6 +196,7 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
     myBranchField.setEnabled(myUpdateToSpecificUrl.isSelected() && (mySourceUrl != null));
   }
 
+  @Override
   public void apply(final SvnConfiguration configuration) throws ConfigurationException {
     final UpdateRootInfo rootInfo = configuration.getUpdateRootInfo(myRoot.getIOFile(), myVcs);
     if (myUpdateToSpecificUrl.isSelected()) {
@@ -199,18 +204,19 @@ public class SvnUpdateRootOptionsPanel implements SvnPanel{
         rootInfo.setUrl(createUrl(myURLText.getText(), false));
       }
       catch (SvnBindException e) {
-        throw new ConfigurationException("Invalid url: " + myURLText.getText());
+        throw new ConfigurationException(message("error.invalid.url", myURLText.getText()));
       }
     }
 
     rootInfo.setUpdateToRevision(myRevisionBox.isSelected());
     final Revision revision = Revision.parse(myRevisionText.getText());
      if (!revision.isValid()) {
-       throw new ConfigurationException(message("invalid.svn.revision.error.message", myRevisionText.getText()));
+       throw new ConfigurationException(message("error.invalid.svn.revision", myRevisionText.getText()));
     }
     rootInfo.setRevision(revision);
   }
 
+  @Override
   public boolean canApply() {
     return true;
   }

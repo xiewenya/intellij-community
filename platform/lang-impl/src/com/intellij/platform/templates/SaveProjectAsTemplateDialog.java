@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.templates;
 
 import com.intellij.ide.util.projectWizard.ProjectTemplateParameterFactory;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -25,7 +11,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.ValidationInfo;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -48,12 +34,11 @@ import java.util.List;
  */
 public class SaveProjectAsTemplateDialog extends DialogWrapper {
 
-  private static final String WHOLE_PROJECT = "<whole project>";
   @NotNull private final Project myProject;
   private JPanel myPanel;
   private JTextField myName;
   private EditorTextField myDescription;
-  private JComboBox myModuleCombo;
+  private JComboBox<String> myModuleCombo;
   private JLabel myModuleLabel;
   private JBCheckBox myReplaceParameters;
 
@@ -61,7 +46,7 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
     super(project);
     myProject = project;
 
-    setTitle("Save Project As Template");
+    setTitle(LangBundle.message("dialog.title.save.project.as.template"));
     myName.setText(project.getName());
 
     Module[] modules = ModuleManager.getInstance(project).getModules();
@@ -71,10 +56,11 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
     }
     else {
       List<String> items = new ArrayList<>(ContainerUtil.map(modules, module -> module.getName()));
-      items.add(WHOLE_PROJECT);
-      myModuleCombo.setModel(new CollectionComboBoxModel(items, WHOLE_PROJECT));
+      String wholeProject = LangBundle.message("save.project.combobox.whole.project");
+      items.add(wholeProject);
+      myModuleCombo.setModel(new CollectionComboBoxModel<>(items, wholeProject));
     }
-    myDescription.setFileType(FileTypeManager.getInstance().getFileTypeByExtension(".html"));
+    myDescription.setFileType(FileTypeManager.getInstance().getFileTypeByExtension("html"));
     if (descriptionFile != null) {
       try {
         String s = VfsUtilCore.loadText(descriptionFile);
@@ -85,7 +71,7 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
       }
     }
 
-    boolean showReplaceParameters = Extensions.getExtensions(ProjectTemplateParameterFactory.EP_NAME).length > 0;
+    boolean showReplaceParameters = ProjectTemplateParameterFactory.EP_NAME.getExtensionList().size() > 0;
     myReplaceParameters.setVisible(showReplaceParameters);
     myReplaceParameters.setSelected(showReplaceParameters);
 
@@ -114,7 +100,7 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
   @Override
   protected ValidationInfo doValidate() {
     if (StringUtil.isEmpty(myName.getText())) {
-      return new ValidationInfo("Template name should not be empty");
+      return new ValidationInfo(LangBundle.message("dialog.message.template.name.should.be.empty"));
     }
     return null;
   }
@@ -124,8 +110,9 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
     Path file = getTemplateFile();
     if (PathKt.exists(file)) {
       if (Messages.showYesNoDialog(myPanel,
-                                   FileUtil.getNameWithoutExtension(file.getFileName().toString()) + " exists already.\n" +
-                                   "Do you want to replace it with the new one?", "Template Already Exists",
+                                   LangBundle.message("dialog.message.exists.already.do.you.want.to.replace.it.with.new.one",
+                                                      FileUtilRt.getNameWithoutExtension(file.getFileName().toString())),
+                                   LangBundle.message("dialog.title.template.already.exists"),
                                    Messages.getWarningIcon()) == Messages.NO) {
         return;
       }
@@ -150,7 +137,7 @@ public class SaveProjectAsTemplateDialog extends DialogWrapper {
   @Nullable
   Module getModuleToSave() {
     String item = (String)myModuleCombo.getSelectedItem();
-    if (item == null || item.equals(WHOLE_PROJECT)) return null;
+    if (item == null || item.equals(LangBundle.message("save.project.combobox.whole.project"))) return null;
     return ModuleManager.getInstance(myProject).findModuleByName(item);
   }
 

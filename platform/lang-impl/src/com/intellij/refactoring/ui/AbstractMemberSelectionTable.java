@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.ui;
 
@@ -22,6 +8,7 @@ import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.actionSystem.TypeSafeDataProvider;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.classMembers.MemberInfoBase;
@@ -29,8 +16,9 @@ import com.intellij.refactoring.classMembers.MemberInfoChange;
 import com.intellij.refactoring.classMembers.MemberInfoChangeListener;
 import com.intellij.refactoring.classMembers.MemberInfoModel;
 import com.intellij.ui.*;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,19 +39,20 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
   protected static final int CHECKED_COLUMN = 0;
   protected static final int DISPLAY_NAME_COLUMN = 1;
   protected static final int ABSTRACT_COLUMN = 2;
-  protected static final Icon EMPTY_OVERRIDE_ICON = EmptyIcon.create(AllIcons.General.OverridingMethod);
-  protected static final String DISPLAY_NAME_COLUMN_HEADER = RefactoringBundle.message("member.column");
+  protected static final Icon EMPTY_OVERRIDE_ICON = IconManager.getInstance().createEmptyIcon(AllIcons.General.OverridingMethod);
   protected static final int OVERRIDE_ICON_POSITION = 2;
   protected static final int VISIBILITY_ICON_POSITION = 1;
   protected static final int MEMBER_ICON_POSITION = 0;
 
-  protected final String myAbstractColumnHeader;
+  protected final @NlsContexts.ColumnName String myAbstractColumnHeader;
   protected List<M> myMemberInfos;
   protected final boolean myAbstractEnabled;
   protected MemberInfoModel<T, M> myMemberInfoModel;
   protected MyTableModel<T, M> myTableModel;
 
-  public AbstractMemberSelectionTable(Collection<M> memberInfos, @Nullable MemberInfoModel<T, M> memberInfoModel, @Nullable String abstractColumnHeader) {
+  public AbstractMemberSelectionTable(Collection<M> memberInfos,
+                                      @Nullable MemberInfoModel<T, M> memberInfoModel,
+                                      @Nullable @NlsContexts.ColumnName String abstractColumnHeader) {
     myAbstractEnabled = abstractColumnHeader != null;
     myAbstractColumnHeader = abstractColumnHeader;
     myTableModel = new MyTableModel<>(this);
@@ -90,7 +79,8 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
       model.getColumn(ABSTRACT_COLUMN).setCellRenderer(new MyBooleanRenderer<>(this));
     }
 
-    setPreferredScrollableViewportSize(new Dimension(400, getRowHeight() * 12));
+    setPreferredScrollableViewportSize(JBUI.size(400, -1));
+    setVisibleRowCount(12);
     getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     setShowGrid(false);
     setIntercellSpacing(new Dimension(0, 0));
@@ -158,10 +148,10 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
   }
 
   @Override
-  public void calcData(final DataKey key, final DataSink sink) {
+  public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
     if (key == CommonDataKeys.PSI_ELEMENT) {
       final Collection<M> memberInfos = getSelectedMemberInfos();
-      if (memberInfos.size() > 0) {
+      if (!memberInfos.isEmpty()) {
         sink.put(CommonDataKeys.PSI_ELEMENT, memberInfos.iterator().next().getMember());
       }
     }
@@ -188,7 +178,13 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
 
   protected abstract boolean isAbstractColumnEditable(int rowIndex);
 
-  protected abstract void setVisibilityIcon(M memberInfo, RowIcon icon);
+  protected void setVisibilityIcon(M memberInfo, com.intellij.ui.RowIcon icon) {
+    throw new AbstractMethodError();
+  }
+
+  protected void setVisibilityIcon(M memberInfo, RowIcon icon) {
+    setVisibilityIcon(memberInfo, (com.intellij.ui.RowIcon)icon);
+  }
 
   protected abstract Icon getOverrideIcon(M memberInfo);
 
@@ -220,7 +216,7 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
     }
 
     @Override
-    public void memberInfoChanged(MemberInfoChange<T, M> event) {
+    public void memberInfoChanged(@NotNull MemberInfoChange<T, M> event) {
     }
 
     @Override
@@ -294,7 +290,7 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
         case ABSTRACT_COLUMN:
           return myTable.myAbstractColumnHeader;
         case DISPLAY_NAME_COLUMN:
-          return DISPLAY_NAME_COLUMN_HEADER;
+          return getDisplayNameColumnHeader();
         default:
           throw new RuntimeException("Incorrect column index");
       }
@@ -365,34 +361,28 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
   private static class MyTableRenderer<T extends PsiElement, M extends MemberInfoBase<T>> extends ColoredTableCellRenderer {
     private final AbstractMemberSelectionTable<T, M> myTable;
 
-    public MyTableRenderer(AbstractMemberSelectionTable<T, M> table) {
+    MyTableRenderer(AbstractMemberSelectionTable<T, M> table) {
       myTable = table;
     }
 
     @Override
-    public void customizeCellRenderer(JTable table, final Object value,
+    public void customizeCellRenderer(@NotNull JTable table, final Object value,
                                       boolean isSelected, boolean hasFocus, final int row, final int column) {
 
       final int modelColumn = myTable.convertColumnIndexToModel(column);
       final M memberInfo = myTable.myMemberInfos.get(row);
       setToolTipText(myTable.myMemberInfoModel.getTooltipText(memberInfo));
-      switch (modelColumn) {
-        case DISPLAY_NAME_COLUMN:
-          {
-            Icon memberIcon = myTable.getMemberIcon(memberInfo, 0);
-            Icon overrideIcon = myTable.getOverrideIcon(memberInfo);
-
-            RowIcon icon = new RowIcon(3);
-            icon.setIcon(memberIcon, MEMBER_ICON_POSITION);
-            myTable.setVisibilityIcon(memberInfo, icon);
-            icon.setIcon(overrideIcon, OVERRIDE_ICON_POSITION);
-            setIcon(icon);
-            break;
-          }
-        default:
-          {
-            setIcon(null);
-          }
+      if (modelColumn == DISPLAY_NAME_COLUMN) {
+        Icon memberIcon = myTable.getMemberIcon(memberInfo, 0);
+        Icon overrideIcon = myTable.getOverrideIcon(memberInfo);
+        RowIcon icon = IconManager.getInstance().createRowIcon(3);
+        icon.setIcon(memberIcon, MEMBER_ICON_POSITION);
+        myTable.setVisibilityIcon(memberInfo, icon);
+        icon.setIcon(overrideIcon, OVERRIDE_ICON_POSITION);
+        setIcon(icon);
+      }
+      else {
+        setIcon(null);
       }
       setIconOpaque(false);
       setOpaque(false);
@@ -420,7 +410,7 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
   private static class MyBooleanRenderer<T extends PsiElement, M extends MemberInfoBase<T>> extends BooleanTableCellRenderer {
     private final AbstractMemberSelectionTable<T, M> myTable;
 
-    public MyBooleanRenderer(AbstractMemberSelectionTable<T, M> table) {
+    MyBooleanRenderer(AbstractMemberSelectionTable<T, M> table) {
       myTable = table;
     }
 
@@ -437,5 +427,9 @@ public abstract class AbstractMemberSelectionTable<T extends PsiElement, M exten
       }
       return component;
     }
+  }
+
+  protected static @NlsContexts.ColumnName String getDisplayNameColumnHeader() {
+    return RefactoringBundle.message("member.column");
   }
 }

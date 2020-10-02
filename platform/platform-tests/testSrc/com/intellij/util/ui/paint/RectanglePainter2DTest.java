@@ -1,18 +1,18 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.paint;
 
 import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.ui.paint.LinePainter2D.StrokeType;
 import com.intellij.ui.paint.PaintUtil;
 import com.intellij.ui.paint.RectanglePainter2D;
-import com.intellij.util.ui.JBUI;
+import com.intellij.ui.scale.JBUIScale;
 import org.junit.Test;
 
 import java.awt.*;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 
-import static com.intellij.util.ui.JBUI.scale;
+import static com.intellij.util.ui.TestScaleHelper.overrideJreHiDPIEnabled;
 
 /**
  * Tests the {@link RectanglePainter2D} and {@link LinePainter2D} painting.
@@ -69,7 +69,7 @@ public class RectanglePainter2DTest extends AbstractPainter2DTest {
   }
 
   private void paintRects(Graphics2D g, StrokeType type, float trX, float trY) {
-    g.translate(scale(trX), scale(trY));
+    g.translate(JBUIScale.scale(trX), JBUIScale.scale(trY));
     Object aa = RenderingHints.VALUE_ANTIALIAS_ON;
     paintRect(g, 0, 0, RECT_SIZE, RECT_SIZE, null, type, 1, aa, false);
     paintRect(g, 0, RECT_SIZE + 3, RECT_SIZE, RECT_SIZE, ARC_SIZE, type, 1, aa, false);
@@ -85,12 +85,12 @@ public class RectanglePainter2DTest extends AbstractPainter2DTest {
                     Object valueAA,
                     boolean fill)
   {
-    strokeWidth = scale((float)strokeWidth);
-    if (arc != null) arc = Double.valueOf(scale(arc.floatValue()));
-    x = scale((float)x);
-    y = scale((float)y);
-    w = scale((float)w);
-    h = scale((float)h);
+    strokeWidth = JBUIScale.scale((float)strokeWidth);
+    if (arc != null) arc = Double.valueOf(JBUIScale.scale(arc.floatValue()));
+    x = JBUIScale.scale((float)x);
+    y = JBUIScale.scale((float)y);
+    w = JBUIScale.scale((float)w);
+    h = JBUIScale.scale((float)h);
     if (fill) {
       RectanglePainter2D.FILL.paint(g, x, y, w, h, arc, strokeType, strokeWidth, valueAA);
     }
@@ -107,38 +107,40 @@ public class RectanglePainter2DTest extends AbstractPainter2DTest {
 
   private void testRectOutline(ImageComparator comparator, double scale, boolean jreHiDPIEnabled, StrokeType strokeType) {
     overrideJreHiDPIEnabled(jreHiDPIEnabled);
-    JBUI.setUserScaleFactor(jreHiDPIEnabled ? 1 : (float)scale);
+    float scale1 = jreHiDPIEnabled ? 1 : (float)scale;
+    JBUIScale.setUserScaleFactor(scale1);
 
     BufferedImage rect = supplyGraphics(scale, 15, 15,
-                                    strokeType == StrokeType.INSIDE ? this::paintRectInside : this::paintRectCentered);
+                                    strokeType == StrokeType.INSIDE ? RectanglePainter2DTest::paintRectInside : RectanglePainter2DTest::paintRectCentered);
     BufferedImage outline = supplyGraphics(scale, 15, 15,
-                                       strokeType == StrokeType.INSIDE ? this::outlineRectInside : this::outlineRectCentered);
+                                       strokeType == StrokeType.INSIDE ? RectanglePainter2DTest::outlineRectInside : RectanglePainter2DTest::outlineRectCentered);
     compare(rect, outline, comparator, scale);
   }
 
-  private Rectangle2D rectBounds(Graphics2D g) {
-    double x = PaintUtil.alignToInt(scale(3f), g), y = x;
-    double w = PaintUtil.alignToInt(scale(10f), g), h = w;
-    return new Rectangle2D.Double(x, y, w, h);
+  private static Rectangle2D rectBounds(Graphics2D g) {
+    double x = PaintUtil.alignToInt(JBUIScale.scale(3f), g);
+    double w = PaintUtil.alignToInt(JBUIScale.scale(10f), g);
+    //noinspection SuspiciousNameCombination
+    return new Rectangle2D.Double(x, x, w, w);
   }
 
-  private Void paintRectInside(Graphics2D g) {
+  private static Void paintRectInside(Graphics2D g) {
     return _paintRect(g, true);
   }
 
-  private Void paintRectCentered(Graphics2D g) {
+  private static Void paintRectCentered(Graphics2D g) {
     return _paintRect(g, false);
   }
 
-  private Void _paintRect(Graphics2D g, boolean inside) {
+  private static Void _paintRect(Graphics2D g, boolean inside) {
     Rectangle2D b = rectBounds(g);
     RectanglePainter2D.DRAW.paint(g, b.getX(), b.getY(), b.getWidth(), b.getHeight(),
                                   inside ? StrokeType.INSIDE : StrokeType.CENTERED,
-                                  scale(1f));
+                                  JBUIScale.scale(1f));
     return null;
   }
 
-  private Void outlineRectInside(Graphics2D g) {
+  private static Void outlineRectInside(Graphics2D g) {
     Rectangle2D b = rectBounds(g);
     double x = b.getX();
     double y = b.getY();
@@ -149,14 +151,14 @@ public class RectanglePainter2DTest extends AbstractPainter2DTest {
     double _xx = xx - 1;
     double _yy = yy - 1;
 
-    LinePainter2D.paint(g, b.getX(), b.getY(), _xx, b.getY(), StrokeType.INSIDE, scale(1f));
-    LinePainter2D.paint(g, xx, b.getY(), xx, _yy, StrokeType.OUTSIDE, scale(1f));
-    LinePainter2D.paint(g, _xx, yy, b.getX(), yy, StrokeType.OUTSIDE, scale(1f));
-    LinePainter2D.paint(g, b.getX(), _yy, b.getX(), b.getY(), StrokeType.INSIDE, scale(1f));
+    LinePainter2D.paint(g, b.getX(), b.getY(), _xx, b.getY(), StrokeType.INSIDE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, xx, b.getY(), xx, _yy, StrokeType.OUTSIDE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, _xx, yy, b.getX(), yy, StrokeType.OUTSIDE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, b.getX(), _yy, b.getX(), b.getY(), StrokeType.INSIDE, JBUIScale.scale(1f));
     return null;
   }
 
-  private Void outlineRectCentered(Graphics2D g) {
+  private static Void outlineRectCentered(Graphics2D g) {
     Rectangle2D b = rectBounds(g);
     double x = b.getX();
     double y = b.getY();
@@ -167,16 +169,16 @@ public class RectanglePainter2DTest extends AbstractPainter2DTest {
     xx -= 1;
     yy -= 1;
 
-    LinePainter2D.paint(g, b.getX(), b.getY(), xx, b.getY(), StrokeType.CENTERED_CAPS_SQUARE, scale(1f));
-    LinePainter2D.paint(g, xx, b.getY(), xx, yy, StrokeType.CENTERED_CAPS_SQUARE, scale(1f));
-    LinePainter2D.paint(g, xx, yy, b.getX(), yy, StrokeType.CENTERED_CAPS_SQUARE, scale(1f));
-    LinePainter2D.paint(g, b.getX(), yy, b.getX(), b.getY(), StrokeType.CENTERED_CAPS_SQUARE, scale(1f));
+    LinePainter2D.paint(g, b.getX(), b.getY(), xx, b.getY(), StrokeType.CENTERED_CAPS_SQUARE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, xx, b.getY(), xx, yy, StrokeType.CENTERED_CAPS_SQUARE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, xx, yy, b.getX(), yy, StrokeType.CENTERED_CAPS_SQUARE, JBUIScale.scale(1f));
+    LinePainter2D.paint(g, b.getX(), yy, b.getX(), b.getY(), StrokeType.CENTERED_CAPS_SQUARE, JBUIScale.scale(1f));
     return null;
   }
 
   @Override
   protected String getGoldenImageName() {
-    return "RectanglePainter2D";
+    return "gold_RectanglePainter2D";
   }
 
   @Override

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
 import com.intellij.codeInspection.bytecodeAnalysis.Direction.ParamValueBasedDirection;
@@ -21,6 +7,7 @@ import com.intellij.codeInspection.bytecodeAnalysis.asm.RichControlFlow;
 import com.intellij.openapi.progress.ProgressManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.org.objectweb.asm.Handle;
+import org.jetbrains.org.objectweb.asm.Opcodes;
 import org.jetbrains.org.objectweb.asm.Type;
 import org.jetbrains.org.objectweb.asm.tree.*;
 import org.jetbrains.org.objectweb.asm.tree.analysis.AnalyzerException;
@@ -28,21 +15,16 @@ import org.jetbrains.org.objectweb.asm.tree.analysis.BasicInterpreter;
 import org.jetbrains.org.objectweb.asm.tree.analysis.BasicValue;
 import org.jetbrains.org.objectweb.asm.tree.analysis.Frame;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.intellij.codeInspection.bytecodeAnalysis.AbstractValues.*;
 import static com.intellij.codeInspection.bytecodeAnalysis.Direction.Out;
 import static org.jetbrains.org.objectweb.asm.Opcodes.*;
 
 abstract class ContractAnalysis extends Analysis<Result> {
+  static final ResultUtil resultUtil = new ResultUtil(new ELattice<>(Value.Bot, Value.Top));
 
-  static final ResultUtil resultUtil =
-    new ResultUtil(new ELattice<>(Value.Bot, Value.Top));
-
-  final private State[] pending;
+  final private ExpandableArray<State> pending;
   final InOutInterpreter interpreter;
   final Value inValue;
   private final int generalizeShift;
@@ -51,13 +33,13 @@ abstract class ContractAnalysis extends Analysis<Result> {
   private int id;
   private int pendingTop;
 
-  protected ContractAnalysis(RichControlFlow richControlFlow, Direction direction, boolean[] resultOrigins, boolean stable, State[] pending) {
+  protected ContractAnalysis(RichControlFlow richControlFlow, Direction direction, boolean[] resultOrigins, boolean stable, ExpandableArray<State> pending) {
     super(richControlFlow, direction, stable);
     this.pending = pending;
     interpreter = new InOutInterpreter(direction, richControlFlow.controlFlow.methodNode.instructions, resultOrigins);
     inValue = direction instanceof ParamValueBasedDirection ? ((ParamValueBasedDirection)direction).inValue : null;
     generalizeShift = (methodNode.access & ACC_STATIC) == 0 ? 1 : 0;
-    internalResult = new Final(Value.Bot);
+    internalResult = Value.Bot;
   }
 
   @NotNull
@@ -66,7 +48,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
   }
 
   static Result checkLimit(Result result) throws AnalyzerException {
-    if(result instanceof Pending) {
+    if (result instanceof Pending) {
       int size = Arrays.stream(((Pending)result).delta).mapToInt(prod -> prod.ids.length).sum();
       if (size > Analysis.EQUATION_SIZE_LIMIT) {
         throw new AnalyzerException(null, "Equation size is too big");
@@ -75,6 +57,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
     return result;
   }
 
+  @Override
   @NotNull
   protected Equation analyze() throws AnalyzerException {
     pendingPush(createStartState());
@@ -85,7 +68,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
       if (steps % 128 == 0) {
         ProgressManager.checkCanceled();
       }
-      State state = pending[--pendingTop];
+      State state = Objects.requireNonNull(pending.get(--pendingTop));
       int insnIndex = state.conf.insnIndex;
       Conf conf = state.conf;
       List<Conf> history = state.history;
@@ -107,7 +90,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
         List<State> thisComputed = computed[insnIndex];
         if (thisComputed != null) {
           for (State prevState : thisComputed) {
-            if (stateEquiv(state, prevState)) {
+            if (state.equiv(prevState)) {
               baseState = prevState;
               break;
             }
@@ -123,7 +106,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
     } else if (unsureOnly) {
       // We are not sure whether exceptional paths were actually taken or not
       // probably they handle exceptions which can never be thrown before dereference occurs
-      return mkEquation(ClassDataIndexer.FINAL_BOT);
+      return mkEquation(Value.Bot);
     } else {
       return mkEquation(internalResult);
     }
@@ -217,7 +200,7 @@ abstract class ContractAnalysis extends Analysis<Result> {
 
   private void pendingPush(State st) {
     TooComplexException.check(method, pendingTop);
-    pending[pendingTop++] = st;
+    pending.set(pendingTop++, st);
   }
 
   private Frame<BasicValue> execute(Frame<BasicValue> frame, AbstractInsnNode insnNode) throws AnalyzerException {
@@ -269,10 +252,11 @@ class InOutAnalysis extends ContractAnalysis {
                           Direction direction,
                           boolean[] resultOrigins,
                           boolean stable,
-                          State[] pending) {
+                          ExpandableArray<State> pending) {
     super(richControlFlow, direction, resultOrigins, stable, pending);
   }
 
+  @Override
   boolean handleReturn(Frame<BasicValue> frame, int opcode, boolean unsure) throws AnalyzerException {
     if (interpreter.deReferenced) {
       return true;
@@ -287,31 +271,31 @@ class InOutAnalysis extends ContractAnalysis {
         BasicValue stackTop = popValue(frame);
         Result subResult;
         if (FalseValue == stackTop) {
-          subResult = new Final(Value.False);
+          subResult = Value.False;
         }
         else if (TrueValue == stackTop) {
-          subResult = new Final(Value.True);
+          subResult = Value.True;
         }
         else if (NullValue == stackTop) {
-          subResult = new Final(Value.Null);
+          subResult = Value.Null;
         }
         else if (stackTop instanceof NotNullValue) {
-          subResult = new Final(Value.NotNull);
+          subResult = Value.NotNull;
         }
         else if (stackTop instanceof ParamValue) {
-          subResult = new Final(inValue);
+          subResult = inValue;
         }
         else if (stackTop instanceof CallResultValue) {
           Set<EKey> keys = ((CallResultValue) stackTop).inters;
           subResult = new Pending(new Component[] {new Component(Value.Top, keys)});
         }
         else {
-          earlyResult = new Final(Value.Top);
+          earlyResult = Value.Top;
           return true;
         }
         internalResult = checkLimit(resultUtil.join(internalResult, subResult));
         unsureOnly &= unsure;
-        if (!unsure && internalResult instanceof Final && ((Final)internalResult).value == Value.Top) {
+        if (!unsure && internalResult == Value.Top) {
           earlyResult = internalResult;
         }
         return true;
@@ -331,14 +315,15 @@ class InThrowAnalysis extends ContractAnalysis {
                             Direction direction,
                             boolean[] resultOrigins,
                             boolean stable,
-                            State[] pending) {
+                            ExpandableArray<State> pending) {
     super(richControlFlow, direction, resultOrigins, stable, pending);
   }
 
+  @Override
   boolean handleReturn(Frame<BasicValue> frame, int opcode, boolean unsure) {
     Result subResult;
     if (interpreter.deReferenced) {
-      subResult = new Final(Value.Top);
+      subResult = Value.Top;
     } else {
       switch (opcode) {
         case ARETURN:
@@ -347,19 +332,19 @@ class InThrowAnalysis extends ContractAnalysis {
         case FRETURN:
         case DRETURN:
           BasicValue value = frame.pop();
-          if(!(value instanceof NthParamValue) && value != NullValue && value != TrueValue && value != FalseValue ||
+          if (!(value instanceof NthParamValue) && value != NullValue && value != TrueValue && value != FalseValue ||
              myReturnValue != null && !myReturnValue.equals(value)) {
             myHasNonTrivialReturn = true;
           } else {
             myReturnValue = value;
           }
-          subResult = new Final(Value.Top);
+          subResult = Value.Top;
           break;
         case RETURN:
-          subResult = new Final(Value.Top);
+          subResult = Value.Top;
           break;
         case ATHROW:
-          subResult = new Final(Value.Fail);
+          subResult = Value.Fail;
           break;
         default:
           return false;
@@ -367,7 +352,7 @@ class InThrowAnalysis extends ContractAnalysis {
     }
     internalResult = resultUtil.join(internalResult, subResult);
     unsureOnly &= unsure;
-    if (!unsure && internalResult instanceof Final && ((Final)internalResult).value == Value.Top && myHasNonTrivialReturn) {
+    if (!unsure && internalResult == Value.Top && myHasNonTrivialReturn) {
       earlyResult = internalResult;
     }
     return true;
@@ -383,9 +368,10 @@ class InOutInterpreter extends BasicInterpreter {
   boolean deReferenced;
 
   InOutInterpreter(Direction direction, InsnList insns, boolean[] resultOrigins) {
+    super(Opcodes.API_VERSION);
     this.insns = insns;
     this.resultOrigins = resultOrigins;
-    if(direction instanceof ParamValueBasedDirection) {
+    if (direction instanceof ParamValueBasedDirection) {
       this.direction = (ParamValueBasedDirection)direction;
       this.nullAnalysis = this.direction.inValue == Value.Null;
     } else {
@@ -546,15 +532,13 @@ class InOutInterpreter extends BasicInterpreter {
               }
             }
             else if (isRefRetType) {
-              HashSet<EKey> keys = new HashSet<>();
-              keys.add(new EKey(method, Out, stable));
-              return new CallResultValue(retType, keys);
+              return new CallResultValue(retType, Collections.singleton(new EKey(method, Out, stable)));
             }
           }
           break;
         case INVOKEDYNAMIC:
           InvokeDynamicInsnNode indy = (InvokeDynamicInsnNode)insn;
-          if(LambdaIndy.from(indy) != null || ClassDataIndexer.STRING_CONCAT_FACTORY.equals(indy.bsm.getOwner())) {
+          if (LambdaIndy.from(indy) != null || ClassDataIndexer.STRING_CONCAT_FACTORY.equals(indy.bsm.getOwner())) {
             // indy producing lambda or string concatenation is never null
             return new NotNullValue(Type.getReturnType(indy.desc));
           }

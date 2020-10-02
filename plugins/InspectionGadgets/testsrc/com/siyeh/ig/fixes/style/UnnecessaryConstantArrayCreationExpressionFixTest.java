@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.fixes.style;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.style.UnnecessaryConstantArrayCreationExpressionInspection;
@@ -22,17 +23,18 @@ import com.siyeh.ig.style.UnnecessaryConstantArrayCreationExpressionInspection;
 public class UnnecessaryConstantArrayCreationExpressionFixTest extends IGQuickFixesTestCase {
 
   public void testPrimitive() { doTest("int[]"); }
+  public void testParenthesized() { doTest("int[]"); }
   public void testTwoDimension() { doTest("Map[][]"); }
   public void testInitializerWithoutNew() { assertQuickfixNotAvailable(); }
 
   @Override
   protected void doTest(String hint) {
-    super.doTest(InspectionGadgetsBundle.message("unnecessary.constant.array.creation.expression.quickfix", hint));
+    super.doTest(CommonQuickFixBundle.message("fix.replace.with.x", "new " + hint));
   }
 
   @Override
   protected void assertQuickfixNotAvailable() {
-    String message = InspectionGadgetsBundle.message("unnecessary.constant.array.creation.expression.quickfix", "@");
+    String message = CommonQuickFixBundle.message("fix.replace.with.x", "@");
     super.assertQuickfixNotAvailable(message.substring(0, message.indexOf('@')));
   }
 

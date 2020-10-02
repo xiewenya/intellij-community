@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.committed;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
@@ -28,13 +15,14 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
 /**
  * @author yole
  */
-public class SelectGroupingAction extends LabeledComboBoxAction {
+public class SelectGroupingAction extends LabeledComboBoxAction implements DumbAware {
 
   @NotNull private final Project myProject;
   @NotNull private final CommittedChangesTreeBrowser myBrowser;
@@ -66,7 +54,7 @@ public class SelectGroupingAction extends LabeledComboBoxAction {
 
   @NotNull
   private List<ChangeListGroupingStrategy> collectStrategies() {
-    List<ChangeListGroupingStrategy> result = ContainerUtil.newArrayList();
+    List<ChangeListGroupingStrategy> result = new ArrayList<>();
 
     result.add(new DateChangeListGroupingStrategy());
     result.add(ChangeListGroupingStrategy.USER);
@@ -86,7 +74,7 @@ public class SelectGroupingAction extends LabeledComboBoxAction {
     return result;
   }
 
-  private class SetGroupingAction extends DumbAwareAction {
+  private final class SetGroupingAction extends DumbAwareAction {
 
     @NotNull private final ChangeListGroupingStrategy myStrategy;
 
@@ -101,7 +89,7 @@ public class SelectGroupingAction extends LabeledComboBoxAction {
     }
   }
 
-  private static class CustomChangeListColumnGroupingStrategy implements ChangeListGroupingStrategy {
+  private static final class CustomChangeListColumnGroupingStrategy implements ChangeListGroupingStrategy {
 
     @NotNull private final ChangeListColumn<CommittedChangeList> myColumn;
 

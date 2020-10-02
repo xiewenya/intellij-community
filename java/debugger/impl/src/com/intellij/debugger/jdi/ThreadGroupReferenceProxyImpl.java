@@ -16,7 +16,7 @@ import org.jetbrains.annotations.NonNls;
 import java.util.List;
 
 public class ThreadGroupReferenceProxyImpl extends ObjectReferenceProxyImpl implements ThreadGroupReferenceProxy{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.jdi.ThreadGroupReferenceProxyImpl");
+  private static final Logger LOG = Logger.getInstance(ThreadGroupReferenceProxyImpl.class);
   //caches
   private ThreadGroupReferenceProxyImpl myParentThreadGroupProxy;
   private boolean myIsParentGroupCached = false;
@@ -26,6 +26,7 @@ public class ThreadGroupReferenceProxyImpl extends ObjectReferenceProxyImpl impl
     super(virtualMachineProxy, threadGroupReference);
   }
 
+  @Override
   public ThreadGroupReference getThreadGroupReference() {
     return (ThreadGroupReference)getObjectReference();
   }
@@ -67,6 +68,7 @@ public class ThreadGroupReferenceProxyImpl extends ObjectReferenceProxyImpl impl
     return StreamEx.of(getThreadGroupReference().threadGroups()).map(getVirtualMachineProxy()::getThreadGroupReferenceProxy).toList();
   }
 
+  @Override
   public void clearCaches() {
 //    myIsParentGroupCached = false;
 //    myName = null;

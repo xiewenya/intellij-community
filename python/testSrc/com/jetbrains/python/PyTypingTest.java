@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2017 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiLanguageInjectionHost;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
@@ -50,8 +51,15 @@ public class PyTypingTest extends PyTestCase {
 
   @Override
   public void tearDown() throws Exception {
-    setLanguageLevel(null);
-    super.tearDown();
+    try {
+      setLanguageLevel(null);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   public void testClassType() {
@@ -232,7 +240,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testAnyStrForUnknown() {
-    doTest("Union[str, bytes]",
+    doTest("Union[Union[str, bytes], Any]",
            "from typing import AnyStr\n" +
            "\n" +
            "def foo(x: AnyStr) -> AnyStr:\n" +
@@ -424,6 +432,12 @@ public class PyTypingTest extends PyTestCase {
                        "    def foo(self, expr: '<caret>Union[List[C], C]'):\n" +
                        "        pass\n",
                        "Union[List[C], C]");
+  }
+
+  // PY-37515
+  public void testNoStringLiteralInjectionUnderCall() {
+    doTestNoInjectedText("class Model:\n" +
+                         "    field: call('<caret>List[str]')");
   }
 
   // PY-15810
@@ -1400,6 +1414,129 @@ public class PyTypingTest extends PyTestCase {
            "expr = D.factory()");
   }
 
+  // PY-31004
+  public void testRecursiveTypeAliasInAnotherFile() {
+    doMultiFileStubAwareTest("Union[list, int]",
+                             "from other import MyType\n" +
+                             "\n" +
+                             "expr: MyType = ...");
+  }
+
+  // PY-31146
+  public void testNoneTypeInAnotherFile() {
+    doMultiFileStubAwareTest("(int) -> None",
+                             "from other import MyType\n" +
+                             "\n" +
+                             "expr: MyType = ...\n" +
+                             "\n");
+  }
+
+  // PY-34478
+  public void testTrivialTypeAliasInAnotherFile() {
+    doMultiFileStubAwareTest("str",
+                             "from other import alias\n" +
+                             "\n" +
+                             "expr: alias");
+  }
+
+  // PY-34478
+  public void testTrivialUnresolvedTypeAliasInAnotherFile() {
+    doMultiFileStubAwareTest("Any",
+                             "from other import alias\n" +
+                             "\n" +
+                             "expr: alias");
+  }
+
+  // PY-34478
+  public void testTrivialRecursiveTypeAliasInAnotherFile() {
+    doMultiFileStubAwareTest("Any",
+                             "from other import alias\n" +
+                             "\n" +
+                             "expr: alias");
+  }
+
+  public void testGenericSubstitutionInDeepHierarchy() {
+    doTest("int",
+           "from typing import Generic, TypeVar\n" +
+           "\n" +
+           "T1 = TypeVar('T1')\n" +
+           "T2 = TypeVar('T2')\n" +
+           "\n" +
+           "class Root(Generic[T1, T2]):\n" +
+           "    def m(self) -> T2:\n" +
+           "        pass\n" +
+           "\n" +
+           "class Base3(Root[T1, int]):\n" +
+           "    pass\n" +
+           "\n" +
+           "class Base2(Base3[T1]):\n" +
+           "    pass\n" +
+           "\n" +
+           "class Base1(Base2[T1]):\n" +
+           "    pass\n" +
+           "\n" +
+           "class Sub(Base1[T1]):\n" +
+           "    pass\n" +
+           "\n" +
+           "expr = Sub().m()\n");
+  }
+
+  // PY-35235
+  public void testNoStringLiteralInjectionForTypingLiteral() {
+    doTestNoInjectedText("from typing import Literal\n" +
+                         "a: Literal[\"f<caret>oo\"]\n");
+
+    doTestNoInjectedText("from typing import Literal\n" +
+                         "a: Literal[42, \"f<caret>oo\", True]\n");
+
+    doTestNoInjectedText("from typing import Literal\n" +
+                         "MyType = Literal[42, \"f<caret>oo\", True]\n" +
+                         "a: MyType\n");
+  }
+
+  // PY-41847
+  public void testNoStringLiteralInjectionForTypingAnnotated() {
+    doTestNoInjectedText("from typing import Annotated\n" +
+                         "MyType = Annotated[str, \"f<caret>oo\", True]\n" +
+                         "a: MyType\n");
+
+    doTestNoInjectedText("from typing import Annotated\n" +
+                         "a: Annotated[int, \"f<caret>oo\", True]\n");
+
+    doTestInjectedText("from typing import Annotated\n" +
+                       "a: Annotated['Forward<caret>Reference', 'foo']",
+                       "ForwardReference");
+  }
+
+  // PY-41847
+  public void testTypingAnnotated() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> {
+        doTest("int",
+               "from typing import Annotated\n" +
+               "A = Annotated[int, 'Some constraint']\n" +
+               "expr: A");
+        doTest("int",
+               "from typing_extensions import Annotated\n" +
+               "expr: Annotated[int, 'Some constraint'] = '5'");
+        doMultiFileStubAwareTest("int",
+                                 "from annotated import A\n" +
+                                 "expr: A = 'str'");
+      }
+    );
+  }
+
+  // PY-35370
+  public void testAnyArgumentsCallableInTypeComment() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestInjectedText("from typing import Callable\n" +
+                               "a = b  # type: Call<caret>able[..., int]",
+                               "Callable[..., int]")
+    );
+  }
+
   private void doTestNoInjectedText(@NotNull String text) {
     myFixture.configureByText(PythonFileType.INSTANCE, text);
     final InjectedLanguageManager languageManager = InjectedLanguageManager.getInstance(myFixture.getProject());
@@ -1417,6 +1554,7 @@ public class PyTypingTest extends PyTestCase {
     assertFalse(files.isEmpty());
     final PsiElement injected = files.get(0).getFirst();
     assertEquals(expected, injected.getText());
+    assertFalse(PsiTreeUtil.hasErrorElements(injected));
   }
 
   private void doTest(@NotNull String expectedType, @NotNull String text) {

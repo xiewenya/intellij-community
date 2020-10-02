@@ -1,38 +1,24 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.terminal
 
+import com.intellij.execution.configuration.EnvironmentVariablesData
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.ServiceManager
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import com.intellij.openapi.util.SystemInfo
-import java.io.File
-
-/**
- * @author traff
- */
+import com.intellij.util.xmlb.annotations.Property
+import org.jetbrains.annotations.Nls
 
 @State(name = "TerminalOptionsProvider", storages = [(Storage("terminal.xml"))])
 class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider.State> {
-  private val myState = State()
-
-  var shellPath: String? by ValueWithDefault(State::myShellPath, myState) { defaultShellPath }
+  private var myState = State()
 
   override fun getState(): State? {
     return myState
   }
 
   override fun loadState(state: State) {
-    myState.myCloseSessionOnLogout = state.myCloseSessionOnLogout
-    myState.myReportMouse = state.myReportMouse
-    myState.mySoundBell = state.mySoundBell
-    myState.myTabName = state.myTabName
-    myState.myCopyOnSelection = state.myCopyOnSelection
-    myState.myPasteOnMiddleMouseButton = state.myPasteOnMiddleMouseButton
-    myState.myOverrideIdeShortcuts = state.myOverrideIdeShortcuts
-    myState.myShellIntegration = state.myShellIntegration
-    myState.myShellPath = state.myShellPath
-    myState.myHighlightHyperlinks = state.myHighlightHyperlinks
+    myState = state
   }
 
   fun closeSessionOnLogout(): Boolean {
@@ -48,8 +34,9 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
   }
 
   var tabName: String
-    get() = myState.myTabName
-    set(tabName) {
+    @Nls
+    get() : String = myState.myTabName ?: TerminalBundle.message("local.terminal.default.name")
+    set(@Nls tabName) {
       myState.myTabName = tabName
     }
 
@@ -71,15 +58,18 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
 
   class State {
     var myShellPath: String? = null
-    var myTabName = "Local"
-    var myCloseSessionOnLogout = true
-    var myReportMouse = true
-    var mySoundBell = true
-    var myCopyOnSelection = true
-    var myPasteOnMiddleMouseButton = true
-    var myOverrideIdeShortcuts = true
-    var myShellIntegration = true
-    var myHighlightHyperlinks = true
+    @Nls
+    var myTabName: String? = null
+    var myCloseSessionOnLogout: Boolean = true
+    var myReportMouse: Boolean = true
+    var mySoundBell: Boolean = true
+    var myCopyOnSelection: Boolean = true
+    var myPasteOnMiddleMouseButton: Boolean = true
+    var myOverrideIdeShortcuts: Boolean = true
+    var myShellIntegration: Boolean = true
+    var myHighlightHyperlinks: Boolean = true
+    @get:Property(surroundWithTag = false, flat = true)
+    var envDataOptions = EnvironmentVariablesDataOptions()
   }
 
   fun setCloseSessionOnLogout(closeSessionOnLogout: Boolean) {
@@ -118,34 +108,24 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
     myState.myHighlightHyperlinks = highlight
   }
 
-  val defaultShellPath: String
-    get() {
-      val shell = System.getenv("SHELL")
+  fun getEnvData(): EnvironmentVariablesData {
+    return myState.envDataOptions.get()
+  }
 
-      if (shell != null && File(shell).canExecute()) {
-        return shell
-      }
+  fun setEnvData(envData: EnvironmentVariablesData) {
+    myState.envDataOptions.set(envData)
+  }
 
-      if (SystemInfo.isUnix) {
-        if (File("/bin/bash").exists()) {
-          return "/bin/bash"
-        }
-        else {
-          return "/bin/sh"
-        }
-      }
-      else {
-        return "cmd.exe"
-      }
+  // replace with property delegate when Kotlin 1.4 arrives (KT-8658)
+  var shellPath: String?
+    get() = myState.myShellPath
+    set(value) {
+      myState.myShellPath = value
     }
 
   companion object {
     val instance: TerminalOptionsProvider
+      @JvmStatic
       get() = ServiceManager.getService(TerminalOptionsProvider::class.java)
   }
 }
-
-
-
-
-

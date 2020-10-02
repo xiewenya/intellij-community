@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.ex;
 
 import com.intellij.ide.util.treeView.AbstractTreeBuilder;
@@ -18,10 +18,7 @@ import com.intellij.openapi.fileChooser.FileSystemTree;
 import com.intellij.openapi.fileChooser.impl.FileComparator;
 import com.intellij.openapi.fileChooser.impl.FileTreeBuilder;
 import com.intellij.openapi.fileChooser.impl.FileTreeStructure;
-import com.intellij.openapi.fileChooser.tree.FileNode;
-import com.intellij.openapi.fileChooser.tree.FileRefresher;
-import com.intellij.openapi.fileChooser.tree.FileRenderer;
-import com.intellij.openapi.fileChooser.tree.FileTreeModel;
+import com.intellij.openapi.fileChooser.tree.*;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
@@ -39,7 +36,6 @@ import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Convertor;
 import com.intellij.util.ui.tree.TreeUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,10 +50,8 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Stream;
 
 public class FileSystemTreeImpl implements FileSystemTree {
   private final Tree myTree;
@@ -72,7 +66,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
   private final List<Listener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final MyExpansionListener myExpansionListener = new MyExpansionListener();
 
-  private final Set<VirtualFile> myEverExpanded = new THashSet<>();
+  private final Set<VirtualFile> myEverExpanded = new HashSet<>();
 
   public FileSystemTreeImpl(@Nullable final Project project, final FileChooserDescriptor descriptor) {
     this(project, descriptor, new Tree(), null, null, null);
@@ -85,12 +79,13 @@ public class FileSystemTreeImpl implements FileSystemTree {
                             final Tree tree,
                             @Nullable TreeCellRenderer renderer,
                             @Nullable final Runnable onInitialized,
-                            @Nullable final Convertor<TreePath, String> speedSearchConverter) {
+                            @Nullable final Convertor<? super TreePath, String> speedSearchConverter) {
     myProject = project;
-    if (renderer == null && Registry.is("file.chooser.async.tree.model")) {
+    //noinspection deprecation
+    if (renderer == null && useNewAsyncModel()) {
       renderer = new FileRenderer().forTree();
-      myFileTreeModel = new FileTreeModel(descriptor, new FileRefresher(false, 3, () -> ModalityState.stateForComponent(tree)));
-      myAsyncTreeModel = new AsyncTreeModel(myFileTreeModel, false, this);
+      myFileTreeModel = createFileTreeModel(descriptor, tree);
+      myAsyncTreeModel = createAsyncTreeModel(myFileTreeModel);
       myTreeStructure = null;
     }
     else {
@@ -118,6 +113,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
       });
 
       Disposer.register(myTreeBuilder, new Disposable() {
+        @Override
         public void dispose() {
           myTree.removeTreeExpansionListener(myExpansionListener);
         }
@@ -129,6 +125,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
     }
 
     myTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(final TreeSelectionEvent e) {
         processSelectionChange();
       }
@@ -140,7 +137,6 @@ public class FileSystemTreeImpl implements FileSystemTree {
     else {
       new TreeSpeedSearch(myTree);
     }
-    myTree.setLineStyleAngled();
     TreeUtil.installActions(myTree);
 
     myTree.getSelectionModel().setSelectionMode(
@@ -150,7 +146,8 @@ public class FileSystemTreeImpl implements FileSystemTree {
 
     if (renderer == null) {
       renderer = new NodeRenderer() {
-        public void customizeCellRenderer(JTree tree,
+        @Override
+        public void customizeCellRenderer(@NotNull JTree tree,
                                           Object value,
                                           boolean selected,
                                           boolean expanded,
@@ -171,15 +168,34 @@ public class FileSystemTreeImpl implements FileSystemTree {
     myTree.setCellRenderer(renderer);
   }
 
-  protected AbstractTreeBuilder createTreeBuilder(final JTree tree, DefaultTreeModel treeModel, final AbstractTreeStructure treeStructure,
-                                                  final Comparator<NodeDescriptor> comparator, FileChooserDescriptor descriptor,
-                                                  @Nullable final Runnable onInitialized) {
+  @SuppressWarnings("DeprecatedIsStillUsed")
+  @Deprecated
+  protected boolean useNewAsyncModel() {
+    return Registry.is("file.chooser.async.tree.model");
+  }
+
+  @NotNull
+  protected FileTreeModel createFileTreeModel(@NotNull FileChooserDescriptor descriptor, @NotNull Tree tree) {
+    return new FileTreeModel(descriptor, new FileRefresher(true, 3, () -> ModalityState.stateForComponent(tree)));
+  }
+
+  @NotNull
+  protected AsyncTreeModel createAsyncTreeModel(@NotNull FileTreeModel fileTreeModel) {
+    return new AsyncTreeModel(fileTreeModel, false, this);
+  }
+
+  protected AbstractTreeBuilder createTreeBuilder(JTree tree, DefaultTreeModel treeModel,
+                                                  AbstractTreeStructure treeStructure,
+                                                  Comparator<NodeDescriptor<?>> comparator,
+                                                  FileChooserDescriptor descriptor,
+                                                  @Nullable Runnable onInitialized) {
     return new FileTreeBuilder(tree, treeModel, treeStructure, comparator, descriptor, onInitialized);
   }
 
   private void registerTreeActions() {
     myTree.registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent e) {
           performEnterAction(true);
         }
@@ -188,7 +204,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
 
     new DoubleClickListener() {
       @Override
-      protected boolean onDoubleClick(MouseEvent e) {
+      protected boolean onDoubleClick(@NotNull MouseEvent e) {
         performEnterAction(false);
         return true;
       }
@@ -224,32 +240,36 @@ public class FileSystemTreeImpl implements FileSystemTree {
     PopupHandler.installUnknownPopupHandler(myTree, group, ActionManager.getInstance());
   }
 
+  @Override
   public boolean areHiddensShown() {
     if (myAsyncTreeModel != null) {
       return myDescriptor.isShowHiddenFiles();
     }
     else {
-      return myTreeStructure.areHiddensShown();
+      return myTreeStructure.areHiddenShown();
     }
   }
 
+  @Override
   public void showHiddens(boolean showHidden) {
     if (myAsyncTreeModel != null) {
       myDescriptor.withShowHiddenFiles(showHidden);
       if (myFileTreeModel != null) myFileTreeModel.invalidate();
     }
     else {
-      myTreeStructure.showHiddens(showHidden);
+      myTreeStructure.showHidden(showHidden);
     }
     updateTree();
   }
 
+  @Override
   public void updateTree() {
     if (myTreeBuilder != null) {
       myTreeBuilder.queueUpdate();
     }
   }
 
+  @Override
   public void dispose() {
     if (myTreeBuilder != null) {
       Disposer.dispose(myTreeBuilder);
@@ -261,10 +281,12 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return myTreeBuilder;
   }
 
+  @Override
   public void select(VirtualFile file, @Nullable final Runnable onDone) {
     select(new VirtualFile[]{file}, onDone);
   }
 
+  @Override
   public void select(VirtualFile[] file, @Nullable final Runnable onDone) {
     if (myAsyncTreeModel != null) {
       switch (file.length) {
@@ -273,28 +295,18 @@ public class FileSystemTreeImpl implements FileSystemTree {
           if (onDone != null) onDone.run();
           break;
         case 1:
-          myAsyncTreeModel.getTreePath(file[0])
-                          .onSuccess(path -> {
-                            myTree.setSelectionPath(path);
-                            myTree.scrollPathToVisible(path);
-                            if (onDone != null) onDone.run();
-                          });
+          myTree.clearSelection();
+          TreeUtil.promiseSelect(myTree, new FileNodeVisitor(file[0])).onProcessed(path -> {
+            if (onDone != null) onDone.run();
+          });
           break;
         default:
           myTree.clearSelection();
-          if (onDone != null) onDone.run();
-          //TODO:wait for promises map
+          TreeUtil.promiseSelect(myTree, Stream.of(file).map(FileNodeVisitor::new)).onProcessed(paths -> {
+            if (onDone != null) onDone.run();
+          });
           break;
       }
-      /*
-      List<Promise<TreePath>> promises = Arrays.stream(file)
-        .map(eachFile -> myAsyncTreeModel.getTreePath(eachFile))
-        .collect(Collectors.toList());
-
-      Promises.all(promises, null, true).done(object->{
-
-      });
-      */
     }
     else {
       Object[] elements = new Object[file.length];
@@ -307,13 +319,12 @@ public class FileSystemTreeImpl implements FileSystemTree {
     }
   }
 
+  @Override
   public void expand(final VirtualFile file, @Nullable final Runnable onDone) {
     if (myAsyncTreeModel != null) {
-      myAsyncTreeModel.getTreePath(file)
-                      .onSuccess(path -> {
-                        myTree.expandPath(path);
-                        if (onDone != null) onDone.run();
-                      });
+      TreeUtil.promiseExpand(myTree, new FileNodeVisitor(file)).onSuccess(path -> {
+        if (path != null && onDone != null) onDone.run();
+      });
     }
     else {
       myTreeBuilder.expand(getFileElementFor(file), onDone);
@@ -341,8 +352,10 @@ public class FileSystemTreeImpl implements FileSystemTree {
     final Exception[] failReason = new Exception[]{null};
     CommandProcessor.getInstance().executeCommand(
       myProject, new Runnable() {
+        @Override
         public void run() {
           ApplicationManager.getApplication().runWriteAction(new Runnable() {
+            @Override
             public void run() {
               try {
                 VirtualFile parent = parentDirectory;
@@ -373,8 +386,10 @@ public class FileSystemTreeImpl implements FileSystemTree {
     final Exception[] failReason = new Exception[]{null};
     CommandProcessor.getInstance().executeCommand(
       myProject, new Runnable() {
+        @Override
         public void run() {
           ApplicationManager.getApplication().runWriteAction(new Runnable() {
+            @Override
             public void run() {
               try {
                 final String newFileNameWithExtension = newFileName.endsWith('.' + fileType.getDefaultExtension())
@@ -398,8 +413,10 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return failReason[0];
   }
 
+  @Override
   public JTree getTree() { return myTree; }
 
+  @Override
   @Nullable
   public VirtualFile getSelectedFile() {
     final TreePath path = myTree.getSelectionPath();
@@ -407,6 +424,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return getVirtualFile(path);
   }
 
+  @Override
   @Nullable
   public VirtualFile getNewFileParent() {
     final VirtualFile selected = getSelectedFile();
@@ -416,16 +434,17 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return roots.size() == 1 ? roots.get(0) : null;
   }
 
-  public <T> T getData(DataKey<T> key) {
+  @Override
+  public <T> T getData(@NotNull DataKey<T> key) {
     return myDescriptor.getUserData(key);
   }
 
-  @NotNull
-  public VirtualFile[] getSelectedFiles() {
+  @Override
+  public VirtualFile @NotNull [] getSelectedFiles() {
     final TreePath[] paths = myTree.getSelectionPaths();
     if (paths == null) return VirtualFile.EMPTY_ARRAY;
 
-    final List<VirtualFile> files = ContainerUtil.newArrayList();
+    final List<VirtualFile> files = new ArrayList<>();
     for (TreePath path : paths) {
       VirtualFile file = getVirtualFile(path);
       if (file != null && file.isValid()) {
@@ -461,6 +480,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return null;
   }
 
+  @Override
   public boolean selectionExists() {
     TreePath[] selectedPaths = myTree.getSelectionPaths();
     return selectedPaths != null && selectedPaths.length != 0;
@@ -480,16 +500,18 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return false;
   }
 
+  @Override
   public void addListener(final Listener listener, final Disposable parent) {
     myListeners.add(listener);
     Disposer.register(parent, new Disposable() {
+      @Override
       public void dispose() {
         myListeners.remove(listener);
       }
     });
   }
 
-  private void fireSelection(List<VirtualFile> selection) {
+  private void fireSelection(@NotNull List<? extends VirtualFile> selection) {
     for (Listener each : myListeners) {
       each.selectionChanged(selection);
     }
@@ -513,6 +535,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
   }
 
   private class MyExpansionListener implements TreeExpansionListener {
+    @Override
     public void treeExpanded(final TreeExpansionEvent event) {
       if (myTreeBuilder == null || !myTreeBuilder.isNodeBeingBuilt(event.getPath())) return;
 
@@ -542,6 +565,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
       }
     }
 
+    @Override
     public void treeCollapsed(TreeExpansionEvent event) { }
   }
 }

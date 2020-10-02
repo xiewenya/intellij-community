@@ -17,16 +17,13 @@ package com.intellij.spi.psi;
 
 import com.intellij.extapi.psi.PsiFileBase;
 import com.intellij.lang.spi.SPILanguage;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.spi.SPIFileType;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,17 +39,12 @@ public class SPIFile extends PsiFileBase {
   @NotNull
   @Override
   public PsiReference getReference() {
-    return new SPIFileName2ClassReference(this, ApplicationManager.getApplication().runReadAction(new Computable<PsiClass>() {
-      @Override
-      public PsiClass compute() {
-        return ClassUtil.findPsiClass(getManager(), getName(), null, true, getResolveScope()); 
-      }
-    }));
+    return new SPIFileName2ClassReference(this, ReadAction
+      .compute(() -> ClassUtil.findPsiClass(getManager(), getName(), null, true, getResolveScope())));
   }
 
-  @NotNull
   @Override
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
     return ReadAction.compute(() -> {
 
       final List<PsiReference> refs = new ArrayList<>();
@@ -91,7 +83,7 @@ public class SPIFile extends PsiFileBase {
   private static class SPIFileName2ClassReference extends PsiReferenceBase<PsiFile> {
     private final PsiClass myClass;
 
-    public SPIFileName2ClassReference(PsiFile file, PsiClass aClass) {
+    SPIFileName2ClassReference(PsiFile file, PsiClass aClass) {
       super(file, new TextRange(0, 0), false);
       myClass = aClass;
     }
@@ -103,7 +95,7 @@ public class SPIFile extends PsiFileBase {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       if (myClass != null) {
         final String className = ClassUtil.getJVMClassName(myClass);
         if (className != null) {
@@ -124,18 +116,12 @@ public class SPIFile extends PsiFileBase {
       }
       return getElement();
     }
-
-    @NotNull
-    @Override
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
-    }
   }
 
   private static class SPIFileName2PackageReference extends PsiReferenceBase<PsiFile> {
     private final PsiElement myPackageOrContainingClass;
 
-    public SPIFileName2PackageReference(PsiFile file, @NotNull PsiElement psiPackage) {
+    SPIFileName2PackageReference(PsiFile file, @NotNull PsiElement psiPackage) {
       super(file, new TextRange(0, 0), false);
       myPackageOrContainingClass = psiPackage;
     }
@@ -154,7 +140,7 @@ public class SPIFile extends PsiFileBase {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       String newPackageQName = StringUtil.getQualifiedName(StringUtil.getPackageName(getCanonicalText()), newElementName);
       return getElement().setName(newPackageQName + getElement().getName().substring(getCanonicalText().length()));
     }
@@ -170,12 +156,6 @@ public class SPIFile extends PsiFileBase {
         }
       }
       return getElement();
-    }
-
-    @NotNull
-    @Override
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
     }
   }
 }

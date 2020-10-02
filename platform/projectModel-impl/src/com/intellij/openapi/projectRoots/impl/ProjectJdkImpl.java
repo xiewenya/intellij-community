@@ -19,16 +19,15 @@ import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-
 public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModificator, Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.projectRoots.impl.ProjectJdkImpl");
+  private static final Logger LOG = Logger.getInstance(ProjectJdkImpl.class);
   private String myName;
   private String myVersionString;
   private boolean myVersionDefined;
@@ -43,7 +42,7 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
   @NonNls private static final String ELEMENT_VERSION = "version";
   @NonNls private static final String ELEMENT_ROOTS = "roots";
   @NonNls private static final String ELEMENT_HOMEPATH = "homePath";
-  @NonNls private static final String ELEMENT_ADDITIONAL = "additional";
+  @NonNls public static final String ELEMENT_ADDITIONAL = "additional";
   private final MyRootProvider myRootProvider = new MyRootProvider();
 
   public ProjectJdkImpl(String name, SdkTypeId sdkType) {
@@ -51,7 +50,8 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
     myName = name;
 
     myRoots = new RootsAsVirtualFilePointers(true, tellAllProjectsTheirRootsAreGoingToChange, this);
-    Disposer.register(ApplicationManager.getApplication(), this);
+    // register on VirtualFilePointerManager because we want our virtual pointers to be disposed before VFPM to avoid "pointer leaked" diagnostics fired
+    Disposer.register((Disposable)VirtualFilePointerManager.getInstance(), this);
   }
 
   public ProjectJdkImpl(String name, SdkTypeId sdkType, String homePath, String version) {
@@ -62,7 +62,7 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
 
   private static final VirtualFilePointerListener tellAllProjectsTheirRootsAreGoingToChange = new VirtualFilePointerListener() {
     @Override
-    public void beforeValidityChanged(@NotNull VirtualFilePointer[] pointers) {
+    public void beforeValidityChanged(VirtualFilePointer @NotNull [] pointers) {
       //todo check if this sdk is really used in the project
       for (Project project : ProjectManager.getInstance().getOpenProjects()) {
         VirtualFilePointerListener listener = ((ProjectRootManagerImpl)ProjectRootManager.getInstance(project)).getRootsValidityChangedListener();
@@ -71,7 +71,7 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
     }
 
     @Override
-    public void validityChanged(@NotNull VirtualFilePointer[] pointers) {
+    public void validityChanged(VirtualFilePointer @NotNull [] pointers) {
       //todo check if this sdk is really used in the project
       for (Project project : ProjectManager.getInstance().getOpenProjects()) {
         VirtualFilePointerListener listener = ((ProjectRootManagerImpl)ProjectRootManager.getInstance(project)).getRootsValidityChangedListener();
@@ -92,10 +92,11 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
   @Override
   @NotNull
   public SdkTypeId getSdkType() {
-    if (mySdkType == null) {
-      mySdkType = ProjectJdkTable.getInstance().getDefaultSdkType();
+    SdkTypeId sdkType = mySdkType;
+    if (sdkType == null) {
+      mySdkType = sdkType = ProjectJdkTable.getInstance().getDefaultSdkType();
     }
-    return mySdkType;
+    return sdkType;
   }
 
   @Override
@@ -266,47 +267,29 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
     dest.myRootProvider.rootsChanged();
   }
 
+  @ApiStatus.Internal
+  public void changeType(@NotNull SdkTypeId newType, @Nullable Element additionalDataElement) {
+    ApplicationManager.getApplication().assertWriteAccessAllowed();
+    mySdkType = newType;
+    myAdditionalData = additionalDataElement != null ? mySdkType.loadAdditionalData(this, additionalDataElement) : null;
+  }
+
   private class MyRootProvider extends RootProviderBaseImpl implements ProjectRootListener {
     @Override
-    @NotNull
-    public String[] getUrls(@NotNull OrderRootType rootType) {
+    public String @NotNull [] getUrls(@NotNull OrderRootType rootType) {
       return myRoots.getUrls(rootType);
     }
 
     @Override
-    @NotNull
-    public VirtualFile[] getFiles(@NotNull final OrderRootType rootType) {
+    public VirtualFile @NotNull [] getFiles(@NotNull final OrderRootType rootType) {
       return myRoots.getFiles(rootType);
-    }
-
-    private final List<RootSetChangedListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
-
-    @Override
-    public void addRootSetChangedListener(@NotNull RootSetChangedListener listener) {
-      if (!myListeners.contains(listener)) {
-        myListeners.add(listener);
-        super.addRootSetChangedListener(listener);
-      }
-    }
-
-    @Override
-    public void addRootSetChangedListener(@NotNull final RootSetChangedListener listener, @NotNull Disposable parentDisposable) {
-      super.addRootSetChangedListener(listener, parentDisposable);
-      Disposer.register(parentDisposable, () -> removeRootSetChangedListener(listener));
-    }
-
-    @Override
-    public void removeRootSetChangedListener(@NotNull RootSetChangedListener listener) {
-      super.removeRootSetChangedListener(listener);
-      myListeners.remove(listener);
     }
 
     @Override
     public void rootsChanged() {
-      if (myListeners.isEmpty()) {
-        return;
+      if (myDispatcher.hasListeners()) {
+        ApplicationManager.getApplication().runWriteAction(this::fireRootSetChanged);
       }
-      ApplicationManager.getApplication().runWriteAction(this::fireRootSetChanged);
     }
   }
 
@@ -338,15 +321,13 @@ public class ProjectJdkImpl extends UserDataHolderBase implements Sdk, SdkModifi
     myAdditionalData = data;
   }
 
-  @NotNull
   @Override
-  public VirtualFile[] getRoots(@NotNull OrderRootType rootType) {
+  public VirtualFile @NotNull [] getRoots(@NotNull OrderRootType rootType) {
     return myRoots.getFiles(rootType);
   }
 
-  @NotNull
   @Override
-  public String[] getUrls(@NotNull OrderRootType rootType) {
+  public String @NotNull [] getUrls(@NotNull OrderRootType rootType) {
     return myRoots.getUrls(rootType);
   }
 

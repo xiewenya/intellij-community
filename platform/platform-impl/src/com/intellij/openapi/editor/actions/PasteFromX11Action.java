@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorGutter;
 import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.util.SystemInfo;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -24,14 +25,14 @@ import java.awt.event.MouseEvent;
  * @author msk
  */
 public class PasteFromX11Action extends EditorAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.editor.actions.PasteFromX11Action");
+  private static final Logger LOG = Logger.getInstance(PasteFromX11Action.class);
 
   public PasteFromX11Action() {
     super(new Handler());
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
     DataContext dataContext = e.getDataContext();
     Editor editor = CommonDataKeys.EDITOR.getData(dataContext);

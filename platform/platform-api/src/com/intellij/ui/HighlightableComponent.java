@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -33,9 +19,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author Eugene Belyaev
- */
 public class HighlightableComponent extends JComponent implements Accessible {
   protected String myText = "";
   protected Icon myIcon;
@@ -45,6 +28,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
   protected boolean myHasFocus;
   protected boolean myPaintUnfocusedSelection = false;
   private boolean myDoNotHighlight = false;
+  private boolean myIconAtRight = false;
 
   public HighlightableComponent() {
     myIconTextGap = 4;
@@ -57,7 +41,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
     UISettings.setupComponentAntialiasing(this);
   }
 
-  public void setText(String text) {
+  public void setText(@Nullable String text) {
     String oldAccessibleName = null;
     if (accessibleContext != null) {
       oldAccessibleName = accessibleContext.getAccessibleName();
@@ -211,6 +195,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
     myDoNotHighlight = b;
   }
 
+  @Override
   protected void paintComponent(Graphics g) {
 
     // determine color of background
@@ -226,7 +211,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
       paintHighlightsForeground = false;
     }
     else {
-      bgColor = myEnforcedBackground == null ? UIUtil.getTreeTextBackground() : myEnforcedBackground;
+      bgColor = myEnforcedBackground == null ? UIUtil.getTreeBackground() : myEnforcedBackground;
       fgColor = getForeground();
       paintHighlightsBackground = isOpaque();
       paintHighlightsForeground = true;
@@ -243,15 +228,16 @@ public class HighlightableComponent extends JComponent implements Accessible {
 
     if (isOpaque()) {
       g.setColor(getBackground());
-      g.fillRect(0,0,textOffset-2,getHeight());
+      g.fillRect(0, 0, Math.max(0, textOffset - 2), getHeight());
       g.setColor(bgColor);
-      g.fillRect(textOffset-2, 0, getWidth(), getHeight());
+      g.fillRect(Math.max(0, textOffset - 2), 0, getWidth(), getHeight());
     }
 
     // paint icon
 
     if (myIcon != null) {
-      myIcon.paintIcon(this, g, 0, (getHeight() - myIcon.getIconHeight()) / 2);
+      int x = isIconAtRight() ? getWidth() - myIcon.getIconWidth() : 0;
+      myIcon.paintIcon(this, g, x, (getHeight() - myIcon.getIconHeight()) / 2);
     }
 
     // paint text
@@ -263,7 +249,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
       myText = "";
     }
     // center text inside the component:
-    final int yOffset = (getHeight() - defFontMetrics.getMaxAscent() - defFontMetrics.getMaxDescent()) / 2 + defFontMetrics.getMaxAscent() - 1;
+    final int yOffset = (getHeight() - defFontMetrics.getMaxAscent() - defFontMetrics.getMaxDescent()) / 2 + defFontMetrics.getMaxAscent();
     if (myHighlightedRegions.size() == 0){
       g.setColor(fgColor);
       g.drawString(myText, textOffset, yOffset/*defFontMetrics.getMaxAscent()*/);
@@ -314,7 +300,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
         if (hRegion.textAttributes.getEffectType() != null && hRegion.textAttributes.getEffectColor() != null) {
           g.setColor(hRegion.textAttributes.getEffectColor());
           int y = yOffset/*fontMetrics.getMaxAscent()*/ + 2;
-          UIUtil.drawLine(g, offset, y, offset + fontMetrics.stringWidth(text) - 1, y);
+          LinePainter2D.paint((Graphics2D)g, offset, y, offset + fontMetrics.stringWidth(text) - 1, y);
         }
 
         // draw highlight border
@@ -351,8 +337,8 @@ public class HighlightableComponent extends JComponent implements Accessible {
     UISettings.setupAntialiasing(g);
   }
 
-  private int getTextOffset() {
-    if (myIcon == null){
+  protected int getTextOffset() {
+    if (myIcon == null || isIconAtRight()) {
       return 2;
     }
     return myIcon.getIconWidth() + myIconTextGap;
@@ -384,7 +370,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
   }
 
   @NotNull
-  public Map<String, Rectangle> getHightlightedRegionsBoundsMap() {
+  public Map<String, Rectangle> getHighlightedRegionsBoundsMap() {
 
     HashMap<String, Rectangle> map = new HashMap<>();
     FontMetrics defFontMetrics = getFontMetrics(getFont());
@@ -404,12 +390,13 @@ public class HighlightableComponent extends JComponent implements Accessible {
         FontMetrics fontMetrics = getFontMetrics(regFont);
         pivot += fontMetrics.stringWidth(text);
         end = pivot;
-        map.put(text, new Rectangle(this.getBounds().x + start, this.getBounds().y, end, this.getBounds().height));
+        map.put(text, new Rectangle(this.getBounds().x + start, this.getBounds().y, end - start, this.getBounds().height));
       }
     }
     return map;
   }
 
+  @Override
   public Dimension getPreferredSize() {
     FontMetrics defFontMetrics = getFontMetrics(getFont());
 
@@ -439,6 +426,7 @@ public class HighlightableComponent extends JComponent implements Accessible {
 
     if (myIcon != null){
       height = Math.max(myIcon.getIconHeight() + defFontMetrics.getLeading(), height);
+      width += myIcon.getIconWidth();
     }
 
     return new Dimension(width + 2, height);
@@ -466,6 +454,14 @@ public class HighlightableComponent extends JComponent implements Accessible {
       accessibleContext = new AccessibleHighlightable();
     }
     return accessibleContext;
+  }
+
+  public boolean isIconAtRight() {
+    return myIconAtRight;
+  }
+
+  public void setIconAtRight(boolean iconAtRight) {
+    myIconAtRight = iconAtRight;
   }
 
   protected class AccessibleHighlightable extends JComponent.AccessibleJComponent {

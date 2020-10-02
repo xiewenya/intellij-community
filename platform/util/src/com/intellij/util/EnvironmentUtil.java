@@ -1,126 +1,165 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.execution.CommandLineUtil;
 import com.intellij.execution.process.UnixProcessManager;
+import com.intellij.execution.process.WinProcessManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.util.concurrency.AppExecutorUtil;
-import com.intellij.util.concurrency.FixedFuture;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.BaseOutputReader;
 import com.intellij.util.text.CaseInsensitiveStringHashingStrategy;
 import gnu.trove.THashMap;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static java.util.Collections.unmodifiableMap;
+public final class EnvironmentUtil {
+  private static final Logger LOG = Logger.getInstance(EnvironmentUtil.class);
 
-public class EnvironmentUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.EnvironmentUtil");
-
-  private static final int SHELL_ENV_READING_TIMEOUT = 20000;
+  /**
+   * The default time-out to read the environment, in milliseconds.
+   */
+  private static final long DEFAULT_SHELL_ENV_READING_TIMEOUT_MILLIS = 20_000L;
 
   private static final String LANG = "LANG";
   private static final String LC_ALL = "LC_ALL";
   private static final String LC_CTYPE = "LC_CTYPE";
 
-  private static final Future<Map<String, String>> ourEnvGetter;
+  private static final String DESKTOP_STARTUP_ID = "DESKTOP_STARTUP_ID";
 
-  static {
-    if (SystemInfo.isMac &&
-        "unlocked".equals(System.getProperty("__idea.mac.env.lock")) &&
-        SystemProperties.getBooleanProperty("idea.fix.mac.env", true)) {
-      ourEnvGetter = AppExecutorUtil.getAppExecutorService().submit(new Callable<Map<String, String>>() {
-        @Override
-        public Map<String, String> call() throws Exception {
-          return unmodifiableMap(setCharsetVar(getShellEnv()));
-        }
-      });
-    }
-    else {
-      ourEnvGetter = new FixedFuture<Map<String, String>>(getSystemEnv());
-    }
-  }
-
-  private static final NotNullLazyValue<Map<String, String>> ourEnvironment = new AtomicNotNullLazyValue<Map<String, String>>() {
-    @NotNull
-    @Override
-    protected Map<String, String> compute() {
-      try {
-        return ourEnvGetter.get();
-      }
-      catch (Throwable t) {
-        LOG.warn("can't get shell environment", t);
-        return getSystemEnv();
-      }
-    }
-  };
-
-  private static Map<String, String> getSystemEnv() {
-    if (SystemInfo.isWindows) {
-      return unmodifiableMap(new THashMap<String, String>(System.getenv(), CaseInsensitiveStringHashingStrategy.INSTANCE));
-    }
-    else {
-      return System.getenv();
-    }
-  }
-
-  private EnvironmentUtil() {
-  }
-
-  public static boolean isEnvironmentReady() {
-    return ourEnvGetter.isDone();
-  }
+  public static final @NonNls String BASH_EXECUTABLE_NAME = "bash";
+  public static final String SHELL_VARIABLE_NAME = "SHELL";
+  private static final String SHELL_INTERACTIVE_ARGUMENT = "-i";
+  private static final String SHELL_LOGIN_ARGUMENT = "-l";
+  public static final String SHELL_COMMAND_ARGUMENT = "-c";
 
   /**
-   * A wrapper layer around {@link System#getenv()}.
-   * <p>
-   * On Windows, the returned map is case-insensitive (i.e. {@code map.get("Path") == map.get("PATH")} holds).
-   * <p>
-   * On Mac OS X things are complicated.<br/>
+   * Holds the number of shell levels the current shell is running on top of.
+   * Tested with bash/zsh/fish/tcsh/csh/ksh.
+   */
+  private static final String SHLVL = "SHLVL";
+
+  private static final AtomicReference<CompletableFuture<Map<String, String>>> ourEnvGetter = new AtomicReference<>();
+
+  private EnvironmentUtil() { }
+
+  /**
+   * <p>A wrapper layer around {@link System#getenv()}.</p>
+   *
+   * <p>On Windows, the returned map is case-insensitive (i.e. {@code map.get("Path") == map.get("PATH")} holds).</p>
+   *
+   * <p>On macOS, things are complicated.<br/>
    * An app launched by a GUI launcher (Finder, Dock, Spotlight etc.) receives a pretty empty and useless environment,
    * since standard Unix ways of setting variables via e.g. ~/.profile do not work. What's more important, there are no
    * sane alternatives. This causes a lot of user complaints about tools working in a terminal not working when launched
    * from the IDE. To ease their pain, the IDE loads a shell environment (see {@link #getShellEnv()} for gory details)
    * and returns it as the result.<br/>
-   * And one more thing (c): locale variables on OS X are usually set by a terminal app - meaning they are missing
+   * And one more thing (c): locale variables on macOS are usually set by a terminal app - meaning they are missing
    * even from a shell environment above. This again causes user complaints about tools being unable to output anything
    * outside ASCII range when launched from the IDE. Resolved by adding LC_CTYPE variable to the map if it doesn't contain
-   * explicitly set locale variables (LANG/LC_ALL/LC_CTYPE). See {@link #setCharsetVar(Map)} for details.
+   * explicitly set locale variables (LANG/LC_ALL/LC_CTYPE). See {@link #setCharsetVar(Map)} for details.</p>
    *
    * @return unmodifiable map of the process environment.
    */
-  @NotNull
-  public static Map<String, String> getEnvironmentMap() {
-    return ourEnvironment.getValue();
+  public static @NotNull Map<String, String> getEnvironmentMap() {
+    CompletableFuture<Map<String, String>> getter = ourEnvGetter.get();
+    if (getter == null) {
+      getter = CompletableFuture.completedFuture(getSystemEnv());
+      if (!ourEnvGetter.compareAndSet(null, getter)) {
+        getter = ourEnvGetter.get();
+      }
+    }
+    try {
+      return getter.join();
+    }
+    catch (Throwable t) {
+      throw new AssertionError(t);  // unknown state; is not expected to happen
+    }
+  }
+
+  @ApiStatus.Internal
+  public static void loadEnvironment(@NotNull Runnable callback) {
+    if (shouldLoadShellEnv()) {
+      ourEnvGetter.set(CompletableFuture.supplyAsync(() -> {
+        try {
+          Map<String, String> env = getShellEnv();
+          setCharsetVar(env);
+          return Collections.unmodifiableMap(env);
+        }
+        catch (Throwable t) {
+          LOG.warn("can't get shell environment", t);
+          return getSystemEnv();
+        }
+        finally {
+          callback.run();
+        }
+      }, AppExecutorUtil.getAppExecutorService()));
+    }
+    else {
+      ourEnvGetter.set(CompletableFuture.completedFuture(getSystemEnv()));
+      callback.run();
+    }
+  }
+
+  private static boolean shouldLoadShellEnv() {
+    if (!SystemInfoRt.isMac) {
+      return false;
+    }
+    // The method is called too early when the IDE starts up, at this point the registry values have not been loaded yet from the service.
+    // Using a system property is a good alternative.
+    if (!Boolean.parseBoolean(System.getProperty("ij.load.shell.env", "true"))) {
+      LOG.info("loading shell env is turned off");
+      return false;
+    }
+    String value = System.getenv(SHLVL);
+    // On macOS, login shell session is not run when a user logs in, thus "SHLVL > 0" likely means that IDE is run from a terminal.
+    if (StringUtilRt.parseInt(value, 0) > 0) {
+      LOG.info("loading shell env is skipped: IDE has been launched from a terminal (" + SHLVL + "=" + value + ")");
+      return false;
+    }
+    return true;
+  }
+
+  private static @NotNull Map<String, String> getSystemEnv() {
+    if (SystemInfoRt.isWindows) {
+      return Collections.unmodifiableMap(new THashMap<>(System.getenv(), CaseInsensitiveStringHashingStrategy.INSTANCE));
+    }
+    else if (SystemInfoRt.isXWindow) {
+      // DESKTOP_STARTUP_ID variable can be set by an application launcher in X Window environment.
+      // It shouldn't be passed to child processes as per 'Startup notification protocol'
+      // (https://specifications.freedesktop.org/startup-notification-spec/startup-notification-latest.txt).
+      // Ideally, JDK should clear this variable, and it actually does, but the snapshot of the environment variables,
+      // returned by System.getenv(), is captured before the removal.
+      Map<String, String> env = System.getenv();
+      if (env.containsKey(DESKTOP_STARTUP_ID)) {
+        env = new HashMap<>(env);
+        env.remove(DESKTOP_STARTUP_ID);
+        env = Collections.unmodifiableMap(env);
+      }
+      return env;
+    }
+    else {
+      return System.getenv();
+    }
   }
 
   /**
@@ -129,160 +168,207 @@ public class EnvironmentUtil {
    *
    * @see #getEnvironmentMap()
    */
-  @Nullable
-  public static String getValue(@NotNull String name) {
+  public static @Nullable @NonNls String getValue(@NotNull @NonNls String name) {
     return getEnvironmentMap().get(name);
   }
 
   /**
-   * Same as {@code flattenEnvironment(getEnvironmentMap())}.
-   * Returns an environment as an array of "NAME=VALUE" strings.
+   * Validates environment variable name in accordance to
+   * {@code ProcessEnvironment#validateVariable} ({@code ProcessEnvironment#validateName} on Windows).
    *
-   * @see #getEnvironmentMap()
+   * @see #isValidValue(String)
+   * @see <a href="http://pubs.opengroup.org/onlinepubs/000095399/basedefs/xbd_chap08.html">Environment Variables in Unix</a>
+   * @see <a href="https://docs.microsoft.com/en-us/windows/desktop/ProcThread/environment-variables">Environment Variables in Windows</a>
    */
-  public static String[] getEnvironment() {
-    return flattenEnvironment(getEnvironmentMap());
+  @Contract(value = "null -> false", pure = true)
+  public static boolean isValidName(@Nullable @NonNls String name) {
+    return name != null && !name.isEmpty() && name.indexOf('\0') == -1 && name.indexOf('=', SystemInfoRt.isWindows ? 1 : 0) == -1;
   }
 
-  public static String[] flattenEnvironment(@NotNull Map<String, String> environment) {
-    String[] array = new String[environment.size()];
-    int i = 0;
-    for (Map.Entry<String, String> entry : environment.entrySet()) {
-      array[i++] = entry.getKey() + "=" + entry.getValue();
-    }
-    return array;
+  /**
+   * Validates environment variable value in accordance to {@code ProcessEnvironment#validateValue}.
+   *
+   * @see #isValidName(String)
+   */
+  @Contract(value = "null -> false", pure = true)
+  public static boolean isValidValue(@Nullable @NonNls String value) {
+    return value != null && value.indexOf('\0') == -1;
   }
 
   private static final String DISABLE_OMZ_AUTO_UPDATE = "DISABLE_AUTO_UPDATE";
   private static final String INTELLIJ_ENVIRONMENT_READER = "INTELLIJ_ENVIRONMENT_READER";
 
-  private static Map<String, String> getShellEnv() throws Exception {
-    return new ShellEnvReader().readShellEnv();
+  private static @NotNull Map<String, String> getShellEnv() throws IOException {
+    return new ShellEnvReader().readShellEnv(null);
   }
 
-
   public static class ShellEnvReader {
-    public Map<String, String> readShellEnv() throws Exception {
-      return readShellEnv(null);
-    }
-    
-    protected Map<String, String> readShellEnv(@Nullable Map<String, String> additionalEnvironment) throws Exception {
-      File reader = PathManager.findBinFileWithException("printenv.py");
+    private final long myTimeoutMillis;
 
-      File envFile = FileUtil.createTempFile("intellij-shell-env.", ".tmp", false);
+    /**
+     * Creates an instance with the default time-out value of {@value #DEFAULT_SHELL_ENV_READING_TIMEOUT_MILLIS} milliseconds.
+     *
+     * @see #ShellEnvReader(long)
+     */
+    public ShellEnvReader() {
+      this(DEFAULT_SHELL_ENV_READING_TIMEOUT_MILLIS);
+    }
+
+    /**
+     * @param timeoutMillis the time-out (in milliseconds) for reading environment variables.
+     * @see #ShellEnvReader()
+     */
+    public ShellEnvReader(long timeoutMillis) {
+      myTimeoutMillis = timeoutMillis;
+    }
+
+    protected final @NotNull Map<String, String> readShellEnv(@Nullable Map<String, String> additionalEnvironment) throws IOException {
+      Path reader = PathManager.findBinFileWithException("printenv.py");
+
+      Path envFile = Files.createTempFile("intellij-shell-env.", ".tmp");
       try {
         List<String> command = getShellProcessCommand();
-
-        int idx = command.indexOf("-c");
-        if (idx>=0) {
+        int idx = command.indexOf(SHELL_COMMAND_ARGUMENT);
+        if (idx >= 0) {
           // if there is already a command append command to the end
-          command.set(idx + 1, command.get(idx+1) + ";" + "'" + reader.getAbsolutePath() + "' '" + envFile.getAbsolutePath() + "'");
-        } else {
-          command.add("-c");
-          command.add("'" + reader.getAbsolutePath() + "' '" + envFile.getAbsolutePath() + "'");
+          command.set(idx + 1, command.get(idx + 1) + ";" + "'" + reader.toAbsolutePath() + "' '" + envFile.toAbsolutePath() + "'");
+        }
+        else {
+          command.add(SHELL_COMMAND_ARGUMENT);
+          command.add("'" + reader.toAbsolutePath() + "' '" + envFile.toAbsolutePath() + "'");
         }
 
-        LOG.info("loading shell env: " + StringUtil.join(command, " "));
-
+        LOG.info("loading shell env: " + String.join(" ", command));
         return runProcessAndReadOutputAndEnvs(command, null, additionalEnvironment, envFile).second;
       }
       finally {
-        FileUtil.delete(envFile);
+        try {
+          Files.delete(envFile);
+        }
+        catch (NoSuchFileException ignore) {
+        }
+        catch (IOException e) {
+          LOG.warn("Cannot delete temporary file", e);
+        }
       }
     }
-    
-    @NotNull
-    public Map<String, String> readBatEnv(@NotNull File batchFile, List<String> args) throws Exception {
+
+    public @NotNull Map<String, String> readBatEnv(@NotNull Path batchFile, List<String> args) throws Exception {
       return readBatOutputAndEnv(batchFile, args).second;
     }
 
-    @NotNull
-    protected Pair<String, Map<String, String>> readBatOutputAndEnv(@NotNull File batchFile, List<String> args) throws Exception {
-      File envFile = FileUtil.createTempFile("intellij-cmd-env.", ".tmp", false);
+    protected @NotNull Pair<String, Map<String, String>> readBatOutputAndEnv(@NotNull Path batchFile, List<String> args) throws Exception {
+      Path envFile = Files.createTempFile("intellij-cmd-env.", ".tmp");
       try {
-        List<String> cl = new ArrayList<String>();
+        List<@NonNls String> cl = new ArrayList<>();
         cl.add(CommandLineUtil.getWinShellName());
         cl.add("/c");
         cl.add("call");
-        cl.add(batchFile.getPath());
+        cl.add(batchFile.toString());
         cl.addAll(args);
         cl.add("&&");
         cl.addAll(getReadEnvCommand());
-        cl.add(envFile.getPath());
+        cl.add(envFile.toString());
         cl.addAll(Arrays.asList("||", "exit", "/B", "%ERRORLEVEL%"));
-
-        return runProcessAndReadOutputAndEnvs(cl, batchFile.getParentFile(), null, envFile);
+        return runProcessAndReadOutputAndEnvs(cl, batchFile.getParent(), null, envFile);
       }
       finally {
-        FileUtil.delete(envFile);
+        try {
+          Files.delete(envFile);
+        }
+        catch (NoSuchFileException ignore) {
+        }
+        catch (IOException e) {
+          LOG.warn("Cannot delete temporary file", e);
+        }
       }
     }
 
-    @NotNull
-    private static List<String> getReadEnvCommand() {
-      return Arrays.asList(FileUtil.toSystemDependentName(System.getProperty("java.home") + "/bin/java"),
+    private static @NotNull List<String> getReadEnvCommand() {
+      return Arrays.asList(FileUtilRt.toSystemDependentName(System.getProperty("java.home") + "/bin/java"),
                            "-cp", PathManager.getJarPathForClass(ReadEnv.class),
                            ReadEnv.class.getCanonicalName());
     }
 
-    @NotNull
-    protected static Pair<String, Map<String, String>> runProcessAndReadOutputAndEnvs(@NotNull List<String> command,
-                                                                                      @Nullable File workingDir,
-                                                                                      @Nullable Map<String, String> scriptEnvironment,
-                                                                                      @NotNull File envFile) throws Exception {
+    protected final @NotNull Pair<String, Map<String, String>> runProcessAndReadOutputAndEnvs(@NotNull List<String> command,
+                                                                                              @Nullable Path workingDir,
+                                                                                              @Nullable Map<String, String> scriptEnvironment,
+                                                                                              @NotNull Path envFile) throws IOException {
       ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
       if (scriptEnvironment != null) {
         // we might need default environment for the process to launch correctly
         builder.environment().putAll(scriptEnvironment);
       }
-      if (workingDir != null) builder.directory(workingDir);
+      if (workingDir != null) {
+        builder.directory(workingDir.toFile());
+      }
       builder.environment().put(DISABLE_OMZ_AUTO_UPDATE, "true");
       builder.environment().put(INTELLIJ_ENVIRONMENT_READER, "true");
       Process process = builder.start();
       StreamGobbler gobbler = new StreamGobbler(process.getInputStream());
-      int rv = waitAndTerminateAfter(process, SHELL_ENV_READING_TIMEOUT);
+      final int exitCode = waitAndTerminateAfter(process, myTimeoutMillis);
       gobbler.stop();
 
-      String lines = FileUtil.loadFile(envFile);
-      if (rv != 0 || lines.isEmpty()) {
-        throw new Exception("rv:" + rv + " text:" + lines.length() + " out:" + StringUtil.trimEnd(gobbler.getText(), '\n'));
+      String lines = new String(Files.readAllBytes(envFile), StandardCharsets.UTF_8);
+      if (exitCode != 0 || lines.isEmpty()) {
+        throw new RuntimeException("command " + command + "\n\texit code:" + exitCode + " text:" + lines.length() + " out:" + gobbler.getText().trim());
       }
-      return Pair.create(gobbler.getText(), parseEnv(lines));
+      return new Pair<>(gobbler.getText(), parseEnv(lines));
     }
 
-    @NotNull
-    protected List<String> getShellProcessCommand() throws Exception {
-      String shell = getShell();
-      if (shell == null || !new File(shell).canExecute()) {
-        throw new Exception("shell:" + shell);
+    protected @NotNull List<String> getShellProcessCommand() {
+      String shellScript = getShell();
+      if (StringUtilRt.isEmptyOrSpaces(shellScript)) {
+        throw new RuntimeException("empty $SHELL");
       }
-      List<String> commands = ContainerUtil.newArrayList(shell);
-      if (!shell.endsWith("/tcsh") && !shell.endsWith("/csh")) {
-        // Act as a login shell
-        // tsch does allow to use -l with any other options
-        commands.add("-l");
+      if (!Files.isExecutable(Paths.get(shellScript))) {
+        throw new RuntimeException("$SHELL points to a missing or non-executable file: " + shellScript);
       }
-      commands.add("-i"); // enable interactive shell
-      return commands;
+      return buildShellProcessCommand(shellScript, true, true, false);
     }
 
-    @Nullable
-    protected String getShell() {
-      return System.getenv("SHELL");
+    protected @Nullable String getShell() {
+      return System.getenv(SHELL_VARIABLE_NAME);
     }
   }
 
-  @NotNull
-  private static Map<String, String> parseEnv(String text) throws Exception {
-    Set<String> toIgnore = new HashSet<String>(Arrays.asList("_", "PWD", "SHLVL", DISABLE_OMZ_AUTO_UPDATE, INTELLIJ_ENVIRONMENT_READER));
-    Map<String, String> env = System.getenv();
-    Map<String, String> newEnv = new HashMap<String, String>();
+  /**
+   * Builds a login shell command list from the {@code shellScript} path.
+   *
+   * @param shellScript   path to the shell script, probably taken from environment variable {@code SHELL}
+   * @param isLogin       true iff it should be login shell, usually {@code -l} parameter
+   * @param isInteractive true iff it should be interactive shell, usually {@code -i} parameter
+   * @param isCommand     true iff command should accept a command, instead of script name, usually {@code -c} parameter
+   * @return list of commands for starting a process, e.g. {@code /bin/bash -l -i -c}
+   */
+  @ApiStatus.Experimental
+  public static @NotNull List<String> buildShellProcessCommand(@NotNull @NonNls String shellScript, boolean isLogin, boolean isInteractive, boolean isCommand) {
+    List<String> commands = new ArrayList<>();
+    commands.add(shellScript);
+    if (isLogin && !(shellScript.endsWith("/tcsh") || shellScript.endsWith("/csh"))) {
+      // *csh do not allow to use -l with any other options
+      commands.add(SHELL_LOGIN_ARGUMENT);
+    }
+    if (isInteractive && !shellScript.endsWith("/fish")) {
+      // Fish uses a single config file with conditions
+      commands.add(SHELL_INTERACTIVE_ARGUMENT);
+    }
+    if (isCommand) {
+      commands.add(SHELL_COMMAND_ARGUMENT);
+    }
+    return commands;
+  }
 
-    String[] lines = text.split("\0");
+  @SuppressWarnings("SSBasedInspection")
+  public static @NotNull Map<String, String> parseEnv(String @NotNull[] lines) {
+    Set<String> toIgnore = new HashSet<>(Arrays.asList("_", "PWD", "SHLVL", DISABLE_OMZ_AUTO_UPDATE, INTELLIJ_ENVIRONMENT_READER));
+    Map<String, String> env = System.getenv();
+    Map<String, String> newEnv = new HashMap<>();
+
     for (String line : lines) {
       int pos = line.indexOf('=');
       if (pos <= 0) {
-        throw new Exception("malformed:" + line);
+        throw new RuntimeException("malformed:" + line);
       }
       String name = line.substring(0, pos);
       if (!toIgnore.contains(name)) {
@@ -297,20 +383,37 @@ public class EnvironmentUtil {
     return newEnv;
   }
 
-  private static int waitAndTerminateAfter(@NotNull Process process, int timeoutMillis) {
+  private static @NotNull Map<String, String> parseEnv(@NotNull String text) {
+    return parseEnv(text.split("\0"));
+  }
+
+  /**
+   * @param timeoutMillis the time-out (in milliseconds) for {@code process} to terminate.
+   */
+  private static int waitAndTerminateAfter(@NotNull Process process, final long timeoutMillis) {
     Integer exitCode = waitFor(process, timeoutMillis);
     if (exitCode != null) {
       return exitCode;
     }
     LOG.warn("shell env loader is timed out");
-    UnixProcessManager.sendSigIntToProcessTree(process);
-    exitCode = waitFor(process, 1000);
-    if (exitCode != null) {
-      return exitCode;
+
+    // First, try to interrupt 'softly' (we know how to do it only on *nix)
+    if (!SystemInfoRt.isWindows) {
+      UnixProcessManager.sendSigIntToProcessTree(process);
+      exitCode = waitFor(process, 1000L);
+      if (exitCode != null) {
+        return exitCode;
+      }
+      LOG.warn("failed to terminate shell env loader process gracefully, terminating forcibly");
     }
-    LOG.warn("failed to terminate shell env loader process gracefully, terminating forcibly");
-    UnixProcessManager.sendSigKillToProcessTree(process);
-    exitCode = waitFor(process, 1000);
+
+    if (SystemInfoRt.isWindows) {
+      WinProcessManager.kill(process, true);
+    }
+    else {
+      UnixProcessManager.sendSigKillToProcessTree(process);
+    }
+    exitCode = waitFor(process, 1000L);
     if (exitCode != null) {
       return exitCode;
     }
@@ -318,45 +421,45 @@ public class EnvironmentUtil {
     return -1;
   }
 
-  @Nullable
-  private static Integer waitFor(@NotNull Process process, int timeoutMillis) {
-    long stop = System.currentTimeMillis() + timeoutMillis;
-    while (System.currentTimeMillis() < stop) {
-      TimeoutUtil.sleep(100);
-      try {
+  /**
+   * @param timeoutMillis the time-out (in milliseconds) for {@code process} to terminate.
+   * @return the exit code of the process if it has already terminated, or it has terminated within the timeout; or {@code null} otherwise
+   */
+  private static @Nullable Integer waitFor(@NotNull Process process, final long timeoutMillis) {
+    try {
+      if (process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)) {
         return process.exitValue();
       }
-      catch (IllegalThreadStateException ignore) {
-      }
+    }
+    catch (InterruptedException e) {
+      LOG.info("Interrupted while waiting for process", e);
     }
     return null;
   }
 
-  private static Map<String, String> setCharsetVar(@NotNull Map<String, String> env) {
+  private static void setCharsetVar(@NotNull Map<String, String> env) {
     if (!isCharsetVarDefined(env)) {
       String value = setLocaleEnv(env, CharsetToolkit.getDefaultSystemCharset());
       LOG.info("LC_CTYPE=" + value);
     }
-    return env;
   }
 
   private static boolean checkIfLocaleAvailable(String candidateLanguageTerritory) {
-      Locale[] available = Locale.getAvailableLocales();
-      for (Locale l : available) {
-        if (StringUtil.equals(l.toString(), candidateLanguageTerritory)) {
-          return true;
-        }
+    Locale[] available = Locale.getAvailableLocales();
+    for (Locale l : available) {
+      if (StringUtilRt.equal(l.toString(), candidateLanguageTerritory, true)) {
+        return true;
       }
-      return false;
+    }
+    return false;
   }
 
-  @NotNull
-  public static String setLocaleEnv(@NotNull Map<String, String> env, @NotNull Charset charset) {
+  public static @NotNull String setLocaleEnv(@NotNull Map<String, String> env, @NotNull Charset charset) {
     Locale locale = Locale.getDefault();
     String language = locale.getLanguage();
     String country = locale.getCountry();
 
-    String languageTerritory = "en_US";
+    @NonNls String languageTerritory = "en_US";
     if (!language.isEmpty() && !country.isEmpty()) {
       String languageTerritoryFromLocale = language + '_' + country;
       if (checkIfLocaleAvailable(languageTerritoryFromLocale)) {
@@ -429,15 +532,14 @@ public class EnvironmentUtil {
 
     private final StringBuffer myBuffer;
 
-    public StreamGobbler(@NotNull InputStream stream) {
+    StreamGobbler(@NotNull InputStream stream) {
       super(stream, CharsetToolkit.getDefaultSystemCharset(), OPTIONS);
       myBuffer = new StringBuffer();
       start("stdout/stderr streams of shell env loading process");
     }
 
-    @NotNull
     @Override
-    protected Future<?> executeOnPooledThread(@NotNull Runnable runnable) {
+    protected @NotNull Future<?> executeOnPooledThread(@NotNull Runnable runnable) {
       return AppExecutorUtil.getAppExecutorService().submit(runnable);
     }
 
@@ -446,8 +548,7 @@ public class EnvironmentUtil {
       myBuffer.append(text);
     }
 
-    @NotNull
-    public String getText() {
+    public @NotNull String getText() {
       return myBuffer.toString();
     }
   }

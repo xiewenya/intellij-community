@@ -15,9 +15,9 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
+import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -33,14 +33,14 @@ import java.util.List;
 
 import static com.intellij.psi.util.ImportsUtil.*;
 
-public class ExpandStaticImportAction extends PsiElementBaseIntentionAction {
+public class ExpandStaticImportAction extends BaseElementAtCaretIntentionAction {
   private static final String REPLACE_THIS_OCCURRENCE = "Replace this occurrence and keep the import";
   private static final String REPLACE_ALL_AND_DELETE_IMPORT = "Replace all and delete the import";
 
   @Override
   @NotNull
   public String getFamilyName() {
-    return "Expand Static Import";
+    return JavaBundle.message("intention.family.expand.static.import");
   }
 
   @Override
@@ -55,15 +55,16 @@ public class ExpandStaticImportAction extends PsiElementBaseIntentionAction {
     if (resolveScope instanceof PsiImportStaticStatement) {
       final PsiClass targetClass = ((PsiImportStaticStatement)resolveScope).resolveTargetClass();
       if (targetClass == null) return false;
-      setText("Expand static import to " + targetClass.getName() + "." + referenceElement.getReferenceName());
+      setText(JavaBundle.message("intention.text.replace.static.import.with.qualified.access.to.0", targetClass.getName()));
       return true;
     }
     return false;
   }
 
   private static PsiElement getImportStaticStatement(PsiJavaCodeReferenceElement referenceElement) {
-    return referenceElement instanceof PsiImportStaticReferenceElement ? referenceElement.getParent()
-                                                                       : referenceElement.advancedResolve(true).getCurrentFileResolveScope();
+    PsiElement parent = referenceElement.getParent();
+    return parent instanceof PsiImportStaticStatement ? parent
+                                                      : referenceElement.advancedResolve(true).getCurrentFileResolveScope();
   }
 
   public void invoke(final Project project, final PsiFile file, final Editor editor, PsiElement element) {
@@ -76,12 +77,13 @@ public class ExpandStaticImportAction extends PsiElementBaseIntentionAction {
       staticImport.delete();
     }
     else {
-      if (ApplicationManager.getApplication().isUnitTestMode() || refExpr instanceof PsiImportStaticReferenceElement) {
+      if (ApplicationManager.getApplication().isUnitTestMode() || refExpr.getParent() instanceof PsiImportStaticStatement) {
         replaceAllAndDeleteImport(expressionToExpand, refExpr, staticImport);
       }
       else {
         final BaseListPopupStep<String> step =
-          new BaseListPopupStep<String>("Multiple Usages of the Static Import Found", REPLACE_THIS_OCCURRENCE, REPLACE_ALL_AND_DELETE_IMPORT) {
+          new BaseListPopupStep<>(JavaBundle.message("multiple.usages.of.static.import.found"), REPLACE_THIS_OCCURRENCE,
+                                  REPLACE_ALL_AND_DELETE_IMPORT) {
             @Override
             public PopupStep onChosen(final String selectedValue, boolean finalChoice) {
               WriteCommandAction.writeCommandAction(project).withName(ExpandStaticImportAction.this.getText()).run(() -> {

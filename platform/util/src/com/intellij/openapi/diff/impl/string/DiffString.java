@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.string;
 
 import com.intellij.openapi.diff.LineTokenizerBase;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.CharArrayCharSequence;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -26,7 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class DiffString extends CharArrayCharSequence {
+public final class DiffString extends CharArrayCharSequence {
   @NotNull public static final DiffString EMPTY = new DiffString(new char[0], 0, 0);
 
   @Nullable
@@ -42,18 +27,18 @@ public class DiffString extends CharArrayCharSequence {
   }
 
   @NotNull
-  static DiffString create(@NotNull char[] data) {
+  static DiffString create(char @NotNull [] data) {
     return create(data, 0, data.length);
   }
 
   @NotNull
-  static DiffString create(@NotNull char[] data, int start, int length) {
+  static DiffString create(char @NotNull [] data, int start, int length) {
     if (length == 0) return EMPTY;
     checkBounds(start, length, data.length);
     return new DiffString(data, start, length);
   }
 
-  private DiffString(@NotNull char[] data, int start, int length) {
+  private DiffString(char @NotNull [] data, int start, int length) {
     super(data, start, start + length);
   }
 
@@ -88,7 +73,7 @@ public class DiffString extends CharArrayCharSequence {
     return create(Arrays.copyOfRange(myChars, myStart, myStart + length()));
   }
 
-  public void copyData(@NotNull char[] dst, int start) {
+  public void copyData(char @NotNull [] dst, int start) {
     checkBounds(start, length(), dst.length);
     System.arraycopy(myChars, myStart, dst, start, length());
   }
@@ -131,12 +116,12 @@ public class DiffString extends CharArrayCharSequence {
   }
 
   @NotNull
-  public static DiffString concatenateCopying(@NotNull DiffString[] strings) {
+  public static DiffString concatenateCopying(DiffString @NotNull [] strings) {
     return concatenateCopying(strings, 0, strings.length);
   }
 
   @NotNull
-  public static DiffString concatenateCopying(@NotNull DiffString[] strings, int start, int length) {
+  public static DiffString concatenateCopying(DiffString @NotNull [] strings, int start, int length) {
     checkBounds(start, length, strings.length);
 
     int len = 0;
@@ -183,12 +168,12 @@ public class DiffString extends CharArrayCharSequence {
   }
 
   @NotNull
-  public static DiffString concatenate(@NotNull DiffString[] strings) {
+  public static DiffString concatenate(DiffString @NotNull [] strings) {
     return concatenate(strings, 0, strings.length);
   }
 
   @NotNull
-  public static DiffString concatenate(@NotNull DiffString[] strings, int start, int length) {
+  public static DiffString concatenate(DiffString @NotNull [] strings, int start, int length) {
     checkBounds(start, length, strings.length);
 
     char[] data = null;
@@ -321,8 +306,7 @@ public class DiffString extends CharArrayCharSequence {
     }
   }
 
-  @NotNull
-  public DiffString[] tokenize() {
+  public DiffString @NotNull [] tokenize() {
     return new LineTokenizer(this).execute();
   }
 
@@ -333,15 +317,14 @@ public class DiffString extends CharArrayCharSequence {
       myText = text;
     }
 
-    @NotNull
-    public DiffString[] execute() {
-      ArrayList<DiffString> lines = new ArrayList<DiffString>();
+    public DiffString @NotNull [] execute() {
+      ArrayList<DiffString> lines = new ArrayList<>();
       doExecute(lines);
-      return ContainerUtil.toArray(lines, new DiffString[lines.size()]);
+      return lines.toArray(new DiffString[0]);
     }
 
     @Override
-    protected void addLine(List<DiffString> lines, int start, int end, boolean appendNewLine) {
+    protected void addLine(List<? super DiffString> lines, int start, int end, boolean appendNewLine) {
       if (appendNewLine) {
         lines.add(myText.substring(start, end).append('\n'));
       }

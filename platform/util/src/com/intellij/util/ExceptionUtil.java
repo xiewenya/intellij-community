@@ -1,17 +1,21 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.Arrays;
+import java.util.*;
 
-public class ExceptionUtil {
+@SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
+public final class ExceptionUtil extends ExceptionUtilRt {
   private ExceptionUtil() { }
 
   @NotNull
@@ -23,15 +27,32 @@ public class ExceptionUtil {
   }
 
   public static <T> T findCause(Throwable e, Class<T> klass) {
-    while (e != null && !klass.isInstance(e)) {
-      e = e.getCause();
-    }
-    @SuppressWarnings("unchecked") T t = (T)e;
-    return t;
+    return ExceptionUtilRt.findCause(e, klass);
   }
 
-  public static boolean causedBy(Throwable e, Class klass) {
-    return findCause(e, klass) != null;
+  public static boolean causedBy(Throwable e, Class<?> klass) {
+    return ExceptionUtilRt.causedBy(e, klass);
+  }
+
+  /**
+   * If there are matching throwables both in causes of the {@code error} and in suppressed throwables, causes are guaranteed to be first.
+   */
+  public static <T> List<T> findCauseAndSuppressed(@NotNull Throwable error, @NotNull Class<T> klass) {
+    Collection<Throwable> allThrowables = new LinkedHashSet<>();
+    Deque<Throwable> deque = new ArrayDeque<>();
+    deque.add(error);
+    while (!deque.isEmpty()) {
+      Throwable t = deque.removeFirst();
+      if (allThrowables.add(t)) {
+        for (Throwable cause = t.getCause(); cause != null; cause = cause.getCause()) {
+          deque.addLast(cause);
+        }
+        for (Throwable s : t.getSuppressed()) {
+          deque.addLast(s);
+        }
+      }
+    }
+    return ContainerUtil.filterIsInstance(allThrowables, klass);
   }
 
   @NotNull
@@ -52,55 +73,21 @@ public class ExceptionUtil {
     return getThrowableText(new Throwable());
   }
 
+  @NlsSafe
   @NotNull
-  public static String getThrowableText(@NotNull Throwable aThrowable) {
-    StringWriter stringWriter = new StringWriter();
-    PrintWriter writer = new PrintWriter(stringWriter);
-    aThrowable.printStackTrace(writer);
-    return stringWriter.getBuffer().toString();
+  public static String getThrowableText(@NotNull Throwable t) {
+    StringWriter writer = new StringWriter();
+    t.printStackTrace(new PrintWriter(writer));
+    return writer.getBuffer().toString();
   }
 
+  @NlsSafe
   @NotNull
   public static String getThrowableText(@NotNull Throwable aThrowable, @NotNull String stackFrameSkipPattern) {
-    final String prefix = "\tat ";
-    final String prefixProxy = prefix + "$Proxy";
-    final String prefixRemoteUtil = prefix + "com.intellij.execution.rmi.RemoteUtil";
-    final String skipPattern = prefix + stackFrameSkipPattern;
-
-    final StringWriter stringWriter = new StringWriter();
-    final PrintWriter writer = new PrintWriter(stringWriter) {
-      private boolean skipping;
-      @Override
-      public void println(final String x) {
-        boolean curSkipping = skipping;
-        if (x != null) {
-          if (!skipping && x.startsWith(skipPattern)) curSkipping = true;
-          else if (skipping && !x.startsWith(prefix)) curSkipping = false;
-          if (curSkipping && !skipping) {
-            super.println("\tin "+ stripPackage(x, skipPattern.length()));
-          }
-          skipping = curSkipping;
-          if (skipping) {
-            skipping = !x.startsWith(prefixRemoteUtil);
-            return;
-          }
-          if (x.startsWith(prefixProxy)) return;
-          super.println(x);
-        }
-      }
-    };
-    aThrowable.printStackTrace(writer);
-    return stringWriter.getBuffer().toString();
+    return ExceptionUtilRt.getThrowableText(aThrowable, stackFrameSkipPattern);
   }
 
-  private static String stripPackage(String x, int offset) {
-    int idx = offset;
-    while (idx > 0 && idx < x.length() && !Character.isUpperCase(x.charAt(idx))) {
-      idx = x.indexOf('.', idx) + 1;
-    }
-    return x.substring(Math.max(idx, offset));
-  }
-
+  @NlsSafe
   @NotNull
   public static String getUserStackTrace(@NotNull Throwable aThrowable, Logger logger) {
     String result = getThrowableText(aThrowable, "com.intellij.");
@@ -120,7 +107,7 @@ public class ExceptionUtil {
     String exceptionPattern = "Exception: ";
     String errorPattern = "Error: ";
 
-    while ((result == null || result.contains(exceptionPattern) || result.contains(errorPattern)) && e.getCause() != null) {
+    while (e.getCause() != null && (result == null || result.contains(exceptionPattern) || result.contains(errorPattern))) {
       e = e.getCause();
       result = e.getMessage();
     }
@@ -142,16 +129,12 @@ public class ExceptionUtil {
   }
 
   public static void rethrowUnchecked(@Nullable Throwable t) {
-    if (t instanceof Error) throw (Error)t;
-    if (t instanceof RuntimeException) throw (RuntimeException)t;
+    ExceptionUtilRt.rethrowUnchecked(t);
   }
 
   @Contract("!null->fail")
   public static void rethrowAll(@Nullable Throwable t) throws Exception {
-    if (t != null) {
-      rethrowUnchecked(t);
-      throw (Exception)t;
-    }
+    ExceptionUtilRt.rethrowAll(t);
   }
 
   @Contract("_->fail")
@@ -168,7 +151,7 @@ public class ExceptionUtil {
   }
 
   @NotNull
-  public static String getNonEmptyMessage(@NotNull Throwable t, @NotNull String defaultMessage) {
+  public static @NlsSafe String getNonEmptyMessage(@NotNull Throwable t, @NotNull @Nls String defaultMessage) {
     String message = t.getMessage();
     return !StringUtil.isEmptyOrSpaces(message) ? message : defaultMessage;
   }

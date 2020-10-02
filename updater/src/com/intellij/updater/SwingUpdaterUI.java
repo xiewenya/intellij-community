@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -29,7 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@SuppressWarnings({"UndesirableClassUsage", "UseJBColor", "UseDPIAwareInsets", "UseDPIAwareBorders"})
+@SuppressWarnings({"UseJBColor", "UseDPIAwareBorders", "HardCodedStringLiteral"})
 public class SwingUpdaterUI implements UpdaterUI {
   private static final EmptyBorder FRAME_BORDER = new EmptyBorder(8, 8, 8, 8);
   private static final EmptyBorder LABEL_BORDER = new EmptyBorder(0, 0, 5, 0);
@@ -112,7 +98,12 @@ public class SwingUpdaterUI implements UpdaterUI {
 
   @Override
   public void setDescription(String oldBuildDesc, String newBuildDesc) {
-    invokeLater(() -> myProcessTitle.setText("Updating " + oldBuildDesc + " to " + newBuildDesc + " ..."));
+    setDescription("Updating " + oldBuildDesc + " to " + newBuildDesc + " ...");
+  }
+
+  @Override
+  public void setDescription(String text) {
+    invokeLater(() -> myProcessTitle.setText(text.isEmpty() ? " " : text));
   }
 
   @Override
@@ -145,7 +136,8 @@ public class SwingUpdaterUI implements UpdaterUI {
 
   @Override
   public void showError(String message) {
-    invokeAndWait(() -> JOptionPane.showMessageDialog(myFrame, message, "Update Error", JOptionPane.ERROR_MESSAGE));
+    String html = "<html>" + message.replace("\n", "<br>") + "</html>";
+    invokeAndWait(() -> JOptionPane.showMessageDialog(myFrame, html, "Update Error", JOptionPane.ERROR_MESSAGE));
   }
 
   @Override
@@ -167,7 +159,7 @@ public class SwingUpdaterUI implements UpdaterUI {
   }
 
   @Override
-  public Map<String, ValidationResult.Option> askUser(List<ValidationResult> validationResults) throws OperationCancelledException {
+  public Map<String, ValidationResult.Option> askUser(List<? extends ValidationResult> validationResults) throws OperationCancelledException {
     boolean canProceed = validationResults.stream().noneMatch(r -> r.options.contains(ValidationResult.Option.NONE));
     Map<String, ValidationResult.Option> result = new HashMap<>();
 
@@ -208,21 +200,22 @@ public class SwingUpdaterUI implements UpdaterUI {
 
       MyTableModel model = new MyTableModel(validationResults);
       table.setModel(model);
+      table.setRowHeight(new JLabel("X").getPreferredSize().height);
 
-      for (int i = 0; i < table.getColumnModel().getColumnCount(); i++) {
-        TableColumn each = table.getColumnModel().getColumn(i);
-        each.setPreferredWidth(MyTableModel.getColumnWidth(i, new Dimension(600, 400).width));
+      TableColumnModel columnModel = table.getColumnModel();
+      for (int i = 0; i < columnModel.getColumnCount(); i++) {
+        columnModel.getColumn(i).setPreferredWidth(MyTableModel.getColumnWidth(i, 1000));
       }
 
       String message = "<html>Some conflicts were found in the installation area.<br><br>";
       if (canProceed) {
-        message += "Please select desired solutions from the " + MyTableModel.COLUMNS[MyTableModel.OPTIONS_COLUMN_INDEX] +
-                   " column and press " + PROCEED_BUTTON_TITLE + ".<br>" +
-                   "If you do not want to proceed with the update, please press " + CANCEL_BUTTON_TITLE + ".</html>";
+        message += "Please select desired solutions from the '" + MyTableModel.COLUMNS[MyTableModel.OPTIONS_COLUMN_INDEX] + "' " +
+                   "column and press '" + PROCEED_BUTTON_TITLE + "'.<br>" +
+                   "If you do not want to proceed with the update, please press '" + CANCEL_BUTTON_TITLE + "'.</html>";
       }
       else {
         message += "Some of the conflicts below do not have a solution, so the patch cannot be applied.<br>" +
-                   "Press " + CANCEL_BUTTON_TITLE + " to exit.</html>";
+                   "Press '" + CANCEL_BUTTON_TITLE + "' to exit.</html>";
       }
       JLabel label = new JLabel(message);
       label.setBorder(LABEL_BORDER);
@@ -231,7 +224,8 @@ public class SwingUpdaterUI implements UpdaterUI {
       dialog.add(new JScrollPane(table), BorderLayout.CENTER);
       dialog.add(buttonsPanel, BorderLayout.SOUTH);
       dialog.getRootPane().setBorder(FRAME_BORDER);
-      dialog.setSize(new Dimension(600, 400));
+      dialog.setPreferredSize(new Dimension(1000, 500));
+      dialog.pack();
       dialog.setLocationRelativeTo(null);
       dialog.setVisible(true);
 
@@ -242,12 +236,15 @@ public class SwingUpdaterUI implements UpdaterUI {
     return result;
   }
 
-  @SuppressWarnings("SSBasedInspection")
+  @Override
+  public String bold(String text) {
+    return "<b>" + text + "</b>";
+  }
+
   private static void invokeLater(Runnable runnable) {
     SwingUtilities.invokeLater(runnable);
   }
 
-  @SuppressWarnings("SSBasedInspection")
   private static void invokeAndWait(Runnable runnable) {
     try {
       SwingUtilities.invokeAndWait(runnable);
@@ -259,11 +256,12 @@ public class SwingUpdaterUI implements UpdaterUI {
 
   private static class MyTableModel extends AbstractTableModel {
     public static final String[] COLUMNS = {"File", "Action", "Problem", "Solution"};
+    public static final double[] WIDTHS = {0.65, 0.1, 0.15, 0.1};
     public static final int OPTIONS_COLUMN_INDEX = 3;
 
     private final List<Item> myItems = new ArrayList<>();
 
-    public MyTableModel(List<ValidationResult> validationResults) {
+    MyTableModel(List<? extends ValidationResult> validationResults) {
       for (ValidationResult each : validationResults) {
         myItems.add(new Item(each, each.options.get(0)));
       }
@@ -280,12 +278,7 @@ public class SwingUpdaterUI implements UpdaterUI {
     }
 
     public static int getColumnWidth(int column, int totalWidth) {
-      switch (column) {
-        case 0:
-          return (int)(totalWidth * 0.6);
-        default:
-          return (int)(totalWidth * 0.15);
-      }
+      return (int)(totalWidth * WIDTHS[column]);
     }
 
     @Override
@@ -341,7 +334,7 @@ public class SwingUpdaterUI implements UpdaterUI {
       }
     }
 
-    private static class Item {
+    private static final class Item {
       private final ValidationResult validationResult;
       private ValidationResult.Option option;
 
@@ -353,8 +346,8 @@ public class SwingUpdaterUI implements UpdaterUI {
   }
 
   private static class MyCellEditor extends DefaultCellEditor {
-    public MyCellEditor() {
-      super(new JComboBox());
+    MyCellEditor() {
+      super(new JComboBox<>());
     }
 
     @Override

@@ -15,19 +15,24 @@
  */
 package com.intellij.diff.requests;
 
-import com.intellij.CommonBundle;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.FileContent;
 import com.intellij.diff.merge.BinaryMergeRequest;
+import com.intellij.diff.merge.MergeCallback;
 import com.intellij.diff.merge.MergeResult;
+import com.intellij.diff.merge.MergeUtil;
 import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.ThreeSide;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Consumer;
+import com.intellij.ui.UIBundle;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,21 +47,18 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
   @NotNull private final List<DiffContent> myContents;
 
   @NotNull private final List<byte[]> myByteContents;
-  @NotNull private final byte[] myOriginalContent;
+  private final byte @NotNull [] myOriginalContent;
 
-  @Nullable private final String myTitle;
+  @Nullable private final @NlsContexts.DialogTitle String myTitle;
   @NotNull private final List<String> myTitles;
-
-  @Nullable private final Consumer<MergeResult> myApplyCallback;
 
   public BinaryMergeRequestImpl(@Nullable Project project,
                                 @NotNull FileContent file,
-                                @NotNull byte[] originalContent,
+                                byte @NotNull [] originalContent,
                                 @NotNull List<DiffContent> contents,
                                 @NotNull List<byte[]> byteContents,
-                                @Nullable String title,
-                                @NotNull List<String> contentTitles,
-                                @Nullable Consumer<MergeResult> applyCallback) {
+                                @Nullable @NlsContexts.DialogTitle String title,
+                                @NotNull List<@Nls String> contentTitles) {
     assert byteContents.size() == 3;
     assert contents.size() == 3;
     assert contentTitles.size() == 3;
@@ -69,8 +71,6 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
     myContents = contents;
     myTitle = title;
     myTitles = contentTitles;
-
-    myApplyCallback = applyCallback;
 
     onAssigned(true);
   }
@@ -111,7 +111,7 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
       final byte[] applyContent;
       switch (result) {
         case CANCEL:
-          applyContent = myOriginalContent;
+          applyContent = MergeUtil.shouldRestoreOriginalContentOnCancel(this) ? myOriginalContent : null;
           break;
         case LEFT:
           applyContent = ThreeSide.LEFT.select(myByteContents);
@@ -127,24 +127,35 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
       }
 
       if (applyContent != null) {
-        WriteCommandAction.writeCommandAction(null).run(() -> {
-          try {
-            VirtualFile file = myFile.getFile();
-            if (!DiffUtil.makeWritable(myProject, file)) throw new IOException("File is read-only: " + file.getPresentableName());
+        try {
+          VirtualFile file = myFile.getFile();
+          if (!file.isValid()) {
+            throw new IOException(IdeBundle.message("error.file.not.found.message", file.getPresentableUrl()));
+          }
+          if (!DiffUtil.makeWritable(myProject, file)) {
+            throw new IOException(UIBundle.message("file.is.read.only.message.text", file.getPresentableUrl()));
+          }
+
+          WriteCommandAction.writeCommandAction(null).run(() -> {
             file.setBinaryContent(applyContent);
-          }
-          catch (IOException e) {
-            LOG.error(e);
-            Messages.showErrorDialog(myProject, "Can't apply result", CommonBundle.getErrorTitle());
-          }
-        });
+          });
+        }
+        catch (IOException e) {
+          LOG.warn(e);
+          Messages.showErrorDialog(myProject, e.getMessage(), DiffBundle.message("can.t.finish.merge.resolve"));
+        }
       }
 
-      if (myApplyCallback != null) myApplyCallback.consume(result);
+      MergeCallback.getCallback(this).applyResult(result);
     }
     finally {
       onAssigned(false);
     }
+  }
+
+  @Override
+  public void resultRetargeted() {
+    onAssigned(false);
   }
 
   private void onAssigned(boolean assigned) {

@@ -15,7 +15,7 @@
  */
 package com.intellij.codeInsight.unwrap;
 
-import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.java.JavaBundle;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -24,12 +24,18 @@ import java.util.List;
 
 public class JavaLambdaUnwrapper extends JavaUnwrapper {
   public JavaLambdaUnwrapper() {
-    super(CodeInsightBundle.message("unwrap.lambda"));
+    super(JavaBundle.message("unwrap.lambda"));
   }
 
   @Override
   public boolean isApplicableTo(@NotNull PsiElement e) {
     return e instanceof PsiLambdaExpression;
+  }
+
+  @Override
+  public PsiElement collectAffectedElements(@NotNull PsiElement e, @NotNull List<PsiElement> toExtract) {
+     super.collectAffectedElements(e, toExtract);
+     return JavaAnonymousUnwrapper.findElementToExtractFrom(e);
   }
 
   @Override
@@ -47,11 +53,16 @@ public class JavaLambdaUnwrapper extends JavaUnwrapper {
     }
 
     if (body instanceof PsiCodeBlock) {
-      context.extractFromCodeBlock((PsiCodeBlock)body, from);
+      if (from.getParent() instanceof PsiLambdaExpression) {
+        context.extractElement(body, from);
+      }
+      else {
+        context.extractFromCodeBlock((PsiCodeBlock)body, from);
+      }
     }
     else {
       context.extractElement(body, from);
-      if (context.myIsEffective && !(from.getParent() instanceof PsiLambdaExpression)) {
+      if (context.isEffective() && !(from.getParent() instanceof PsiLambdaExpression)) {
         PsiStatement emptyStatement = JavaPsiFacade.getElementFactory(from.getProject()).createStatementFromText(";", from);
         from.getParent().addBefore(emptyStatement, from);
       }

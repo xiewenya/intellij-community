@@ -1,41 +1,42 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xmlb;
 
-import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.JDOMExternalizable;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.serialization.MutableAccessor;
+import com.intellij.serialization.PropertyCollector;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.ThreeState;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.MultiMap;
 import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.*;
-import gnu.trove.TObjectFloatHashMap;
+import it.unimi.dsi.fastutil.objects.Object2FloatMap;
+import it.unimi.dsi.fastutil.objects.Object2FloatOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet;
 import org.jdom.Comment;
 import org.jdom.Content;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
-import java.beans.Introspector;
-import java.lang.reflect.*;
+import java.lang.reflect.AccessibleObject;
+import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Type;
 import java.util.*;
-import java.util.List;
 
+@ApiStatus.Internal
 public class BeanBinding extends NotNullDeserializeBinding {
-  private static final Map<Class, List<MutableAccessor>> ourAccessorCache = ContainerUtil.createConcurrentSoftValueMap();
+  private static final XmlSerializerPropertyCollector PROPERTY_COLLECTOR = new XmlSerializerPropertyCollector();
 
   private final String myTagName;
   @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized")
-  private Binding[] myBindings;
+  protected NestedBinding[] myBindings;
 
   protected final Class<?> myBeanClass;
 
   ThreeState compareByFields = ThreeState.UNSURE;
 
-  public BeanBinding(@NotNull Class<?> beanClass, @Nullable MutableAccessor accessor) {
-    super(accessor);
-
+  public BeanBinding(@NotNull Class<?> beanClass) {
     assert !beanClass.isArray() : "Bean is an array: " + beanClass;
     assert !beanClass.isPrimitive() : "Bean is primitive type: " + beanClass;
     myBeanClass = beanClass;
@@ -43,86 +44,97 @@ public class BeanBinding extends NotNullDeserializeBinding {
     assert !StringUtil.isEmptyOrSpaces(myTagName) : "Bean name is empty: " + beanClass;
   }
 
+  @SuppressWarnings("NonPrivateFieldAccessedInSynchronizedContext")
   @Override
-  public synchronized void init(@NotNull Type originalType, @NotNull Serializer serializer) {
+  public final synchronized void init(@NotNull Type originalType, @NotNull Serializer serializer) {
     assert myBindings == null;
 
     Property classAnnotation = myBeanClass.getAnnotation(Property.class);
 
     List<MutableAccessor> accessors = getAccessors(myBeanClass);
-    myBindings = new Binding[accessors.size()];
+    myBindings = new NestedBinding[accessors.size()];
     for (int i = 0, size = accessors.size(); i < size; i++) {
-      Binding binding = createBinding(accessors.get(i), serializer, classAnnotation == null ? Property.Style.OPTION_TAG : classAnnotation.style());
+      NestedBinding binding = createBinding(accessors.get(i), serializer, classAnnotation == null ? Property.Style.OPTION_TAG : classAnnotation.style());
       binding.init(originalType, serializer);
       myBindings[i] = binding;
     }
   }
 
   @Override
-  @Nullable
-  public Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
+  public final @Nullable Object serialize(@NotNull Object o, @Nullable Object context, @Nullable SerializationFilter filter) {
     return serializeInto(o, context == null ? null : new Element(myTagName), filter);
   }
 
-  public Element serialize(@NotNull Object object, boolean createElementIfEmpty, @Nullable SerializationFilter filter) {
+  public final Element serialize(@NotNull Object object, boolean createElementIfEmpty, @Nullable SerializationFilter filter) {
     return serializeInto(object, createElementIfEmpty ? new Element(myTagName) : null, filter);
   }
 
-  @Nullable
-  public Element serializeInto(@NotNull Object o, @Nullable Element element, @Nullable SerializationFilter filter) {
-    for (Binding binding : myBindings) {
-      Accessor accessor = binding.getAccessor();
-      if (o instanceof SerializationFilter && !((SerializationFilter)o).accepts(accessor, o)) {
+  public @Nullable Element serializeInto(@NotNull Object o, @Nullable Element element, @Nullable SerializationFilter filter) {
+    for (NestedBinding binding : myBindings) {
+      if (o instanceof SerializationFilter && !((SerializationFilter)o).accepts(binding.getAccessor(), o)) {
         continue;
       }
 
-      Property property = accessor.getAnnotation(Property.class);
-      if (property == null || !property.alwaysWrite()) {
-        if (filter != null) {
-          if (filter instanceof SkipDefaultsSerializationFilter) {
-            if (((SkipDefaultsSerializationFilter)filter).equal(binding, o)) {
-              continue;
-            }
-          }
-          else if (!filter.accepts(accessor, o)) {
-            continue;
+      element = serializePropertyInto(binding, o, element, filter, true);
+    }
+    return element;
+  }
+
+  protected final @Nullable Element serializePropertyInto(@NotNull NestedBinding binding,
+                                                @NotNull Object o,
+                                                @Nullable Element element,
+                                                @Nullable SerializationFilter filter,
+                                                boolean isFilterPropertyItself) {
+    Accessor accessor = binding.getAccessor();
+    Property property = accessor.getAnnotation(Property.class);
+    if (property == null || !property.alwaysWrite()) {
+      if (filter != null && isFilterPropertyItself) {
+        if (filter instanceof SkipDefaultsSerializationFilter) {
+          if (((SkipDefaultsSerializationFilter)filter).equal(binding, o)) {
+            return element;
           }
         }
-
-        //todo: optimize. Cache it.
-        if (property != null && property.filter() != SerializationFilter.class &&
-            !ReflectionUtil.newInstance(property.filter()).accepts(accessor, o)) {
-          continue;
+        else if (!filter.accepts(accessor, o)) {
+          return element;
         }
       }
 
-      if (element == null) {
-        element = new Element(myTagName);
+      //todo: optimize. Cache it.
+      if (property != null && property.filter() != SerializationFilter.class &&
+          !ReflectionUtil.newInstance(property.filter()).accepts(accessor, o)) {
+        return element;
       }
+    }
 
-      Object node = binding.serialize(o, element, filter);
-      if (node != null) {
-        if (node instanceof org.jdom.Attribute) {
-          element.setAttribute((org.jdom.Attribute)node);
-        }
-        else {
-          addContent(element, node);
-        }
+    if (element == null) {
+      element = new Element(myTagName);
+    }
+
+    Object node = binding.serialize(o, element, filter);
+    if (node != null) {
+      if (node instanceof org.jdom.Attribute) {
+        element.setAttribute((org.jdom.Attribute)node);
+      }
+      else {
+        Binding.addContent(element, node);
       }
     }
     return element;
   }
 
   @Override
-  @NotNull
-  public Object deserialize(@Nullable Object context, @NotNull Element element) {
-    Object instance = ReflectionUtil.newInstance(myBeanClass);
+  public final @NotNull Object deserialize(@Nullable Object context, @NotNull Element element) {
+    Object instance = newInstance();
     deserializeInto(instance, element);
     return instance;
   }
 
-  boolean equalByFields(@NotNull Object currentValue, @NotNull Object defaultValue, @NotNull SkipDefaultsSerializationFilter filter) {
-    for (Binding binding : myBindings) {
+  protected @NotNull Object newInstance() {
+    return ReflectionUtil.newInstance(myBeanClass, false);
+  }
+
+  final boolean equalByFields(@NotNull Object currentValue, @NotNull Object defaultValue, @NotNull SkipDefaultsSerializationFilter filter) {
+    for (NestedBinding binding : myBindings) {
       Accessor accessor = binding.getAccessor();
       if (!filter.equal(binding, accessor.read(currentValue), accessor.read(defaultValue))) {
         return false;
@@ -131,9 +143,8 @@ public class BeanBinding extends NotNullDeserializeBinding {
     return true;
   }
 
-  @NotNull
-  public TObjectFloatHashMap<String> computeBindingWeights(@NotNull LinkedHashSet<String> accessorNameTracker) {
-    TObjectFloatHashMap<String> weights = new TObjectFloatHashMap<String>(accessorNameTracker.size());
+  public final @NotNull Object2FloatMap<String> computeBindingWeights(@NotNull ObjectLinkedOpenHashSet<String> accessorNameTracker) {
+    Object2FloatMap<String> weights = new Object2FloatOpenHashMap<>(accessorNameTracker.size());
     float weight = 0;
     float step = (float)myBindings.length / (float)accessorNameTracker.size();
     for (String name : accessorNameTracker) {
@@ -142,7 +153,7 @@ public class BeanBinding extends NotNullDeserializeBinding {
     }
 
     weight = 0;
-    for (Binding binding : myBindings) {
+    for (NestedBinding binding : myBindings) {
       String name = binding.getAccessor().getName();
       if (!weights.containsKey(name)) {
         weights.put(name, weight);
@@ -153,28 +164,25 @@ public class BeanBinding extends NotNullDeserializeBinding {
     return weights;
   }
 
-  public void sortBindings(@NotNull final TObjectFloatHashMap<String> weights) {
-    Arrays.sort(myBindings, new Comparator<Binding>() {
-      @Override
-      public int compare(@NotNull Binding o1, @NotNull Binding o2) {
-        String n1 = o1.getAccessor().getName();
-        String n2 = o2.getAccessor().getName();
-        float w1 = weights.get(n1);
-        float w2 = weights.get(n2);
-        return (int)(w1 - w2);
-      }
+  public final void sortBindings(@NotNull Object2FloatMap<? super String> weights) {
+    Arrays.sort(myBindings, (o1, o2) -> {
+      String n1 = o1.getAccessor().getName();
+      String n2 = o2.getAccessor().getName();
+      float w1 = weights.getFloat(n1);
+      float w2 = weights.getFloat(n2);
+      return (int)(w1 - w2);
     });
   }
 
-  public void deserializeInto(@NotNull Object result, @NotNull Element element) {
+  public final void deserializeInto(@NotNull Object result, @NotNull Element element) {
     deserializeInto(result, element, null);
   }
 
-  public void deserializeInto(@NotNull Object result, @NotNull Element element, @Nullable Set<String> accessorNameTracker) {
+  public final void deserializeInto(@NotNull Object result, @NotNull Element element, @Nullable Set<? super String> accessorNameTracker) {
     nextAttribute:
     for (org.jdom.Attribute attribute : element.getAttributes()) {
       if (StringUtil.isEmpty(attribute.getNamespaceURI())) {
-        for (Binding binding : myBindings) {
+        for (NestedBinding binding : myBindings) {
           if (binding instanceof AttributeBinding && ((AttributeBinding)binding).myName.equals(attribute.getName())) {
             if (accessorNameTracker != null) {
               accessorNameTracker.add(binding.getAccessor().getName());
@@ -186,14 +194,14 @@ public class BeanBinding extends NotNullDeserializeBinding {
       }
     }
 
-    MultiMap<Binding, Element> data = null;
+    LinkedHashMap<NestedBinding, List<Element>> data = null;
     nextNode:
     for (Content content : element.getContent()) {
       if (content instanceof Comment) {
         continue;
       }
 
-      for (Binding binding : myBindings) {
+      for (NestedBinding binding : myBindings) {
         if (content instanceof org.jdom.Text) {
           if (binding instanceof TextBinding) {
             ((TextBinding)binding).set(result, content.getValue());
@@ -205,9 +213,9 @@ public class BeanBinding extends NotNullDeserializeBinding {
         if (binding.isBoundTo(child)) {
           if (binding instanceof MultiNodeBinding && ((MultiNodeBinding)binding).isMulti()) {
             if (data == null) {
-              data = MultiMap.createLinked();
+              data = new LinkedHashMap<>();
             }
-            data.putValue(binding, child);
+            data.computeIfAbsent(binding, it -> new ArrayList<>()).add(child);
           }
           else {
             if (accessorNameTracker != null) {
@@ -227,22 +235,21 @@ public class BeanBinding extends NotNullDeserializeBinding {
     }
 
     if (data != null) {
-      for (Binding binding : data.keySet()) {
+      for (NestedBinding binding : data.keySet()) {
         if (accessorNameTracker != null) {
           accessorNameTracker.add(binding.getAccessor().getName());
         }
-        ((MultiNodeBinding)binding).deserializeList(result, (List<Element>)data.get(binding));
+        ((MultiNodeBinding)binding).deserializeList(result, data.get(binding));
       }
     }
   }
 
   @Override
-  public boolean isBoundTo(@NotNull Element element) {
+  public final boolean isBoundTo(@NotNull Element element) {
     return element.getName().equals(myTagName);
   }
 
-  @NotNull
-  private static String getTagName(@NotNull Class<?> aClass) {
+  private static @NotNull String getTagName(@NotNull Class<?> aClass) {
     for (Class<?> c = aClass; c != null; c = c.getSuperclass()) {
       String name = getTagNameFromAnnotation(c);
       if (name != null) {
@@ -262,220 +269,106 @@ public class BeanBinding extends NotNullDeserializeBinding {
     return name;
   }
 
-  @Nullable
-  private static String getTagNameFromAnnotation(@NotNull Class<?> aClass) {
+  private static @Nullable String getTagNameFromAnnotation(@NotNull Class<?> aClass) {
     Tag tag = aClass.getAnnotation(Tag.class);
     return tag != null && !tag.value().isEmpty() ? tag.value() : null;
   }
 
-  @NotNull
-  static List<MutableAccessor> getAccessors(@NotNull Class<?> aClass) {
-    List<MutableAccessor> accessors = ourAccessorCache.get(aClass);
-    if (accessors != null) {
-      return accessors;
-    }
-
-    accessors = new ArrayList<MutableAccessor>();
-
-    Map<String, Couple<Method>> nameToAccessors;
-    // special case for Rectangle.class to avoid infinite recursion during serialization due to bounds() method
-    if (aClass == Rectangle.class) {
-      nameToAccessors = Collections.emptyMap();
-    }
-    else {
-      nameToAccessors = collectPropertyAccessors(aClass, accessors);
-    }
-
-    int propertyAccessorCount = accessors.size();
-    collectFieldAccessors(aClass, accessors);
-
-    // if there are field accessor and property accessor, prefer field - Kotlin generates private var and getter/setter, but annotation moved to var, not to getter/setter
-    // so, we must remove duplicated accessor
-    for (int j = propertyAccessorCount; j < accessors.size(); j++) {
-      String name = accessors.get(j).getName();
-      if (nameToAccessors.containsKey(name)) {
-        for (int i = 0; i < propertyAccessorCount; i++) {
-          if (accessors.get(i).getName().equals(name)) {
-            accessors.remove(i);
-            propertyAccessorCount--;
-            //noinspection AssignmentToForLoopParameter
-            j--;
-            break;
-          }
-        }
-      }
-    }
-
-    ourAccessorCache.put(aClass, accessors);
-
-    return accessors;
+  public static @NotNull List<MutableAccessor> getAccessors(@NotNull Class<?> aClass) {
+    return PROPERTY_COLLECTOR.collect(aClass);
   }
 
-  private static class NameAndIsSetter {
-    final String name;
-    final boolean isSetter;
-
-    public NameAndIsSetter(String name, boolean isSetter) {
-      this.name = name;
-      this.isSetter = isSetter;
-    }
-  }
-
-  @NotNull
-  private static Map<String, Couple<Method>> collectPropertyAccessors(@NotNull Class<?> aClass, @NotNull List<MutableAccessor> accessors) {
-    final Map<String, Couple<Method>> candidates = new TreeMap<String, Couple<Method>>(); // (name,(getter,setter))
-    for (Method method : aClass.getMethods()) {
-      if (!Modifier.isPublic(method.getModifiers())) {
-        continue;
-      }
-
-      NameAndIsSetter propertyData = getPropertyData(method.getName());
-      if (propertyData == null || propertyData.name.equals("class") ||
-          method.getParameterTypes().length != (propertyData.isSetter ? 1 : 0)) {
-        continue;
-      }
-
-      Couple<Method> candidate = candidates.get(propertyData.name);
-      if (candidate == null) {
-        candidate = Couple.getEmpty();
-      }
-      if ((propertyData.isSetter ? candidate.second : candidate.first) != null) {
-        continue;
-      }
-      candidate = Couple.of(propertyData.isSetter ? candidate.first : method, propertyData.isSetter ? method : candidate.second);
-      candidates.put(propertyData.name, candidate);
-    }
-
-    for (Iterator<Map.Entry<String, Couple<Method>>> iterator = candidates.entrySet().iterator(); iterator.hasNext(); ) {
-      Map.Entry<String, Couple<Method>> candidate = iterator.next();
-      Couple<Method> methods = candidate.getValue();
-      Method getter = methods.first;
-      Method setter = methods.second;
-      if (isAcceptableProperty(getter, setter)) {
-        accessors.add(new PropertyAccessor(candidate.getKey(), getter.getReturnType(), getter, setter));
-      }
-      else {
-        iterator.remove();
-      }
-    }
-    return candidates;
-  }
-
-  private static boolean isAcceptableProperty(@Nullable Method getter, @Nullable Method setter) {
-    if (getter == null || getter.getAnnotation(Transient.class) != null) {
-      return false;
-    }
-
-    if (setter == null) {
-      // check hasStoreAnnotations to ensure that this addition will not lead to regression (since there is a chance that there is some existing not-annotated list getters without setter)
-      return (Collection.class.isAssignableFrom(getter.getReturnType()) || Map.class.isAssignableFrom(getter.getReturnType())) && hasStoreAnnotations(getter);
-    }
-
-    if (setter.getAnnotation(Transient.class) != null || !getter.getReturnType().equals(setter.getParameterTypes()[0])) {
-      return false;
-    }
-
-    return true;
-  }
-
-  private static boolean hasStoreAnnotations(@NotNull AccessibleObject object) {
-    //noinspection deprecation
-    return object.getAnnotation(OptionTag.class) != null ||
-           object.getAnnotation(Tag.class) != null ||
-           object.getAnnotation(Attribute.class) != null ||
-           object.getAnnotation(Property.class) != null ||
-           object.getAnnotation(Text.class) != null ||
-           object.getAnnotation(CollectionBean.class) != null ||
-           object.getAnnotation(MapAnnotation.class) != null ||
-           object.getAnnotation(XMap.class) != null ||
-           object.getAnnotation(XCollection.class) != null ||
-           object.getAnnotation(AbstractCollection.class) != null;
-  }
-
-  private static void collectFieldAccessors(@NotNull Class<?> aClass, @NotNull List<MutableAccessor> accessors) {
-    Class<?> currentClass = aClass;
+  private static boolean isAssertBindings(@NotNull Class<?> aClass) {
     do {
-      for (Field field : currentClass.getDeclaredFields()) {
-        int modifiers = field.getModifiers();
-        if (Modifier.isStatic(modifiers) || Modifier.isTransient(modifiers)) {
-          continue;
-        }
-
-        if (!hasStoreAnnotations(field)) {
-          if (!(Modifier.isPublic(modifiers))) {
-            continue;
-          }
-
-          if (Modifier.isFinal(modifiers)) {
-            Class<?> fieldType = field.getType();
-            // we don't want to allow final fields of all types, but only supported
-            if (!(Collection.class.isAssignableFrom(fieldType) || Map.class.isAssignableFrom(fieldType))) {
-              continue;
-            }
-          }
-
-          if (field.getAnnotation(Transient.class) != null) {
-            continue;
-          }
-        }
-
-        accessors.add(new FieldAccessor(field));
+      Property property = aClass.getAnnotation(Property.class);
+      if (property != null && !property.assertIfNoBindings()) {
+        return true;
       }
     }
-    while ((currentClass = currentClass.getSuperclass()) != null && currentClass.getAnnotation(Transient.class) == null);
+    while ((aClass = aClass.getSuperclass()) != null);
+    return false;
   }
 
-  @Nullable
-  private static NameAndIsSetter getPropertyData(@NotNull String methodName) {
-    String part = "";
-    boolean isSetter = false;
-    if (methodName.startsWith("get")) {
-      part = methodName.substring(3);
-    }
-    else if (methodName.startsWith("is")) {
-      part = methodName.substring(2);
-    }
-    else if (methodName.startsWith("set")) {
-      part = methodName.substring(3);
-      isSetter = true;
+  private static final class XmlSerializerPropertyCollector extends PropertyCollector {
+    private final ClassValue<List<MutableAccessor>> accessorCache = new ClassValue<List<MutableAccessor>>() {
+      @Override
+      protected List<MutableAccessor> computeValue(Class<?> aClass) {
+        List<MutableAccessor> result = XmlSerializerPropertyCollector.super.collect(aClass);
+        if (result.isEmpty() && !isAssertBindings(aClass)) {
+          //noinspection deprecation
+          if (JDOMExternalizable.class.isAssignableFrom(aClass)) {
+            LOG.error("Do not compute bindings for JDOMExternalizable: " + aClass.getName());
+          }
+          else if (aClass.isEnum()) {
+            LOG.error("Do not compute bindings for enum: " + aClass.getName());
+          }
+          else if (aClass == String.class) {
+            LOG.error("Do not compute bindings for String");
+          }
+          LOG.warn("no accessors for " + aClass.getName());
+        }
+        return result;
+      }
+    };
+
+    XmlSerializerPropertyCollector() {
+      super(PropertyCollector.COLLECT_ACCESSORS);
     }
 
-    if (part.isEmpty()) {
-      return null;
+    @Override
+    public @NotNull List<MutableAccessor> collect(@NotNull Class<?> aClass) {
+      return accessorCache.get(aClass);
     }
 
-    int suffixIndex = part.indexOf('$');
-    if (suffixIndex > 0) {
-      // see XmlSerializerTest.internalVar
-      part = part.substring(0, suffixIndex);
+    @Override
+    protected boolean isAnnotatedAsTransient(@NotNull AnnotatedElement element) {
+      return element.isAnnotationPresent(Transient.class);
     }
-    return new NameAndIsSetter(Introspector.decapitalize(part), isSetter);
+
+    @Override
+    protected boolean hasStoreAnnotations(@NotNull AccessibleObject element) {
+      //noinspection deprecation
+      return element.isAnnotationPresent(OptionTag.class) ||
+             element.isAnnotationPresent(Tag.class) ||
+             element.isAnnotationPresent(Attribute.class) ||
+             element.isAnnotationPresent(Property.class) ||
+             element.isAnnotationPresent(Text.class) ||
+             element.isAnnotationPresent(CollectionBean.class) ||
+             element.isAnnotationPresent(MapAnnotation.class) ||
+             element.isAnnotationPresent(XMap.class) ||
+             element.isAnnotationPresent(XCollection.class) ||
+             element.isAnnotationPresent(AbstractCollection.class);
+    }
   }
 
   public String toString() {
     return "BeanBinding[" + myBeanClass.getName() + ", tagName=" + myTagName + "]";
   }
 
-  @NotNull
-  private static Binding createBinding(@NotNull MutableAccessor accessor, @NotNull Serializer serializer, @NotNull Property.Style propertyStyle) {
-    Binding binding = serializer.getBinding(accessor);
-    if (binding instanceof JDOMElementBinding) {
-      return binding;
-    }
-
+  private static @NotNull NestedBinding createBinding(@NotNull MutableAccessor accessor, @NotNull Serializer serializer, @NotNull Property.Style propertyStyle) {
     Attribute attribute = accessor.getAnnotation(Attribute.class);
     if (attribute != null) {
       return new AttributeBinding(accessor, attribute);
     }
 
-    Tag tag = accessor.getAnnotation(Tag.class);
-    if (tag != null) {
-      return new TagBinding(accessor, tag);
-    }
-
     Text text = accessor.getAnnotation(Text.class);
     if (text != null) {
       return new TextBinding(accessor);
+    }
+
+    OptionTag optionTag = accessor.getAnnotation(OptionTag.class);
+    if (optionTag != null && optionTag.converter() != Converter.class) {
+      return new OptionTagBinding(accessor, optionTag);
+    }
+
+    Binding binding = serializer.getBinding(accessor);
+    if (binding instanceof JDOMElementBinding) {
+      return ((JDOMElementBinding)binding);
+    }
+
+    Tag tag = accessor.getAnnotation(Tag.class);
+    if (tag != null) {
+      return new TagBinding(accessor, tag);
     }
 
     if (binding instanceof CompactCollectionBinding) {
@@ -504,8 +397,6 @@ public class BeanBinding extends NotNullDeserializeBinding {
     if (xCollection != null && (!xCollection.propertyElementName().isEmpty() || xCollection.style() == XCollection.Style.v2)) {
       return new TagBinding(accessor, xCollection.propertyElementName());
     }
-
-    OptionTag optionTag = accessor.getAnnotation(OptionTag.class);
 
     if (optionTag == null) {
       XMap xMap = accessor.getAnnotation(XMap.class);

@@ -1,37 +1,21 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification.impl;
 
-import com.intellij.notification.NotificationDisplayType;
-import com.intellij.notification.NotificationGroup;
-import com.intellij.notification.NotificationsConfiguration;
+import com.intellij.notification.*;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.messages.MessageBus;
-import gnu.trove.THashMap;
-import gnu.trove.THashSet;
+import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Map;
+import java.util.*;
 
-/**
- * @author spleaner
- */
-@State(
-  name = "NotificationConfiguration",
-  storages = @Storage("notifications.xml")
-)
-public class NotificationsConfigurationImpl extends NotificationsConfiguration implements PersistentStateComponent<Element>,
-                                                                                          Disposable, ApplicationComponent {
-
+@State(name = "NotificationConfiguration", storages = @Storage("notifications.xml"))
+public final class NotificationsConfigurationImpl extends NotificationsConfiguration implements PersistentStateComponent<Element>, Disposable {
   private static final Logger LOG = Logger.getInstance(NotificationsConfiguration.class);
   private static final String SHOW_BALLOONS_ATTRIBUTE = "showBalloons";
   private static final String SYSTEM_NOTIFICATIONS_ATTRIBUTE = "systemNotifications";
@@ -39,16 +23,11 @@ public class NotificationsConfigurationImpl extends NotificationsConfiguration i
   private static final Comparator<NotificationSettings> NOTIFICATION_SETTINGS_COMPARATOR =
     (o1, o2) -> o1.getGroupId().compareToIgnoreCase(o2.getGroupId());
 
-  private final Map<String, NotificationSettings> myIdToSettingsMap = new THashMap<>();
-  private final Map<String, String> myToolWindowCapable = new THashMap<>();
-  private final MessageBus myMessageBus;
+  private final Map<String, NotificationSettings> myIdToSettingsMap = new HashMap<>();
+  private final Map<String, String> myToolWindowCapable = new HashMap<>();
 
   public boolean SHOW_BALLOONS = true;
   public boolean SYSTEM_NOTIFICATIONS = true;
-
-  public NotificationsConfigurationImpl(@NotNull MessageBus bus) {
-    myMessageBus = bus;
-  }
 
   public static NotificationsConfigurationImpl getInstanceImpl() {
     return (NotificationsConfigurationImpl)getNotificationsConfiguration();
@@ -58,6 +37,13 @@ public class NotificationsConfigurationImpl extends NotificationsConfiguration i
     return getToolWindowId(groupId) != null || myToolWindowCapable.containsKey(groupId);
   }
 
+  static final class MyNotificationListener implements Notifications {
+    @Override
+    public void notify(@NotNull Notification notification) {
+      getInstanceImpl().notify(notification);
+    }
+  }
+
   @Nullable
   public String getToolWindowId(@NotNull String groupId) {
     NotificationGroup group = NotificationGroup.findRegisteredGroup(groupId);
@@ -65,8 +51,9 @@ public class NotificationsConfigurationImpl extends NotificationsConfiguration i
   }
 
   public synchronized NotificationSettings[] getAllSettings() {
-    Collection<NotificationSettings> settings = new THashSet<>(myIdToSettingsMap.values());
-    for (NotificationGroup group : NotificationGroup.getAllRegisteredGroups()) {
+    Collection<NotificationSettings> settings = new HashSet<>(myIdToSettingsMap.values());
+    Iterable<NotificationGroup> notificationGroups = NotificationGroup.getAllRegisteredGroups();
+    for (NotificationGroup group : notificationGroups) {
       if (group.getDisplayId().startsWith(LIGHTWEIGHT_PREFIX)) continue;
       settings.add(getSettings(group.getDisplayId()));
     }
@@ -104,11 +91,6 @@ public class NotificationsConfigurationImpl extends NotificationsConfiguration i
       return new NotificationSettings(groupId, group.getDisplayType(), group.isLogByDefault(), false);
     }
     return new NotificationSettings(groupId, NotificationDisplayType.BALLOON, true, false);
-  }
-
-  @Override
-  public void initComponent() {
-    myMessageBus.connect(this).subscribe(TOPIC, this);
   }
 
   @Override
@@ -195,7 +177,7 @@ public class NotificationsConfigurationImpl extends NotificationsConfiguration i
   public synchronized void loadState(@NotNull final Element state) {
     myIdToSettingsMap.clear();
     for (Element child : state.getChildren("notification")) {
-      final NotificationSettings settings = NotificationSettings.load(child);
+      final NotificationSettings settings = NotificationSettings.Companion.load(child);
       if (settings != null) {
         final String id = settings.getGroupId();
         LOG.assertTrue(!myIdToSettingsMap.containsKey(id), String.format("Settings for '%s' already loaded!", id));

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.copy;
 
+import com.intellij.CommonBundle;
 import com.intellij.ide.scratch.ScratchUtil;
 import com.intellij.ide.util.DirectoryUtil;
 import com.intellij.ide.util.PropertiesComponent;
@@ -22,15 +9,16 @@ import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
+import com.intellij.openapi.fileChooser.impl.FileChooserUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.keymap.KeymapUtil;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.ui.DialogWrapperPeer;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextComponentAccessor;
 import com.intellij.openapi.util.io.FileUtil;
@@ -39,55 +27,63 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.move.moveFilesOrDirectories.MoveFilesOrDirectoriesUtil;
-import com.intellij.ui.DocumentAdapter;
-import com.intellij.ui.RecentsManager;
-import com.intellij.ui.TextFieldWithHistory;
-import com.intellij.ui.TextFieldWithHistoryWithBrowseButton;
+import com.intellij.refactoring.ui.RefactoringDialog;
+import com.intellij.ui.*;
 import com.intellij.ui.components.JBLabelDecorator;
-import com.intellij.ui.components.JBTextField;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
 import com.intellij.util.PathUtilRt;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.List;
 
-public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
+public class CopyFilesOrDirectoriesDialog extends RefactoringDialog implements DumbAware {
   public static final int MAX_PATH_LENGTH = 70;
 
-  private static final String COPY_OPEN_IN_EDITOR = "Copy.OpenInEditor";
-  private static final String RECENT_KEYS = "CopyFile.RECENT_KEYS";
+  @NonNls private static final String COPY = "Copy";
+  @NonNls private static final String COPY_OPEN_IN_EDITOR = "Copy.OpenInEditor";
+  @NonNls private static final String RECENT_KEYS = "CopyFile.RECENT_KEYS";
 
   public static String shortenPath(@NotNull VirtualFile file) {
     return StringUtil.shortenPathWithEllipsis(file.getPresentableUrl(), MAX_PATH_LENGTH);
   }
 
+  /**
+   * Checkbox enabled via the constructor parameters provides a better UX.
+   *
+   * @deprecated use {@link RefactoringDialog#RefactoringDialog(Project, boolean, boolean)} instead
+   */
+  @Deprecated
   public static JCheckBox createOpenInEditorCB() {
-    JCheckBox checkBox = new JCheckBox("Open copy in editor", PropertiesComponent.getInstance().getBoolean(COPY_OPEN_IN_EDITOR, true));
+    JCheckBox checkBox = new JCheckBox(RefactoringBundle.message("open.copy.in.editor"), PropertiesComponent.getInstance().getBoolean(COPY_OPEN_IN_EDITOR, true));
     checkBox.setMnemonic('o');
     return checkBox;
   }
 
+  /**
+   * There's no need so save state explicitly if the constructor parameter is used to create a checkbox.
+   *
+   * @deprecated use {@link RefactoringDialog#RefactoringDialog(Project, boolean, boolean)} instead
+   */
+  @Deprecated
   public static void saveOpenInEditorState(boolean selected) {
     PropertiesComponent.getInstance().setValue(COPY_OPEN_IN_EDITOR, String.valueOf(selected));
   }
 
   private JLabel myInformationLabel;
   private TextFieldWithHistoryWithBrowseButton myTargetDirectoryField;
-  private final JCheckBox myOpenFilesInEditor = createOpenInEditorCB();
   private boolean myUnknownFileType = false;
 
-  private JTextField myNewNameField;
+  private EditorTextField myNewNameField;
   private final PsiElement[] myElements;
-  private final Project myProject;
   private final boolean myShowDirectoryField;
   private final boolean myShowNewNameField;
 
@@ -95,9 +91,8 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
   private boolean myFileCopy = false;
 
   public CopyFilesOrDirectoriesDialog(PsiElement[] elements, @Nullable PsiDirectory defaultTargetDirectory, Project project, boolean doClone) {
-    super(project, true);
+    super(project, true, canBeOpenedInEditor(elements));
     myElements = elements;
-    myProject = project;
     myShowDirectoryField = !doClone;
     myShowNewNameField = elements.length == 1;
 
@@ -128,8 +123,7 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
         myNewNameField.setText(fileName);
         int dotIdx = fileName.lastIndexOf('.');
         if (dotIdx > 0) {
-          myNewNameField.select(0, dotIdx);
-          myNewNameField.putClientProperty(DialogWrapperPeer.HAVE_INITIAL_SELECTION, true);
+          selectNameWithoutExtension(dotIdx);
         }
         myTargetDirectory = file.getContainingDirectory();
         myFileCopy = true;
@@ -145,21 +139,36 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
       setMultipleElementCopyLabel(elements);
     }
 
-    boolean allBinary = true;
-    for (PsiElement element : elements) {
-      if (!(element.getContainingFile() instanceof PsiBinaryFile)) {
-        allBinary = false;
-        break;
-      }
-    }
-    if (allBinary) {
-      myOpenFilesInEditor.setVisible(false);
-    }
     if (myShowDirectoryField) {
       String targetPath = defaultTargetDirectory == null ? "" : defaultTargetDirectory.getVirtualFile().getPresentableUrl();
       getTargetDirectoryComponent().setText(targetPath);
     }
-    validateOKButton();
+    validateButtons();
+    getRefactorAction().putValue(Action.NAME, CommonBundle.getOkButtonText());
+  }
+
+  private static boolean canBeOpenedInEditor(PsiElement[] elements) {
+    for (PsiElement element : elements) {
+      if (!(element.getContainingFile() instanceof PsiBinaryFile)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private void selectNameWithoutExtension(int dotIdx) {
+    Runnable selectRunnable = () -> {
+      Editor editor = myNewNameField.getEditor();
+      if (editor != null) {
+        editor.getSelectionModel().setSelection(0, dotIdx);
+        editor.getCaretModel().moveToOffset(dotIdx);
+      }
+      else {
+        myNewNameField.selectAll();
+      }
+    };
+    //noinspection SSBasedInspection
+    SwingUtilities.invokeLater(selectRunnable);
   }
 
   private void setMultipleElementCopyLabel(PsiElement[] elements) {
@@ -185,12 +194,6 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-  }
-
-  @Override
   public JComponent getPreferredFocusedComponent() {
     return myShowNewNameField ? myNewNameField : getTargetDirectoryComponent();
   }
@@ -209,16 +212,15 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
     myInformationLabel = JBLabelDecorator.createJBLabelDecorator().setBold(true);
     final FormBuilder formBuilder = FormBuilder.createFormBuilder().addComponent(myInformationLabel).addVerticalGap(
       UIUtil.LARGE_VGAP - UIUtil.DEFAULT_VGAP);
-    DocumentListener documentListener = new DocumentAdapter() {
-      @Override
-      public void textChanged(DocumentEvent event) {
-        validateOKButton();
-      }
-    };
 
     if (myShowNewNameField) {
-      myNewNameField = new JBTextField();
-      myNewNameField.getDocument().addDocumentListener(documentListener);
+      myNewNameField = new EditorTextField();
+      myNewNameField.addDocumentListener(new DocumentListener() {
+        @Override
+        public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent event) {
+          validateButtons();
+        }
+      });
       formBuilder.addLabeledComponent(RefactoringBundle.message("copy.files.new.name.label"), myNewNameField);
     }
 
@@ -236,8 +238,8 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
                                                      TextComponentAccessor.TEXT_FIELD_WITH_HISTORY_WHOLE_TEXT);
       getTargetDirectoryComponent().addDocumentListener(new DocumentAdapter() {
         @Override
-        protected void textChanged(DocumentEvent e) {
-          validateOKButton();
+        protected void textChanged(@NotNull DocumentEvent e) {
+          validateButtons();
         }
       });
       formBuilder.addLabeledComponent(RefactoringBundle.message("copy.files.to.directory.label"), myTargetDirectoryField);
@@ -247,9 +249,6 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
       formBuilder.addTooltip(RefactoringBundle.message("path.completion.shortcut", shortcutText));
     }
 
-    final JPanel wrapper = new JPanel(new BorderLayout());
-    wrapper.add(myOpenFilesInEditor, BorderLayout.EAST);
-    formBuilder.addComponent(wrapper);
     return formBuilder.getPanel();
   }
 
@@ -261,14 +260,21 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
     return myNewNameField != null ? myNewNameField.getText().trim() : null;
   }
 
+  /**
+   * @deprecated use {@link #isOpenInEditor()} instead
+   */
+  @Deprecated
   public boolean openInEditor() {
-    return myOpenFilesInEditor.isVisible() &&
-           myOpenFilesInEditor.isSelected() &&
-           !myUnknownFileType;
+    return isOpenInEditor();
   }
 
   @Override
-  protected void doOKAction() {
+  public boolean isOpenInEditor() {
+    return !myUnknownFileType && super.isOpenInEditor();
+  }
+
+  @Override
+  protected void doAction() {
     if (myShowNewNameField) {
       String newName = getNewName();
 
@@ -278,21 +284,17 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
       }
 
       if (myFileCopy && !PathUtilRt.isValidFileName(newName, false)) {
-        Messages.showErrorDialog(myNewNameField, "Name is not a valid file name");
+        Messages.showErrorDialog(myNewNameField, RefactoringBundle.message("name.is.not.a.valid.file.name"));
         return;
       }
 
-      if (myFileCopy && myTargetDirectory != null &&
-          myOpenFilesInEditor.isVisible() && myOpenFilesInEditor.isSelected()) {
+      if (myFileCopy && myTargetDirectory != null && isOpenInEditor()) {
         if (FileTypeChooser.getKnownFileTypeOrAssociate(myTargetDirectory.getVirtualFile(), newName, myProject) == null) {
           myUnknownFileType = true;
         }
       }
     }
 
-    if (myOpenFilesInEditor.isVisible()) {
-      saveOpenInEditorState(myOpenFilesInEditor.isSelected());
-    }
     if (myShowDirectoryField) {
       final String targetDirectoryName = getTargetDirectoryComponent().getText();
 
@@ -316,6 +318,7 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
         Messages.showErrorDialog(myProject, RefactoringBundle.message("cannot.create.directory"), RefactoringBundle.message("error.title"));
         return;
       }
+      FileChooserUtil.setLastOpenedFile(myProject, myTargetDirectory.getVirtualFile().toNioPath());
 
       try {
         for (PsiElement element : myElements) {
@@ -328,26 +331,35 @@ public class CopyFilesOrDirectoriesDialog extends DialogWrapper {
       }
     }
 
-    super.doOKAction();
+    closeOKAction();
   }
 
-  private void validateOKButton() {
+  @Override
+  protected boolean hasPreviewButton() {
+    return false;
+  }
+
+  @Override
+  protected boolean areButtonsValid() {
     if (myShowDirectoryField && getTargetDirectoryComponent().getText().length() == 0) {
-      setOKActionEnabled(false);
-      return;
+      return false;
     }
     if (myShowNewNameField) {
       String newName = getNewName();
       if (newName.length() == 0 || myFileCopy && !PathUtilRt.isValidFileName(newName, false)) {
-        setOKActionEnabled(false);
-        return;
+        return false;
       }
     }
-    setOKActionEnabled(true);
+    return true;
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("refactoring.copyClass");
+  protected @NotNull String getRefactoringId() {
+    return COPY;
+  }
+
+  @Override
+  protected String getHelpId() {
+    return "refactoring.copyClass";
   }
 }

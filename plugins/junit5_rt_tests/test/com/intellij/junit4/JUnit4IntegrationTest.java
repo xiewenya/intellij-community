@@ -15,7 +15,9 @@
  */
 package com.intellij.junit4;
 
+import com.intellij.execution.ExecutionException;
 import com.intellij.execution.junit.JUnitConfiguration;
+import com.intellij.java.execution.AbstractTestFrameworkIntegrationTest;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.CompilerModuleExtension;
@@ -24,7 +26,6 @@ import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
-import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor;
 import org.junit.After;
@@ -40,11 +41,11 @@ import java.util.Arrays;
 import java.util.Collection;
 
 @RunWith(Parameterized.class)
-public class JUnit4IntegrationTest extends JUnitAbstractIntegrationTest {
+public class JUnit4IntegrationTest extends AbstractTestFrameworkIntegrationTest {
 
   public static final String CLASS_NAME = "a.Test1";
   private static final String METHOD_NAME = "simple";
-
+  
   @Rule public final TestName myNameRule = new TestName();
 
   @Parameterized.Parameters(name = "{0}")
@@ -67,58 +68,45 @@ public class JUnit4IntegrationTest extends JUnitAbstractIntegrationTest {
   public String myJUnitVersion;
 
   @Before
-  public void before() {
-    EdtTestUtil.runInEdtAndWait(() -> {
-      setUp();
-      Module module = createEmptyModule();
-      String communityPath = PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/');
-      String methodName = myNameRule.getMethodName();
-      methodName = methodName.substring(0, methodName.indexOf("["));
-      String testDataPath = communityPath + File.separator + "plugins" + File.separator + "junit5_rt_tests" +
-                            File.separator + "testData" + File.separator + "integration" + File.separator + methodName;
-      
-      addLibs(module, new JpsMavenRepositoryLibraryDescriptor("junit", "junit", myJUnitVersion), getRepoManager());
+  public void before() throws Exception {
+    Module module = createEmptyModule();
+    String communityPath = PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/');
+    String methodName = myNameRule.getMethodName();
+    methodName = methodName.substring(0, methodName.indexOf("["));
+    String testDataPath = communityPath + File.separator + "plugins" + File.separator + "junit5_rt_tests" +
+                          File.separator + "testData" + File.separator + "integration" + File.separator + methodName;
 
-      ModuleRootModificationUtil.setModuleSdk(module, JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk());
-      ModuleRootModificationUtil.updateModel(module, model -> {
-        ContentEntry contentEntry = model.addContentEntry(VfsUtilCore.pathToUrl(testDataPath));
-        contentEntry.addSourceFolder(VfsUtilCore.pathToUrl(testDataPath + File.separator + "test"), true);
-        CompilerModuleExtension moduleExtension = model.getModuleExtension(CompilerModuleExtension.class);
-        moduleExtension.inheritCompilerOutputPath(false);
-        moduleExtension.setCompilerOutputPathForTests(VfsUtilCore.pathToUrl(testDataPath + File.separator + "out"));
-      });
+    addMavenLibs(module, new JpsMavenRepositoryLibraryDescriptor("junit", "junit", myJUnitVersion), getRepoManager());
+
+    ModuleRootModificationUtil.setModuleSdk(module, JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk());
+    ModuleRootModificationUtil.updateModel(module, model -> {
+      ContentEntry contentEntry = model.addContentEntry(VfsUtilCore.pathToUrl(testDataPath));
+      contentEntry.addSourceFolder(VfsUtilCore.pathToUrl(testDataPath + File.separator + "test"), true);
+      CompilerModuleExtension moduleExtension = model.getModuleExtension(CompilerModuleExtension.class);
+      moduleExtension.inheritCompilerOutputPath(false);
+      moduleExtension.setCompilerOutputPathForTests(VfsUtilCore.pathToUrl(testDataPath + File.separator + "out"));
     });
   }
 
   @After
   public void after() {
-    EdtTestUtil.runInEdtAndWait(() -> {
-      JavaAwareProjectJdkTableImpl.removeInternalJdkInTests();
-      tearDown();
-    });
-  }
-
-  @Override
-  public String getName() {
-    return myNameRule.getMethodName();
+    JavaAwareProjectJdkTableImpl.removeInternalJdkInTests();
   }
 
   @Test
-  public void ignoredTestMethod() {
-    EdtTestUtil.runInEdtAndWait(() -> {
-      PsiClass psiClass = findClass(getModule1(), CLASS_NAME);
-      assertNotNull(psiClass);
-      PsiMethod testMethod = psiClass.findMethodsByName(METHOD_NAME, false)[0];
-      JUnitConfiguration configuration = createConfiguration(testMethod);
-      ProcessOutput processOutput = doStartTestsProcess(configuration);
-      String testOutput = processOutput.out.toString();
-      assertEmpty(processOutput.err);
-      switch (myJUnitVersion) {
-        case "4.4": case "4.5": break; //shouldn't work for old versions
-        default:
-          assertTrue(testOutput, testOutput.contains("Test1"));
-      }
-    });
+  public void ignoredTestMethod() throws ExecutionException {
+    PsiClass psiClass = findClass(getModule1(), CLASS_NAME);
+    assertNotNull(psiClass);
+    PsiMethod testMethod = psiClass.findMethodsByName(METHOD_NAME, false)[0];
+    JUnitConfiguration configuration = createConfiguration(testMethod);
+    ProcessOutput processOutput = doStartTestsProcess(configuration);
+    String testOutput = processOutput.out.toString();
+    assertEmpty(processOutput.err);
+    switch (myJUnitVersion) {
+      case "4.4": case "4.5": break; //shouldn't work for old versions
+      default:
+        assertTrue(testOutput, testOutput.contains("Test1"));
+    }
   }
 
 

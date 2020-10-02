@@ -37,7 +37,7 @@ public class DomReferencesTest extends DomHardCoreTestCase {
     final XmlTag tag = element.getXmlTag();
     final DomMetaData metaData = assertInstanceOf(tag.getMetaData(), DomMetaData.class);
     assertEquals(tag, metaData.getDeclaration());
-    assertOrderedEquals(metaData.getDependences(), DomUtil.getFileElement(element), tag);
+    assertOrderedEquals(metaData.getDependencies(), DomUtil.getFileElement(element), tag);
     assertEquals("A", metaData.getName());
     assertEquals("A", metaData.getName(null));
 
@@ -55,7 +55,7 @@ public class DomReferencesTest extends DomHardCoreTestCase {
 
   public void testProcessingInstruction() {
     createElement("<a><?xml version=\"1.0\"?></a>").getXmlTag().accept(new PsiRecursiveElementVisitor() {
-      @Override public void visitElement(PsiElement element) {
+      @Override public void visitElement(@NotNull PsiElement element) {
         super.visitElement(element);
         for (final PsiReference reference : element.getReferences()) {
           assertFalse(reference instanceof GenericDomValueReference);

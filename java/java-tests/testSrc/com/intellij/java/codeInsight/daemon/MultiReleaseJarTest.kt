@@ -1,28 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.daemon
 
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.java.testFramework.fixtures.LightJava9ModulesCodeInsightFixtureTestCase
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiJavaReference
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.ProjectScope
 import com.intellij.psi.search.PsiShortNamesCache
+import com.intellij.psi.stubs.StubUpdatingIndex
+import com.intellij.util.indexing.FileBasedIndex
 import org.assertj.core.api.Assertions.assertThat
 
 class MultiReleaseJarTest : LightJava9ModulesCodeInsightFixtureTestCase() {
@@ -60,8 +49,19 @@ class MultiReleaseJarTest : LightJava9ModulesCodeInsightFixtureTestCase() {
   }
 
   fun testFindFile() {
-    assertThat(FilenameIndex.getFilesByName(project, "MultiReleaseClass.class", scope)).hasSize(3)
+    assertThat(getAllAvailableVersionClasses()).hasSize(3)
   }
+
+  fun testStubIndexInternals() {
+    for (file in getAllAvailableVersionClasses()) {
+      val data = FileBasedIndex.getInstance().getFileData(StubUpdatingIndex.INDEX_ID, file, project)
+      val stub = assertOneElement(data.values)
+      assertNotNull(stub)
+    }
+  }
+
+  private fun getAllAvailableVersionClasses(): Collection<VirtualFile> =
+    FilenameIndex.getVirtualFilesByName(project, "MultiReleaseClass.class", scope)
 
   private fun assertUnversioned(elements: List<PsiElement?>) {
     assertThat(elements).hasSize(1)
@@ -69,7 +69,7 @@ class MultiReleaseJarTest : LightJava9ModulesCodeInsightFixtureTestCase() {
   }
 
   private fun assertUnversioned(element: PsiElement?) {
-    assertThat(element).isNotNull()
+    assertThat(element).isNotNull
     assertThat(element!!.containingFile.virtualFile.path).doesNotContain("/META-INF/versions/")
   }
 }

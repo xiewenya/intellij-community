@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.rules.guava;
 
 import com.intellij.codeInsight.daemon.impl.analysis.JavaGenericsUtil;
@@ -41,7 +27,7 @@ import java.util.List;
 /**
  * @author Dmitry Batkovich
  */
-public class FluentIterableConversionUtil {
+public final class FluentIterableConversionUtil {
   private final static Logger LOG = Logger.getInstance(FluentIterableConversionUtil.class);
 
   @Nullable
@@ -73,7 +59,7 @@ public class FluentIterableConversionUtil {
     }
     if (PsiTypesUtil.compareTypes(parameters[0], targetParameters[0], false)) {
       return new TypeConversionDescriptor("$q$.toArray($type$)", null) {
-        PsiType myType = parameters[0];
+        final PsiType myType = parameters[0];
 
         @Override
         public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) throws IncorrectOperationException {
@@ -157,7 +143,7 @@ public class FluentIterableConversionUtil {
   }
 
   static class TransformAndConcatConversionRule extends GuavaTypeConversionDescriptor {
-    public TransformAndConcatConversionRule(PsiExpression context) {
+    TransformAndConcatConversionRule(PsiExpression context) {
       super("$q$.transformAndConcat($params$)", "$q$.flatMap($params$)", context);
     }
 
@@ -212,7 +198,7 @@ public class FluentIterableConversionUtil {
     }
 
     private static boolean determineType(PsiExpression retValue,
-                                         List<Pair<PsiExpression, Boolean>> iterableReturnValues,
+                                         List<? super Pair<PsiExpression, Boolean>> iterableReturnValues,
                                          PsiClass iterable,
                                          PsiClass collection) {
       if (retValue == null) return false;
@@ -255,7 +241,7 @@ public class FluentIterableConversionUtil {
   }
 
   private static class GuavaFilterInstanceOfConversionDescriptor extends TypeConversionDescriptor {
-    public GuavaFilterInstanceOfConversionDescriptor(String filterClassQName) {
+    GuavaFilterInstanceOfConversionDescriptor(String filterClassQName) {
       super("$it$.filter($p$)", "$it$." + StreamApiConstants.FILTER + "(" + filterClassQName + ".class::isInstance)." + StreamApiConstants.MAP + "(" + filterClassQName + ".class::cast)");
     }
   }
@@ -297,7 +283,7 @@ public class FluentIterableConversionUtil {
   }
 
   static class CopyIntoConversionDescriptor extends TypeConversionDescriptor {
-    public CopyIntoConversionDescriptor() {
+    CopyIntoConversionDescriptor() {
       super("$it$.copyInto($c$)", null);
     }
 

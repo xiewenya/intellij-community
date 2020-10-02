@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.debugger.ui.breakpoints;
 
@@ -69,6 +55,7 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     myCondition = new TextWithImportsImpl(CodeFragmentKind.EXPRESSION, "");
   }
 
+  @Override
   public InstanceFilter[] getInstanceFilters() {
     return myInstanceFilters;
   }
@@ -77,10 +64,12 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     myInstanceFilters = instanceFilters != null? instanceFilters : InstanceFilter.EMPTY_ARRAY;
   }
 
+  @Override
   public String getSuspendPolicy() {
     return SUSPEND? SUSPEND_POLICY : DebuggerSettings.SUSPEND_NONE;
   }
 
+  @Override
   public final ClassFilter[] getClassFilters() {
     return myClassFilters;
   }
@@ -89,6 +78,7 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     myClassFilters = classFilters != null? classFilters : ClassFilter.EMPTY_ARRAY;
   }
 
+  @Override
   public ClassFilter[] getClassExclusionFilters() {
     return myClassExclusionFilters;
   }
@@ -123,6 +113,7 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     breakpoint.setInstanceFilters(getInstanceFilters());
   }
 
+  @Override
   public void readExternal(Element parentNode) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, parentNode);
     if (DebuggerSettings.SUSPEND_NONE.equals(SUSPEND_POLICY)) { // compatibility with older format
@@ -150,6 +141,7 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     myInstanceFilters = iFilters.isEmpty() ? InstanceFilter.EMPTY_ARRAY : iFilters.toArray(InstanceFilter.EMPTY_ARRAY);
   }
 
+  @Override
   public void writeExternal(Element parentNode) throws WriteExternalException {
     DefaultJDOMExternalizer.writeExternal(this, parentNode);
     JDOMExternalizerUtil.writeField(parentNode, CONDITION_OPTION_NAME, getCondition().toExternalForm());
@@ -170,24 +162,28 @@ public class FilteredRequestorImpl implements JDOMExternalizable, FilteredReques
     return myProject;
   }
 
+  @Override
   public boolean isCountFilterEnabled() {
     return COUNT_FILTER_ENABLED;
   }
 
+  @Override
   public int getCountFilter() {
     return COUNT_FILTER;
   }
 
+  @Override
   public boolean isClassFiltersEnabled() {
     return CLASS_FILTERS_ENABLED;
   }
 
+  @Override
   public boolean isInstanceFiltersEnabled() {
     return INSTANCE_FILTERS_ENABLED;
   }
 
   @Override
-  public boolean processLocatableEvent(SuspendContextCommandImpl action, LocatableEvent event)
+  public boolean processLocatableEvent(@NotNull SuspendContextCommandImpl action, LocatableEvent event)
     throws EventProcessingException {
     return false;
   }

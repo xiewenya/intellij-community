@@ -1,34 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search.searches;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.extensions.ExtensionPoint;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.extensions.SimpleSmartExtensionPoint;
-import com.intellij.openapi.extensions.SmartExtensionPoint;
+import com.intellij.openapi.extensions.*;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.QueryExecutor;
 import com.intellij.util.QueryFactory;
-import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.beans.Introspector;
 import java.util.List;
 
 /**
@@ -41,8 +22,22 @@ public class ExtensibleQueryFactory<Result, Parameters> extends QueryFactory<Res
     this("com.intellij");
   }
 
+  protected ExtensibleQueryFactory(@NotNull ExtensionPointName<QueryExecutor<Result, Parameters>> epName) {
+    myPoint = new SimpleSmartExtensionPoint<QueryExecutor<Result, Parameters>>() {
+      @NotNull
+      @Override
+      protected ExtensionPoint<QueryExecutor<Result, Parameters>> getExtensionPoint() {
+        return Extensions.getRootArea().getExtensionPoint(epName);
+      }
+    };
+  }
+
+  /**
+   * @deprecated Please specify extension point name explicitly
+   */
+  @Deprecated
   protected ExtensibleQueryFactory(@NonNls final String epNamespace) {
-    myPoint = new SimpleSmartExtensionPoint<QueryExecutor<Result, Parameters>>(new SmartList<>()){
+    myPoint = new SimpleSmartExtensionPoint<QueryExecutor<Result, Parameters>>() {
       @Override
       @NotNull
       protected ExtensionPoint<QueryExecutor<Result, Parameters>> getExtensionPoint() {
@@ -51,7 +46,7 @@ public class ExtensibleQueryFactory<Result, Parameters> extends QueryFactory<Res
         if (pos >= 0) {
           epName = epName.substring(pos+1);
         }
-        epName = epNamespace + "." + StringUtil.decapitalize(epName);
+        epName = epNamespace + "." + Introspector.decapitalize(epName);
         return Extensions.getRootArea().getExtensionPoint(epName);
       }
     };

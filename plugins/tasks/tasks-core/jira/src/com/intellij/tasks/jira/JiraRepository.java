@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.jira;
 
 import com.google.gson.Gson;
@@ -22,7 +8,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.tasks.CustomTaskState;
 import com.intellij.tasks.LocalTask;
 import com.intellij.tasks.Task;
@@ -31,7 +16,6 @@ import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.impl.gson.TaskGsonUtil;
 import com.intellij.tasks.jira.rest.JiraRestApi;
 import com.intellij.tasks.jira.soap.JiraLegacyApi;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.apache.commons.httpclient.*;
@@ -44,8 +28,11 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -107,18 +94,20 @@ public class JiraRepository extends BaseRepositoryImpl {
 
     JiraRepository repository = (JiraRepository)o;
 
-    if (!Comparing.equal(mySearchQuery, repository.getSearchQuery())) return false;
-    if (!Comparing.equal(myJiraVersion, repository.getJiraVersion())) return false;
+    if (!Objects.equals(mySearchQuery, repository.getSearchQuery())) return false;
+    if (!Objects.equals(myJiraVersion, repository.getJiraVersion())) return false;
     if (!Comparing.equal(myInCloud, repository.isInCloud())) return false;
     return true;
   }
 
 
+  @Override
   @NotNull
   public JiraRepository clone() {
     return new JiraRepository(this);
   }
 
+  @Override
   public Task[] getIssues(@Nullable String query, int max, long since) throws Exception {
     ensureApiVersionDiscovered();
     String resultQuery = StringUtil.notNullize(query);
@@ -144,7 +133,7 @@ public class JiraRepository extends BaseRepositoryImpl {
         tasksFound = ContainerUtil.append(tasksFound, task);
       }
     }
-    return ArrayUtil.toObjectArray(tasksFound, Task.class);
+    return tasksFound.toArray(Task.EMPTY_ARRAY);
   }
 
   @Nullable
@@ -222,15 +211,19 @@ public class JiraRepository extends BaseRepositoryImpl {
   private static boolean isHostedInCloud(@NotNull JsonObject serverInfo) {
     final JsonElement deploymentType = serverInfo.get("deploymentType");
     if (deploymentType != null) {
-      return deploymentType.getAsString().equals("Cloud");  
+      return deploymentType.getAsString().equals("Cloud");
     }
-    // Legacy heuristics 
-    final boolean atlassianSubDomain = hostEndsWith(serverInfo.get("baseUrl").getAsString(), ".atlassian.net");
+    // Legacy heuristics
+    final boolean atlassianSubDomain = isAtlassianNetSubDomain(serverInfo.get("baseUrl").getAsString());
     if (atlassianSubDomain) {
       return true;
     }
     // JIRA OnDemand versions contained "OD" abbreviation
     return serverInfo.get("version").getAsString().contains("OD") ;
+  }
+
+  private static boolean isAtlassianNetSubDomain(@NotNull String url) {
+    return hostEndsWith(url, ".atlassian.net");
   }
 
   private static boolean hostEndsWith(@NotNull String url, @NotNull String suffix) {
@@ -290,8 +283,13 @@ public class JiraRepository extends BaseRepositoryImpl {
     int statusCode = client.executeMethod(method);
     LOG.debug("Status code: " + statusCode);
     // may be null if 204 No Content received
-    final InputStream stream = method.getResponseBodyAsStream();
-    String entityContent = stream == null ? "" : StreamUtil.readText(stream, CharsetToolkit.UTF8);
+    InputStream stream = method.getResponseBodyAsStream();
+    String entityContent = "";
+    if (stream != null) {
+      try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+        entityContent = StreamUtil.readText(reader);
+      }
+    }
     //TaskUtil.prettyFormatJsonToLog(LOG, entityContent);
     // besides SC_OK, can also be SC_NO_CONTENT in issue transition requests
     // see: JiraRestApi#setTaskStatus
@@ -306,8 +304,15 @@ public class JiraRepository extends BaseRepositoryImpl {
         JsonObject object = GSON.fromJson(entityContent, JsonObject.class);
         if (object.has("errorMessages")) {
           String reason = StringUtil.join(object.getAsJsonArray("errorMessages"), " ");
-          // something meaningful to user, e.g. invalid field name in JQL query
+          // If anonymous access is enabled on server, it might reply only with a cryptic 400 error about inaccessible issue fields,
+          // e.g. "Field 'assignee' does not exist or this field cannot be viewed by anonymous users."
+          // Unfortunately, there is no better way to indicate such errors other than by matching by the error message itself.
           LOG.warn(reason);
+          if (statusCode ==  HttpStatus.SC_BAD_REQUEST && reason.contains("cannot be viewed by anonymous users")) {
+            // Oddly enough, in case of JIRA Cloud issues are access anonymously only if API Token is correct, but email is wrong.
+            throw new Exception(isInCloud() ? TaskBundle.message("jira.failure.email.address") : TaskBundle.message("failure.login"));
+          }
+          // something meaningful to user, e.g. invalid field name in JQL query
           throw new Exception(TaskBundle.message("failure.server.message", reason));
         }
       }
@@ -338,7 +343,7 @@ public class JiraRepository extends BaseRepositoryImpl {
   String getPresentableVersion() {
     return StringUtil.notNullize(myJiraVersion, "unknown") + (myInCloud ? " (Cloud)" : "");
   }
-  
+
   private static boolean containsCookie(@NotNull HttpClient client, @NotNull String cookieName) {
     for (Cookie cookie : client.getState().getCookies()) {
       if (cookie.getName().equals(cookieName) && !cookie.isExpired()) {
@@ -376,7 +381,7 @@ public class JiraRepository extends BaseRepositoryImpl {
   }
 
   private boolean isRestApiSupported() {
-    return myApiVersion != null && myApiVersion.getType() != JiraRemoteApi.ApiType.LEGACY;
+    return myApiVersion == null || myApiVersion.getType() != JiraRemoteApi.ApiType.LEGACY;
   }
 
   public boolean isJqlSupported() {
@@ -410,7 +415,7 @@ public class JiraRepository extends BaseRepositoryImpl {
     // reset remote API version, only if server URL was changed
     if (!getUrl().equals(oldUrl)) {
       myApiVersion = null;
-      myInCloud = false;
+      myInCloud = isAtlassianNetSubDomain(getUrl());
     }
   }
 

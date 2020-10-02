@@ -15,6 +15,7 @@
  */
 package com.intellij.refactoring.typeMigration.ui;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.packageDependencies.ui.UsagesPanel;
 import com.intellij.psi.PsiElement;
@@ -29,16 +30,18 @@ public class MigrationConflictsPanel extends UsagesPanel{
     super(project);
   }
 
+  @Override
   public String getInitialPositionText() {
-    return "No migration conflicts found";
-  }
-
-  public String getCodeUsagesString() {
-    return "Found migration conflicts";
+    return JavaRefactoringBundle.message("type.migration.no.conflicts.found");
   }
 
   @Override
-  public void showUsages(@NotNull final PsiElement[] primaryElements, @NotNull final UsageInfo[] usageInfos) {
+  public String getCodeUsagesString() {
+    return JavaRefactoringBundle.message("type.migration.conflicts.found");
+  }
+
+  @Override
+  public void showUsages(final PsiElement @NotNull [] primaryElements, final UsageInfo @NotNull [] usageInfos) {
     super.showUsages(primaryElements, usageInfos);
   }
 }

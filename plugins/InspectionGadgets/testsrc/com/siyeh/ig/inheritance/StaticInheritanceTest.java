@@ -21,14 +21,9 @@ import com.intellij.openapi.application.PluginPathManager;
 import org.jetbrains.annotations.NotNull;
 
 public class StaticInheritanceTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new StaticInheritanceInspection()};
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   @Override

@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.highlighter
 
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.options.colors.AttributesDescriptor
 import com.intellij.openapi.options.colors.ColorDescriptor
 import com.intellij.openapi.options.colors.ColorSettingsPage
 import icons.JetgroovyIcons
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.plugins.groovy.GroovyBundle
 import org.jetbrains.plugins.groovy.highlighter.GroovySyntaxHighlighter.*
 import javax.swing.Icon
 
@@ -31,6 +19,8 @@ class GroovyColorSettingsPage : ColorSettingsPage {
       "Annotations//Annotation name" to ANNOTATION,
 
       "Braces and Operators//Braces" to BRACES,
+      "Braces and Operators//Closure expression braces and arrow" to CLOSURE_ARROW_AND_BRACES,
+      "Braces and Operators//Lambda expression braces and arrow " to LAMBDA_ARROW_AND_BRACES,
       "Braces and Operators//Brackets" to BRACKETS,
       "Braces and Operators//Parentheses" to PARENTHESES,
       "Braces and Operators//Operator sign" to OPERATION_SIGN,
@@ -118,24 +108,27 @@ class GroovyColorSettingsPage : ColorSettingsPage {
       "label" to LABEL,
 
       "validEscape" to VALID_STRING_ESCAPE,
-      "invalidEscape" to INVALID_STRING_ESCAPE
+      "invalidEscape" to INVALID_STRING_ESCAPE,
+
+      "closureBraces" to CLOSURE_ARROW_AND_BRACES,
+      "lambdaBraces" to LAMBDA_ARROW_AND_BRACES
     )
   }
 
-  override fun getDisplayName() = "Groovy"
+  override fun getDisplayName(): String = GroovyBundle.message("language.groovy")
 
   override fun getIcon(): Icon? = JetgroovyIcons.Groovy.Groovy_16x16
 
-  override fun getAttributeDescriptors() = attributes
+  override fun getAttributeDescriptors(): Array<AttributesDescriptor> = attributes
 
   override fun getColorDescriptors(): Array<out ColorDescriptor> = ColorDescriptor.EMPTY_ARRAY
 
-  override fun getHighlighter() = GroovySyntaxHighlighter()
+  override fun getHighlighter(): GroovySyntaxHighlighter = GroovySyntaxHighlighter()
 
-  override fun getAdditionalHighlightingTagToDescriptorMap() = additionalTags
+  override fun getAdditionalHighlightingTagToDescriptorMap(): Map<String, TextAttributesKey> = additionalTags
 
   @NonNls
-  override fun getDemoText() = """<keyword>package</keyword> highlighting
+  override fun getDemoText(): String = """<keyword>package</keyword> highlighting
 ###
 
 <groovydoc>/**
@@ -162,6 +155,9 @@ class GroovyColorSettingsPage : ColorSettingsPage {
   <keyword>static</keyword> <keyword>def</keyword> <method>staticMethod</method>(<keyword>int</keyword> <parameter>i</parameter>) {
     /* This is a block comment */
     <interface>Map</interface> <localVariable>map</localVariable> = [<mapKey>key1</mapKey>: 1, <mapKey>key2</mapKey>: 2, (22): 33]
+
+    <keyword>def</keyword> <localVariable>cl</localVariable> = <closureBraces>{</closureBraces> <parameter>a</parameter> <closureBraces>-></closureBraces> <parameter>a</parameter> <closureBraces>}</closureBraces>
+    <keyword>def</keyword> <localVariable>lambda</localVariable> = <parameter>b</parameter> <lambdaBraces>-></lambdaBraces> <lambdaBraces>{</lambdaBraces> <parameter>b</parameter> <lambdaBraces>}</lambdaBraces>
 
     <class>File</class> <localVariable>f</localVariable> = <literalConstructor>[</literalConstructor>'path'<literalConstructor>]</literalConstructor>
     <keyword>def</keyword> <reassignedVariable>a</reassignedVariable> = 'JetBrains'.<instanceMethodCall>matches</instanceMethodCall>(/Jw+Bw+/)

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.progress.util;
 
 import com.intellij.ide.ui.UISettings;
@@ -20,6 +6,7 @@ import com.intellij.openapi.ui.GraphicsConfig;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.UIUtil;
 
@@ -39,20 +26,20 @@ public class ColorProgressBar extends JComponent {
 
   public static final Color GREEN = new JBColor(() -> {
     UISettings settings = UISettings.getInstance();
-    return settings == null || null == settings.getColorBlindness()
+    return null == settings.getColorBlindness()
            ? new JBColor(new Color(0x6cad74), new Color(0x4a8c53))
            : new JBColor(new Color(0x6ca69c), new Color(0x639990));
   });
   public static final Color RED = new JBColor(() -> {
     UISettings settings = UISettings.getInstance();
-    return settings == null || null == settings.getColorBlindness()
+    return null == settings.getColorBlindness()
            ? new JBColor(new Color(0xd67b76), new Color(0xe55757))
            : new JBColor(new Color(0xcc7447), new Color(0xcc7447));
   });
   public static final Color RED_TEXT = new JBColor(new Color(0xb81708), new Color(0xdb5c5c));
   public static final Color BLUE = new JBColor(new Color(1, 68, 208), JBColor.blue);
   public static final Color YELLOW = new JBColor(new Color(0xa67a21), new Color(0x91703a));
-  private static final Color SHADOW1 = new JBColor(Gray._190, UIUtil.getBorderColor()) ;
+  private static final Color SHADOW1 = new JBColor(Gray._190, JBColor.border());
   private static final Color SHADOW2 = Gray._105;
 
   private static final int BRICK_WIDTH = 6;
@@ -122,6 +109,7 @@ public class ColorProgressBar extends JComponent {
     return (int)(bricksTotal * fraction) + 1;
   }
 
+  @Override
   protected void paintComponent(Graphics g) {
     super.paintComponent(g);
 
@@ -137,7 +125,7 @@ public class ColorProgressBar extends JComponent {
     Rectangle2D rect = new Rectangle2D.Double(2, 2, size.width - 4, size.height - 4);
     g2.fill(rect);
 
-    g2.setPaint(new JBColor(SHADOW1, UIUtil.getBorderColor()));
+    g2.setPaint(new JBColor(SHADOW1, JBColor.border()));
     rect.setRect(1, 1, size.width - 2, size.height - 2);
     g2.drawRoundRect(1, 1, size.width - 2, size.height - 2, 5, 5);
     g2.setPaint(SHADOW2);
@@ -155,21 +143,21 @@ public class ColorProgressBar extends JComponent {
     if (myIndeterminate) {
 
       int startFrom = bricksToDraw < INDETERMINATE_BRICKS_DRAW ? 0 : bricksToDraw - INDETERMINATE_BRICKS_DRAW;
-      int endTo = bricksToDraw + INDETERMINATE_BRICKS_DRAW < getBricksToDraw(1) ? bricksToDraw + INDETERMINATE_BRICKS_DRAW  : getBricksToDraw(1);
+      int endTo = Math.min(bricksToDraw + INDETERMINATE_BRICKS_DRAW, getBricksToDraw(1));
 
       for (int i = startFrom; i <= endTo; i++) {
         g2.setPaint(myColor);
 
         int startXOffset = x_offset + (BRICK_WIDTH + BRICK_SPACE) * i;
-        UIUtil.drawLine(g2, startXOffset, y_center, startXOffset + BRICK_WIDTH - 1, y_center);
+        LinePainter2D.paint(g2, startXOffset, y_center, startXOffset + BRICK_WIDTH - 1, y_center);
 
         for (int j = 0; j < y_steps; j++) {
           Color color = ColorUtil.toAlpha(myColor, 255 - alpha_step * (j + 1));
           g2.setPaint(color);
-          UIUtil.drawLine(g2, startXOffset, y_center - 1 - j, startXOffset + BRICK_WIDTH - 1, y_center - 1 - j);
+          LinePainter2D.paint(g2, startXOffset, y_center - 1 - j, startXOffset + BRICK_WIDTH - 1, y_center - 1 - j);
 
           if (!(y_center % 2 != 0 && j == y_steps - 1)) {
-            UIUtil.drawLine(g2, startXOffset, y_center + 1 + j, startXOffset + BRICK_WIDTH - 1, y_center + 1 + j);
+            LinePainter2D.paint(g2, startXOffset, y_center + 1 + j, startXOffset + BRICK_WIDTH - 1, y_center + 1 + j);
           }
         }
         g2.setColor(
@@ -180,13 +168,13 @@ public class ColorProgressBar extends JComponent {
     } else {
       for (int i = 0; i < bricksToDraw; i++) {
         g2.setPaint(myColor);
-        UIUtil.drawLine(g2, x_offset, y_center, x_offset + BRICK_WIDTH - 1, y_center);
+        LinePainter2D.paint(g2, x_offset, y_center, x_offset + BRICK_WIDTH - 1, y_center);
         for (int j = 0; j < y_steps; j++) {
           Color color = ColorUtil.toAlpha(myColor, 255 - alpha_step * (j + 1));
           g2.setPaint(color);
-          UIUtil.drawLine(g2, x_offset, y_center - 1 - j, x_offset + BRICK_WIDTH - 1, y_center - 1 - j);
+          LinePainter2D.paint(g2, x_offset, y_center - 1 - j, x_offset + BRICK_WIDTH - 1, y_center - 1 - j);
           if (!(y_center % 2 != 0 && j == y_steps - 1)) {
-            UIUtil.drawLine(g2, x_offset, y_center + 1 + j, x_offset + BRICK_WIDTH - 1, y_center + 1 + j);
+            LinePainter2D.paint(g2, x_offset, y_center + 1 + j, x_offset + BRICK_WIDTH - 1, y_center + 1 + j);
           }
         }
         g2.setColor(
@@ -199,16 +187,19 @@ public class ColorProgressBar extends JComponent {
     config.restore();
   }
 
+  @Override
   public Dimension getPreferredSize() {
     return PREFERRED_SIZE;
   }
 
+  @Override
   public Dimension getMaximumSize() {
     Dimension dimension = getPreferredSize();
     dimension.width = Short.MAX_VALUE;
     return dimension;
   }
 
+  @Override
   public Dimension getMinimumSize() {
     Dimension dimension = getPreferredSize();
     dimension.width = 13;
@@ -219,11 +210,12 @@ public class ColorProgressBar extends JComponent {
     return myColor;
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
+  @SuppressWarnings("HardCodedStringLiteral")
   public static void main(String[] args) {
     JFrame frame = new JFrame("ColorProgressBar Test");
     frame.addWindowListener(
       new WindowAdapter() {
+        @Override
         public void windowClosing(WindowEvent e) {
           System.exit(0);
         }
@@ -240,6 +232,7 @@ public class ColorProgressBar extends JComponent {
     frame.setVisible(true);
     JButton b = new JButton ("X");
     b.addActionListener(new ActionListener () {
+      @Override
       public void actionPerformed(ActionEvent e) {
          colorProgressBar.setFraction(1);
       }

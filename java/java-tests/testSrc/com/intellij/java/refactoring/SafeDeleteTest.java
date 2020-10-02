@@ -25,6 +25,7 @@ import org.jetbrains.jps.model.java.JavaSourceRootType;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 
 public class SafeDeleteTest extends MultiFileTestCase {
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return JavaTestUtil.getJavaTestDataPath();
@@ -98,6 +99,10 @@ public class SafeDeleteTest extends MultiFileTestCase {
     doSingleFileTest();
   }
 
+  public void testDeleteParameterOfASiblingMethod() throws Exception {
+    doSingleFileTest();
+  }
+
   public void testDeleteMethodCascade() throws Exception {
     doSingleFileTest();
   }
@@ -116,6 +121,10 @@ public class SafeDeleteTest extends MultiFileTestCase {
 
   public void testDeleteConstructorParameterWithAnonymousClassUsage() throws Exception {
     doSingleFileTest();
+  }
+
+  public void testDeleteMethodWithPropertyUsage() {
+    doTest("Foo");
   }
 
   public void testParameterInHierarchy() {
@@ -159,13 +168,7 @@ public class SafeDeleteTest extends MultiFileTestCase {
   }
 
   public void testRemoveOverridersInspiteOfUnsafeUsages() {
-    try {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(true);
-      doTest("A");
-    }
-    finally {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(false);
-    }
+    BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts(()->doTest("A"));
   }
 
   public void testLocalVariable() {
@@ -273,7 +276,7 @@ public class SafeDeleteTest extends MultiFileTestCase {
     LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_7);
     doSingleFileTest();
   }
-  
+
   public void testLastResourceVariableConflictingVar() throws Exception {
     LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_7);
     doSingleFileTest();
@@ -327,13 +330,7 @@ public class SafeDeleteTest extends MultiFileTestCase {
 
   public void testParameterInMethodUsedInMethodReference() throws Exception {
     LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_8);
-    try {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(true);
-      doSingleFileTest();
-    }
-    finally {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(false);
-    }
+    BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts(()->doSingleFileTest());
   }
 
   public void testNoConflictOnDeleteParameterWithMethodRefArg() throws Exception {
@@ -342,13 +339,7 @@ public class SafeDeleteTest extends MultiFileTestCase {
   }
 
   public void testShowConflictsButRemoveAnnotationsIfAnnotationTypeIsDeleted() throws Exception {
-    try {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(true);
-      doSingleFileTest();
-    }
-    finally {
-      BaseRefactoringProcessor.ConflictsInTestsException.setTestIgnore(false);
-    }
+    BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts(()->doSingleFileTest());
   }
 
   public void testUsagesInScratch() throws Exception {
@@ -391,6 +382,31 @@ public class SafeDeleteTest extends MultiFileTestCase {
 
   public void testForUpdateList() throws Exception {
     doSingleFileTest();
+  }
+
+  public void testUpdateContractOnParameterRemoval() throws Exception {
+    doSingleFileTest();
+  }
+
+  public void testSealedParent() throws Exception {
+    LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_15_PREVIEW);
+    doSingleFileTest();
+  }
+
+  public void testSealedGrandParent() {
+    LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_15_PREVIEW);
+    doTest("Parent");
+  }
+
+  public void testNonAccessibleGrandParent() {
+    try {
+      doTest("foo.Parent");
+      fail("Conflict was not detected");
+    }
+    catch (BaseRefactoringProcessor.ConflictsInTestsException e) {
+      String message = e.getMessage();
+      assertEquals("class <b><code>foo.Parent</code></b> has 1 usage that is not safe to delete.", message);
+    }
   }
 
   private void doTest(@NonNls final String qClassName) {

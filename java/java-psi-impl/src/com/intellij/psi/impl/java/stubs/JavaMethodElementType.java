@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.java.stubs;
 
 import com.intellij.lang.ASTNode;
@@ -38,8 +24,6 @@ import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.BitUtil;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -49,12 +33,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author max
- */
-public abstract class JavaMethodElementType extends JavaStubElementType<PsiMethodStub, PsiMethod> {
-  public static final String TYPE_PARAMETER_PSEUDO_NAME = "$TYPE_PARAMETER$";
-  public JavaMethodElementType(@NonNls final String name) {
+abstract class JavaMethodElementType extends JavaStubElementType<PsiMethodStub, PsiMethod> {
+  JavaMethodElementType(@NonNls final String name) {
     super(name);
   }
 
@@ -68,13 +48,12 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     if (node instanceof AnnotationMethodElement) {
       return new PsiAnnotationMethodImpl(node);
     }
-    else {
-      return new PsiMethodImpl(node);
-    }
+    return new PsiMethodImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiMethodStub createStub(final LighterAST tree, final LighterASTNode node, final StubElement parentStub) {
+  public PsiMethodStub createStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, @NotNull final StubElement parentStub) {
     String name = null;
     boolean isConstructor = true;
     boolean isVarArgs = false;
@@ -104,7 +83,7 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
         if (!params.isEmpty()) {
           final LighterASTNode pType = LightTreeUtil.firstChildOfType(tree, params.get(params.size() - 1), JavaElementType.TYPE);
           if (pType != null) {
-            isVarArgs = (LightTreeUtil.firstChildOfType(tree, pType, JavaTokenType.ELLIPSIS) != null);
+            isVarArgs = LightTreeUtil.firstChildOfType(tree, pType, JavaTokenType.ELLIPSIS) != null;
           }
         }
       }
@@ -119,7 +98,7 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     }
 
     TypeInfo typeInfo = isConstructor ? TypeInfo.createConstructorType() : TypeInfo.create(tree, node, parentStub);
-    boolean isAnno = (node.getTokenType() == JavaElementType.ANNOTATION_METHOD);
+    boolean isAnno = node.getTokenType() == JavaElementType.ANNOTATION_METHOD;
     byte flags = PsiMethodStubImpl.packFlags(isConstructor, isAnno, isVarArgs, isDeprecatedByComment, hasDeprecatedAnnotation, hasDocComment);
 
     return new PsiMethodStubImpl(parentStub, name, typeInfo, flags, defValueText);
@@ -157,18 +136,15 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     }
 
     Set<String> methodTypeParams = getVisibleTypeParameters(stub);
-    for (StubElement stubElement : stub.getChildrenStubs()) {
+    for (StubElement<?> stubElement : stub.getChildrenStubs()) {
       if (stubElement instanceof PsiParameterListStub) {
-        for (StubElement paramStub : ((PsiParameterListStub)stubElement).getChildrenStubs()) {
+        for (StubElement<?> paramStub : stubElement.getChildrenStubs()) {
           if (paramStub instanceof PsiParameterStub) {
             TypeInfo type = ((PsiParameterStub)paramStub).getType(false);
             String typeName = PsiNameHelper.getShortClassName(type.text);
             if (TypeConversionUtil.isPrimitive(typeName) || TypeConversionUtil.isPrimitiveWrapper(typeName)) continue;
-            sink.occurrence(JavaStubIndexKeys.METHOD_TYPES, typeName);
-            if (typeName.equals(type.text) &&
-                (type.arrayCount == 0 || type.arrayCount == 1 && type.isEllipsis) &&
-                methodTypeParams.contains(typeName)) {
-              sink.occurrence(JavaStubIndexKeys.METHOD_TYPES, TYPE_PARAMETER_PSEUDO_NAME);
+            if (!methodTypeParams.contains(typeName)) {
+              sink.occurrence(JavaStubIndexKeys.METHOD_TYPES, typeName);
             }
           }
         }
@@ -183,7 +159,7 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
     while (stub != null) {
       Set<String> names = getOwnTypeParameterNames(stub);
       if (!names.isEmpty()) {
-        if (result == null) result = ContainerUtil.newHashSet();
+        if (result == null) result = new HashSet<>();
         result.addAll(names);
       }
 
@@ -196,10 +172,10 @@ public abstract class JavaMethodElementType extends JavaStubElementType<PsiMetho
 
   private static boolean isStatic(@NotNull StubElement<?> stub) {
     if (stub instanceof PsiMemberStub) {
-      StubElement<PsiModifierList> modList = stub.findChildStubByType(JavaStubElementTypes.MODIFIER_LIST);
-      if (modList instanceof PsiModifierListStub) {
-        return BitUtil.isSet(((PsiModifierListStub)modList).getModifiersMask(),
-                             ModifierFlags.NAME_TO_MODIFIER_FLAG_MAP.get(PsiModifier.STATIC));
+      PsiModifierListStub modList = stub.findChildStubByType(JavaStubElementTypes.MODIFIER_LIST);
+      if (modList != null) {
+        return BitUtil.isSet(modList.getModifiersMask(),
+                             ModifierFlags.NAME_TO_MODIFIER_FLAG_MAP.getInt(PsiModifier.STATIC));
       }
     }
     return false;

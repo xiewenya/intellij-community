@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.blocks;
 
@@ -15,10 +13,7 @@ import com.intellij.psi.impl.source.tree.LazyParseablePsiElement;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.CachedValue;
-import com.intellij.psi.util.CachedValueProvider;
-import com.intellij.psi.util.CachedValuesManager;
-import com.intellij.psi.util.PsiModificationTracker;
+import com.intellij.psi.util.*;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.profiling.ResolveProfiler;
 import org.jetbrains.annotations.NotNull;
@@ -67,7 +62,7 @@ public abstract class GrBlockImpl extends LazyParseablePsiElement implements GrC
   }
 
   @Override
-  public void acceptChildren(GroovyElementVisitor visitor) {
+  public void acceptChildren(@NotNull GroovyElementVisitor visitor) {
     GroovyPsiElementImpl.acceptGroovyChildren(this, visitor);
   }
 
@@ -100,14 +95,14 @@ public abstract class GrBlockImpl extends LazyParseablePsiElement implements GrC
 
   @Override
   public Instruction[] getControlFlow() {
-    assert isValid();
+    PsiUtilCore.ensureValid(this);
     CachedValue<Instruction[]> controlFlow = getUserData(CONTROL_FLOW);
     if (controlFlow == null) {
       controlFlow = CachedValuesManager.getManager(getProject()).createCachedValue(() -> {
         try {
           ResolveProfiler.start();
-          final Instruction[] flow = new ControlFlowBuilder(getProject()).buildControlFlow(this);
-          return CachedValueProvider.Result.create(flow, getContainingFile(), PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+          final Instruction[] flow = new ControlFlowBuilder().buildControlFlow(this);
+          return CachedValueProvider.Result.create(flow, getContainingFile(), PsiModificationTracker.MODIFICATION_COUNT);
         }
         finally {
           final long time = ResolveProfiler.finish();
@@ -116,7 +111,7 @@ public abstract class GrBlockImpl extends LazyParseablePsiElement implements GrC
       }, false);
       controlFlow = putUserDataIfAbsent(CONTROL_FLOW, controlFlow);
     }
-    return ControlFlowBuilder.assertValidPsi(controlFlow.getValue());
+    return controlFlow.getValue();
   }
 
   @Override
@@ -144,8 +139,7 @@ public abstract class GrBlockImpl extends LazyParseablePsiElement implements GrC
   }
 
   @Override
-  @NotNull
-  public GrStatement[] getStatements() {
+  public GrStatement @NotNull [] getStatements() {
     return  PsiImplUtil.getStatements(this);
   }
 

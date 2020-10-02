@@ -1,83 +1,119 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
+import com.intellij.codeInsight.completion.impl.CamelHumpMatcher;
 import com.intellij.codeInsight.generation.*;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.icons.AllIcons;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.RowIcon;
-import com.intellij.util.ObjectUtils;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
+import com.intellij.util.SmartList;
 import com.intellij.util.VisibilityUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.FList;
+import com.intellij.util.text.CharArrayUtil;
+import com.siyeh.ig.psiutils.MethodUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.java.generate.GenerateToStringActionHandlerImpl;
 import org.jetbrains.java.generate.exception.GenerateCodeException;
 
 import javax.swing.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 
 /**
  * @author peter
  */
-public class JavaGenerateMemberCompletionContributor {
+public final class JavaGenerateMemberCompletionContributor {
   static final Key<Boolean> GENERATE_ELEMENT = Key.create("GENERATE_ELEMENT");
 
   public static void fillCompletionVariants(CompletionParameters parameters, CompletionResultSet result) {
     if (parameters.getCompletionType() != CompletionType.BASIC && parameters.getCompletionType() != CompletionType.SMART) {
       return;
     }
-
     PsiElement position = parameters.getPosition();
+    if (DumbService.getInstance(position.getProject()).isDumb()) {
+      return;
+    }
+
     if (psiElement(PsiIdentifier.class).withParents(PsiJavaCodeReferenceElement.class, PsiTypeElement.class, PsiClass.class).
       andNot(JavaKeywordCompletion.AFTER_DOT).accepts(position)) {
       PsiElement prevLeaf = PsiTreeUtil.prevVisibleLeaf(position);
       PsiModifierList modifierList = PsiTreeUtil.getParentOfType(prevLeaf, PsiModifierList.class);
       if (modifierList != null) {
-        result = result.withPrefixMatcher(position.getContainingFile().getText().substring(modifierList.getTextRange().getStartOffset(), parameters.getOffset()));
+        String fileText = position.getContainingFile().getText();
+        result = result.withPrefixMatcher(new NoMiddleMatchesAfterSpace(
+          fileText.substring(modifierList.getTextRange().getStartOffset(), parameters.getOffset())));
       }
       suggestGeneratedMethods(result, position, modifierList);
-    } else if (psiElement(PsiIdentifier.class)
-      .withParents(PsiJavaCodeReferenceElement.class, PsiAnnotation.class, PsiModifierList.class, PsiClass.class).accepts(position)) {
-      PsiAnnotation annotation = ObjectUtils.assertNotNull(PsiTreeUtil.getParentOfType(position, PsiAnnotation.class));
+    } else if (isTypingAnnotationForNewMember(position)) {
+      PsiAnnotation annotation = Objects.requireNonNull(PsiTreeUtil.getParentOfType(position, PsiAnnotation.class));
       int annoStart = annotation.getTextRange().getStartOffset();
-      suggestGeneratedMethods(result.withPrefixMatcher(annotation.getText().substring(0, parameters.getOffset() - annoStart)), position, (PsiModifierList)annotation.getParent());
+
+      result.addElement(itemWithOverrideImplementDialog(annoStart));
+
+      suggestGeneratedMethods(
+        result.withPrefixMatcher(new NoMiddleMatchesAfterSpace(annotation.getText().substring(0, parameters.getOffset() - annoStart))),
+        position,
+        (PsiModifierList)annotation.getParent());
     }
 
   }
 
+  private static boolean isTypingAnnotationForNewMember(PsiElement position) {
+    if (psiElement(PsiIdentifier.class)
+      .withParents(PsiJavaCodeReferenceElement.class, PsiAnnotation.class, PsiModifierList.class).accepts(position)) {
+      PsiElement parent = Objects.requireNonNull(PsiTreeUtil.getParentOfType(position, PsiModifierList.class)).getParent();
+      if (parent instanceof PsiClass) {
+        return true;
+      }
+
+      if (parent instanceof PsiMethod || parent instanceof PsiField) {
+        PsiAnnotation anno = Objects.requireNonNull(PsiTreeUtil.getParentOfType(position, PsiAnnotation.class));
+        return anno.getTextRange().getStartOffset() == parent.getTextRange().getStartOffset() && isFollowedByEol(anno);
+      }
+    }
+    return false;
+  }
+
+  private static boolean isFollowedByEol(PsiAnnotation anno) {
+    CharSequence fileText = anno.getContainingFile().getViewProvider().getContents();
+    int afterAnno = CharArrayUtil.shiftForward(fileText, anno.getTextRange().getEndOffset(), " \t");
+    return fileText.length() > afterAnno && fileText.charAt(afterAnno) == '\n';
+  }
+
+  @NotNull
+  private static LookupElementBuilder itemWithOverrideImplementDialog(int annoStart) {
+    return LookupElementBuilder.create("Override/Implement methods...").withInsertHandler((context, item) -> {
+      context.getDocument().deleteString(annoStart, context.getTailOffset());
+      context.commitDocument();
+      context.setAddCompletionChar(false);
+      context.setLaterRunnable(() -> {
+        new OverrideMethodsHandler().invoke(context.getProject(), context.getEditor(), context.getFile());
+      });
+    });
+  }
+
   private static void suggestGeneratedMethods(CompletionResultSet result, PsiElement position, @Nullable PsiModifierList modifierList) {
-    PsiClass parent = CompletionUtil.getOriginalElement(ObjectUtils.assertNotNull(PsiTreeUtil.getParentOfType(position, PsiClass.class)));
+    PsiClass parent = CompletionUtil.getOriginalElement(Objects.requireNonNull(PsiTreeUtil.getParentOfType(position, PsiClass.class)));
     if (parent != null) {
-      Set<MethodSignature> addedSignatures = ContainerUtil.newHashSet();
+      Set<MethodSignature> addedSignatures = new HashSet<>();
       addGetterSetterElements(result, parent, addedSignatures);
       boolean generateDefaultMethods = modifierList != null && modifierList.hasModifierProperty(PsiModifier.DEFAULT);
       addSuperSignatureElements(parent, true, result, addedSignatures, generateDefaultMethods);
@@ -85,12 +121,12 @@ public class JavaGenerateMemberCompletionContributor {
     }
   }
 
-  private static void addGetterSetterElements(CompletionResultSet result, PsiClass parent, Set<MethodSignature> addedSignatures) {
+  private static void addGetterSetterElements(CompletionResultSet result, PsiClass parent, Set<? super MethodSignature> addedSignatures) {
     int count = 0;
     for (PsiField field : parent.getFields()) {
       if (isConstant(field)) continue;
 
-      List<PsiMethod> prototypes = ContainerUtil.newSmartList();
+      List<PsiMethod> prototypes = new SmartList<>();
       try {
         Collections.addAll(prototypes, GetterSetterPrototypeProvider.generateGetterSetters(field, true, false));
         if (!field.hasModifierProperty(PsiModifier.FINAL)) {
@@ -99,17 +135,19 @@ public class JavaGenerateMemberCompletionContributor {
       }
       catch (GenerateCodeException ignore) { }
       for (final PsiMethod prototype : prototypes) {
-        if (parent.findMethodBySignature(prototype, false) == null && addedSignatures.add(prototype.getSignature(PsiSubstitutor.EMPTY))) {
+        PsiMethod existingMethod = parent.findMethodBySignature(prototype, false);
+        if ((existingMethod == null || existingMethod instanceof SyntheticElement) &&
+            addedSignatures.add(prototype.getSignature(PsiSubstitutor.EMPTY))) {
           Icon icon = prototype.getIcon(Iconable.ICON_FLAG_VISIBILITY);
-          result.addElement(createGenerateMethodElement(prototype, PsiSubstitutor.EMPTY, icon, "", new InsertHandler<LookupElement>() {
+          result.addElement(createGenerateMethodElement(prototype, PsiSubstitutor.EMPTY, icon, "", new InsertHandler<>() {
             @Override
-            public void handleInsert(InsertionContext context, LookupElement item) {
+            public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
               removeLookupString(context);
 
               insertGenerationInfos(context, Collections.singletonList(new PsiGenerationInfo<>(prototype)));
             }
           }, false, parent));
-          
+
           if (count++ > 100) return;
         }
       }
@@ -125,7 +163,7 @@ public class JavaGenerateMemberCompletionContributor {
     context.commitDocument();
   }
 
-  private static void addSuperSignatureElements(PsiClass parent, boolean implemented, CompletionResultSet result, Set<MethodSignature> addedSignatures, boolean generateDefaultMethods) {
+  private static void addSuperSignatureElements(PsiClass parent, boolean implemented, CompletionResultSet result, Set<? super MethodSignature> addedSignatures, boolean generateDefaultMethods) {
     for (CandidateInfo candidate : OverrideImplementExploreUtil.getMethodsToOverrideImplement(parent, implemented)) {
       PsiMethod baseMethod = (PsiMethod)candidate.getElement();
       PsiClass baseClass = baseMethod.getContainingClass();
@@ -140,14 +178,19 @@ public class JavaGenerateMemberCompletionContributor {
                                                              PsiMethod baseMethod,
                                                              PsiClass baseClass, PsiSubstitutor substitutor, boolean generateDefaultMethods, PsiClass targetClass) {
 
-    RowIcon icon = new RowIcon(baseMethod.getIcon(0), implemented ? AllIcons.Gutter.ImplementingMethod : AllIcons.Gutter.OverridingMethod);
-    return createGenerateMethodElement(baseMethod, substitutor, icon, baseClass.getName(), new InsertHandler<LookupElement>() {
+    RowIcon icon = IconManager
+      .getInstance().createRowIcon(baseMethod.getIcon(0), implemented ? AllIcons.Gutter.ImplementingMethod : AllIcons.Gutter.OverridingMethod);
+    return createGenerateMethodElement(baseMethod, substitutor, icon, baseClass.getName(), new InsertHandler<>() {
       @Override
-      public void handleInsert(InsertionContext context, LookupElement item) {
+      public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
         removeLookupString(context);
 
         final PsiClass parent = PsiTreeUtil.findElementOfClassAtOffset(context.getFile(), context.getStartOffset(), PsiClass.class, false);
         if (parent == null) return;
+
+        if (GenerateEqualsHandler.hasNonStaticFields(parent) && generateByWizards(context)) {
+          return;
+        }
 
         try (AccessToken ignored = generateDefaultMethods ? forceDefaultMethodsInside() : AccessToken.EMPTY_ACCESS_TOKEN) {
           List<PsiMethod> prototypes = OverrideImplementUtil.overrideOrImplementMethod(parent, baseMethod, false);
@@ -155,13 +198,29 @@ public class JavaGenerateMemberCompletionContributor {
         }
       }
 
+      private boolean generateByWizards(@NotNull InsertionContext context) {
+        PsiFile file = context.getFile();
+        if (MethodUtils.isEquals(baseMethod) || MethodUtils.isHashCode(baseMethod)) {
+          context.setAddCompletionChar(false);
+          context.setLaterRunnable(() -> new GenerateEqualsHandler().invoke(context.getProject(), context.getEditor(), file));
+          return true;
+        }
+
+        if (MethodUtils.isToString(baseMethod)) {
+          context.setAddCompletionChar(false);
+          context.setLaterRunnable(() -> new GenerateToStringActionHandlerImpl().invoke(context.getProject(), context.getEditor(), file));
+          return true;
+        }
+
+        return false;
+      }
     }, generateDefaultMethods, targetClass);
   }
 
   private static AccessToken forceDefaultMethodsInside() {
     CommandProcessor instance = CommandProcessor.getInstance();
     String commandName = instance.getCurrentCommandName();
-    instance.setCurrentCommandName(OverrideImplementUtil.IMPLEMENT_COMMAND_MARKER);
+    instance.setCurrentCommandName(JavaBundle.message("generate.members.implement.command"));
     return new AccessToken() {
       @Override
       public void finish() {
@@ -177,12 +236,12 @@ public class JavaGenerateMemberCompletionContributor {
       final List<PsiElement> elements = new ArrayList<>();
       for (GenerationInfo member : newInfos) {
         if (!(member instanceof TemplateGenerationInfo)) {
-          elements.add(member.getPsiMember());
+          ContainerUtil.addIfNotNull(elements, member.getPsiMember());
         }
       }
 
-      GlobalInspectionContextBase.cleanupElements(context.getProject(), null, elements.toArray(PsiElement.EMPTY_ARRAY));
       newInfos.get(0).positionCaret(context.getEditor(), true);
+      GlobalInspectionContextBase.cleanupElements(context.getProject(), null, elements.toArray(PsiElement.EMPTY_ARRAY));
     }
   }
 
@@ -221,5 +280,30 @@ public class JavaGenerateMemberCompletionContributor {
   @NotNull
   private static String getShortParameterName(PsiSubstitutor substitutor, PsiParameter p) {
     return PsiNameHelper.getShortClassName(substitutor.substitute(p.getType()).getPresentableText(false));
+  }
+
+  private static class NoMiddleMatchesAfterSpace extends CamelHumpMatcher {
+    NoMiddleMatchesAfterSpace(String prefix) {
+      super(prefix);
+    }
+
+    @Override
+    public boolean prefixMatches(@NotNull LookupElement element) {
+      if (!super.prefixMatches(element)) return false;
+
+      if (!myPrefix.contains(" ")) return true;
+
+      String signature = element.getLookupString();
+      FList<TextRange> fragments = matchingFragments(signature);
+      return fragments == null || fragments.stream().noneMatch(f -> isMiddleMatch(signature, f));
+
+    }
+
+    private static boolean isMiddleMatch(String signature, TextRange fragment) {
+      int start = fragment.getStartOffset();
+      return start > 0 &&
+             Character.isJavaIdentifierPart(signature.charAt(start)) &&
+             Character.isJavaIdentifierPart(signature.charAt(start - 1));
+    }
   }
 }

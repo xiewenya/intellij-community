@@ -22,14 +22,11 @@ import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.library.JpsLibraryCollection;
 import org.jetbrains.jps.model.library.JpsLibraryType;
 import org.jetbrains.jps.model.library.sdk.JpsSdk;
-import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.jps.model.library.sdk.JpsSdkReference;
+import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public interface JpsModule extends JpsNamedElement, JpsReferenceableElement<JpsModule>, JpsCompositeElement {
   @NotNull
   JpsUrlList getContentRootsList();
@@ -66,6 +63,7 @@ public interface JpsModule extends JpsNamedElement, JpsReferenceableElement<JpsM
 
   JpsDependenciesList getDependenciesList();
 
+  @Override
   @NotNull
   JpsModuleReference createReference();
 

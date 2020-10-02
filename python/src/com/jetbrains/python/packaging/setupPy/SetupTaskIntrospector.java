@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging.setupPy;
 
 import com.google.common.collect.ImmutableSet;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
@@ -40,29 +27,10 @@ import java.util.*;
  * @author yole
  */
 public class SetupTaskIntrospector {
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.packaging.setupPy.SetupTaskIntrospector");
+  private static final Logger LOG = Logger.getInstance(SetupTaskIntrospector.class);
 
   private static final Map<String, List<SetupTask>> ourDistutilsTaskCache = new HashMap<>();
   private static final Map<String, List<SetupTask>> ourSetuptoolsTaskCache = new HashMap<>();
-
-  public static boolean usesSetuptools(@NotNull PyFile file) {
-    final List<PyFromImportStatement> imports = file.getFromImports();
-    for (PyFromImportStatement anImport : imports) {
-      final QualifiedName qName = anImport.getImportSourceQName();
-      if (qName != null && qName.matches("setuptools")) {
-        return true;
-      }
-    }
-
-    final List<PyImportElement> importElements = file.getImportTargets();
-    for (PyImportElement element : importElements) {
-      final QualifiedName qName = element.getImportedQName();
-      if (qName != null && qName.matches("setuptools")) {
-        return true;
-      }
-    }
-    return false;
-  }
 
   @Nullable
   public static List<SetupTask.Option> getSetupTaskOptions(Module module, String taskName) {
@@ -74,9 +42,10 @@ public class SetupTaskIntrospector {
     return null;
   }
 
+  @NotNull
   public static List<SetupTask> getTaskList(Module module) {
     final PyFile setupPy = PyPackageUtil.findSetupPy(module);
-    return getTaskList(module, setupPy != null && usesSetuptools(setupPy));
+    return getTaskList(module, setupPy != null && PyPsiUtils.containsImport(setupPy, "setuptools"));
   }
 
   @NotNull
@@ -109,7 +78,7 @@ public class SetupTaskIntrospector {
     final List<SetupTask> result = new ArrayList<>();
     for (PsiFile commandFile : commandDir.getFiles()) {
       if (commandFile instanceof PyFile && !SKIP_NAMES.contains(commandFile.getName())) {
-        final String taskName = FileUtil.getNameWithoutExtension(commandFile.getName());
+        final String taskName = FileUtilRt.getNameWithoutExtension(commandFile.getName());
         result.add(createTaskFromFile((PyFile)commandFile, taskName, setuptools));
       }
     }
@@ -129,7 +98,7 @@ public class SetupTaskIntrospector {
     return result;
   }
 
-  private static SetupTask createTaskFromFile(PyFile file, String name, boolean setuptools) {
+  private static SetupTask createTaskFromFile(PyFile file, @NotNull @NlsSafe String name, boolean setuptools) {
     SetupTask task = new SetupTask(name);
     // setuptools wraps the build_ext command class in a way that we cannot understand; use the distutils class which it delegates to
     final PyClass taskClass = (name.equals("build_ext") && setuptools)
@@ -188,7 +157,7 @@ public class SetupTaskIntrospector {
       }
     }
     else if (value instanceof PyReferenceExpression) {
-      final PsiElement resolveResult = ((PyReferenceExpression)value).getReference(PyResolveContext.noImplicits()).resolve();
+      final PsiElement resolveResult = ((PyReferenceExpression)value).getReference(PyResolveContext.defaultContext()).resolve();
       collectSequenceElements(resolveResult, result);
     }
     else if (value instanceof PyTargetExpression) {

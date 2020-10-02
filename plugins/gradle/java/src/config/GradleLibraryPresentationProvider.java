@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.config;
 
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.libraries.LibraryKind;
 import com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -27,29 +15,28 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.service.GradleInstallationManager;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
+import org.jetbrains.plugins.gradle.util.GradleUtil;
 import org.jetbrains.plugins.groovy.config.GroovyLibraryPresentationProviderBase;
+import org.jetbrains.plugins.groovy.config.GroovyLibraryProperties;
 
 import javax.swing.*;
 import java.io.File;
 import java.util.regex.Matcher;
 
-/**
- * @author nik
- */
-public class GradleLibraryPresentationProvider extends GroovyLibraryPresentationProviderBase {
-
+final class GradleLibraryPresentationProvider extends GroovyLibraryPresentationProviderBase {
   private static final LibraryKind GRADLE_KIND = LibraryKind.create(GradleConstants.EXTENSION);
 
   private final GradleInstallationManager myLibraryManager;
 
-  public GradleLibraryPresentationProvider(@NotNull GradleInstallationManager libraryManager) {
+  GradleLibraryPresentationProvider() {
     super(GRADLE_KIND);
-    myLibraryManager = libraryManager;
+
+    myLibraryManager = ServiceManager.getService(GradleInstallationManager.class);
   }
 
   @NotNull
   @Override
-  public Icon getIcon() {
+  public Icon getIcon(GroovyLibraryProperties properties) {
     return GradleIcons.Gradle;
   }
 
@@ -89,7 +76,7 @@ public class GradleLibraryPresentationProvider extends GroovyLibraryPresentation
   @NotNull
   @Override
   public String getLibraryCategoryName() {
-    return "Gradle";
+    return GradleConstants.GRADLE_NAME; //NON-NLS GRADLE_NAME
   }
 
   @Override
@@ -106,6 +93,7 @@ public class GradleLibraryPresentationProvider extends GroovyLibraryPresentation
   }
 
   @Nullable
+  @NlsSafe
   private static String getGradleVersion(VirtualFile[] libraryFiles) {
     for (VirtualFile file : libraryFiles) {
       final String version = getGradleJarVersion(file);

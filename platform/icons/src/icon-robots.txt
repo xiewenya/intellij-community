@@ -1,3 +1,6 @@
-skip: diff_frame*
-deprecated: diff/Diff.png
-deprecated: css/*; use 'icons.CssIcons' from 'intellij.css' module instead
+deprecated: icon.png; use ProductIcons.getInstance().getProductIcon() instead
+deprecated: icon_small.png; use ProductIcons.getInstance().getProductIcon() instead
+deprecated: icon_CEsmall.png; use ProductIcons.getInstance().getProductIcon() instead
+deprecated: icon_128.png
+deprecated: icon_CE.png
+deprecated: icon_CE_*.png

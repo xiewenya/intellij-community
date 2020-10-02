@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.command.impl;
 
 import com.intellij.openapi.command.UndoConfirmationPolicy;
@@ -12,13 +10,12 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ArrayUtil;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-public class CommandMerger {
+public final class CommandMerger {
   private final UndoManagerImpl myManager;
   private Object myLastGroupId;
   private boolean myForcedGlobal;
@@ -26,8 +23,8 @@ public class CommandMerger {
   private String myCommandName;
   private boolean myValid = true;
   private List<UndoableAction> myCurrentActions = new ArrayList<>();
-  private Set<DocumentReference> myAllAffectedDocuments = new THashSet<>();
-  private Set<DocumentReference> myAdditionalAffectedDocuments = new THashSet<>();
+  private Set<DocumentReference> myAllAffectedDocuments = new HashSet<>();
+  private Set<DocumentReference> myAdditionalAffectedDocuments = new HashSet<>();
   private EditorAndState myStateBefore;
   private EditorAndState myStateAfter;
   private UndoConfirmationPolicy myUndoConfirmationPolicy = UndoConfirmationPolicy.DEFAULT;
@@ -58,7 +55,6 @@ public class CommandMerger {
     // we do not want to spoil redo stack in situation, when some 'transparent' actions occurred right after undo.
     if (!nextCommandToMerge.isTransparent() && nextCommandToMerge.hasActions()) {
       clearRedoStacks(nextCommandToMerge);
-      convertTemporaryActionsToNormal(nextCommandToMerge);
     }
 
     if (!shouldMerge(groupId, nextCommandToMerge)) {
@@ -149,8 +145,8 @@ public class CommandMerger {
 
   private void reset() {
     myCurrentActions = new ArrayList<>();
-    myAllAffectedDocuments = new THashSet<>();
-    myAdditionalAffectedDocuments = new THashSet<>();
+    myAllAffectedDocuments = new HashSet<>();
+    myAdditionalAffectedDocuments = new HashSet<>();
     myLastGroupId = null;
     myForcedGlobal = false;
     myTransparent = false;
@@ -163,10 +159,6 @@ public class CommandMerger {
 
   private void clearRedoStacks(@NotNull CommandMerger nextMerger) {
     myManager.getRedoStacksHolder().clearStacks(nextMerger.isGlobal(), nextMerger.myAllAffectedDocuments);
-  }
-
-  private void convertTemporaryActionsToNormal(@NotNull CommandMerger nextMerger) {
-    myManager.getUndoStacksHolder().convertTemporaryActionsToPermanent(nextMerger.isGlobal(), nextMerger.myAllAffectedDocuments);
   }
 
   boolean isGlobal() {
@@ -217,6 +209,13 @@ public class CommandMerger {
 
     boolean isInsideStartFinishGroup = false;
     while ((undoRedo = createUndoOrRedo(editor, isUndo)) != null) {
+      if (editor != null && undoRedo.isBlockedByOtherChanges()) {
+        UndoRedo blockingChange = createUndoOrRedo(null, isUndo);
+        if (blockingChange != null && blockingChange.myUndoableGroup != undoRedo.myUndoableGroup) {
+          if (undoRedo.confirmSwitchTo(blockingChange)) blockingChange.execute(false, true);
+          break;
+        }
+      }
       if (!undoRedo.execute(false, isInsideStartFinishGroup)) return;
       isInsideStartFinishGroup = undoRedo.myUndoableGroup.isInsideStartFinishGroup(isUndo, isInsideStartFinishGroup);
       if (isInsideStartFinishGroup) continue;
@@ -247,7 +246,7 @@ public class CommandMerger {
     return true;
   }
 
-  public boolean isUndoAvailable(@NotNull Collection<DocumentReference> refs) {
+  public boolean isUndoAvailable(@NotNull Collection<? extends DocumentReference> refs) {
     if (hasNonUndoableActions()) {
       return false;
     }
@@ -291,7 +290,7 @@ public class CommandMerger {
     myStateAfter = state;
   }
 
-  void addAdditionalAffectedDocuments(@NotNull Collection<DocumentReference> refs) {
+  void addAdditionalAffectedDocuments(@NotNull Collection<? extends DocumentReference> refs) {
     myAllAffectedDocuments.addAll(refs);
     myAdditionalAffectedDocuments.addAll(refs);
   }

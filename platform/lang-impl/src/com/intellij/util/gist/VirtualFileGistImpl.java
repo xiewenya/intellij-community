@@ -39,7 +39,7 @@ import java.util.Map;
  * @author peter
  */
 class VirtualFileGistImpl<Data> implements VirtualFileGist<Data> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.gist.VirtualFileGist");
+  private static final Logger LOG = Logger.getInstance(VirtualFileGist.class);
   private static final int ourInternalVersion = 2;
 
   @NotNull private final String myId;
@@ -90,7 +90,6 @@ class VirtualFileGistImpl<Data> implements VirtualFileGist<Data> {
     }
   }
 
-  @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
   private static final Map<Pair<String, Integer>, FileAttribute> ourAttributes =
     FactoryMap.create(key -> new FileAttribute(key.first, key.second, false));
 

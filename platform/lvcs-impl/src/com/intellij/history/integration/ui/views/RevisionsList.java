@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.history.integration.ui.views;
 
@@ -20,6 +6,12 @@ import com.intellij.history.core.revisions.Revision;
 import com.intellij.history.integration.LocalHistoryBundle;
 import com.intellij.history.integration.ui.models.HistoryDialogModel;
 import com.intellij.history.integration.ui.models.RevisionItem;
+import com.intellij.ide.CopyProvider;
+import com.intellij.ide.DataManager;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.ide.CopyPasteManager;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsBundle;
@@ -32,10 +24,12 @@ import com.intellij.ui.table.JBTable;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.AbstractLayoutManager;
 import com.intellij.util.ui.JBInsets;
+import com.intellij.util.ui.TextTransferable;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.NotNull;
 
 import javax.accessibility.AccessibleContext;
 import javax.accessibility.AccessibleRole;
@@ -46,9 +40,10 @@ import javax.swing.event.ListSelectionListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableModel;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class RevisionsList {
   public static final int RECENT_PERIOD = 12;
@@ -70,6 +65,14 @@ public class RevisionsList {
     table.getEmptyText().setText(VcsBundle.message("history.empty"));
 
     addSelectionListener(l);
+
+    CopyProvider copyProvider = new MyCellRenderer.MyCopyProvider(table);
+    DataManager.registerDataProvider(table, dataId -> {
+      if (PlatformDataKeys.COPY_PROVIDER.is(dataId)) {
+        return copyProvider;
+      }
+      return null;
+    });
   }
 
   public JComponent getComponent() {
@@ -84,6 +87,7 @@ public class RevisionsList {
       private int mySelectedRow2 = 0;
       private final SelectionListener mySelectionListener = l;
 
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         if (e.getValueIsAdjusting()) return;
 
@@ -145,34 +149,38 @@ public class RevisionsList {
     OLDER(LocalHistoryBundle.message("revisions.table.period.older")),
     OLD(LocalHistoryBundle.message("revisions.table.period.old"));
 
-    private final String myDisplayString;
+    private final @NlsContexts.Label String myDisplayString;
 
-    private Period(String displayString) {
+    Period(@NlsContexts.Label String displayString) {
       myDisplayString = displayString;
     }
 
+    @NlsContexts.Label
     public String getDisplayString() {
       return myDisplayString;
     }
   }
 
   public static class MyModel extends AbstractTableModel {
-    private final List<RevisionItem> myRevisions;
+    private final List<? extends RevisionItem> myRevisions;
     private final Map<RevisionItem, Period> myPeriods;
 
-    public MyModel(List<RevisionItem> revisions, Map<RevisionItem, Period> periods) {
+    public MyModel(List<? extends RevisionItem> revisions, Map<RevisionItem, Period> periods) {
       myRevisions = revisions;
       myPeriods = periods;
     }
 
+    @Override
     public int getColumnCount() {
       return 1;
     }
 
+    @Override
     public int getRowCount() {
       return myRevisions.size();
     }
 
+    @Override
     public RevisionItem getValueAt(int rowIndex, int columnIndex) {
       return myRevisions.get(rowIndex);
     }
@@ -290,6 +298,7 @@ public class RevisionsList {
       myTitleLabel.setComponentStyle(UIUtil.ComponentStyle.REGULAR);
     }
 
+    @Override
     public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
       if (value == null) return myWrapperPanel; // null erroneously comes from JPanel.getAccessibleChild
 
@@ -307,7 +316,7 @@ public class RevisionsList {
 
       myBorder.set(row == table.getModel().getRowCount() - 1);
 
-      myDateLabel.setText(ensureString(DateFormatUtil.formatPrettyDateTime(r.revision.getTimestamp())));
+      myDateLabel.setText(ensureString(DateFormatUtil.formatDateTime(r.revision.getTimestamp())));
       myFilesCountLabel.setText(ensureString(labelsAndColor.filesCount));
 
       myTitleLabel.setFont(myTitleLabel.getFont().deriveFont(labelsAndColor.isNamed ? Font.BOLD : Font.PLAIN));
@@ -344,11 +353,12 @@ public class RevisionsList {
       return myWrapperPanel;
     }
 
-    private String ensureString(String s) {
+    @NlsContexts.Label
+    private static String ensureString(@NlsContexts.Label String s) {
       return StringUtil.isEmpty(s) ? " " : s;
     }
 
-    private LabelsAndColor getLabelsAndColor(RevisionItem item) {
+    private static LabelsAndColor getLabelsAndColor(RevisionItem item) {
       Revision r = item.revision;
 
       final Pair<List<String>, Integer> affected = r.getAffectedFileNames();
@@ -362,7 +372,7 @@ public class RevisionsList {
 
       String filesCount = StringUtil.pluralize(LocalHistoryBundle.message("revisions.table.filesCount", affected.second), affected.second);
 
-      Pair<String, Color> label = null;
+      Pair<@NlsContexts.Label String, Color> label = null;
       if (!item.labels.isEmpty()) {
         Revision first = item.labels.getFirst();
         label = Pair.create(first.getLabel(), first.getLabelColor() == -1 ? USER_LABEL_COLOR : new Color(first.getLabelColor()));
@@ -403,13 +413,16 @@ public class RevisionsList {
       }
     }
 
-    private static class LabelsAndColor {
+    private static final class LabelsAndColor {
       final boolean isNamed;
-      final String title;
-      final String filesCount;
-      final Pair<String, Color> label;
+      final @NlsContexts.Label String title;
+      final @NlsContexts.Label String filesCount;
+      final Pair<@NlsContexts.Label String, Color> label;
 
-      private LabelsAndColor(boolean isNamed, String title, String filesCount, Pair<String, Color> label) {
+      private LabelsAndColor(boolean isNamed,
+                             @NlsContexts.Label String title,
+                             @NlsContexts.Label String filesCount,
+                             Pair<@NlsContexts.Label String, Color> label) {
         this.isNamed = isNamed;
         this.title = title;
         this.filesCount = filesCount;
@@ -417,7 +430,7 @@ public class RevisionsList {
       }
     }
 
-    private static class MyBorder extends EmptyBorder {
+    private static final class MyBorder extends EmptyBorder {
       private boolean isLast;
 
       private MyBorder(Insets insets) {
@@ -431,7 +444,7 @@ public class RevisionsList {
       @Override
       public void paintBorder(Component c, Graphics g, int x, int y, int width, int height) {
         Graphics2D g2d = (Graphics2D)g.create();
-        g2d.setColor(UIUtil.getBorderColor());
+        g2d.setColor(JBColor.border());
         g2d.setStroke(new BasicStroke(1.0f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, new float[]{1}, 1));
         g2d.drawLine(x, y, x + width, y);
         if (isLast) {
@@ -441,7 +454,7 @@ public class RevisionsList {
       }
     }
 
-    private static class MyLabelContainer extends JPanel {
+    private static final class MyLabelContainer extends JPanel {
       private MyLabelContainer() {
         super(new BorderLayout());
       }
@@ -466,6 +479,44 @@ public class RevisionsList {
         g2d.setColor(getBackground().darker());
         g2d.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, getHeight() - 2, getHeight() - 2);
         g2d.dispose();
+      }
+    }
+
+    private static final class MyCopyProvider implements CopyProvider {
+      @NotNull private final JBTable myTable;
+
+      private MyCopyProvider(@NotNull JBTable table) {
+        myTable = table;
+      }
+
+      @Override
+      public void performCopy(@NotNull DataContext dataContext) {
+        TableModel model = myTable.getModel();
+
+        StringBuilder sb = new StringBuilder();
+        for (int row : myTable.getSelectedRows()) {
+          RevisionItem r = (RevisionItem)model.getValueAt(row, 0);
+
+          LabelsAndColor labelsAndColor = getLabelsAndColor(r);
+          String time = DateFormatUtil.formatDateTime(r.revision.getTimestamp());
+          String title = labelsAndColor.title;
+          String filesCount = labelsAndColor.filesCount;
+          if (sb.length() != 0) sb.append("\n");
+          sb.append(time).append(", ")
+            .append(filesCount).append(": ")
+            .append(title);
+        }
+        CopyPasteManager.getInstance().setContents(new TextTransferable(sb));
+      }
+
+      @Override
+      public boolean isCopyEnabled(@NotNull DataContext dataContext) {
+        return myTable.getSelectedRowCount() > 0;
+      }
+
+      @Override
+      public boolean isCopyVisible(@NotNull DataContext dataContext) {
+        return true;
       }
     }
   }

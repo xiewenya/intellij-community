@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,13 @@
  */
 package com.siyeh.ig;
 
-import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.ProblemsHolder;
-import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
@@ -39,7 +37,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.text.Document;
-import java.lang.reflect.Field;
 import java.text.NumberFormat;
 import java.text.ParseException;
 import java.util.List;
@@ -61,11 +58,6 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
     return m_shortName;
   }
 
-  @Nls
-  @NotNull
-  @Override
-  public abstract String getDisplayName();
-
   @Override
   @Nls
   @NotNull
@@ -74,7 +66,7 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
   }
 
   @NotNull
-  protected abstract String buildErrorString(Object... infos);
+  protected abstract @InspectionMessage String buildErrorString(Object... infos);
 
   protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
     return false;
@@ -105,11 +97,16 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
    * @param infos additional information which was supplied by {@link BaseInspectionVisitor} during error registration.
    * @return an array of fixes (empty array if no fix is available).
    */
-  @NotNull
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
     return InspectionGadgetsFix.EMPTY_ARRAY;
   }
 
+  /**
+   * Writes a boolean option field. Does NOT write when the field has the default value.
+   * @param node  the xml element node the field is written to.
+   * @param property  the name of the field
+   * @param defaultValueToIgnore  the default value. When the field has this value it is NOT written.
+   */
   protected void writeBooleanOption(@NotNull Element node, @NotNull @NonNls String property, boolean defaultValueToIgnore) {
     final Boolean value = ReflectionUtil.getField(this.getClass(), this, boolean.class, property);
     assert value != null;
@@ -119,18 +116,20 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
     node.addContent(new Element("option").setAttribute("name", property).setAttribute("value", value.toString()));
   }
 
-  protected void defaultWriteSettings(@NotNull Element node, final String... excludedProperties) throws WriteExternalException {
-    DefaultJDOMExternalizer.writeExternal(this, node, new DefaultJDOMExternalizer.JDOMFilter() {
-      @Override
-      public boolean isAccept(@NotNull Field field) {
-        final String name = field.getName();
-        for (String property : excludedProperties) {
-          if (name.equals(property)) {
-            return false;
-          }
+  /**
+   * Writes fields even if they have a default value.
+   * @param node  the xml element node the fields are written to.
+   * @param excludedProperties  fields with names specified here are not written, and have to be handled separately
+   */
+  protected void defaultWriteSettings(@NotNull Element node, final @NonNls String... excludedProperties) throws WriteExternalException {
+    DefaultJDOMExternalizer.write(this, node, field -> {
+      final String name = field.getName();
+      for (String property : excludedProperties) {
+        if (name.equals(property)) {
+          return false;
         }
-        return true;
       }
+      return true;
     });
   }
 
@@ -165,9 +164,9 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
     final NumberFormat formatter = NumberFormat.getIntegerInstance();
     formatter.setParseIntegerOnly(true);
     final JFormattedTextField valueField = new JFormattedTextField(formatter);
-    Object value = ReflectionUtil.getField(getClass(), this, null, fieldName);
+    final Object value = ReflectionUtil.getField(getClass(), this, null, fieldName);
     valueField.setValue(value);
-    valueField.setColumns(2);
+    valueField.setColumns(4);
 
     // hack to work around text field becoming unusably small sometimes when using GridBagLayout
     valueField.setMinimumSize(valueField.getPreferredSize());
@@ -176,7 +175,7 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
     final Document document = valueField.getDocument();
     document.addDocumentListener(new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent evt) {
+      public void textChanged(@NotNull DocumentEvent evt) {
         try {
           valueField.commitEdit();
           final Number number = (Number)valueField.getValue();
@@ -230,11 +229,5 @@ public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool
       out.append(',');
       out.append(strings[i].get(index));
     }
-  }
-
-  public static boolean isInspectionEnabled(@NonNls String shortName, PsiElement context) {
-    final InspectionProjectProfileManager profileManager = InspectionProjectProfileManager.getInstance(context.getProject());
-    final InspectionProfileImpl profile = profileManager.getCurrentProfile();
-    return profile.isToolEnabled(HighlightDisplayKey.find(shortName), context);
   }
 }

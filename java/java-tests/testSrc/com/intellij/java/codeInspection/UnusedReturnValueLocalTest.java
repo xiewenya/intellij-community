@@ -18,9 +18,10 @@ package com.intellij.java.codeInspection;
 import com.intellij.JavaTestUtil;
 import com.intellij.codeInspection.unusedReturnValue.UnusedReturnValue;
 import com.intellij.codeInspection.unusedReturnValue.UnusedReturnValueLocalInspection;
-import com.intellij.testFramework.InspectionTestCase;
+import com.intellij.psi.PsiModifier;
+import com.intellij.testFramework.JavaInspectionTestCase;
 
-public class UnusedReturnValueLocalTest extends InspectionTestCase {
+public class UnusedReturnValueLocalTest extends JavaInspectionTestCase {
   private UnusedReturnValue myGlobal = new UnusedReturnValue();
   private UnusedReturnValueLocalInspection myTool = new UnusedReturnValueLocalInspection(myGlobal);
 
@@ -61,5 +62,19 @@ public class UnusedReturnValueLocalTest extends InspectionTestCase {
     finally {
       myGlobal.IGNORE_BUILDER_PATTERN = false;
     }
+  }
+
+  public void testVisibilitySetting() {
+    try {
+      myGlobal.highestModifier = PsiModifier.PRIVATE;
+      doTest();
+    }
+    finally {
+      myGlobal.highestModifier = UnusedReturnValue.DEFAULT_HIGHEST_MODIFIER;
+    }
+  }
+
+  public void testUsedFromGroovy() {
+    doTest();
   }
 }

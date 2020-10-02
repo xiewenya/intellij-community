@@ -45,8 +45,9 @@ public class CodeBlockBlock extends AbstractJavaBlock {
                         Alignment alignment,
                         Indent indent,
                         CommonCodeStyleSettings settings,
-                        JavaCodeStyleSettings javaSettings) {
-    super(node, wrap, getAlignmentStrategy(alignment, node, settings), indent, settings, javaSettings);
+                        JavaCodeStyleSettings javaSettings,
+                        @NotNull FormattingMode formattingMode) {
+    super(node, wrap, getAlignmentStrategy(alignment, node, settings), indent, settings, javaSettings, formattingMode);
     if (isSwitchCodeBlock() && !settings.INDENT_CASE_FROM_SWITCH) {
       myChildrenIndent = 0;
     }
@@ -140,7 +141,7 @@ public class CodeBlockBlock extends AbstractJavaBlock {
   }
 
   @Nullable
-  private ASTNode processCaseAndStatementAfter(final List<Block> result,
+  private ASTNode processCaseAndStatementAfter(final List<? super Block> result,
                                                ASTNode child,
                                                final Alignment childAlignment,
                                                final Wrap childWrap,

@@ -24,7 +24,7 @@ import org.jetbrains.jps.incremental.FSCache;
 import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.storage.BuildDataManager;
 import org.jetbrains.jps.incremental.storage.BuildTargetsState;
-import org.jetbrains.jps.incremental.storage.ProjectTimestamps;
+import org.jetbrains.jps.incremental.storage.ProjectStamps;
 import org.jetbrains.jps.indices.IgnoredFileIndex;
 import org.jetbrains.jps.indices.ModuleExcludeIndex;
 import org.jetbrains.jps.model.JpsModel;
@@ -44,7 +44,7 @@ public final class ProjectDescriptor {
   private final JpsProject myProject;
   private final JpsModel myModel;
   public final BuildFSState fsState;
-  public final ProjectTimestamps timestamps;
+  private final ProjectStamps myProjectStamps;
   public final BuildDataManager dataManager;
   private final BuildLoggingManager myLoggingManager;
   private final BuildTargetsState myTargetsState;
@@ -59,7 +59,7 @@ public final class ProjectDescriptor {
 
   public ProjectDescriptor(JpsModel model,
                            BuildFSState fsState,
-                           ProjectTimestamps timestamps,
+                           ProjectStamps projectStamps,
                            BuildDataManager dataManager,
                            BuildLoggingManager loggingManager,
                            final ModuleExcludeIndex moduleExcludeIndex,
@@ -69,7 +69,7 @@ public final class ProjectDescriptor {
     myIgnoredFileIndex = ignoredFileIndex;
     myProject = model.getProject();
     this.fsState = fsState;
-    this.timestamps = timestamps;
+    myProjectStamps = projectStamps;
     this.dataManager = dataManager;
     myBuildTargetIndex = buildTargetIndex;
     myBuildRootIndex = buildRootIndex;
@@ -86,11 +86,19 @@ public final class ProjectDescriptor {
     myTargetsState = targetsState;
   }
 
+  /**
+   * @deprecated not used after file traversal rewrite to NIO
+   */
   @NotNull
+  @Deprecated
   public FSCache getFSCache() {
-    return myFSCache;
+    return FSCache.NO_CACHE;
   }
 
+  /**
+   * @deprecated not used after file traversal rewrite to NIO
+   */
+  @Deprecated
   public void setFSCache(FSCache cache) {
     myFSCache = cache == null? FSCache.NO_CACHE : cache;
   }
@@ -135,7 +143,7 @@ public final class ProjectDescriptor {
     }
     if (shouldClose) {
       try {
-        timestamps.close();
+        myProjectStamps.close();
       }
       finally {
         try {
@@ -158,5 +166,9 @@ public final class ProjectDescriptor {
 
   public JpsProject getProject() {
     return myProject;
+  }
+
+  public ProjectStamps getProjectStamps() {
+    return myProjectStamps;
   }
 }

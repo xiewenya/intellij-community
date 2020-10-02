@@ -15,10 +15,14 @@
  */
 package com.jetbrains.python.sdk.add
 
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.openapi.util.UserDataHolder
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.util.ui.FormBuilder
+import com.jetbrains.python.PyBundle
 import com.jetbrains.python.sdk.*
 import icons.PythonIcons
 import java.awt.BorderLayout
@@ -28,34 +32,36 @@ import javax.swing.Icon
  * @author vlan
  */
 class PyAddExistingVirtualEnvPanel(private val project: Project?,
+                                   private val module: Module?,
                                    private val existingSdks: List<Sdk>,
-                                   override var newProjectPath: String?) : PyAddSdkPanel() {
-  override val panelName = "Existing environment"
+                                   override var newProjectPath: String?,
+                                   context:UserDataHolder ) : PyAddSdkPanel() {
+  override val panelName: String get() = PyBundle.message("python.add.sdk.panel.name.existing.environment")
   override val icon: Icon = PythonIcons.Python.Virtualenv
-  private val sdkComboBox = PySdkPathChoosingComboBox(detectVirtualEnvs(project, existingSdks)
-                                                        .filterNot { it.isAssociatedWithAnotherProject(project) },
-                                                      null)
-  private val makeSharedField = JBCheckBox("Make available to all projects")
+  private val sdkComboBox = PySdkPathChoosingComboBox()
+  private val makeSharedField = JBCheckBox(PyBundle.message("available.to.all.projects"))
 
   init {
     layout = BorderLayout()
     val formPanel = FormBuilder.createFormBuilder()
-      .addLabeledComponent("Interpreter:", sdkComboBox)
+      .addLabeledComponent(PyBundle.message("interpreter"), sdkComboBox)
       .addComponent(makeSharedField)
       .panel
     add(formPanel, BorderLayout.NORTH)
+    addInterpretersAsync(sdkComboBox) {
+      detectVirtualEnvs(module, existingSdks, context)
+        .filterNot { it.isAssociatedWithAnotherModule(module) }
+    }
   }
 
-  override fun validateAll() =
-    listOf(validateSdkComboBox(sdkComboBox))
-      .filterNotNull()
+  override fun validateAll(): List<ValidationInfo> = listOfNotNull(validateSdkComboBox(sdkComboBox, this))
 
   override fun getOrCreateSdk(): Sdk? {
     val sdk = sdkComboBox.selectedSdk
     return when (sdk) {
       is PyDetectedSdk -> sdk.setupAssociated(existingSdks, newProjectPath ?: project?.basePath)?.apply {
         if (!makeSharedField.isSelected) {
-          associateWithProject(project, newProjectPath != null)
+          associateWithModule(module, newProjectPath)
         }
       }
       else -> sdk

@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * @author peter
  */
-class ConverterManagerImpl implements ConverterManager {
+public class ConverterManagerImpl implements ConverterManager {
 
   private final ImplementationClassCache myImplementationClassCache = new ImplementationClassCache(DomImplementationClassEP.CONVERTER_EP_NAME);
 
@@ -44,7 +44,7 @@ class ConverterManagerImpl implements ConverterManager {
   );
   private final Map<Class,Converter> mySimpleConverters = new HashMap<>();
 
-  ConverterManagerImpl() {
+  protected ConverterManagerImpl() {
     mySimpleConverters.put(byte.class, new NumberValueConverter<>(byte.class, false));
     mySimpleConverters.put(Byte.class, new NumberValueConverter<>(Byte.class, true));
 
@@ -72,10 +72,11 @@ class ConverterManagerImpl implements ConverterManager {
     mySimpleConverters.put(String.class, Converter.EMPTY_CONVERTER);
     mySimpleConverters.put(Object.class, Converter.EMPTY_CONVERTER);
     mySimpleConverters.put(PathReference.class, PathReferenceConverter.INSTANCE);
+
+    DomImplementationClassEP.CONVERTER_EP_NAME.addChangeListener(() -> myConverterInstances.clear(), null);
   }
 
-  @Override
-  public void addConverter(Class clazz, Converter converter) {
+  protected void addConverter(Class clazz, Converter converter) {
     mySimpleConverters.put(clazz, converter);
   }
 
@@ -106,10 +107,5 @@ class ConverterManagerImpl implements ConverterManager {
       return DomResolveConverter.createConverter((Class<? extends DomElement>)convertingClass);
     }
     return null;
-  }
-
-  @Override
-  public <T extends Converter> void registerConverterImplementation(Class<T> converterInterface, T converterImpl) {
-    myConverterInstances.put(converterInterface, converterImpl);
   }
 }

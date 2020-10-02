@@ -16,18 +16,17 @@
 package com.intellij.codeInsight.generation;
 
 import com.intellij.codeInsight.hint.HintManager;
-import com.intellij.lang.StdLanguages;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.ComponentWithBrowseButton;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiEnumConstant;
-import com.intellij.psi.PsiField;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
@@ -43,28 +42,13 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHandlerBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateGetterSetterHandlerBase");
+  private static final Logger LOG = Logger.getInstance(GenerateGetterSetterHandlerBase.class);
 
-  static {
-    GenerateAccessorProviderRegistrar.registerProvider(s -> {
-      if (s.getLanguage() != StdLanguages.JAVA) return Collections.emptyList();
-      final List<EncapsulatableClassMember> result = new ArrayList<>();
-      for (PsiField field : s.getFields()) {
-        if (!(field instanceof PsiEnumConstant)) {
-          result.add(new PsiFieldMember(field));
-        }
-      }
-      return result;
-    });
-  }
-
-  public GenerateGetterSetterHandlerBase(String chooserTitle) {
+  public GenerateGetterSetterHandlerBase(@NlsContexts.DialogTitle String chooserTitle) {
     super(chooserTitle);
   }
 
@@ -75,7 +59,7 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
 
   @Override
   protected String getHelpId() {
-    return "Getter and Setter Templates Dialog";
+    return "Getter_and_Setter_Templates_Dialog";
   }
 
   @Override
@@ -92,19 +76,14 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
     return chooseMembers(allMembers, false, false, project, editor);
   }
 
-  protected static JComponent getHeaderPanel(final Project project, final TemplatesManager templatesManager, final String templatesTitle) {
+  protected static JComponent getHeaderPanel(final Project project, final TemplatesManager templatesManager, final @Nls String templatesTitle) {
     final JPanel panel = new JPanel(new BorderLayout());
     final JLabel templateChooserLabel = new JLabel(templatesTitle);
     panel.add(templateChooserLabel, BorderLayout.WEST);
-    final ComboBox comboBox = new ComboBox();
+    final ComboBox<TemplateResource> comboBox = new ComboBox<>();
     templateChooserLabel.setLabelFor(comboBox);
-    comboBox.setRenderer(new ListCellRendererWrapper<TemplateResource>() {
-      @Override
-      public void customize(JList list, TemplateResource value, int index, boolean selected, boolean hasFocus) {
-        setText(value.getName());
-      }
-    });
-    final ComponentWithBrowseButton<ComboBox> comboBoxWithBrowseButton =
+    comboBox.setRenderer(SimpleListCellRenderer.create("", TemplateResource::getName));
+    final ComponentWithBrowseButton<ComboBox<?>> comboBoxWithBrowseButton =
       new ComponentWithBrowseButton<>(comboBox, new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
@@ -120,7 +99,7 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
               return StringUtil.capitalizeWords(UIUtil.removeMnemonic(StringUtil.trimEnd(templatesTitle, ":")), true);
             }
           };
-          ui.setHint("Visibility is applied according to File | Settings | Editor | Code Style | Java | Code Generation");
+          ui.setHint(JavaBundle.message("generate.getter.setter.header.visibility.hint."));
           ui.selectNodeInTree(templatesManager.getDefaultTemplate());
           if (ShowSettingsUtil.getInstance().editConfigurable(panel, ui)) {
             setComboboxModel(templatesManager, comboBox);
@@ -130,6 +109,7 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
 
     setComboboxModel(templatesManager, comboBox);
     comboBox.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(@NotNull final ActionEvent M) {
         templatesManager.setDefaultTemplate((TemplateResource)comboBox.getSelectedItem());
       }
@@ -139,15 +119,15 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
     return panel;
   }
 
-  private static void setComboboxModel(TemplatesManager templatesManager, ComboBox comboBox) {
+  private static void setComboboxModel(TemplatesManager templatesManager, ComboBox<TemplateResource> comboBox) {
     final Collection<TemplateResource> templates = templatesManager.getAllTemplates();
-    comboBox.setModel(new DefaultComboBoxModel(templates.toArray(new TemplateResource[0])));
+    comboBox.setModel(new DefaultComboBoxModel<>(templates.toArray(new TemplateResource[0])));
     comboBox.setSelectedItem(templatesManager.getDefaultTemplate());
   }
 
   @Override
-  protected abstract String getNothingFoundMessage();
-  protected abstract String getNothingAcceptedMessage();
+  protected abstract @NlsContexts.HintText String getNothingFoundMessage();
+  protected abstract @NlsContexts.HintText String getNothingAcceptedMessage();
 
   public boolean canBeAppliedTo(PsiClass targetClass) {
     final ClassMember[] allMembers = getAllOriginalMembers(targetClass);
@@ -155,8 +135,7 @@ public abstract class GenerateGetterSetterHandlerBase extends GenerateMembersHan
   }
 
   @Override
-  @Nullable
-  protected ClassMember[] getAllOriginalMembers(final PsiClass aClass) {
+  protected ClassMember @Nullable [] getAllOriginalMembers(final PsiClass aClass) {
     final List<EncapsulatableClassMember> list = GenerateAccessorProviderRegistrar.getEncapsulatableClassMembers(aClass);
     if (list.isEmpty()) {
       return null;

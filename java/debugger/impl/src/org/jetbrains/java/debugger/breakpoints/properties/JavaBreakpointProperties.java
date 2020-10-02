@@ -1,8 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.debugger.breakpoints.properties;
 
 import com.intellij.debugger.InstanceFilter;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.xmlb.annotations.OptionTag;
@@ -11,9 +10,8 @@ import com.intellij.xdebugger.breakpoints.XBreakpointProperties;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author egor
- */
+import java.util.Arrays;
+
 public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extends XBreakpointProperties<T> {
   private boolean COUNT_FILTER_ENABLED     = false;
   private int COUNT_FILTER = 0;
@@ -24,6 +22,13 @@ public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extend
 
   private boolean INSTANCE_FILTERS_ENABLED = false;
   private InstanceFilter[] myInstanceFilters;
+
+  private boolean CALLER_FILTERS_ENABLED    = false;
+  private ClassFilter[] myCallerFilters;
+  private ClassFilter[] myCallerExclusionFilters;
+
+  private boolean TRACING_START = false;
+  private boolean TRACING_END   = false;
 
   @XCollection(propertyElementName = "instance-filters")
   public InstanceFilter[] getInstanceFilters() {
@@ -37,7 +42,7 @@ public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extend
   }
 
   public void addInstanceFilter(long l) {
-    InstanceFilter newFilter = InstanceFilter.create(String.valueOf(l));
+    InstanceFilter newFilter = InstanceFilter.create(l);
     if (myInstanceFilters == null) {
       myInstanceFilters = new InstanceFilter[] {newFilter};
     }
@@ -61,7 +66,7 @@ public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extend
     if ((a == null || a.length == 0) && (b == null || b.length == 0)) {
       return true;
     }
-    return Comparing.equal(a, b);
+    return Arrays.equals(a, b);
   }
 
   @XCollection(propertyElementName = "class-exclusion-filters")
@@ -92,6 +97,13 @@ public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extend
 
     setINSTANCE_FILTERS_ENABLED(state.isINSTANCE_FILTERS_ENABLED());
     myInstanceFilters = state.getInstanceFilters();
+
+    setCALLER_FILTERS_ENABLED(state.isCALLER_FILTERS_ENABLED());
+    myCallerFilters = state.getCallerFilters();
+    myCallerExclusionFilters = state.getCallerExclusionFilters();
+
+    setTRACING_START(state.isTRACING_START());
+    setTRACING_END(state.isTRACING_END());
   }
 
   @OptionTag("count-filter-enabled")
@@ -135,6 +147,61 @@ public class JavaBreakpointProperties<T extends JavaBreakpointProperties> extend
   public boolean setINSTANCE_FILTERS_ENABLED(boolean INSTANCE_FILTERS_ENABLED) {
     boolean changed = this.INSTANCE_FILTERS_ENABLED != INSTANCE_FILTERS_ENABLED;
     this.INSTANCE_FILTERS_ENABLED = INSTANCE_FILTERS_ENABLED;
+    return changed;
+  }
+
+  @OptionTag("caller-filters-enabled")
+  public boolean isCALLER_FILTERS_ENABLED() {
+    return CALLER_FILTERS_ENABLED;
+  }
+
+  public boolean setCALLER_FILTERS_ENABLED(boolean CALLER_FILTERS_ENABLED) {
+    boolean changed = this.CALLER_FILTERS_ENABLED != CALLER_FILTERS_ENABLED;
+    this.CALLER_FILTERS_ENABLED = CALLER_FILTERS_ENABLED;
+    return changed;
+  }
+
+  @XCollection(propertyElementName = "caller-filters")
+  public ClassFilter[] getCallerFilters() {
+    return myCallerFilters != null ? myCallerFilters : ClassFilter.EMPTY_ARRAY;
+  }
+
+  public boolean setCallerFilters(ClassFilter[] callerFilters) {
+    boolean changed = !filtersEqual(myCallerFilters, callerFilters);
+    myCallerFilters = callerFilters;
+    return changed;
+  }
+
+  @XCollection(propertyElementName = "caller-exclusion-filters")
+  public ClassFilter[] getCallerExclusionFilters() {
+    return myCallerExclusionFilters != null ? myCallerExclusionFilters : ClassFilter.EMPTY_ARRAY;
+  }
+
+  public boolean setCallerExclusionFilters(ClassFilter[] callerExclusionFilters) {
+    boolean changed = !filtersEqual(myCallerExclusionFilters, callerExclusionFilters);
+    myCallerExclusionFilters = callerExclusionFilters;
+    return changed;
+  }
+
+  @OptionTag("tracing-start")
+  public boolean isTRACING_START() {
+    return TRACING_START;
+  }
+
+  public boolean setTRACING_START(boolean TRACING_START) {
+    boolean changed = this.TRACING_START != TRACING_START;
+    this.TRACING_START = TRACING_START;
+    return changed;
+  }
+
+  @OptionTag("tracing-end")
+  public boolean isTRACING_END() {
+    return TRACING_END;
+  }
+
+  public boolean setTRACING_END(boolean TRACING_END) {
+    boolean changed = this.TRACING_END != TRACING_END;
+    this.TRACING_END = TRACING_END;
     return changed;
   }
 }

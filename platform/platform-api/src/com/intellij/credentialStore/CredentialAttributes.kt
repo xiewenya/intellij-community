@@ -1,194 +1,76 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.credentialStore
 
 import com.intellij.ide.passwordSafe.PasswordSafe
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.util.ArrayUtil
-import com.intellij.util.ExceptionUtil
-import com.intellij.util.io.toByteArray
-import com.intellij.util.text.CharArrayCharSequence
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.util.text.nullize
-import java.nio.ByteBuffer
-import java.nio.CharBuffer
-import java.nio.charset.CodingErrorAction
-import java.util.concurrent.atomic.AtomicReference
+import org.jetbrains.annotations.Contract
 
 const val SERVICE_NAME_PREFIX = "IntelliJ Platform"
 
+/**
+ * The combined name of your service and name of service that requires authentication.
+ *
+ * Can be specified in:
+ * * reverse-DNS format: `com.apple.facetime: registrationV1`
+ * * prefixed human-readable format: `IntelliJ Platform Settings Repository — github.com`, where `IntelliJ Platform` is a required prefix. **You must always use this prefix**.
+ */
 fun generateServiceName(subsystem: String, key: String) = "$SERVICE_NAME_PREFIX $subsystem — $key"
 
 /**
- * requestor is deprecated. Never use it in new code.
+ * Consider using [generateServiceName] to generate [serviceName].
+ *
+ * [requestor] is deprecated (never use it in a new code).
  */
-data class CredentialAttributes @JvmOverloads constructor(val serviceName: String, val userName: String? = null, val requestor: Class<*>? = null, val isPasswordMemoryOnly: Boolean = false)
+data class CredentialAttributes(
+  val serviceName: String,
+  val userName: String? = null,
+  val requestor: Class<*>? = null,
+  val isPasswordMemoryOnly: Boolean = false,
+  val cacheDeniedItems: Boolean = true
+) {
+  @JvmOverloads
+  constructor(serviceName: String,
+              userName: String? = null,
+              requestor: Class<*>? = null,
+              isPasswordMemoryOnly: Boolean = false)
+    : this(serviceName, userName, requestor, isPasswordMemoryOnly, true)
+}
 
-fun CredentialAttributes.toPasswordStoreable() = if (isPasswordMemoryOnly) CredentialAttributes(serviceName, userName, requestor) else this
+/**
+ * Pair of user and password.
+ *
+ * @param user Account name ("John") or path to SSH key file ("/Users/john/.ssh/id_rsa").
+ * @param password Can be empty.
+ */
+class Credentials(@NlsSafe user: String?, @NlsSafe val password: OneTimeString? = null) {
+  constructor(@NlsSafe user: String?, @NlsSafe password: String?) : this(user, password?.let(::OneTimeString))
 
-// user cannot be empty, but password can be
-class Credentials(user: String?, val password: OneTimeString? = null) {
-  constructor(user: String?, password: String?) : this(user, password?.let(::OneTimeString))
+  constructor(@NlsSafe user: String?, password: CharArray?) : this(user, password?.let { OneTimeString(it) })
 
-  constructor(user: String?, password: CharArray?) : this(user, password?.let { OneTimeString(it) })
-
-  constructor(user: String?, password: ByteArray?) : this(user, password?.let { OneTimeString(password) })
+  constructor(@NlsSafe user: String?, password: ByteArray?) : this(user, password?.let { OneTimeString(password) })
 
   val userName = user.nullize()
 
+  @NlsSafe
   fun getPasswordAsString() = password?.toString()
 
-  override fun equals(other: Any?): Boolean {
-    if (other !is Credentials) return false
-    return userName == other.userName && password == other.password
-  }
+  override fun equals(other: Any?) = other is Credentials && userName == other.userName && password == other.password
 
   override fun hashCode() = (userName?.hashCode() ?: 0) * 37 + (password?.hashCode() ?: 0)
+
+  override fun toString() = "userName: $userName, password size: ${password?.length ?: 0}"
 }
 
-/**
- * DEPRECATED. Never use it in a new code.
- */
+/** @deprecated Use [CredentialAttributes] instead. */
+@Deprecated("Never use it in a new code.")
+@Suppress("FunctionName", "DeprecatedCallableAddReplaceWith")
 fun CredentialAttributes(requestor: Class<*>, userName: String?) = CredentialAttributes(requestor.name, userName, requestor)
 
+@Contract("null -> false")
 fun Credentials?.isFulfilled() = this != null && userName != null && !password.isNullOrEmpty()
+
+@Contract("null -> false")
 fun Credentials?.hasOnlyUserName() = this != null && userName != null && password.isNullOrEmpty()
 
 fun Credentials?.isEmpty() = this == null || (userName == null && password.isNullOrEmpty())
-
-/**
- * Tries to get credentials both by `newAttributes` and `oldAttributes`, and if they are available by `oldAttributes` migrates old to new,
- * i.e. removes `oldAttributes` from the credentials store, and adds `newAttributes` instead.
- */
-fun getAndMigrateCredentials(oldAttributes: CredentialAttributes, newAttributes: CredentialAttributes): Credentials? {
-  val safe = PasswordSafe.getInstance()
-  var credentials = safe.get(newAttributes)
-  if (credentials == null) {
-    credentials = safe.get(oldAttributes)
-    if (credentials != null) {
-      safe.set(oldAttributes, null)
-      safe.set(newAttributes, credentials)
-    }
-  }
-  return credentials
-}
-
-@JvmOverloads
-fun OneTimeString(value: ByteArray, offset: Int = 0, length: Int = value.size - offset, clearable: Boolean = false): OneTimeString {
-  if (length == 0) {
-    return OneTimeString(ArrayUtil.EMPTY_CHAR_ARRAY)
-  }
-
-  // jdk decodes to heap array, but since this code is very critical, we cannot rely on it, so, we don't use Charsets.UTF_8.decode()
-  val charsetDecoder = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPLACE).onUnmappableCharacter(CodingErrorAction.REPLACE)
-  val charArray = CharArray((value.size * charsetDecoder.maxCharsPerByte().toDouble()).toInt())
-  charsetDecoder.reset()
-  val charBuffer = CharBuffer.wrap(charArray)
-  var cr = charsetDecoder.decode(ByteBuffer.wrap(value, offset, length), charBuffer, true)
-  if (!cr.isUnderflow) {
-    cr.throwException()
-  }
-  cr = charsetDecoder.flush(charBuffer)
-  if (!cr.isUnderflow) {
-    cr.throwException()
-  }
-
-  value.fill(0, offset, offset + length)
-  return OneTimeString(charArray, 0, charBuffer.position(), clearable = clearable)
-}
-
-/**
- * clearable only if specified explicitly.
- *
- * Case
- * 1) you create OneTimeString manually on user input.
- * 2) you store it in CredentialStore
- * 3) you consume it... BUT native credentials store do not store credentials immediately - write is postponed, so, will be an critical error.
- *
- * so, currently - only credentials store implementations should set this flag on get.
- */
-@Suppress("EqualsOrHashCode")
-class OneTimeString @JvmOverloads constructor(value: CharArray, offset: Int = 0, length: Int = value.size, private var clearable: Boolean = false) : CharArrayCharSequence(value, offset, offset + length) {
-  private val consumed = AtomicReference<String?>()
-
-  constructor(value: String): this(value.toCharArray()) {
-  }
-
-  private fun consume(willBeCleared: Boolean) {
-    if (!clearable) {
-      return
-    }
-
-    if (!willBeCleared) {
-      consumed.get()?.let { throw IllegalStateException("Already consumed: $it\n---\n") }
-    }
-    else if (!consumed.compareAndSet(null, ExceptionUtil.currentStackTrace())) {
-      throw IllegalStateException("Already consumed at ${consumed.get()}")
-    }
-  }
-
-  fun toString(clear: Boolean = false): String {
-    consume(clear)
-    val result = super.toString()
-    clear()
-    return result
-  }
-
-  // string will be cleared and not valid after
-  @JvmOverloads
-  fun toByteArray(clear: Boolean = true): ByteArray {
-    consume(clear)
-
-    val result = Charsets.UTF_8.encode(CharBuffer.wrap(myChars, myStart, length))
-    if (clear) {
-      clear()
-    }
-    return result.toByteArray()
-  }
-
-  private fun clear() {
-    if (clearable) {
-      myChars.fill('\u0000', myStart, myEnd)
-    }
-  }
-
-  @JvmOverloads
-  fun toCharArray(clear: Boolean = true): CharArray {
-    consume(clear)
-    if (clear) {
-      val result = CharArray(length)
-      getChars(result, 0)
-      clear()
-      return result
-    }
-    else {
-      return chars
-    }
-  }
-
-  fun clone(clear: Boolean, clearable: Boolean) = OneTimeString(toCharArray(clear), clearable = clearable)
-
-  override fun equals(other: Any?): Boolean {
-    if (other is CharSequence) {
-      return StringUtil.equals(this, other)
-    }
-    return super.equals(other)
-  }
-
-  fun appendTo(builder: StringBuilder) {
-    consume(false)
-    builder.append(myChars, myStart, length)
-  }
-}

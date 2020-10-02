@@ -1,22 +1,22 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.YAMLUtil;
 import org.jetbrains.yaml.lexer.YAMLGrammarCharUtil;
 import org.jetbrains.yaml.psi.YAMLScalarText;
+import org.jetbrains.yaml.psi.YamlPsiElementVisitor;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author oleg
- */
 public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScalarText {
   public YAMLScalarTextImpl(@NotNull final ASTNode node) {
     super(node);
@@ -42,20 +42,24 @@ public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScala
     if (rightRange.isEmpty()) {
       int i = indexBefore + 2;
       // Unfortunately we need to scan to the nearest non-empty line to understand
-      // whether we should add a line here 
+      // whether we should add a line here
       while (i < contentRanges.size() && contentRanges.get(i).isEmpty()) {
         i++;
       }
-      if (i < contentRanges.size() && startsWithWhitespace(text, contentRanges.get(i))) {
+      if (i >= contentRanges.size()) {
+        // empty lines until the end
+        if (getChompingIndicator() == ChompingIndicator.KEEP) {
+          return "\n";
+        }
+      }
+      else if (startsWithWhitespace(text, contentRanges.get(i))) {
         return "\n";
       }
-      else {
-        return "";
-      }
+      return "";
     }
     return " ";
   }
-  
+
   private static boolean startsWithWhitespace(@NotNull CharSequence text, @NotNull TextRange range) {
     if (range.isEmpty()) {
       return false;
@@ -77,7 +81,7 @@ public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScala
     final String indentString = StringUtil.repeatSymbol(' ', indent);
 
     final List<Pair<TextRange, String>> result = new ArrayList<>();
-    
+
     int currentLength = 0;
     boolean currentLineIsIndented = input.length() > 0 && input.charAt(0) == ' ';
     for (int i = 0; i < input.length(); ++i) {
@@ -92,7 +96,7 @@ public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScala
         else {
           replacement = "\n\n" + indentString;
         }
-        
+
         result.add(Pair.create(TextRange.from(i, 1), replacement));
         currentLength = 0;
         currentLineIsIndented = i + 1 < input.length() && input.charAt(i + 1) == ' ';
@@ -105,17 +109,11 @@ public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScala
         currentLength = 0;
         continue;
       }
-      
+
       currentLength++;
     }
 
     return result;
-  }
-  
-  @NotNull
-  @Override
-  public String getTextValue() {
-    return super.getTextValue() + "\n";
   }
 
   @Override
@@ -123,4 +121,13 @@ public class YAMLScalarTextImpl extends YAMLBlockScalarImpl implements YAMLScala
     return "YAML scalar text";
   }
 
+  @Override
+  public void accept(@NotNull PsiElementVisitor visitor) {
+    if (visitor instanceof YamlPsiElementVisitor) {
+      ((YamlPsiElementVisitor)visitor).visitScalarText(this);
+    }
+    else {
+      super.accept(visitor);
+    }
+  }
 }

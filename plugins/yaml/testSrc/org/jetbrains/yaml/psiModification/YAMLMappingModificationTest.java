@@ -1,17 +1,18 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psiModification;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.yaml.YAMLElementGenerator;
 import org.jetbrains.yaml.YAMLUtil;
 import org.jetbrains.yaml.psi.YAMLFile;
 import org.jetbrains.yaml.psi.YAMLKeyValue;
 import org.jetbrains.yaml.psi.YAMLMapping;
 
-public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixtureTestCase {
+public class YAMLMappingModificationTest extends BasePlatformTestCase {
   @Override
   protected String getTestDataPath() {
     return PathManagerEx.getCommunityHomePath() + "/plugins/yaml/testSrc/org/jetbrains/yaml/psiModification/data/";
@@ -26,7 +27,11 @@ public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixture
   public void testCreateSecondTopLevelKey() {
     doMappingTest("key2", "value2");
   }
-  
+
+  public void testCreateSecondTopLevelKeyWithTailLines() {
+    doMappingTest("key2", "value2");
+  }
+
   public void testReplaceTopLevelKey() {
     doMappingTest("key", "value2");
   }
@@ -35,10 +40,54 @@ public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixture
     doMappingTest("key", "value");
   }
 
+  public void testCreateSecondKeyLevelTwoWithTailLines() {
+    doMappingTest("key", "value");
+  }
+
+  public void testCreateSecondKeyLevelTwoWithComment() {
+    doMappingTest("key", "value");
+  }
+
   public void testCreateSecondKeyLevelTwoCompact() {
     doMappingTest("key", "value");
   }
-  
+
+  public void testDeleteKeyInEmptyFile() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyInFirstLine() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyInInvalidSyntax() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyInLastLine() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyInNestedMapping() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyInNestedMappingWithComment() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyWithCommentOnNextLine() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyWithCommentOnPreviousLine() {
+    doDeleteTest();
+  }
+
+  public void testDeleteKeyWithCommentOnSameLine() {
+    doDeleteTest();
+  }
+
   public void testReplaceValueScalarScalar() {
     doValueTest("newValue");
   }
@@ -48,7 +97,9 @@ public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixture
   }
   
   public void testReplaceValueScalarCompound() {
-    doValueTest("someKey: - bla\n                - bla");
+    doValueTest("someKey:\n" +
+                "- bla\n" +
+                "- bla");
   }
   
   public void testSetValueScalar() {
@@ -56,8 +107,9 @@ public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixture
   }
   
   public void testSetValueCompound() {
-    doValueTest("someKey: - bla\n" +
-                "            - bla");
+    doValueTest("someKey:\n" +
+                "- bla\n" +
+                "- bla");
   }
   
   private void doValueTest(final String valueText) {
@@ -100,5 +152,16 @@ public class YAMLMappingModificationTest extends LightPlatformCodeInsightFixture
     }
 
     assertSameLinesWithFile(getTestDataPath() + getTestName(true) + ".txt", myFixture.getFile().getText(), false);
+  }
+
+  private void doDeleteTest() {
+    myFixture.configureByFile(getTestName(true) + ".yml");
+
+    final PsiElement element = myFixture.getElementAtCaret();
+    final YAMLKeyValue keyValue = PsiTreeUtil.getParentOfType(element, YAMLKeyValue.class, false);
+
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> keyValue.getParentMapping().deleteKeyValue(keyValue));
+
+    assertSameLinesWithFile(getTestDataPath() + getTestName(true) + ".txt", myFixture.getFile().getText());
   }
 }

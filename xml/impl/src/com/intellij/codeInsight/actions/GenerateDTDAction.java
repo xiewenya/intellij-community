@@ -39,7 +39,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class GenerateDTDAction extends BaseCodeInsightAction{
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.actions.GenerateDTDAction");
+  private static final Logger LOG = Logger.getInstance(GenerateDTDAction.class);
   @Override
   @NotNull
   protected CodeInsightActionHandler getHandler(){
@@ -87,7 +87,7 @@ public class GenerateDTDAction extends BaseCodeInsightAction{
   }
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     super.update(event);
     if (ActionPlaces.isPopupPlace(event.getPlace())) {
       Presentation presentation = event.getPresentation();

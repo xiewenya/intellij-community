@@ -26,9 +26,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 
-/**
- * @author nik
- */
 public class XDebuggerExpressionEditor extends XDebuggerEditorBase {
   private final JComponent myComponent;
   private final EditorTextField myEditorTextField;
@@ -69,7 +66,7 @@ public class XDebuggerExpressionEditor extends XDebuggerEditorBase {
       }
 
       @Override
-      public Object getData(String dataId) {
+      public Object getData(@NotNull String dataId) {
         if (LangDataKeys.CONTEXT_LANGUAGES.is(dataId)) {
           return new Language[]{myExpression.getLanguage()};
         } else if (CommonDataKeys.PSI_FILE.is(dataId)) {
@@ -120,6 +117,7 @@ public class XDebuggerExpressionEditor extends XDebuggerEditorBase {
     return editor != null ? editor.getContentComponent() : null;
   }
 
+  @Override
   public void setEnabled(boolean enable) {
     if (enable == myComponent.isEnabled()) return;
     UIUtil.setEnabled(myComponent, enable, true);

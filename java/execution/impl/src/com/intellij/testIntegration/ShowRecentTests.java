@@ -16,7 +16,7 @@
 package com.intellij.testIntegration;
 
 import com.intellij.execution.TestStateStorage;
-import com.intellij.internal.statistic.UsageTrigger;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
@@ -42,11 +42,9 @@ public class ShowRecentTests extends AnAction {
   }
   
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) return;
-
-    UsageTrigger.trigger(ID);
 
     final TestStateStorage testStorage = TestStateStorage.getInstance(project);
     final TestLocator testLocator = new TestLocator(project);
@@ -59,9 +57,9 @@ public class ShowRecentTests extends AnAction {
     
     List<RecentTestsPopupEntry> entries = listProvider.getTestsToShow();
     
-    SelectTestStep selectStepTest = new SelectTestStep("Debug Recent Tests", entries, testRunner);
+    SelectTestStep selectStepTest = new SelectTestStep(JavaBundle.message("popup.title.debug.recent.tests"), entries, testRunner);
 
-    RecentTestsListPopup popup = new RecentTestsListPopup(selectStepTest, testRunner, testLocator);
+    RecentTestsListPopup popup = new RecentTestsListPopup(project, selectStepTest, testRunner, testLocator);
     popup.showCenteredInCurrentWindow(project);
 
     cleanDeadTests(entries, testLocator, testStorage);

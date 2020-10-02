@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.AutoPopupController;
@@ -21,11 +7,10 @@ import com.intellij.codeInsight.lookup.Lookup;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.PsiTypeLookupItem;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.filters.FilterPositionUtil;
 import com.intellij.psi.impl.source.codeStyle.ImportHelper;
@@ -35,6 +20,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.psi.codeStyle.JavaCodeStyleSettings.*;
 
@@ -45,14 +31,19 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
   static final InsertHandler<JavaPsiClassReferenceElement> JAVA_CLASS_INSERT_HANDLER = new JavaClassNameInsertHandler();
 
   @Override
-  public void handleInsert(final InsertionContext context, final JavaPsiClassReferenceElement item) {
+  public void handleInsert(@NotNull final InsertionContext context, @NotNull final JavaPsiClassReferenceElement item) {
     int offset = context.getTailOffset() - 1;
     final PsiFile file = context.getFile();
-    if (PsiTreeUtil.findElementOfClassAtOffset(file, offset, PsiImportStatementBase.class, false) != null) {
-      final PsiJavaCodeReferenceElement ref = PsiTreeUtil.findElementOfClassAtOffset(file, offset, PsiJavaCodeReferenceElement.class, false);
-      final String qname = item.getQualifiedName();
+    PsiImportStatementBase importStatement = PsiTreeUtil.findElementOfClassAtOffset(file, offset, PsiImportStatementBase.class, false);
+    if (importStatement != null) {
+      PsiJavaCodeReferenceElement ref = findJavaReference(file, offset);
+      String qname = item.getQualifiedName();
       if (qname != null && (ref == null || !qname.equals(ref.getCanonicalText()))) {
         AllClassesGetter.INSERT_FQN.handleInsert(context, item);
+      }
+      if (importStatement instanceof PsiImportStaticStatement) {
+        context.setAddCompletionChar(false);
+        EditorModificationUtil.insertStringAtCaret(context.getEditor(), ".");
       }
       return;
     }
@@ -61,6 +52,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     PsiJavaCodeReferenceElement ref = position != null && position.getParent() instanceof PsiJavaCodeReferenceElement ?
                                       (PsiJavaCodeReferenceElement) position.getParent() : null;
     PsiClass psiClass = item.getObject();
+    SmartPsiElementPointer<PsiClass> classPointer = SmartPointerManager.createPointer(psiClass);
     final Project project = context.getProject();
 
     final Editor editor = context.getEditor();
@@ -74,7 +66,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     String qname = psiClass.getQualifiedName();
     if (qname != null && PsiTreeUtil.getParentOfType(position, PsiDocComment.class, false) != null &&
         (ref == null || !ref.isQualified()) &&
-        shouldInsertFqnInJavadoc(item, file, project)) {
+        shouldInsertFqnInJavadoc(item, file)) {
       context.getDocument().replaceString(context.getStartOffset(), context.getTailOffset(), qname);
       return;
     }
@@ -90,9 +82,7 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
       context.setAddCompletionChar(false);
     }
 
-    if (ref == null || !ref.isQualified()) {
-      PsiTypeLookupItem.addImportForItem(context, psiClass);
-    }
+    PsiTypeLookupItem.addImportForItem(context, psiClass);
     if (!context.getOffsetMap().containsOffset(refEnd)) {
       return;
     }
@@ -101,14 +91,21 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     refEnd = context.trackOffset(context.getTailOffset(), false);
 
     context.commitDocument();
+
+    psiClass = classPointer.dereference();
+
     if (item.getUserData(JavaChainLookupElement.CHAIN_QUALIFIER) == null &&
         shouldInsertParentheses(file.findElementAt(context.getTailOffset() - 1))) {
-      if (ConstructorInsertHandler.insertParentheses(context, item, psiClass, false)) {
+      if (context.getCompletionChar() == Lookup.REPLACE_SELECT_CHAR) {
+        overwriteTopmostReference(context);
+        context.commitDocument();
+      }
+      if (psiClass != null && ConstructorInsertHandler.insertParentheses(context, item, psiClass, false)) {
         fillTypeArgs |= psiClass.hasTypeParameters() && PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5);
       }
     }
     else if (insertingAnnotation(context, item)) {
-      if (shouldHaveAnnotationParameters(psiClass)) {
+      if (psiClass != null && shouldHaveAnnotationParameters(psiClass)) {
         JavaCompletionUtil.insertParentheses(context, item, false, true);
       }
       if (context.getCompletionChar() == Lookup.NORMAL_SELECT_CHAR || context.getCompletionChar() == Lookup.COMPLETE_STATEMENT_SELECT_CHAR) {
@@ -123,14 +120,39 @@ class JavaClassNameInsertHandler implements InsertHandler<JavaPsiClassReferenceE
     if (fillTypeArgs && context.getCompletionChar() != '(') {
       JavaCompletionUtil.promptTypeArgs(context, context.getOffset(refEnd));
     }
+    else if (context.getCompletionChar() == Lookup.COMPLETE_STATEMENT_SELECT_CHAR &&
+             psiClass != null && psiClass.getTypeParameters().length == 1 &&
+             PsiUtil.getLanguageLevel(file).isAtLeast(LanguageLevel.JDK_1_5)) {
+      wrapFollowingTypeInGenerics(context, context.getOffset(refEnd));
+    }
   }
 
-  private static boolean shouldInsertFqnInJavadoc(@NotNull JavaPsiClassReferenceElement item,
-                                                  @NotNull PsiFile file,
-                                                  @NotNull Project project) 
-  {
-    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project);
-    JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
+  private static void wrapFollowingTypeInGenerics(InsertionContext context, int refEnd) {
+    PsiTypeElement typeElem = PsiTreeUtil.findElementOfClassAtOffset(context.getFile(), refEnd, PsiTypeElement.class, false);
+    if (typeElem != null) {
+      int typeEnd = typeElem.getTextRange().getEndOffset();
+      context.getDocument().insertString(typeEnd, ">");
+      context.getEditor().getCaretModel().moveToOffset(typeEnd + 1);
+      context.getDocument().insertString(refEnd, "<");
+      context.setAddCompletionChar(false);
+    }
+  }
+
+  @Nullable static PsiJavaCodeReferenceElement findJavaReference(@NotNull PsiFile file, int offset) {
+    return PsiTreeUtil.findElementOfClassAtOffset(file, offset, PsiJavaCodeReferenceElement.class, false);
+  }
+
+  static void overwriteTopmostReference(InsertionContext context) {
+    context.commitDocument();
+    PsiJavaCodeReferenceElement ref = findJavaReference(context.getFile(), context.getTailOffset() - 1);
+    if (ref != null) {
+      while (ref.getParent() instanceof PsiJavaCodeReferenceElement) ref = (PsiJavaCodeReferenceElement)ref.getParent();
+      context.getDocument().deleteString(context.getTailOffset(), ref.getTextRange().getEndOffset());
+    }
+  }
+
+  private static boolean shouldInsertFqnInJavadoc(@NotNull JavaPsiClassReferenceElement item, @NotNull PsiFile file) {
+    JavaCodeStyleSettings javaSettings = getInstance(file);
     
     switch (javaSettings.CLASS_NAMES_IN_JAVADOC) {
       case FULLY_QUALIFY_NAMES_ALWAYS:

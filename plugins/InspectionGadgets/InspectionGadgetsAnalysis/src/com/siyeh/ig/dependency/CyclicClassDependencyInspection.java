@@ -20,12 +20,12 @@ import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.reference.RefClass;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.util.RefEntityAlphabeticalComparator;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseGlobalInspection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UDeclarationKt;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -33,15 +33,8 @@ import java.util.Set;
 
 public class CyclicClassDependencyInspection extends BaseGlobalInspection {
 
-  @NotNull
   @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("cyclic.class.dependency.display.name");
-  }
-
-  @Override
-  @Nullable
-  public CommonProblemDescriptor[] checkElement(
+  public CommonProblemDescriptor @Nullable [] checkElement(
     @NotNull RefEntity refEntity,
     @NotNull AnalysisScope analysisScope,
     @NotNull InspectionManager inspectionManager,
@@ -77,11 +70,7 @@ public class CyclicClassDependencyInspection extends BaseGlobalInspection {
       errorString = InspectionGadgetsBundle.message("cyclic.class.dependency.problem.descriptor",
                                                     refEntity.getName(), Integer.valueOf(numMutualDependents));
     }
-    final PsiClass aClass = refClass.getElement();
-    if (aClass == null) {
-      return null;
-    }
-    final PsiElement anchor = aClass.getNameIdentifier();
+    final PsiElement anchor = UDeclarationKt.getAnchorPsi(refClass.getUastElement());
     if (anchor == null) return null;
     return new CommonProblemDescriptor[]{
       inspectionManager.createProblemDescriptor(anchor, errorString, (LocalQuickFix)null,

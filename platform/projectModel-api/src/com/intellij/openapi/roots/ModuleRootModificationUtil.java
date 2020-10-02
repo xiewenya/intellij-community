@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -31,11 +17,9 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
-/**
- * @author nik
- */
-public class ModuleRootModificationUtil {
+public final class ModuleRootModificationUtil {
   public static void addContentRoot(@NotNull Module module, @NotNull String path) {
     updateModel(module, model -> model.addContentEntry(VfsUtilCore.pathToUrl(path)));
   }
@@ -46,47 +30,47 @@ public class ModuleRootModificationUtil {
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, DependencyScope.COMPILE);
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls) {
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, DependencyScope.COMPILE);
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
                                       @NotNull DependencyScope scope) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, Collections.emptyList(), scope);
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, Collections.emptyList(), scope);
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
-                                      @NotNull List<String> excludedRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
+                                      @NotNull List<String> excludedRootUrls,
                                       @NotNull DependencyScope scope) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, excludedRoots, scope, false);
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, excludedRootUrls, scope, false);
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
-                                      @NotNull List<String> excludedRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
+                                      @NotNull List<String> excludedRootUrls,
                                       @NotNull DependencyScope scope,
                                       boolean exported) {
     updateModel(module, model -> {
       LibraryEx library = (LibraryEx)model.getModuleLibraryTable().createLibrary(libName);
       LibraryEx.ModifiableModelEx libraryModel = library.getModifiableModel();
 
-      for (String root : classesRoots) {
-        libraryModel.addRoot(root, OrderRootType.CLASSES);
+      for (String rootUrl : classesRootUrls) {
+        libraryModel.addRoot(rootUrl, OrderRootType.CLASSES);
       }
-      for (String root : sourceRoots) {
-        libraryModel.addRoot(root, OrderRootType.SOURCES);
+      for (String rootUrl : sourceRootUrls) {
+        libraryModel.addRoot(rootUrl, OrderRootType.SOURCES);
       }
-      for (String excluded : excludedRoots) {
-        libraryModel.addExcludedRoot(excluded);
+      for (String excludedUrl : excludedRootUrls) {
+        libraryModel.addExcludedRoot(excludedUrl);
       }
 
       LibraryOrderEntry entry = model.findLibraryOrderEntry(library);
@@ -137,11 +121,23 @@ public class ModuleRootModificationUtil {
     });
   }
 
-  public static void updateModel(@NotNull Module module, @NotNull Consumer<ModifiableRootModel> task) {
+  public static void updateModel(@NotNull Module module, @NotNull Consumer<? super ModifiableRootModel> task) {
+    modifyModel(module, model -> {
+      task.consume(model);
+      return Boolean.TRUE;
+    });
+  }
+
+  public static void modifyModel(@NotNull Module module, @NotNull Function<? super ModifiableRootModel, Boolean> modifier) {
     ModifiableRootModel model = ReadAction.compute(() -> ModuleRootManager.getInstance(module).getModifiableModel());
     try {
-      task.consume(model);
-      ApplicationManager.getApplication().invokeAndWait(() -> WriteAction.run(model::commit));
+      if (modifier.apply(model)) {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+          if (!module.isDisposed()) {
+            WriteAction.run(model::commit);
+          }
+        });
+      }
     }
     finally {
       if (!model.isDisposed()) {

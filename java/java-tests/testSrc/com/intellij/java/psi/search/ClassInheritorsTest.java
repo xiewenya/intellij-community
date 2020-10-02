@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.psi.search;
 
 import com.intellij.concurrency.JobScheduler;
@@ -25,6 +11,7 @@ import com.intellij.openapi.progress.util.StandardProgressIndicatorBase;
 import com.intellij.openapi.roots.DependencyScope;
 import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiClassOwner;
 import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.impl.compiled.ClsClassImpl;
 import com.intellij.psi.impl.source.PsiClassImpl;
@@ -34,7 +21,6 @@ import com.intellij.psi.search.searches.DirectClassInheritorsSearch;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.fixtures.JavaCodeInsightFixtureTestCase;
 import com.intellij.util.CommonProcessors;
-import gnu.trove.THashSet;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -63,7 +49,7 @@ public class ClassInheritorsTest extends JavaCodeInsightFixtureTestCase {
   public void testStressInPresenceOfPCEs() {
     ApplicationManager.getApplication().assertIsDispatchThread(); // no write action can go through while we test
     int N = 1000;
-    PsiJavaFile file0 = (PsiJavaFile)myFixture.addFileToProject("C0.java", "class C0 { }");
+    PsiClassOwner file0 = (PsiJavaFile)myFixture.addFileToProject("C0.java", "class C0 { }");
     for (int i=1;i<N ;i++) {
       int extI = i - 1 - (i - 1) % 10; // 10 inheritors
       myFixture.addClass("class C" + i + " extends C" + extI + " { }");
@@ -77,7 +63,7 @@ public class ClassInheritorsTest extends JavaCodeInsightFixtureTestCase {
       JobScheduler.getScheduler().schedule(progress::cancel, delayToCancel, TimeUnit.MILLISECONDS);
       try {
         Collections.nCopies(Runtime.getRuntime().availableProcessors(), "").stream().parallel().forEach(__ -> {
-          Collection<PsiClass> inheritors = Collections.synchronizedSet(new THashSet<>());
+          Collection<PsiClass> inheritors = Collections.synchronizedSet(new HashSet<>());
           ProgressManager.getInstance().executeProcessUnderProgress(()-> {
             boolean success = ClassInheritorsSearch.search(class0).forEach(new CommonProcessors.CollectProcessor<>(inheritors));
             if (N - 1 != inheritors.size() || !success) {
@@ -126,7 +112,7 @@ public class ClassInheritorsTest extends JavaCodeInsightFixtureTestCase {
     assertSize(4, ClassInheritorsSearch.search(myFixture.findClass("one.Test.B")).findAll());
   }
 
-  public void testInheritorsInAnotherModuleWithNoDirectoDependency() throws IOException {
+  public void testInheritorsInAnotherModuleWithNoDirectDependency() throws IOException {
     myFixture.addFileToProject("A.java", "class A {}");
     myFixture.addFileToProject("mod1/B.java", "class B extends A {}");
     myFixture.addFileToProject("mod1/C.java", "class C extends B {}");
@@ -134,10 +120,35 @@ public class ClassInheritorsTest extends JavaCodeInsightFixtureTestCase {
     Module mod1 = PsiTestUtil.addModule(getProject(), StdModuleTypes.JAVA, "mod1", myFixture.getTempDirFixture().findOrCreateDir("mod1"));
     Module mod2 = PsiTestUtil.addModule(getProject(), StdModuleTypes.JAVA, "mod2", myFixture.getTempDirFixture().findOrCreateDir("mod1"));
 
-    ModuleRootModificationUtil.addDependency(mod1, myModule, DependencyScope.COMPILE, false);
+    ModuleRootModificationUtil.addDependency(mod1, getModule(), DependencyScope.COMPILE, false);
     ModuleRootModificationUtil.addDependency(mod2, mod1, DependencyScope.COMPILE, false);
 
     assertSize(2, ClassInheritorsSearch.search(myFixture.findClass("A")).findAll());
   }
 
+  public void testInheritorsInAnotherModuleWithProductionOnTestDependency() throws IOException {
+    myFixture.addFileToProject("tests/B.java", "class B {}");
+    myFixture.addFileToProject("mod2/C.java", "class C extends B {}");
+
+    PsiTestUtil.addSourceRoot(getModule(), myFixture.getTempDirFixture().findOrCreateDir("tests"), true);
+    Module mod2 = PsiTestUtil.addModule(getProject(), StdModuleTypes.JAVA, "mod2", myFixture.getTempDirFixture().findOrCreateDir("mod2"));
+
+    ModuleRootModificationUtil.updateModel(mod2, model ->
+      model.addModuleOrderEntry(getModule()).setProductionOnTestDependency(true));
+
+    assertSize(1, ClassInheritorsSearch.search(myFixture.findClass("B")).findAll());
+  }
+
+  public void testSpaceBeforeSuperTypeGenerics() {
+    myFixture.addFileToProject("A.java", "interface A<T> {}");
+    myFixture.addFileToProject("B.java", "class B implements A <T> {}");
+    assertSize(1, ClassInheritorsSearch.search(myFixture.findClass("A")).findAll());
+  }
+
+  public void testQueryingNonAnonymousInheritors() {
+    PsiClass foo = myFixture.addClass("class Foo { { new Foo(){}; }; class Bar extends Foo {} }");
+    GlobalSearchScope scope = GlobalSearchScope.allScope(getProject());
+    assertSize(1, ClassInheritorsSearch.search(foo, scope, true, true, false).findAll());
+    assertSize(2, ClassInheritorsSearch.search(foo, scope, true, true, true).findAll());
+  }
 }

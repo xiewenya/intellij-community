@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.xml;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.DefaultRoleFinder;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.RoleFinder;
 import com.intellij.util.ArrayUtil;
 import com.intellij.xml.util.XmlTagUtil;
@@ -44,31 +30,24 @@ public interface XmlChildRole {
     }
   };
 
-  RoleFinder DOCUMENT_FINDER = new RoleFinder() {
-    @Override
-    public ASTNode findChild(@NotNull ASTNode parent) {
-      ASTNode oldDocument = parent.findChildByType(XmlElementType.XML_DOCUMENT);
-      if(oldDocument == null) oldDocument = parent.findChildByType(XmlElementType.HTML_DOCUMENT);
-      return oldDocument;
-    }
-  };
-
   RoleFinder ATTRIBUTE_VALUE_FINDER = new DefaultRoleFinder(XmlElementType.XML_ATTRIBUTE_VALUE);
   RoleFinder CLOSING_TAG_START_FINDER = new DefaultRoleFinder(XmlTokenType.XML_END_TAG_START);
   RoleFinder EMPTY_TAG_END_FINDER = new DefaultRoleFinder(XmlTokenType.XML_EMPTY_ELEMENT_END);
   RoleFinder ATTRIBUTE_NAME_FINDER = new DefaultRoleFinder(XmlTokenType.XML_NAME);
   RoleFinder ATTRIBUTE_VALUE_VALUE_FINDER = new DefaultRoleFinder(XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN);
-  RoleFinder START_TAG_END_FINDER = new DefaultRoleFinder(XmlTokenType.XML_TAG_END) {
-    {
-      final StartTagEndTokenProvider[] tokenProviders = Extensions.getExtensions(StartTagEndTokenProvider.EP_NAME);
-      for (StartTagEndTokenProvider tokenProvider : tokenProviders) {
-        myElementTypes = ArrayUtil.mergeArrays(myElementTypes, tokenProvider.getTypes());
-      }
-    }
-  };
-  RoleFinder START_TAG_START_FINDER = new DefaultRoleFinder(XmlTokenType.XML_START_TAG_START);
-  RoleFinder PROLOG_FINDER = new DefaultRoleFinder(XmlElementType.XML_PROLOG);
 
+
+  RoleFinder START_TAG_END_FINDER = new DefaultRoleFinder(() -> {
+    return StartTagEndTokenProvider.EP_NAME.computeIfAbsent(XmlChildRole.class, XmlChildRole.class, s -> {
+      IElementType[] elementTypes = new IElementType[]{XmlTokenType.XML_TAG_END};
+      for (StartTagEndTokenProvider tokenProvider : StartTagEndTokenProvider.EP_NAME.getExtensionList()) {
+        elementTypes = ArrayUtil.mergeArrays(elementTypes, tokenProvider.getTypes());
+      }
+      return elementTypes;
+    });
+  });
+
+  RoleFinder START_TAG_START_FINDER = new DefaultRoleFinder(XmlTokenType.XML_START_TAG_START);
 
   int XML_DOCUMENT = 223;
   int XML_TAG_NAME = 224;

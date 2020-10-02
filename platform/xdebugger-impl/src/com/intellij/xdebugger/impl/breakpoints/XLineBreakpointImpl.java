@@ -1,14 +1,14 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.LazyRangeMarkerFactory;
+import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
@@ -22,14 +22,15 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.DocumentUtil;
-import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
-import com.intellij.xdebugger.breakpoints.XBreakpointManager;
 import com.intellij.xdebugger.breakpoints.XBreakpointProperties;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType;
+import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
+import com.intellij.xdebugger.impl.XDebuggerUtilImpl;
 import com.intellij.xdebugger.ui.DebuggerColors;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,14 +40,11 @@ import java.awt.*;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DragSource;
 import java.io.File;
-import java.util.List;
+import java.util.Objects;
 
-/**
- * @author nik
- */
-public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreakpointBase<XLineBreakpoint<P>, P, LineBreakpointState<P>>
+public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreakpointBase<XLineBreakpoint<P>, P, LineBreakpointState<P>>
   implements XLineBreakpoint<P> {
-  @Nullable private RangeHighlighter myHighlighter;
+  @Nullable private RangeMarker myHighlighter;
   private final XLineBreakpointType<P> myType;
   private XSourcePosition mySourcePosition;
 
@@ -64,24 +62,55 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
     myType = type;
   }
 
-  public void updateUI() {
+  public final void updateUI() {
     if (isDisposed() || ApplicationManager.getApplication().isUnitTestMode()) {
       return;
     }
 
-    Document document = getDocument();
-    if (document == null) {
+    VirtualFile file = getFile();
+    if (file == null) {
       return;
     }
 
-    EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-    TextAttributes attributes = scheme.getAttributes(DebuggerColors.BREAKPOINT_ATTRIBUTES);
+    // do not decompile files here
+    Document document = FileDocumentManager.getInstance().getCachedDocument(file);
+    if (document == null) {
+      // currently LazyRangeMarkerFactory creates document for non binary files
+      if (file.getFileType().isBinary()) {
+        if (myHighlighter == null) {
+          myHighlighter = LazyRangeMarkerFactory.getInstance(getProject()).createRangeMarker(file, getLine(), 0, true);
+        }
+        return;
+      }
+      document = FileDocumentManager.getInstance().getDocument(file);
+      if (document == null) {
+        return;
+      }
+    }
 
-    RangeHighlighter highlighter = myHighlighter;
+    if (myHighlighter != null && !(myHighlighter instanceof RangeHighlighter)) {
+      removeHighlighter();
+      myHighlighter = null;
+    }
+
+    if (myType instanceof XBreakpointTypeWithDocumentDelegation) {
+      document = ((XBreakpointTypeWithDocumentDelegation)myType).getDocumentForHighlighting(document);
+    }
+
+    TextAttributesKey attributesKey = DebuggerColors.BREAKPOINT_ATTRIBUTES;
+    EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
+    TextAttributes attributes = scheme.getAttributes(attributesKey);
+
+    if (!isEnabled()) {
+      attributes = attributes.clone();
+      attributes.setBackgroundColor(null);
+    }
+
+    RangeHighlighter highlighter = (RangeHighlighter)myHighlighter;
     if (highlighter != null &&
         (!highlighter.isValid()
          || !DocumentUtil.isValidOffset(highlighter.getStartOffset(), document)
-         || !Comparing.equal(highlighter.getTextAttributes(), attributes)
+         || !Comparing.equal(highlighter.getTextAttributes(null), attributes)
          // it seems that this check is not needed - we always update line number from the highlighter
          // and highlighter is removed on line and file change anyway
          /*|| document.getLineNumber(highlighter.getStartOffset()) != getLine()*/)) {
@@ -91,18 +120,22 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
 
     MarkupModelEx markupModel;
     if (highlighter == null) {
+      int line = getLine();
+      if (line >= document.getLineCount()) {
+        return;
+      }
       markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(document, getProject(), true);
       TextRange range = myType.getHighlightRange(this);
       if (range != null && !range.isEmpty()) {
-        range = range.intersection(DocumentUtil.getLineTextRange(document, getLine()));
-        if (range != null && !range.isEmpty()) {
+        TextRange lineRange = DocumentUtil.getLineTextRange(document, line);
+        if (range.intersects(lineRange)) {
           highlighter = markupModel.addRangeHighlighter(range.getStartOffset(), range.getEndOffset(),
                                                         DebuggerColors.BREAKPOINT_HIGHLIGHTER_LAYER, attributes,
                                                         HighlighterTargetArea.EXACT_RANGE);
         }
       }
       if (highlighter == null) {
-        highlighter = markupModel.addPersistentLineHighlighter(getLine(), DebuggerColors.BREAKPOINT_HIGHLIGHTER_LAYER, attributes);
+        highlighter = markupModel.addPersistentLineHighlighter(line, DebuggerColors.BREAKPOINT_HIGHLIGHTER_LAYER, attributes);
       }
       if (highlighter == null) {
         return;
@@ -126,13 +159,6 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
         markupModel.fireAttributesChanged((RangeHighlighterEx)highlighter, false, false);
       }
     }
-  }
-
-  @Nullable
-  private Document getDocument() {
-    VirtualFile file = getFile();
-    if (file == null) return null;
-    return FileDocumentManager.getInstance().getDocument(file);
   }
 
   @Nullable
@@ -174,7 +200,7 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
 
   @Nullable
   public RangeHighlighter getHighlighter() {
-    return myHighlighter;
+    return myHighlighter instanceof RangeHighlighter ? (RangeHighlighter)myHighlighter : null;
   }
 
   @Override
@@ -212,28 +238,32 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
       @Override
       public boolean copy(int line, VirtualFile file, int actionId) {
         if (canMoveTo(line, file)) {
-          final XBreakpointManager breakpointManager = XDebuggerManager.getInstance(getProject()).getBreakpointManager();
+          XDebuggerManagerImpl debuggerManager = (XDebuggerManagerImpl)XDebuggerManager.getInstance(getProject());
+          XBreakpointManagerImpl breakpointManager = debuggerManager.getBreakpointManager();
           if (isCopyAction(actionId)) {
-            WriteAction
-              .run(() -> ((XBreakpointManagerImpl)breakpointManager).copyLineBreakpoint(XLineBreakpointImpl.this, file.getUrl(), line));
+            WriteAction.run(() -> breakpointManager.copyLineBreakpoint(XLineBreakpointImpl.this, file.getUrl(), line));
           }
           else {
             setFileUrl(file.getUrl());
             setLine(line, true);
+            XDebugSessionImpl session = debuggerManager.getCurrentSession();
+            if (session != null && session.getActiveNonLineBreakpoint() == XLineBreakpointImpl.this) {
+              session.clearActiveNonLineBreakpoint(true);
+            }
           }
           return true;
         }
         return false;
       }
 
+      @Override
       public void remove() {
-        XBreakpointManager breakpointManager = XDebuggerManager.getInstance(getProject()).getBreakpointManager();
-        WriteAction.run(() -> breakpointManager.removeBreakpoint(XLineBreakpointImpl.this));
+        XDebuggerUtilImpl.removeBreakpointWithConfirmation(getProject(), XLineBreakpointImpl.this);
       }
 
       @Override
-      public Cursor getCursor(int line, int actionId) {
-        if (canMoveTo(line, getFile())) {
+      public Cursor getCursor(int line, VirtualFile file, int actionId) {
+        if (canMoveTo(line, file)) {
           return isCopyAction(actionId) ? DragSource.DefaultCopyDrop : DragSource.DefaultMoveDrop;
         }
 
@@ -257,11 +287,12 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
   public void updatePosition() {
     if (myHighlighter != null && myHighlighter.isValid()) {
       setLine(myHighlighter.getDocument().getLineNumber(myHighlighter.getStartOffset()), false);
+      mySourcePosition = null; // need to clear this no matter what as the offset may be cached inside
     }
   }
 
   public void setFileUrl(final String newUrl) {
-    if (!Comparing.equal(getFileUrl(), newUrl)) {
+    if (!Objects.equals(getFileUrl(), newUrl)) {
       myState.setFileUrl(newUrl);
       mySourcePosition = null;
       removeHighlighter();
@@ -291,11 +322,6 @@ public class XLineBreakpointImpl<P extends XBreakpointProperties> extends XBreak
       myState.setTemporary(temporary);
       fireBreakpointChanged();
     }
-  }
-
-  @Override
-  protected List<? extends AnAction> getAdditionalPopupMenuActions(final XDebugSession session) {
-    return getType().getAdditionalPopupMenuActions(this, session);
   }
 
   @Override

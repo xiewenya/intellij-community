@@ -30,16 +30,13 @@ import org.jetbrains.jps.model.library.JpsTypedLibrary;
 import org.jetbrains.jps.model.library.impl.JpsLibraryCollectionImpl;
 import org.jetbrains.jps.model.library.impl.JpsLibraryRole;
 import org.jetbrains.jps.model.library.sdk.JpsSdk;
-import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.jps.model.library.sdk.JpsSdkReference;
+import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.jps.model.module.*;
 
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
 public class JpsModuleImpl<P extends JpsElement> extends JpsNamedCompositeElementBase<JpsModuleImpl<P>> implements JpsTypedModule<P> {
   private static final JpsUrlListRole CONTENT_ROOTS_ROLE = new JpsUrlListRole("content roots");
   private static final JpsUrlListRole EXCLUDED_ROOTS_ROLE = new JpsUrlListRole("excluded roots");
@@ -96,6 +93,7 @@ public class JpsModuleImpl<P extends JpsElement> extends JpsNamedCompositeElemen
     return myContainer.getChild(CONTENT_ROOTS_ROLE);
   }
 
+  @Override
   @NotNull
   public JpsUrlList getExcludeRootsList() {
     return myContainer.getChild(EXCLUDED_ROOTS_ROLE);
@@ -230,6 +228,7 @@ public class JpsModuleImpl<P extends JpsElement> extends JpsNamedCompositeElemen
     return myLibraryCollection;
   }
 
+  @Override
   @Nullable
   public JpsProject getProject() {
     JpsModel model = getModel();

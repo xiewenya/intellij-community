@@ -1,50 +1,77 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.intellij.build.images
 
 import com.intellij.openapi.application.PathManager
-import org.jetbrains.jps.model.serialization.JpsSerializationManager
-import java.io.File
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.concurrency.AppScheduledExecutorService
+import org.jetbrains.intellij.build.images.sync.jpsProject
+import org.jetbrains.jps.model.module.JpsModule
+import java.nio.file.Path
+import java.nio.file.Paths
 
 fun main(args: Array<String>) {
-  val homePath = PathManager.getHomePath()
-  val home = File(homePath)
-  val project = JpsSerializationManager.getInstance().loadModel(homePath, null).project
-
-  val util = project.modules.find { it.name == "intellij.platform.util" } ?: throw IllegalStateException("Can't load module 'util'")
-
-  val generator = IconsClassGenerator(home, util)
-  project.modules.forEach { module ->
-    generator.processModule(module)
+  try {
+    generateIconsClasses(args.firstOrNull()?.let { Paths.get(it) })
   }
-  generator.printStats()
-
-  val optimizer = ImageSizeOptimizer(home)
-  project.modules.forEach { module ->
-    optimizer.optimizeIcons(module)
+  finally {
+    shutdownAppScheduledExecutorService()
   }
-  optimizer.printStats()
+}
+
+internal abstract class IconsClasses {
+  open val homePath: String get() = PathManager.getHomePath()
+  open val modules: List<JpsModule> get() = jpsProject(homePath).modules
+  open fun generator(home: Path, modules: List<JpsModule>) = IconsClassGenerator(home, modules)
+}
+
+private class IntellijIconsClasses : IconsClasses() {
+  override val modules: List<JpsModule>
+    get() = super.modules.filterNot {
+      // TODO: use icon-robots.txt
+      it.name.startsWith("fleet")
+    }
+}
+
+internal fun generateIconsClasses(dbFile: Path?, config: IconsClasses = IntellijIconsClasses()) {
+  val home = Paths.get(config.homePath)
+
+  val modules = config.modules
+
+  if (System.getenv("GENERATE_ICONS") != "false") {
+    val generator = config.generator(home, modules)
+    modules.parallelStream().forEach(generator::processModule)
+    generator.printStats()
+  }
+
+  if (System.getenv("OPTIMIZE_ICONS") != "false") {
+    val optimizer = ImageSizeOptimizer(home)
+    modules.parallelStream().forEach(optimizer::optimizeIcons)
+    optimizer.printStats()
+  }
+
+  if (dbFile != null) {
+    val preCompiler = ImageSvgPreCompiler()
+    preCompiler.preCompileIcons(modules, dbFile)
+  }
 
   val checker = ImageSanityChecker(home)
-  project.modules.forEach { module ->
-    checker.check(module)
-  }
-//  checker.printInfo()
+  modules.forEach(checker::check)
   checker.printWarnings()
 
   println()
   println("Done")
+}
+
+/**
+ * Initialized in [com.intellij.util.SVGLoader]
+ */
+internal fun shutdownAppScheduledExecutorService() {
+  try {
+    (AppExecutorUtil.getAppScheduledExecutorService() as AppScheduledExecutorService)
+      .shutdownAppScheduledExecutorService()
+  }
+  catch (e: Exception) {
+    System.err.println("Failed during executor service shutdown:")
+    e.printStackTrace(System.err)
+  }
 }

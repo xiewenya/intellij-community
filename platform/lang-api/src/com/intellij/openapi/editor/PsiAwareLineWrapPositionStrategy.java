@@ -32,7 +32,6 @@ import org.jetbrains.annotations.Nullable;
  * only for particular elements/tokens (e.g. we may want to avoid line wrap in the middle of xml tag name etc).
  * 
  * @author Denis Zhdanov
- * @since 5/12/11 12:30 PM
  */
 public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositionStrategy {
 
@@ -41,13 +40,16 @@ public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositi
   private final TokenSet myEnabledTypes;
   private final boolean  myNonVirtualOnly;
 
+  public final static int NO_ELEMENT_WRAP = -1;
+  public final static int NO_LINE_WRAP = -2;
+
   /**
    * Creates new {@code PsiAwareLineWrapPositionStrategy} object.
    * 
    * @param nonVirtualOnly  defines if current PSI-aware logic should be exploited only for 'real wrap' position requests
    * @param enabledTypes    target element/token types where line wrapping is allowed
    */
-  public PsiAwareLineWrapPositionStrategy(boolean nonVirtualOnly, @NotNull IElementType ... enabledTypes) {
+  public PsiAwareLineWrapPositionStrategy(boolean nonVirtualOnly, IElementType @NotNull ... enabledTypes) {
     myEnabledTypes = TokenSet.create(enabledTypes);
     myNonVirtualOnly = nonVirtualOnly;
     if (enabledTypes.length <= 0) {
@@ -101,6 +103,9 @@ public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositi
         if (result >= 0) {
           return result;
         }
+        else if (result == NO_LINE_WRAP) {
+          break;
+        }
 
         // Assume that it's possible to wrap on token boundary (makes sense at least for the tokens that occupy one symbol only).
         if (end <= maxPreferredOffset) {
@@ -129,7 +134,9 @@ public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositi
    *                                          unless {@code 'allowToBeyondMaxPreferredOffset'} if {@code 'false'}
    * @param isSoftWrap                        identifies if current request is for virtual wrap (soft wrap) position
    * @return                                  offset from {@code (startOffset; endOffset]} interval where
-   *                                          target line should be wrapped OR {@code -1} if no wrapping should be performed
+   *                                          target line should be wrapped, {@link #NO_ELEMENT_WRAP} if no wrapping
+   *                                          should be performed within the element OR {@link #NO_LINE_WRAP} if the
+   *                                          entire line wrapping is not allowed.
    */
   protected abstract int doCalculateWrapPosition(
     @NotNull Document document,
@@ -169,13 +176,13 @@ public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositi
       return result;
     } 
     
-    PsiElement parent = element.getParent();
+    PsiElement parent = getParentWithinFile(element);
     if (parent == null) {
       return null;
     }
 
     PsiElement parentSibling = null;
-    for (; parent != null && parentSibling == null; parent = parent.getParent()) {
+    for (; parent != null && parentSibling == null; parent = getParentWithinFile(parent)) {
       parentSibling = parent.getPrevSibling();
     }
 
@@ -185,5 +192,11 @@ public abstract class PsiAwareLineWrapPositionStrategy implements LineWrapPositi
 
     result = parentSibling.getLastChild();
     return result == null ? parentSibling : result;
+  }
+
+  @Nullable
+  private static PsiElement getParentWithinFile(@NotNull PsiElement element) {
+    PsiElement parent = element.getParent();
+    return parent == null || parent instanceof PsiFile ? null : parent;
   }
 }

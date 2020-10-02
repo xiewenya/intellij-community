@@ -1,8 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.debugger.extensions;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.*;
@@ -16,6 +17,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.playback.PlaybackContext;
 import com.intellij.openapi.ui.playback.PlaybackRunner;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.wm.IdeFocusManager;
@@ -43,9 +45,8 @@ import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 
-public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.StatusCallback {
-
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ui.debugger.extensions.PlaybackDebugger");
+public final class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.StatusCallback {
+  private static final Logger LOG = Logger.getInstance(PlaybackDebugger.class);
 
   private static final Color ERROR_COLOR = JBColor.RED;
   private static final Color MESSAGE_COLOR = Color.BLACK;
@@ -155,17 +156,18 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private class SaveAction extends AnAction {
-    private SaveAction() {
-      super("Save", "", AllIcons.Actions.Menu_saveall);
-    }
+  SaveAction() {
+    super(IdeBundle.messagePointer("action.AnAction.text.save"),
+          IdeBundle.messagePointer("action.AnAction.description.save"), AllIcons.Actions.MenuSaveall);
+  }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(myChanged);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       if (pathToFile() == null) {
         VirtualFile selectedFile = FileChooser.chooseFile(FILE_DESCRIPTOR, myComponent, getEventProject(e), null);
         if (selectedFile != null) {
@@ -173,7 +175,8 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
           myCurrentScript.setText(myState.currentScript);
         }
         else {
-          Messages.showErrorDialog("File to save is not selected.", "Cannot save script");
+          Messages.showErrorDialog(LangBundle.message("dialog.message.file.to.save.selected"),
+                                   LangBundle.message("dialog.title.cannot.save.script"));
           return;
         }
       }
@@ -182,7 +185,7 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private static class ScriptFileChooserDescriptor extends FileChooserDescriptor {
-    public ScriptFileChooserDescriptor() {
+    ScriptFileChooserDescriptor() {
       super(true, false, false, false, false, false);
       putUserData(FileChooserKeys.NEW_FILE_TYPE, UiScriptFileType.getInstance());
       putUserData(FileChooserKeys.NEW_FILE_TEMPLATE_TEXT, "");
@@ -197,13 +200,13 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private class SetScriptFileAction extends AnAction {
-
-    private SetScriptFileAction() {
-      super("Set Script File", "", AllIcons.Actions.Menu_open);
-    }
+  SetScriptFileAction() {
+    super(IdeBundle.messagePointer("action.AnAction.text.set.script.file"),
+          IdeBundle.messagePointer("action.AnAction.description.set.script.file"), AllIcons.Actions.MenuOpen);
+  }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       VirtualFile selectedFile = FileChooser.chooseFile(FILE_DESCRIPTOR, myComponent, getEventProject(e), pathToFile());
       if (selectedFile != null) {
         myState.currentScript = selectedFile.getPresentableUrl();
@@ -214,12 +217,13 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private class NewScriptAction extends AnAction {
-    private NewScriptAction() {
-      super("New Script", "", AllIcons.Actions.New);
-    }
+  NewScriptAction() {
+    super(IdeBundle.messagePointer("action.AnAction.text.new.script"),
+          IdeBundle.messagePointer("action.AnAction.description.new.script"), AllIcons.Actions.New);
+  }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myState.currentScript = "";
       myCurrentScript.setText(myState.currentScript);
       fillDocument("");
@@ -247,7 +251,7 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
       myChanged = false;
     }
     catch (IOException e) {
-      Messages.showErrorDialog(e.getMessage(), "Cannot save script");
+      Messages.showErrorDialog(e.getMessage(), LangBundle.message("dialog.title.cannot.save.script"));
     }
   }
 
@@ -266,17 +270,18 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private class StopAction extends AnAction {
-    private StopAction() {
-      super("Stop", null, AllIcons.Actions.Suspend);
-    }
+  StopAction() {
+    super(IdeBundle.messagePointer("action.AnAction.text.stop"),
+          IdeBundle.messagePointer("action.AnAction.description.stop"), AllIcons.Actions.Suspend);
+  }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(myRunner != null);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       if (myRunner != null) {
         myRunner.stop();
         SwingUtilities.invokeLater(() -> myRunner = null);
@@ -285,34 +290,35 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   private class ActivateFrameAndRun extends AnAction {
-    private ActivateFrameAndRun() {
-      super("Activate Frame And Run", "", AllIcons.Nodes.Deploy);
-    }
+  ActivateFrameAndRun() {
+    super(IdeBundle.messagePointer("action.AnAction.text.activate.frame.and.run"),
+          IdeBundle.messagePointer("action.AnAction.description.activate.frame.and.run"), AllIcons.Nodes.Deploy);
+  }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       activateAndRun();
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(myRunner == null);
     }
   }
 
   private class RunOnFameActivationAction extends AnAction {
-
-    private RunOnFameActivationAction() {
-      super("Run On Frame Activation", "", AllIcons.General.Run);
-    }
+  RunOnFameActivationAction() {
+    super(IdeBundle.messagePointer("action.AnAction.text.run.on.frame.activation"),
+          IdeBundle.messagePointer("action.AnAction.description.run.on.frame.activation"), AllIcons.RunConfigurations.TestState.Run);
+  }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(myRunner == null);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       runOnFrame();
     }
   }
@@ -322,14 +328,13 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
 
     myLog.setText(null);
 
-    final IdeFrameImpl frame = getFrame();
-
-    final Component c = ((WindowManagerEx)WindowManager.getInstance()).getFocusedComponent(frame);
-
-    if (c != null) {
-      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(c, true));
-    } else {
+    JFrame frame = getFrame();
+    Component c = ((WindowManagerEx)WindowManager.getInstance()).getFocusedComponent(frame);
+    if (c == null) {
       IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(frame, true));
+    }
+    else {
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(c, true));
     }
 
     //noinspection SSBasedInspection
@@ -337,11 +342,11 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
 
   }
 
-  private static IdeFrameImpl getFrame() {
+  private static JFrame getFrame() {
     final Frame[] all = Frame.getFrames();
     for (Frame each : all) {
-      if (each instanceof IdeFrame) {
-        return (IdeFrameImpl)each;
+      if (each instanceof IdeFrameImpl) {
+        return (JFrame)each;
       }
     }
 
@@ -441,8 +446,8 @@ public class PlaybackDebugger implements UiDebuggerExtension, PlaybackRunner.Sta
   }
 
   @Override
-  public String getName() {
-    return "Playback";
+  public @NlsContexts.TabTitle String getName() {
+    return LangBundle.message("tab.title.playback");
   }
 
   public void dispose() {

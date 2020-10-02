@@ -1,30 +1,32 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.jsonSchema;
 
 import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.codeInsight.lookup.impl.LookupImpl;
+import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction;
 import com.intellij.json.JsonFileType;
 import com.intellij.json.psi.*;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.extensions.AreaPicoContainer;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.Trinity;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.testFramework.ServiceContainerUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.jsonSchema.extension.JsonSchemaFileProvider;
 import com.jetbrains.jsonSchema.extension.JsonSchemaProjectSelfProviderFactory;
 import com.jetbrains.jsonSchema.ide.JsonSchemaService;
 import com.jetbrains.jsonSchema.impl.JsonSchemaObject;
-import com.jetbrains.jsonSchema.impl.JsonSchemaReferenceContributor;
+import com.jetbrains.jsonSchema.impl.JsonSchemaVersion;
+import com.jetbrains.jsonSchema.impl.inspections.JsonSchemaComplianceInspection;
 import com.jetbrains.jsonSchema.schemaFile.TestJsonSchemaMappingsProjectConfiguration;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
@@ -52,19 +54,17 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/completion.json", "/baseSchema.json", "/inheritedSchema.json");
+        myFixture.configureByFiles("/completion.json", "/baseSchema.json", "/inheritedSchema.json");
       }
 
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-
         final UserDefinedJsonSchemaConfiguration base =
-          new UserDefinedJsonSchemaConfiguration("base", moduleDir + "/baseSchema.json", false, Collections.emptyList());
+          new UserDefinedJsonSchemaConfiguration("base", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("baseSchema.json"), false, Collections.emptyList());
         addSchema(base);
 
         final UserDefinedJsonSchemaConfiguration inherited
-          = new UserDefinedJsonSchemaConfiguration("inherited", moduleDir + "/inheritedSchema.json", false,
+          = new UserDefinedJsonSchemaConfiguration("inherited", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("inheritedSchema.json"), false,
                                                    Collections
                                                      .singletonList(new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false))
         );
@@ -77,24 +77,18 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
   private void checkCompletion(String... strings) {
     assertStringItems(strings);
 
-    LookupImpl lookup = getActiveLookup();
-    if (lookup != null) lookup.hide();
     JsonSchemaService.Impl.get(getProject()).reset();
-    doHighlighting();
+    myFixture.doHighlighting();
     complete();
     assertStringItems(strings);
   }
 
   public void testRefreshSchemaCompletionSimpleVariant() throws Exception {
     skeleton(new Callback() {
-      private String myModuleDir;
-
       @Override
       public void registerSchemes() {
-        myModuleDir = getModuleDir(getProject());
-
         final UserDefinedJsonSchemaConfiguration base =
-          new UserDefinedJsonSchemaConfiguration("base", myModuleDir + "/basePropertiesSchema.json", false,
+          new UserDefinedJsonSchemaConfiguration("base", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("basePropertiesSchema.json"), false,
                                                  Collections
                                                    .singletonList(new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false))
           );
@@ -103,32 +97,28 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/baseCompletion.json", "/basePropertiesSchema.json");
+        myFixture.configureByFiles("/baseCompletion.json", "/basePropertiesSchema.json");
       }
 
       @Override
-      public void doCheck() {
-        final VirtualFile moduleFile = getProject().getBaseDir().findChild(myModuleDir);
+      public void doCheck() throws Exception {
+        final VirtualFile moduleFile = locateFileUnderTestRoot("/");
         assertNotNull(moduleFile);
-        checkSchemaCompletion(moduleFile, "basePropertiesSchema.json");
+        checkSchemaCompletion(moduleFile, "basePropertiesSchema.json", false);
       }
     });
   }
 
   public void testJsonSchemaCrossReferenceCompletionWithSchemaEditing() throws Exception {
     skeleton(new Callback() {
-      private String myModuleDir;
-
       @Override
       public void registerSchemes() {
-        myModuleDir = getModuleDir(getProject());
-
         final UserDefinedJsonSchemaConfiguration base =
-          new UserDefinedJsonSchemaConfiguration("base", myModuleDir + "/baseSchema.json", false, Collections.emptyList());
+          new UserDefinedJsonSchemaConfiguration("base", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/baseSchema.json"), false, Collections.emptyList());
         addSchema(base);
 
         final UserDefinedJsonSchemaConfiguration inherited
-          = new UserDefinedJsonSchemaConfiguration("inherited", myModuleDir + "/inheritedSchema.json", false,
+          = new UserDefinedJsonSchemaConfiguration("inherited", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/inheritedSchema.json"), false,
                                                    Collections
                                                      .singletonList(new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false))
         );
@@ -138,20 +128,20 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/completion.json", "/baseSchema.json", "/inheritedSchema.json");
+        myFixture.configureByFiles("/completion.json", "/baseSchema.json", "/inheritedSchema.json");
       }
 
       @Override
-      public void doCheck() {
-        final VirtualFile moduleFile = getProject().getBaseDir().findChild(myModuleDir);
+      public void doCheck() throws Exception {
+        final VirtualFile moduleFile = locateFileUnderTestRoot("/");
         assertNotNull(moduleFile);
-        checkSchemaCompletion(moduleFile, "baseSchema.json");
+        checkSchemaCompletion(moduleFile, "baseSchema.json", true);
       }
     });
   }
 
-  private void checkSchemaCompletion(VirtualFile moduleFile, final String fileName) {
-    doHighlighting();
+  private void checkSchemaCompletion(VirtualFile moduleFile, final String fileName, boolean delayAfterUpdate) throws InterruptedException {
+    myFixture.doHighlighting();
     complete();
     assertStringItems("\"one\"", "\"two\"");
 
@@ -164,23 +154,24 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     int start = document.getText().indexOf(str);
     Assert.assertTrue(start > 0);
 
-    ApplicationManager.getApplication().runWriteAction(() -> {
-      document.replaceString(start, start + str.length(), "\"enum\": [\"one1\", \"two1\"]");
-
-      fileDocumentManager.saveAllDocuments();
-    });
-    LookupImpl lookup = getActiveLookup();
-    if (lookup != null) lookup.hide();
+    CommandProcessor.getInstance().runUndoTransparentAction(() ->
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        document.replaceString(start, start + str.length(), "\"enum\": [\"one1\", \"two1\"]");
+        fileDocumentManager.saveAllDocuments();
+      }));
     JsonSchemaService.Impl.get(getProject()).reset();
 
-    doHighlighting();
+    if (delayAfterUpdate) {
+      // give time for vfs callbacks to finish
+      Thread.sleep(400);
+    }
+
+    myFixture.doHighlighting();
     complete();
     assertStringItems("\"one1\"", "\"two1\"");
 
-    lookup = getActiveLookup();
-    if (lookup != null) lookup.hide();
     JsonSchemaService.Impl.get(getProject()).reset();
-    doHighlighting();
+    myFixture.doHighlighting();
     complete();
     assertStringItems("\"one1\"", "\"two1\"");
   }
@@ -189,29 +180,30 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
+        int offset = getCaretOffset();
+        final PsiReference referenceAt = myFixture.getFile().findReferenceAt(offset);
         Assert.assertNotNull(referenceAt);
         final PsiElement resolve = referenceAt.resolve();
         Assert.assertNotNull(resolve);
-        Assert.assertEquals("\"baseEnum\"", resolve.getText());
+        Assert.assertEquals("{\n" +
+                            "      \"type\": \"string\",\n" +
+                            "      \"enum\": [\"one\", \"two\"]\n" +
+                            "    }", resolve.getText());
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/referencingSchema.json", "/localRefSchema.json");
+        myFixture.configureByFiles("/referencingSchema.json", "/localRefSchema.json");
       }
 
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-
         final UserDefinedJsonSchemaConfiguration base =
-          new UserDefinedJsonSchemaConfiguration("base", moduleDir + "/localRefSchema.json", false, Collections.emptyList());
+          new UserDefinedJsonSchemaConfiguration("base", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/localRefSchema.json"), false, Collections.emptyList());
         addSchema(base);
 
         final UserDefinedJsonSchemaConfiguration inherited
-          = new UserDefinedJsonSchemaConfiguration("inherited", moduleDir + "/referencingSchema.json", false,
+          = new UserDefinedJsonSchemaConfiguration("inherited", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/referencingSchema.json"), false,
                                                    Collections.emptyList()
         );
 
@@ -224,15 +216,10 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-
-        AreaPicoContainer container = Extensions.getArea(getProject()).getPicoContainer();
-        final String key = JsonSchemaMappingsProjectConfiguration.class.getName();
-        container.unregisterComponent(key);
-        container.registerComponentImplementation(key, TestJsonSchemaMappingsProjectConfiguration.class);
+        ServiceContainerUtil.replaceService(getProject(), JsonSchemaMappingsProjectConfiguration.class, new TestJsonSchemaMappingsProjectConfiguration(getProject()), getTestRootDisposable());
 
         final UserDefinedJsonSchemaConfiguration inherited
-          = new UserDefinedJsonSchemaConfiguration("inherited", moduleDir + "/referencingGlobalSchema.json", false,
+          = new UserDefinedJsonSchemaConfiguration("inherited", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/referencingGlobalSchema.json"), false,
                                                    Collections.emptyList()
         );
 
@@ -241,17 +228,21 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/referencingGlobalSchema.json");
+        myFixture.configureByFiles("/referencingGlobalSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
+        int offset = getCaretOffset();
+        final PsiReference referenceAt = myFixture.getFile().findReferenceAt(offset);
         Assert.assertNotNull(referenceAt);
         final PsiElement resolve = referenceAt.resolve();
         Assert.assertNotNull(resolve);
-        Assert.assertEquals("\"enum\"", resolve.getText());
+        Assert.assertTrue(StringUtil.equalsIgnoreWhitespaces("{\n" +
+                            "            \"type\": \"array\",\n" +
+                            "            \"minItems\": 1,\n" +
+                            "            \"uniqueItems\": true\n" +
+                            "        }", resolve.getText()));
       }
     });
   }
@@ -260,9 +251,8 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final UserDefinedJsonSchemaConfiguration inherited
-          = new UserDefinedJsonSchemaConfiguration("inherited", moduleDir + "/basePropertiesSchema.json", false,
+          = new UserDefinedJsonSchemaConfiguration("inherited", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/basePropertiesSchema.json"), false,
                                                    Collections.singletonList(
                                                      new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false))
         );
@@ -272,25 +262,13 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/testFileForBaseProperties.json", "/basePropertiesSchema.json");
+        myFixture.configureByFiles("/testFileForBaseProperties.json", "/basePropertiesSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        PsiElement element = myFile.findElementAt(offset);
-        boolean found = false;
-        while (element.getTextRange().contains(offset)) {
-          if (JsonSchemaReferenceContributor.PROPERTY_NAME_PATTERN.accepts(element)) {
-            found = true;
-            break;
-          }
-          element = element.getParent();
-        }
-        Assert.assertTrue(found);
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        int offset = getCaretOffset();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("basePropertiesSchema.json", resolve.getContainingFile().getName());
         Assert.assertEquals("\"baseEnum\"", resolve.getText());
@@ -302,27 +280,26 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/refToDefinitionInFileSchema.json", false,
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/refToDefinitionInFileSchema.json"), false,
                                                          Collections.emptyList()));
         addSchema(
-          new UserDefinedJsonSchemaConfiguration("two", moduleDir + "/definitionsSchema.json", false, Collections.emptyList()));
+          new UserDefinedJsonSchemaConfiguration("two", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/definitionsSchema.json"), false, Collections.emptyList()));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/refToDefinitionInFileSchema.json", "/definitionsSchema.json");
+        myFixture.configureByFiles("/refToDefinitionInFileSchema.json", "/definitionsSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
+        int offset = getCaretOffset();
+        final PsiReference referenceAt = myFixture.getFile().findReferenceAt(offset);
         Assert.assertNotNull(referenceAt);
         final PsiElement resolve = referenceAt.resolve();
         Assert.assertNotNull(resolve);
         Assert.assertEquals("definitionsSchema.json", resolve.getContainingFile().getName());
-        Assert.assertEquals("\"findMe\"", resolve.getText());
+        Assert.assertEquals("{\"type\": \"object\"}", resolve.getText());
       }
     });
   }
@@ -331,24 +308,23 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         addSchema(
-          new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/refToOtherFileSchema.json", false, Collections.emptyList()
+          new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/refToOtherFileSchema.json"), false, Collections.emptyList()
           ));
         addSchema(
-          new UserDefinedJsonSchemaConfiguration("two", moduleDir + "/definitionsSchema.json", false, Collections.emptyList()
+          new UserDefinedJsonSchemaConfiguration("two", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/definitionsSchema.json"), false, Collections.emptyList()
           ));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/refToOtherFileSchema.json", "/definitionsSchema.json");
+        myFixture.configureByFiles("/refToOtherFileSchema.json", "/definitionsSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
+        int offset = getCaretOffset();
+        final PsiReference referenceAt = myFixture.getFile().findReferenceAt(offset);
         Assert.assertNotNull(referenceAt);
         final PsiElement resolve = referenceAt.resolve();
         Assert.assertNotNull(resolve);
@@ -361,25 +337,22 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("package.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/packageJsonSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/packageJsonSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/package.json", "/packageJsonSchema.json");
+        myFixture.configureByFiles("/package.json", "/packageJsonSchema.json");
       }
 
       @Override
       public void doCheck() {
-        final String text = myFile.getText();
+        final String text = myFixture.getFile().getText();
         final int indexOf = text.indexOf("dependencies");
         assertTrue(indexOf > 0);
-        final PsiReference referenceAt = myFile.findReferenceAt(indexOf);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), indexOf);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("packageJsonSchema.json", resolve.getContainingFile().getName());
         Assert.assertEquals("\"dependencies\"", resolve.getText());
@@ -391,23 +364,20 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("testNestedDefinitionsNavigation.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/nestedDefinitionsSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/nestedDefinitionsSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/testNestedDefinitionsNavigation.json", "/nestedDefinitionsSchema.json");
+        myFixture.configureByFiles("/testNestedDefinitionsNavigation.json", "/nestedDefinitionsSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        int offset = getCaretOffset();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("nestedDefinitionsSchema.json", resolve.getContainingFile().getName());
         Assert.assertEquals("\"definitions\"", resolve.getText());
@@ -419,25 +389,22 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("testNestedAllOfOneOfDefinitions.json", true, false));
         addSchema(
-          new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/nestedAllOfOneOfDefinitionsSchema.json", false, patterns
+          new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/nestedAllOfOneOfDefinitionsSchema.json"), false, patterns
           ));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "/testNestedAllOfOneOfDefinitions.json", "/nestedAllOfOneOfDefinitionsSchema.json");
+        myFixture.configureByFiles("/testNestedAllOfOneOfDefinitions.json", "/nestedAllOfOneOfDefinitionsSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        int offset = getCaretOffset();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("nestedAllOfOneOfDefinitionsSchema.json", resolve.getContainingFile().getName());
         Assert.assertEquals("\"begriff\"", resolve.getText());
@@ -450,24 +417,21 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/baseSchema.json", false, Collections.emptyList()));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/baseSchema.json"), false, Collections.emptyList()));
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("testNavigation.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("two", moduleDir + "/referentSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("two", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/referentSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, prefix + "testNavigation.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
+        myFixture.configureByFiles(prefix + "testNavigation.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        int offset = getCaretOffset();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("baseSchema.json", resolve.getContainingFile().getName());
         Assert.assertEquals("\"findMe\"", resolve.getText());
@@ -480,16 +444,15 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/baseSchema.json", false, Collections.emptyList()));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/baseSchema.json"), false, Collections.emptyList()));
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("testCompletion.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("two", moduleDir + "/referentSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("two", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/referentSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, prefix + "testCompletion.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
+        myFixture.configureByFiles(prefix + "testCompletion.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
       }
 
       @Override
@@ -501,24 +464,24 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
 
   public void testNestedAllOneAnyWithInheritanceHighlighting() throws Exception {
     final String prefix = "nestedAllOneAnyWithInheritance/";
+    myFixture.enableInspections(new JsonSchemaComplianceInspection());
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/baseSchema.json", false, Collections.emptyList()));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/baseSchema.json"), false, Collections.emptyList()));
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("testHighlighting.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("two", moduleDir + "/referentSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("two", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot(prefix + "/referentSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, prefix + "testHighlighting.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
+        myFixture.configureByFiles(prefix + "testHighlighting.json", prefix + "baseSchema.json", prefix + "referentSchema.json");
       }
 
       @Override
       public void doCheck() {
-        doDoTest(true, false);
+        myFixture.testHighlighting(true, false, false);
       }
     });
   }
@@ -527,25 +490,27 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/withReferenceToDefinitionSchema.json", false,
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/withReferenceToDefinitionSchema.json"), false,
                                                          Collections.emptyList()
         ));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "withReferenceToDefinitionSchema.json");
+        myFixture.configureByFiles("withReferenceToDefinitionSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
+        int offset = getCaretOffset();
+        final PsiReference referenceAt = myFixture.getFile().findReferenceAt(offset);
         Assert.assertNotNull(referenceAt);
         final PsiElement resolve = referenceAt.resolve();
         Assert.assertNotNull(resolve);
-        Assert.assertEquals("\"findDefinition\"", resolve.getText());
+        Assert.assertEquals("{\n" +
+                            "      \"enum\": [1,4,8]\n" +
+                            "    }", resolve.getText());
         final PsiElement parent = resolve.getParent();
         Assert.assertTrue(parent instanceof JsonProperty);
         final JsonValue value = ((JsonProperty)parent).getValue();
@@ -561,15 +526,14 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         addSchema(new UserDefinedJsonSchemaConfiguration("one",
-                                                         moduleDir + "/completionInsideSchemaDefinition.json", false,
+                                                         JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/completionInsideSchemaDefinition.json"), false,
                                                          Collections.emptyList()));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "completionInsideSchemaDefinition.json");
+        myFixture.configureByFiles("completionInsideSchemaDefinition.json");
       }
 
       @Override
@@ -586,23 +550,21 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         addSchema(new UserDefinedJsonSchemaConfiguration("one",
-                                                         moduleDir + "/navigateFromSchemaDefinitionToMainSchema.json", false,
+                                                         JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/navigateFromSchemaDefinitionToMainSchema.json"), false,
                                                          Collections.emptyList()));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "navigateFromSchemaDefinitionToMainSchema.json");
+        myFixture.configureByFiles("navigateFromSchemaDefinitionToMainSchema.json");
       }
 
       @Override
       public void doCheck() {
-        int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-        final PsiReference referenceAt = myFile.findReferenceAt(offset);
-        Assert.assertNotNull(referenceAt);
-        final PsiElement resolve = referenceAt.resolve();
+        int offset = getCaretOffset();
+        final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
         Assert.assertNotNull(resolve);
         Assert.assertEquals("\"properties\"", resolve.getText());
         final PsiElement parent = resolve.getParent();
@@ -613,76 +575,87 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
   }
 
   public void testNavigateToRefInsideMainSchema() {
-    final JsonSchemaService service = JsonSchemaService.Impl.get(myProject);
-    final List<JsonSchemaFileProvider> providers = new JsonSchemaProjectSelfProviderFactory().getProviders(myProject);
-    Assert.assertEquals(1, providers.size());
-    final VirtualFile mainSchema = providers.get(0).getSchemaFile();
-    assertNotNull(mainSchema);
-    assertTrue(service.isSchemaFile(mainSchema));
+    final JsonSchemaService service = JsonSchemaService.Impl.get(getProject());
+    final List<JsonSchemaFileProvider> providers = new JsonSchemaProjectSelfProviderFactory().getProviders(getProject());
+    Assert.assertEquals(JsonSchemaProjectSelfProviderFactory.TOTAL_PROVIDERS, providers.size());
+    for (JsonSchemaFileProvider provider: providers) {
+      final VirtualFile mainSchema = provider.getSchemaFile();
+      assertNotNull(mainSchema);
+      assertTrue(service.isSchemaFile(mainSchema));
 
-    final PsiFile psi = PsiManager.getInstance(myProject).findFile(mainSchema);
-    Assert.assertNotNull(psi);
-    Assert.assertTrue(psi instanceof JsonFile);
-    final JsonValue top = ((JsonFile)psi).getTopLevelValue();
-    final JsonObject obj = ObjectUtils.tryCast(top, JsonObject.class);
-    Assert.assertNotNull(obj);
-    final JsonProperty properties = obj.findProperty("properties");
-    final JsonObject propObj = ObjectUtils.tryCast(properties.getValue(), JsonObject.class);
-    final JsonProperty maxLength = propObj.findProperty("maxLength");
-    final JsonObject value = ObjectUtils.tryCast(maxLength.getValue(), JsonObject.class);
-    Assert.assertNotNull(value);
-    final JsonProperty ref = value.findProperty("$ref");
-    Assert.assertNotNull(ref);
-    final JsonStringLiteral literal = ObjectUtils.tryCast(ref.getValue(), JsonStringLiteral.class);
-    Assert.assertNotNull(literal);
+      final PsiFile psi = PsiManager.getInstance(getProject()).findFile(mainSchema);
+      Assert.assertNotNull(psi);
+      Assert.assertTrue(psi instanceof JsonFile);
+      final JsonValue top = ((JsonFile)psi).getTopLevelValue();
+      final JsonObject obj = ObjectUtils.tryCast(top, JsonObject.class);
+      Assert.assertNotNull(obj);
+      final JsonProperty properties = obj.findProperty("properties");
+      final JsonObject propObj = ObjectUtils.tryCast(properties.getValue(), JsonObject.class);
+      final JsonProperty maxLength = propObj.findProperty("maxLength");
+      final JsonObject value = ObjectUtils.tryCast(maxLength.getValue(), JsonObject.class);
+      Assert.assertNotNull(value);
+      final JsonProperty ref = value.findProperty("$ref");
+      Assert.assertNotNull(ref);
+      final JsonStringLiteral literal = ObjectUtils.tryCast(ref.getValue(), JsonStringLiteral.class);
+      Assert.assertNotNull(literal);
 
-    final PsiReference reference = psi.findReferenceAt(literal.getTextRange().getStartOffset() + 1);
-    Assert.assertNotNull(reference);
-    Assert.assertEquals("#/definitions/positiveInteger", reference.getCanonicalText());
-    final PsiElement resolve = reference.resolve();
-    Assert.assertNotNull(resolve);
-    Assert.assertEquals("\"positiveInteger\"", resolve.getText());
-    Assert.assertTrue(resolve.getParent() instanceof JsonProperty);
-    Assert.assertEquals("positiveInteger", ((JsonProperty) resolve.getParent()).getName());
+      final PsiReference reference = psi.findReferenceAt(literal.getTextRange().getEndOffset() - 1);
+      Assert.assertNotNull(reference);
+      String positiveOrNonNegative = ((JsonSchemaProjectSelfProviderFactory.MyJsonSchemaFileProvider)provider).isSchemaV4()
+        ? "positiveInteger"
+        : "nonNegativeInteger";
+      Assert.assertEquals("#/definitions/" + positiveOrNonNegative, reference.getCanonicalText());
+      final PsiElement resolve = reference.resolve();
+      Assert.assertNotNull(resolve);
+      Assert.assertTrue(StringUtil.equalsIgnoreWhitespaces("{\n" +
+                          "            \"type\": \"integer\",\n" +
+                          "            \"minimum\": 0\n" +
+                          "        }", resolve.getText()));
+      Assert.assertTrue(resolve.getParent() instanceof JsonProperty);
+      Assert.assertEquals(positiveOrNonNegative, ((JsonProperty)resolve.getParent()).getName());
+    }
   }
 
   public void testNavigateToDefinitionByRefInFileWithIncorrectReference() throws Exception {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/withIncorrectReferenceSchema.json", false,
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/withIncorrectReferenceSchema.json"), false,
                                                          Collections.emptyList()
         ));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "withIncorrectReferenceSchema.json");
+        myFixture.configureByFiles("withIncorrectReferenceSchema.json");
       }
 
       @Override
       public void doCheck() {
-        final String midia = "midia";
-        checkNavigationTo(midia, JsonSchemaObject.DEFINITIONS);
+        final String midia = "{\n" +
+                             "      \"properties\": {\n" +
+                             "        \"mittel\" : {\n" +
+                             "          \"type\": [\"integer\", \"boolean\"],\n" +
+                             "          \"description\": \"this is found!\",\n" +
+                             "          \"enum\": [1,2, false]\n" +
+                             "        }\n" +
+                             "      }\n" +
+                             "    }";
+        checkNavigationTo(midia, "midia", getCaretOffset(), JsonSchemaObject.DEFINITIONS, true);
       }
     });
   }
 
-  private void checkNavigationTo(@NotNull String name, @NotNull String base) {
-    int offset = myEditor.getCaretModel().getPrimaryCaret().getOffset();
-    final PsiElement element = myFile.findElementAt(offset);
-    Assert.assertNotNull(element);
-
-    checkNavigationTo(name, offset, base);
+  private int getCaretOffset() {
+    return myFixture.getEditor().getCaretModel().getPrimaryCaret().getOffset();
   }
 
-  private void checkNavigationTo(@NotNull String name, int offset, @NotNull String base) {
-    final PsiReference referenceAt = myFile.findReferenceAt(offset);
-    Assert.assertNotNull(referenceAt);
-    final PsiElement resolve = referenceAt.resolve();
+  private void checkNavigationTo(@NotNull String resolvedText, @NotNull String name, int offset, @NotNull String base, boolean isReference) {
+    final PsiElement resolve = isReference
+                               ? myFixture.getFile().findReferenceAt(offset).resolve()
+                               : GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
     Assert.assertNotNull(resolve);
-    Assert.assertEquals("\"" + name + "\"", resolve.getText());
+    Assert.assertEquals(resolvedText, resolve.getText());
     final PsiElement parent = resolve.getParent();
     Assert.assertTrue(parent instanceof JsonProperty);
     Assert.assertEquals(name, ((JsonProperty)parent).getName());
@@ -694,19 +667,21 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/insideCycledSchemaNavigationSchema.json",
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/insideCycledSchemaNavigationSchema.json"),
                                                          false, Collections.emptyList()));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "insideCycledSchemaNavigationSchema.json");
+        myFixture.configureByFiles("insideCycledSchemaNavigationSchema.json");
       }
 
       @Override
       public void doCheck() {
-        checkNavigationTo("all", JsonSchemaObject.DEFINITIONS);
+        checkNavigationTo("{\n" +
+                          "      \"$ref\": \"#/definitions/one\"\n" +
+                          "    }", "all", getCaretOffset(), JsonSchemaObject.DEFINITIONS, true);
       }
     });
   }
@@ -715,20 +690,19 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/cycledSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/cycledSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "testNavigationIntoCycled.json", "cycledSchema.json");
+        myFixture.configureByFiles("testNavigationIntoCycled.json", "cycledSchema.json");
       }
 
       @Override
       public void doCheck() {
-        checkNavigationTo("bbb", JsonSchemaObject.PROPERTIES);
+        checkNavigationTo("\"bbb\"", "bbb", getCaretOffset(), JsonSchemaObject.PROPERTIES, false);
       }
     });
   }
@@ -737,24 +711,34 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/navigationWithCompositeDefinitionsObjectSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/navigationWithCompositeDefinitionsObjectSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "navigationWithCompositeDefinitionsObjectSchema.json");
+        myFixture.configureByFiles("navigationWithCompositeDefinitionsObjectSchema.json");
       }
 
       @Override
       public void doCheck() {
-        final Collection<JsonStringLiteral> strings = PsiTreeUtil.findChildrenOfType(myFile, JsonStringLiteral.class);
-        final List<JsonStringLiteral> list = strings.stream()
-          .filter(expression -> expression.getText().contains("#/definitions")).collect(Collectors.toList());
+        final Collection<JsonStringLiteral> strings = PsiTreeUtil.findChildrenOfType(myFixture.getFile(), JsonStringLiteral.class);
+        final List<JsonStringLiteral> list = ContainerUtil.filter(strings, expression -> expression.getText().contains("#/definitions"));
         Assert.assertEquals(3, list.size());
-        list.forEach(literal -> checkNavigationTo("cycle.schema", literal.getTextRange().getStartOffset() + 1, JsonSchemaObject.DEFINITIONS));
+        list.forEach(literal -> checkNavigationTo("{\n" +
+                                                  "      \"type\": \"object\",\n" +
+                                                  "      \"properties\": {\n" +
+                                                  "        \"id\": {\n" +
+                                                  "          \"type\": \"string\"\n" +
+                                                  "        },\n" +
+                                                  "        \"range\": {\n" +
+                                                  "          \"type\": \"string\"\n" +
+                                                  "        }\n" +
+                                                  "      }\n" +
+                                                  "    }", "cycle.schema", literal.getTextRange().getEndOffset() - 1,
+                                                  JsonSchemaObject.DEFINITIONS, true));
       }
     });
   }
@@ -763,21 +747,21 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/navigationWithCompositeDefinitionsObjectSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/navigationWithCompositeDefinitionsObjectSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "navigationIntoWithCompositeDefinitionsObjectSchema.json",
+        myFixture.configureByFiles("navigationIntoWithCompositeDefinitionsObjectSchema.json",
                          "navigationWithCompositeDefinitionsObjectSchema.json");
       }
 
       @Override
       public void doCheck() {
-        checkNavigationTo("id", JsonSchemaObject.PROPERTIES);
+        checkNavigationTo("\"id\"", "id", getCaretOffset(), JsonSchemaObject.PROPERTIES, false);
       }
     });
   }
@@ -786,20 +770,19 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/cycledWithRootRefSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4, getUrlUnderTestRoot("/cycledWithRootRefSchema.json"), false, patterns));
       }
 
       @Override
       public void configureFiles() {
-        configureByFiles(null, "completionWithRootRef.json", "cycledWithRootRefSchema.json");
-        complete();
+        myFixture.configureByFiles("completionWithRootRef.json", "cycledWithRootRefSchema.json");
       }
 
       @Override
       public void doCheck() {
+        complete();
         checkCompletion("\"id\"", "\"testProp\"");
       }
     });
@@ -809,31 +792,28 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
     skeleton(new Callback() {
       @Override
       public void registerSchemes() {
-        final String moduleDir = getModuleDir(getProject());
         final List<UserDefinedJsonSchemaConfiguration.Item> patterns = Collections.singletonList(
           new UserDefinedJsonSchemaConfiguration.Item("*.json", true, false));
-        addSchema(new UserDefinedJsonSchemaConfiguration("one", moduleDir + "/ResolveByValuesCombinationsSchema.json", false, patterns));
+        addSchema(new UserDefinedJsonSchemaConfiguration("one", JsonSchemaVersion.SCHEMA_4,
+                                                         getUrlUnderTestRoot("/ResolveByValuesCombinationsSchema.json"), false, patterns));
       }
 
       @Override
-      public void configureFiles() throws Exception {
-        configureByFile("ResolveByValuesCombinationsSchema.json");
+      public void configureFiles() {
+        myFixture.configureByFile("ResolveByValuesCombinationsSchema.json");
       }
 
       @Override
       public void doCheck() {
-        final List<Trinity<String, String, String>> variants = ContainerUtil.list(
+        final List<Trinity<String, String, String>> variants = Arrays.asList(
           Trinity.create("yes", "barkling", "dog"),
-          Trinity.create("yes", "meowing", "cat"),
-          Trinity.create("yes", "crowling", "mouse"),
-          Trinity.create("not", "apparel", "schrank"),
-          Trinity.create("not", "dinner", "tisch"),
-          Trinity.create("not", "rest", "sessel")
-        );
+          Trinity.create("yes", "meowing", "cat"), Trinity.create("yes", "crowling", "mouse"),
+          Trinity.create("not", "apparel", "schrank"), Trinity.create("not", "dinner", "tisch"),
+          Trinity.create("not", "rest", "sessel"));
         variants.forEach(
           t -> {
-            final PsiFile file = configureByText(JsonFileType.INSTANCE, String.format("{\"alive\":\"%s\",\n" +
-                                                                                      "\"feature\":\"%s\"}", t.getFirst(), t.getSecond()), "json");
+            final PsiFile file = myFixture.configureByText(
+              JsonFileType.INSTANCE, String.format("{\"alive\":\"%s\",\n\"feature\":\"%s\"}", t.getFirst(), t.getSecond()));
             final JsonFile jsonFile = ObjectUtils.tryCast(file, JsonFile.class);
             Assert.assertNotNull(jsonFile);
             final JsonObject top = ObjectUtils.tryCast(jsonFile.getTopLevelValue(), JsonObject.class);
@@ -851,10 +831,7 @@ public class JsonSchemaCrossReferencesTest extends JsonSchemaHeavyAbstractTest {
   }
 
   private void checkNavigationToSchemaVariant(@NotNull String name, int offset, @NotNull String parentPropertyName) {
-    final PsiReference referenceAt = myFile.findReferenceAt(offset);
-    Assert.assertNotNull(referenceAt);
-    final PsiElement resolve = referenceAt.resolve();
-    Assert.assertNotNull(resolve);
+    final PsiElement resolve = GotoDeclarationAction.findTargetElement(getProject(), myFixture.getEditor(), offset);
     Assert.assertEquals("\"" + name + "\"", resolve.getText());
     final PsiElement parent = resolve.getParent();
     Assert.assertTrue(parent instanceof JsonProperty);

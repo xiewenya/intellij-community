@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.execution.ExecutionException;
@@ -22,6 +8,8 @@ import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
@@ -39,6 +27,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,7 +40,7 @@ public class CommandExecutor {
   @Nullable private String myMessage;
   private boolean myIsDestroyed;
   private boolean myNeedsDestroy;
-  private volatile String myDestroyReason;
+  private volatile @DialogMessage String myDestroyReason;
   private volatile boolean myWasCancelled;
   @NotNull private final List<File> myTempFiles;
   @NotNull protected final GeneralCommandLine myCommandLine;
@@ -77,7 +67,7 @@ public class CommandExecutor {
       myListeners.addListener(new CommandCancelTracker());
     }
     myLock = new Object();
-    myTempFiles = ContainerUtil.newArrayList();
+    myTempFiles = new ArrayList<>();
     myCommandLine = createCommandLine();
     myCommandLine.setExePath(exePath);
     myCommandLine.setWorkDirectory(command.getWorkingDirectory());
@@ -118,7 +108,7 @@ public class CommandExecutor {
     return myIsDestroyed;
   }
 
-  public String getDestroyReason() {
+  public @DialogMessage @Nullable String getDestroyReason() {
     return myDestroyReason;
   }
 
@@ -129,11 +119,8 @@ public class CommandExecutor {
       try {
         beforeCreateProcess();
         myProcess = createProcess();
-        if (LOG.isDebugEnabled()) {
-          LOG.debug(myCommandLine.toString());
-        }
         myHandler = createProcessHandler();
-        myProcessWriter = new OutputStreamWriter(myHandler.getProcessInput());
+        myProcessWriter = new OutputStreamWriter(myHandler.getProcessInput(), StandardCharsets.UTF_8);
         startHandlingStreams();
       }
       catch (ExecutionException e) {
@@ -160,11 +147,10 @@ public class CommandExecutor {
   }
 
   @NotNull
-  private File ensureCommandFile(@NotNull String prefix,
-                                 @NotNull String extension,
+  private File ensureCommandFile(@NonNls @NotNull String prefix,
                                  @NotNull String data,
                                  @NotNull String parameterName) throws SvnBindException {
-    File result = createTempFile(prefix, extension);
+    File result = createTempFile(prefix, ".txt");
     myTempFiles.add(result);
 
     try {
@@ -181,7 +167,7 @@ public class CommandExecutor {
 
   private void ensureMessageFile() throws SvnBindException {
     if (myMessage != null) {
-      ensureCommandFile("commit-message", ".txt", myMessage, "-F");
+      ensureCommandFile("commit-message", myMessage, "-F");
 
       myCommandLine.addParameters("--config-option", "config:miscellany:log-encoding=" + CharsetToolkit.UTF8);
     }
@@ -194,7 +180,7 @@ public class CommandExecutor {
       String targetsValue = StringUtil.join(targetsPaths, SystemProperties.getLineSeparator());
 
       if (myCommandLine.getCommandLineString().length() + targetsValue.length() > VcsFileUtil.FILE_PATH_LIMIT) {
-        ensureCommandFile("command-targets", ".txt", targetsValue, "--targets");
+        ensureCommandFile("command-targets", targetsValue, "--targets");
       }
       else {
         myCommandLine.addParameters(targetsPaths);
@@ -206,7 +192,7 @@ public class CommandExecutor {
     PropertyValue propertyValue = myCommand.getPropertyValue();
 
     if (propertyValue != null) {
-      ensureCommandFile("property-value", ".txt", PropertyValue.toString(propertyValue), "-F");
+      ensureCommandFile("property-value", PropertyValue.toString(propertyValue), "-F");
     }
   }
 
@@ -224,7 +210,7 @@ public class CommandExecutor {
   }
 
   @NotNull
-  protected static File createTempFile(@NotNull String prefix, @NotNull String extension) throws SvnBindException {
+  protected static File createTempFile(@NonNls @NotNull String prefix, @NonNls @NotNull String extension) throws SvnBindException {
     try {
       return FileUtil.createTempFile(getSvnFolder(), prefix, extension);
     }
@@ -276,11 +262,11 @@ public class CommandExecutor {
     myHandler.startNotify();
   }
 
-  public String getOutput() {
+  public @NlsSafe @NotNull String getOutput() {
     return outputAdapter.getOutput().getStdout();
   }
 
-  public String getErrorOutput() {
+  public @NlsSafe @NotNull String getErrorOutput() {
     return outputAdapter.getOutput().getStderr();
   }
 
@@ -391,7 +377,7 @@ public class CommandExecutor {
     }
   }
 
-  public void destroyProcess(@Nullable String destroyReason) {
+  public void destroyProcess(@DialogMessage @Nullable String destroyReason) {
     synchronized (myLock) {
       myDestroyReason = destroyReason;
       myNeedsDestroy = true;
@@ -419,7 +405,7 @@ public class CommandExecutor {
     }
   }
 
-  public String getCommandText() {
+  public @NlsSafe @NotNull String getCommandText() {
     synchronized (myLock) {
       return StringUtil.join(myCommandLine.getExePath(), " ", myCommand.getText());
     }

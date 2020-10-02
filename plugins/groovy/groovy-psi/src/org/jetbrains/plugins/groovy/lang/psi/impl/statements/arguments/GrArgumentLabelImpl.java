@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.arguments;
 
 import com.intellij.lang.ASTNode;
@@ -8,7 +8,6 @@ import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry
 import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference;
 import com.intellij.psi.impl.source.tree.LeafPsiElement;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,28 +26,36 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrParenthesizedExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrLiteral;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyPsiElementImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyResolveResultImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.literals.GrLiteralImpl;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
+import org.jetbrains.plugins.groovy.lang.resolve.ElementResolveResult;
+import org.jetbrains.plugins.groovy.lang.resolve.api.GroovyCallReference;
+import org.jetbrains.plugins.groovy.lang.resolve.api.GroovyPropertyWriteReference;
+import org.jetbrains.plugins.groovy.lang.resolve.references.GrMapConstructorPropertyReference;
 
 import java.util.Map;
+
+import static org.jetbrains.plugins.groovy.lang.resolve.references.GrMapConstructorPropertyReference.getConstructorReference;
 
 /**
  * @author ilyas
  */
 public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgumentLabel {
 
+  private final GrMapConstructorPropertyReference myConstructorPropertyReference = new GrMapConstructorPropertyReference(this);
+
   public GrArgumentLabelImpl(@NotNull ASTNode node) {
     super(node);
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitArgumentLabel(this);
   }
 
+  @Override
   public String toString() {
     return "Argument label";
   }
@@ -71,7 +78,7 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
 
     String labelName = getName();
 
-    Map<String,NamedArgumentDescriptor> providers = GroovyNamedArgumentProvider.getNamedArgumentsFromAllProviders(call, labelName, false);
+    Map<String, NamedArgumentDescriptor> providers = GroovyNamedArgumentProvider.getNamedArgumentsFromAllProviders(call, labelName, false);
     if (providers != null) {
       NamedArgumentDescriptor descr = providers.get(labelName);
       if (descr != null) {
@@ -96,16 +103,8 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
       }
       else {
         return new PsiPolyVariantReferenceBase<PsiElement>(this) {
-
-          @NotNull
           @Override
-          public Object[] getVariants() {
-            return ArrayUtil.EMPTY_OBJECT_ARRAY;
-          }
-
-          @NotNull
-          @Override
-          public ResolveResult[] multiResolve(boolean incompleteCode) {
+          public ResolveResult @NotNull [] multiResolve(boolean incompleteCode) {
             return ResolveResult.EMPTY_ARRAY;
           }
         };
@@ -129,8 +128,14 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
 
   @Override
   public PsiReference getReference() {
-    final PsiElement name = getNameElement();
-    return name instanceof GrLiteral || name instanceof LeafPsiElement ? this : null;
+    GroovyPropertyWriteReference constructorPropertyReference = getConstructorPropertyReference();
+    if (constructorPropertyReference != null) {
+      return constructorPropertyReference;
+    }
+    else {
+      final PsiElement name = getNameElement();
+      return name instanceof GrLiteral || name instanceof LeafPsiElement ? this : null;
+    }
   }
 
   @Override
@@ -164,19 +169,20 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
     return null;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return new TextRange(0, getTextLength());
   }
 
-  @NotNull
   @Override
-  public GroovyResolveResult[] multiResolve(boolean incompleteCode) {
+  public GroovyResolveResult @NotNull [] multiResolve(boolean incompleteCode) {
     final ResolveResult[] results = getRealReference().multiResolve(incompleteCode);
     if (results instanceof GroovyResolveResult[]) {
       return (GroovyResolveResult[])results;
@@ -190,7 +196,7 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
           results1[i] = EmptyGroovyResolveResult.INSTANCE;
         }
         else {
-          results1[i] = new GroovyResolveResultImpl(element, true);
+          results1[i] = new ElementResolveResult<>(element);
         }
       }
       return results1;
@@ -202,11 +208,11 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
   public String getCanonicalText() {
     PsiElement resolved = resolve();
     if (resolved instanceof PsiMember && resolved instanceof PsiNamedElement) {
-      PsiClass clazz = ((PsiMember) resolved).getContainingClass();
+      PsiClass clazz = ((PsiMember)resolved).getContainingClass();
       if (clazz != null) {
         String qName = clazz.getQualifiedName();
         if (qName != null) {
-          return qName + "." + ((PsiNamedElement) resolved).getName();
+          return qName + "." + ((PsiNamedElement)resolved).getName();
         }
       }
     }
@@ -215,7 +221,7 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     return getRealReference().handleElementRename(newElementName);
   }
 
@@ -225,14 +231,8 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return getRealReference().isReferenceTo(element);
-  }
-
-  @Override
-  @NotNull
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
@@ -263,25 +263,6 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
   }
 
   @Override
-  public PsiType getLabelType() {
-    PsiElement el = getNameElement();
-    if (el instanceof GrParenthesizedExpression) {
-      return ((GrParenthesizedExpression)el).getType();
-    }
-
-    final ASTNode node = el.getNode();
-    if (node == null) {
-      return null;
-    }
-
-    PsiType nodeType = TypesUtil.getPsiType(el, node.getElementType());
-    if (nodeType != null) {
-      return nodeType;
-    }
-    return TypesUtil.createType(CommonClassNames.JAVA_LANG_STRING, this);
-  }
-
-  @Override
   public GrNamedArgument getNamedArgument() {
     final PsiElement parent = getParent();
     assert parent instanceof GrNamedArgument;
@@ -292,5 +273,31 @@ public class GrArgumentLabelImpl extends GroovyPsiElementImpl implements GrArgum
   public PsiElement setName(@NotNull String newName) {
     PsiImplUtil.setName(newName, getNameElement());
     return this;
+  }
+
+  @Nullable
+  @Override
+  public GroovyPropertyWriteReference getConstructorPropertyReference() {
+    return hasConstructorPropertyReference() ? myConstructorPropertyReference : null;
+  }
+
+  private boolean hasConstructorPropertyReference() {
+    if (getName() == null) {
+      return false;
+    }
+    PsiElement parent = getParent();
+    if (!(parent instanceof GrNamedArgument)) {
+      return false;
+    }
+    return hasConstructorPropertyReference((GrNamedArgument)parent);
+  }
+
+  private static boolean hasConstructorPropertyReference(@NotNull GrNamedArgument argument) {
+    GroovyCallReference constructorReference = getConstructorReference(argument);
+    if (constructorReference == null) {
+      return false;
+    }
+    GroovyResolveResult result = constructorReference.advancedResolve();
+    return PsiUtil.isTrustedMapConstructorResult(result);
   }
 }

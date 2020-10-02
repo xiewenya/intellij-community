@@ -20,9 +20,9 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -40,36 +40,17 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.Query;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomManager;
-import org.intellij.plugins.relaxNG.ApplicationLoader;
+import org.intellij.plugins.relaxNG.RelaxNgMetaDataContributor;
+import org.intellij.plugins.relaxNG.RelaxngBundle;
 import org.intellij.plugins.relaxNG.compact.psi.RncDefine;
 import org.intellij.plugins.relaxNG.compact.psi.RncElementVisitor;
 import org.intellij.plugins.relaxNG.compact.psi.RncGrammar;
 import org.intellij.plugins.relaxNG.compact.psi.impl.RncDefineImpl;
 import org.intellij.plugins.relaxNG.model.resolve.RelaxIncludeIndex;
 import org.intellij.plugins.relaxNG.xml.dom.RngGrammar;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class UnusedDefineInspection extends BaseInspection {
-  @Override
-  public boolean isEnabledByDefault() {
-    return false;
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unused Define";
-  }
-
-  @Override
-  @NonNls
-  @NotNull
-  public String getShortName() {
-    return "UnusedDefine";
-  }
 
   @Override
   @NotNull
@@ -87,7 +68,7 @@ public class UnusedDefineInspection extends BaseInspection {
       }
     };
 
-    public MyElementVisitor(ProblemsHolder holder) {
+    MyElementVisitor(ProblemsHolder holder) {
       myHolder = holder;
     }
 
@@ -112,7 +93,7 @@ public class UnusedDefineInspection extends BaseInspection {
       if (processRncUsages(pattern, new LocalSearchScope(collector.toArray()))) return;
 
       final ASTNode astNode = ((RncDefineImpl)pattern).getNameNode();
-      myHolder.registerProblem(astNode.getPsi(), "Unreferenced define", ProblemHighlightType.LIKE_UNUSED_SYMBOL, new MyFix<>(pattern));
+      myHolder.registerProblem(astNode.getPsi(), RelaxngBundle.message("relaxng.inspection.unused-define.message"), ProblemHighlightType.LIKE_UNUSED_SYMBOL, new MyFix<>(pattern));
     }
 
     private static boolean processRncUsages(PsiElement tag, LocalSearchScope scope) {
@@ -129,13 +110,13 @@ public class UnusedDefineInspection extends BaseInspection {
 
     public void visitXmlTag(XmlTag tag) {
       final PsiFile file = tag.getContainingFile();
-      if (file.getFileType() != StdFileTypes.XML) {
+      if (file.getFileType() != XmlFileType.INSTANCE) {
         return;
       }
       if (!tag.getLocalName().equals("define")) {
         return;
       }
-      if (!tag.getNamespace().equals(ApplicationLoader.RNG_NAMESPACE)) {
+      if (!tag.getNamespace().equals(RelaxNgMetaDataContributor.RNG_NAMESPACE)) {
         return;
       }
       if (tag.getAttribute("combine") != null) {
@@ -149,7 +130,7 @@ public class UnusedDefineInspection extends BaseInspection {
       if (value == null) return;
 
       final String s = value.getValue();
-      if (s == null || s.length() == 0) {
+      if (s.length() == 0) {
         return;
       }
       final PsiElement parent = value.getParent();
@@ -181,7 +162,7 @@ public class UnusedDefineInspection extends BaseInspection {
 
       if (processUsages(tag, value, new LocalSearchScope(collector.toArray()))) return;
 
-      myHolder.registerProblem(value, "Unreferenced define", ProblemHighlightType.LIKE_UNUSED_SYMBOL, new MyFix<>(tag));
+      myHolder.registerProblem(value, RelaxngBundle.message("relaxng.inspection.unused-define.message"), ProblemHighlightType.LIKE_UNUSED_SYMBOL, new MyFix<>(tag));
     }
 
     private static boolean processUsages(PsiElement tag, XmlAttributeValue value, LocalSearchScope scope) {
@@ -201,14 +182,14 @@ public class UnusedDefineInspection extends BaseInspection {
     private static class MyFix<T extends PsiElement> implements LocalQuickFix {
       private final T myTag;
 
-      public MyFix(T tag) {
+      MyFix(T tag) {
         myTag = tag;
       }
 
       @Override
       @NotNull
       public String getFamilyName() {
-        return "Remove define";
+        return RelaxngBundle.message("relaxng.quickfix.remove-define");
       }
 
       @Override

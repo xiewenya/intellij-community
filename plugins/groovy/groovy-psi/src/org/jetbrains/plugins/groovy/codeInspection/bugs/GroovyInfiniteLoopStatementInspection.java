@@ -15,9 +15,9 @@
  */
 package org.jetbrains.plugins.groovy.codeInspection.bugs;
 
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -26,22 +26,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrWhileStatement;
 public class GroovyInfiniteLoopStatementInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Infinite loop statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "<code>#ref</code> statement cannot complete without throwing an exception #loc";
+    return GroovyBundle.message("inspection.message.ref.statement.cannot.complete.without.throwing.exception");
 
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
   }
 
   @NotNull

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.clientProperties;
 
@@ -20,6 +6,7 @@ import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.*;
 import com.intellij.ui.table.JBTable;
@@ -99,7 +86,8 @@ public class ConfigureClientPropertiesDialog extends DialogWrapper {
         if (node.getUserObject() instanceof Class) {
           Class cls = (Class)node.getUserObject();
           if (cls != null) {
-            append(cls.getName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
+            @NlsSafe String name = cls.getName();
+            append(name, SimpleTextAttributes.REGULAR_ATTRIBUTES);
           }
         }
       }
@@ -120,7 +108,7 @@ public class ConfigureClientPropertiesDialog extends DialogWrapper {
             dlg.show();
             if (dlg.getExitCode() == OK_EXIT_CODE) {
               String className = dlg.getClassName();
-              if (className.length() == 0) return;
+              if (className.isEmpty()) return;
               final Class aClass;
               try {
                 aClass = Class.forName(className, true, LoaderFactory.getInstance(myProject).getProjectClassLoader());
@@ -192,30 +180,25 @@ public class ConfigureClientPropertiesDialog extends DialogWrapper {
     return mySplitter;
   }
 
-  private void fillClassTree() {
-    List<Class> configuredClasses = myManager.getConfiguredClasses(myProject);
-    Collections.sort(configuredClasses, new Comparator<Class>() {
-      @Override
-      public int compare(final Class o1, final Class o2) {
-        return getInheritanceLevel(o1) - getInheritanceLevel(o2);
-      }
+  private static int getInheritanceLevel(Class aClass) {
+    int level = 0;
+    while (aClass.getSuperclass() != null) {
+      level++;
+      aClass = aClass.getSuperclass();
+    }
+    return level;
+  }
 
-      private int getInheritanceLevel(Class aClass) {
-        int level = 0;
-        while (aClass.getSuperclass() != null) {
-          level++;
-          aClass = aClass.getSuperclass();
-        }
-        return level;
-      }
-    });
+  private void fillClassTree() {
+    List<Class<?>> configuredClasses = myManager.getConfiguredClasses(myProject);
+    configuredClasses.sort(Comparator.comparingInt(ConfigureClientPropertiesDialog::getInheritanceLevel));
 
     DefaultMutableTreeNode root = new DefaultMutableTreeNode();
     DefaultTreeModel treeModel = new DefaultTreeModel(root);
-    Map<Class, DefaultMutableTreeNode> classToNodeMap = new HashMap<>();
-    for (Class cls : configuredClasses) {
+    Map<Class<?>, DefaultMutableTreeNode> classToNodeMap = new HashMap<>();
+    for (Class<?> cls : configuredClasses) {
       DefaultMutableTreeNode parentNode = root;
-      Class superClass = cls.getSuperclass();
+      Class<?> superClass = cls.getSuperclass();
       while (superClass != null) {
         if (classToNodeMap.containsKey(superClass)) {
           parentNode = classToNodeMap.get(superClass);
@@ -254,22 +237,18 @@ public class ConfigureClientPropertiesDialog extends DialogWrapper {
 
     @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
-      switch (columnIndex) {
-        case 0:
-          return mySelectedProperties.get(rowIndex).getName();
-        default:
-          return mySelectedProperties.get(rowIndex).getValueClass();
+      if (columnIndex == 0) {
+        return mySelectedProperties.get(rowIndex).getName();
       }
+      return mySelectedProperties.get(rowIndex).getValueClass();
     }
 
     @Override
     public String getColumnName(int column) {
-      switch (column) {
-        case 0:
-          return UIDesignerBundle.message("client.properties.name");
-        default:
-          return UIDesignerBundle.message("client.properties.class");
+      if (column == 0) {
+        return UIDesignerBundle.message("client.properties.name");
       }
+      return UIDesignerBundle.message("client.properties.class");
     }
   }
 }

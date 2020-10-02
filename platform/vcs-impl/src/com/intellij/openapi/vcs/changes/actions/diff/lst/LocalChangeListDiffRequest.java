@@ -1,27 +1,32 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.actions.diff.lst;
 
 import com.intellij.diff.contents.DiffContent;
+import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.ex.LineStatusTracker;
 import com.intellij.openapi.vcs.impl.LineStatusTrackerManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
 import java.util.List;
 
 public class LocalChangeListDiffRequest extends ContentDiffRequest {
   @NotNull private final Project myProject;
   @NotNull private final VirtualFile myVirtualFile;
   @NotNull private final String myChangelistId;
-  @NotNull private final String myChangelistName;
+  @NotNull private final @NlsSafe String myChangelistName;
   @NotNull private final ContentDiffRequest myRequest;
 
   private int myAssignments;
@@ -70,10 +75,11 @@ public class LocalChangeListDiffRequest extends ContentDiffRequest {
   }
 
 
+  @NlsContexts.DialogTitle
   @Nullable
   @Override
   public String getTitle() {
-    return String.format("%s [%s]", myRequest.getTitle(), myChangelistName);
+    return VcsBundle.message("change.dialog.title.change.list.name", myRequest.getTitle(), myChangelistName);
   }
 
   @NotNull
@@ -84,12 +90,12 @@ public class LocalChangeListDiffRequest extends ContentDiffRequest {
 
   @NotNull
   @Override
-  public List<String> getContentTitles() {
+  public List<@Nls String> getContentTitles() {
     List<String> titles = myRequest.getContentTitles();
     String title1 = titles.get(0);
     String title2 = titles.get(1);
-    String ourTitle2 = title2 != null ? String.format("%s in %s", title2, myChangelistName) : null;
-    return ContainerUtil.list(title1, ourTitle2);
+    @Nls String ourTitle2 = title2 != null ? VcsBundle.message("change.dialog.title.in.change.list.name", title2, myChangelistName) : null;
+    return Arrays.asList(title1, ourTitle2);
   }
 
   @Override
@@ -104,7 +110,7 @@ public class LocalChangeListDiffRequest extends ContentDiffRequest {
 
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   public void onAssigned(boolean isAssigned) {
     myRequest.onAssigned(isAssigned);
 
@@ -130,6 +136,10 @@ public class LocalChangeListDiffRequest extends ContentDiffRequest {
     if (document == null) return false;
 
     LineStatusTrackerManager.getInstance(myProject).requestTrackerFor(document, this);
+
+    DocumentContent beforeContent = (DocumentContent)getContents().get(0);
+    CharSequence beforeText = beforeContent.getDocument().getImmutableCharSequence();
+    LineStatusTrackerManager.getInstanceImpl(myProject).offerTrackerContent(document, beforeText);
     return true;
   }
 

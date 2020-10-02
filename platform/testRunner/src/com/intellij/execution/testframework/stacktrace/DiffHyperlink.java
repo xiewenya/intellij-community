@@ -27,6 +27,8 @@ import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.ui.awt.RelativePoint;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -43,6 +45,7 @@ public class DiffHyperlink implements Printable {
   protected final String myActualFilePath;
   private final boolean myPrintOneLine;
   private final HyperlinkInfo myDiffHyperlink = new DiffHyperlinkInfo();
+  private @NlsSafe String myTestProxyName;
 
 
   public DiffHyperlink(final String expected, final String actual, final String filePath) {
@@ -55,7 +58,7 @@ public class DiffHyperlink implements Printable {
                        boolean printOneLine) {
     this(expected, actual, filePath, null, printOneLine);
   }
-  
+
   public DiffHyperlink(final String expected,
                        final String actual,
                        final String expectedFilePath,
@@ -68,15 +71,21 @@ public class DiffHyperlink implements Printable {
     myPrintOneLine = printOneLine;
   }
 
+  public void setTestProxyName(@NlsSafe String name) {
+    myTestProxyName = name;
+  }
+
   private static String normalizeSeparators(String filePath) {
     return filePath == null ? null : filePath.replace(File.separatorChar, '/');
   }
 
-  protected String getTitle() {
-    return ExecutionBundle.message("strings.equal.failed.dialog.title");
+  protected @NlsContexts.DialogTitle String getTitle() {
+    return myTestProxyName != null
+           ? ExecutionBundle.message("strings.equal.failed.with.test.name.dialog.title", myTestProxyName)
+           : ExecutionBundle.message("strings.equal.failed.dialog.title");
   }
 
-  public String getDiffTitle() {
+  public @NlsContexts.DialogTitle String getDiffTitle() {
     return getTitle();
   }
 
@@ -91,20 +100,17 @@ public class DiffHyperlink implements Printable {
   public String getFilePath() {
     return myFilePath;
   }
-  
+
   public String getActualFilePath() {
     return myActualFilePath;
   }
 
+  @Override
   public void printOn(final Printer printer) {
-    if (!hasMoreThanOneLine(myActual.trim()) && !hasMoreThanOneLine(myExpected.trim()) && myPrintOneLine) {
-      printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
-      printer.print(ExecutionBundle.message("diff.content.expected.for.file.title"), ConsoleViewContentType.SYSTEM_OUTPUT);
-      printer.print(myExpected + NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
-      printer.print(ExecutionBundle.message("junit.actual.text.label"), ConsoleViewContentType.SYSTEM_OUTPUT);
-      printer.print(myActual + NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
+    if (!hasMoreThanOneLine(myActual) && !hasMoreThanOneLine(myExpected) && myPrintOneLine) {
+      printer.printExpectedActualHeader(myExpected, myActual);
     }
-    printer.print(" ", ConsoleViewContentType.ERROR_OUTPUT);
+    printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
     printer.printHyperlink(ExecutionBundle.message("junit.click.to.see.diff.link"), myDiffHyperlink);
     printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
   }

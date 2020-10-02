@@ -33,6 +33,7 @@ public abstract class ValueContainer<Value> {
     int size();
   }
 
+  @FunctionalInterface
   public interface IntPredicate {
     boolean contains(int id);
   }
@@ -50,11 +51,12 @@ public abstract class ValueContainer<Value> {
 
   public abstract int size();
 
+  @FunctionalInterface
   public interface ContainerAction<T> {
     boolean perform(int id, T value);
   }
 
-  public final boolean forEach(@NotNull ContainerAction<Value> action) {
+  public final boolean forEach(@NotNull ContainerAction<? super Value> action) {
     for (final ValueIterator<Value> valueIterator = getValueIterator(); valueIterator.hasNext();) {
       final Value value = valueIterator.next();
       for (final IntIterator intIterator = valueIterator.getInputIdsIterator(); intIterator.hasNext();) {

@@ -1,15 +1,15 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.predicates;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
 import com.intellij.structuralsearch.MalformedPatternException;
 import com.intellij.structuralsearch.SSRBundle;
-import com.intellij.structuralsearch.StructuralSearchProfile;
 import com.intellij.structuralsearch.StructuralSearchUtil;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.structuralsearch.impl.matcher.MatchResultImpl;
 import com.intellij.structuralsearch.plugin.util.SmartPsiPointer;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,6 +20,7 @@ public final class RegExpPredicate extends MatchPredicate {
   private final String baseHandlerName;
   private boolean simpleString;
   private final boolean couldBeOptimized;
+  @NotNull
   private final String regexp;
   private final boolean caseSensitive;
   private boolean multiline;
@@ -31,7 +32,7 @@ public final class RegExpPredicate extends MatchPredicate {
     String getText(PsiElement element);
   }
 
-  public RegExpPredicate(final String regexp, final boolean caseSensitive, final String _baseHandlerName, boolean _wholeWords, boolean _target) {
+  public RegExpPredicate(@NotNull String regexp, boolean caseSensitive, String _baseHandlerName, boolean _wholeWords, boolean _target) {
     couldBeOptimized = !StructuralSearchUtil.containsRegExpMetaChar(regexp);
     if (!_wholeWords) {
       simpleString = couldBeOptimized;
@@ -55,11 +56,9 @@ public final class RegExpPredicate extends MatchPredicate {
         realRegexp = ".*?\\b(?:" + realRegexp + ")\\b.*?";
       }
 
-      pattern = Pattern.compile(
-        realRegexp,
-        (caseSensitive ? 0: Pattern.CASE_INSENSITIVE) | (multiline ? Pattern.DOTALL:0)
-      );
-    } catch(PatternSyntaxException ex) {
+      pattern = Pattern.compile(realRegexp, (caseSensitive ? 0 : Pattern.CASE_INSENSITIVE) | (multiline ? Pattern.DOTALL : 0));
+    }
+    catch (PatternSyntaxException ex) {
       throw new MalformedPatternException(SSRBundle.message("error.incorrect.regexp.constraint", regexp, baseHandlerName));
     }
   }
@@ -68,6 +67,7 @@ public final class RegExpPredicate extends MatchPredicate {
     return couldBeOptimized;
   }
 
+  @NotNull
   public String getRegExp() {
     return regexp;
   }
@@ -79,18 +79,15 @@ public final class RegExpPredicate extends MatchPredicate {
    * @return true if matching was successful and false otherwise
    */
   @Override
-  public boolean match(PsiElement matchedNode, int start, int end, MatchContext context) {
-    if (matchedNode==null) return false;
-
-    String text = myNodeTextGenerator != null ? myNodeTextGenerator.getText(matchedNode) : getMeaningfulText(matchedNode);
+  public boolean match(@NotNull PsiElement matchedNode, int start, int end, @NotNull MatchContext context) {
+    final String text = myNodeTextGenerator != null
+                        ? myNodeTextGenerator.getText(matchedNode)
+                        : StructuralSearchUtil.getMeaningfulText(matchedNode);
 
     boolean result = doMatch(text, start, end, context, matchedNode);
-
     if (!result) {
-
       matchedNode = StructuralSearchUtil.getParentIfIdentifier(matchedNode);
-
-      String alternativeText = context.getPattern().getAlternativeTextToMatch(matchedNode, text);
+      final String alternativeText = StructuralSearchUtil.getAlternativeText(matchedNode, text);
       if (alternativeText != null) {
         result = doMatch(alternativeText, start, end, context, matchedNode);
       }
@@ -99,48 +96,42 @@ public final class RegExpPredicate extends MatchPredicate {
     return result;
   }
 
-  public static String getMeaningfulText(PsiElement matchedNode) {
-    final StructuralSearchProfile profile = StructuralSearchUtil.getProfileByPsiElement(matchedNode);
-    return profile != null ? profile.getMeaningfulText(matchedNode) : matchedNode.getText();
+  public boolean doMatch(@NotNull String text, @NotNull MatchContext context, @NotNull PsiElement matchedElement) {
+    return doMatch(text, 0, -1 ,context, matchedElement);
   }
 
-  boolean doMatch(String text, MatchContext context, PsiElement matchedElement) {
-    return doMatch(text,0,-1,context, matchedElement);
-  }
-
-  boolean doMatch(String text, int from, int end, MatchContext context,PsiElement matchedElement) {
+  private boolean doMatch(@NotNull String text, int from, int end, @NotNull MatchContext context, @NotNull PsiElement matchedElement) {
     if (from > 0 || end != -1) {
-      text = text.substring(from, end == -1 || end >= text.length() ? text.length():end);
+      text = text.substring(from, (end == -1 || end >= text.length()) ? text.length() : end);
     }
 
     if (simpleString) {
-      return (caseSensitive)?text.equals(regexp):text.equalsIgnoreCase(regexp);
+      return caseSensitive ? text.equals(regexp) : text.equalsIgnoreCase(regexp);
     }
 
     if(!multiline && text.contains("\n")) setMultiline(true);
     final Matcher matcher = pattern.matcher(text);
 
-    if (matcher.matches()) {
-      for (int i=1;i<=matcher.groupCount();++i) {
-        context.getResult().addChild(
-          new MatchResultImpl(
-            baseHandlerName + "_" + i,
-            matcher.group(i),
-            new SmartPsiPointer(matchedElement),
-            matcher.start(i),
-            matcher.end(i),
-            target
-          )
-        );
-      }
-      return true;
-    } else {
+    if (!matcher.matches()) {
       return false;
     }
+    for (int i = 1; i <= matcher.groupCount(); i++) {
+      context.getResult().addChild(
+        new MatchResultImpl(
+          baseHandlerName + "_" + i,
+          matcher.group(i),
+          new SmartPsiPointer(matchedElement),
+          matcher.start(i),
+          matcher.end(i),
+          target
+        )
+      );
+    }
+    return true;
   }
 
 
-  public void setNodeTextGenerator(final NodeTextGenerator nodeTextGenerator) {
+  public void setNodeTextGenerator(NodeTextGenerator nodeTextGenerator) {
     myNodeTextGenerator = nodeTextGenerator;
   }
 

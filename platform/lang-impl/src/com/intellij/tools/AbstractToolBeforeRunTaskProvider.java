@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tools;
 
 import com.intellij.execution.BeforeRunTaskProvider;
@@ -26,15 +12,12 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-/**
- * @author traff
- */
-public abstract class AbstractToolBeforeRunTaskProvider<T extends AbstractToolBeforeRunTask> extends BeforeRunTaskProvider<T> {
+public abstract class AbstractToolBeforeRunTaskProvider<T extends AbstractToolBeforeRunTask<?, ?>> extends BeforeRunTaskProvider<T> {
   protected static final Logger LOG = Logger.getInstance(ToolBeforeRunTaskProvider.class);
 
   @Override
   public Icon getIcon() {
-    return AllIcons.General.ExternalToolsSmall;
+    return AllIcons.General.ExternalTools;
   }
 
   @Override
@@ -76,8 +59,9 @@ public abstract class AbstractToolBeforeRunTaskProvider<T extends AbstractToolBe
       return ToolsBundle.message("tools.unknown.external.tool");
     }
     String groupName = tool.getGroup();
+    String description = StringUtil.isEmpty(groupName) ? tool.getName() : groupName + "/" + tool.getName();
     return ToolsBundle
-      .message("tools.before.run.description", StringUtil.isEmpty(groupName) ? tool.getName() : groupName + "/" + tool.getName()) + (!tool.isEnabled() ? " (disabled)" : "");
+      .message("tools.before.run.description", description, tool.isEnabled() ? 1 : 0);
   }
 
   @Override
@@ -86,7 +70,7 @@ public abstract class AbstractToolBeforeRunTaskProvider<T extends AbstractToolBe
   }
 
   @Override
-  public boolean executeTask(DataContext context, @NotNull RunConfiguration configuration, @NotNull ExecutionEnvironment env, @NotNull T task) {
+  public boolean executeTask(@NotNull DataContext context, @NotNull RunConfiguration configuration, @NotNull ExecutionEnvironment env, @NotNull T task) {
     if (!task.isExecutable()) {
       return false;
     }

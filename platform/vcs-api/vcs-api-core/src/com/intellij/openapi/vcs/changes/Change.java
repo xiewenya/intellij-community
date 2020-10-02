@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
@@ -25,6 +10,7 @@ import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.impl.VcsPathPresenter;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,9 +20,6 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * @author max
- */
 public class Change {
   private int myHash = -1;
 
@@ -84,16 +67,17 @@ public class Change {
     return FileStatus.MODIFIED;
   }
 
-  public void addAdditionalLayerElement(final String name, final Change change) {
+  public void addAdditionalLayerElement(@NonNls String name, final Change change) {
     if (myOtherLayers == null) myOtherLayers = new HashMap<>(1);
     myOtherLayers.put(name, change);
   }
 
   @NotNull
-  public Map<String, Change> getOtherLayers() {
+  public Map<@NonNls String, Change> getOtherLayers() {
     return ContainerUtil.notNullize(myOtherLayers);
   }
 
+  @NotNull
   public Type getType() {
     Type type = myType;
     if (type == null) {
@@ -207,7 +191,7 @@ public class Change {
           myMoved = true;
         }
       }
-      if (myMoved && myMoveRelativePath == null && project != null) {
+      if (myMoved && myMoveRelativePath == null && project != null && !project.isDisposed()) {
         myMoveRelativePath = VcsPathPresenter.getInstance(project).getPresentableRelativePath(myBeforeRevision, myAfterRevision);
       }
     }
@@ -223,7 +207,6 @@ public class Change {
   @NonNls
   public String toString() {
     final Type type = getType();
-    //noinspection EnumSwitchStatementWhichMissesCases
     switch (type) {
       case NEW: return "A: " + myAfterRevision;
       case DELETED: return "D: " + myBeforeRevision;
@@ -233,6 +216,7 @@ public class Change {
   }
 
   @Nullable
+  @Nls
   public String getOriginText(final Project project) {
     cacheRenameOrMove(project);
     if (isMoved()) {
@@ -244,11 +228,13 @@ public class Change {
   }
 
   @Nullable
+  @Nls
   protected String getRenamedText() {
     return VcsBundle.message("change.file.renamed.from.text", myBeforeRevision.getFile().getName());
   }
 
   @Nullable
+  @Nls
   protected String getMovedText(final Project project) {
     return VcsBundle.message("change.file.moved.from.text", getMoveRelativePath(project));
   }
@@ -266,6 +252,7 @@ public class Change {
     return null;
   }
 
+  @Nls
   @Nullable
   public String getDescription() {
     return null;

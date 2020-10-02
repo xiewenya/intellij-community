@@ -23,12 +23,12 @@ import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-public class JoinLinesTest extends LightCodeInsightTestCase {
+public class JoinLinesTest extends LightJavaCodeInsightTestCase {
   @NotNull
   @Override
   protected String getTestDataPath() {
@@ -38,7 +38,31 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
   public void testNormal() { doTest(); }
 
   public void testStringLiteral() { doTest(); }
+  public void testStringLiteralTrim() { doTest(); }
   public void testLiteralSCR4989() { doTest(); }
+
+  public void testCallChain() { doTest(); }
+  public void testCallChain2() { doTest(); }
+  public void testCallChainLineBreak() {
+    CommonCodeStyleSettings settings = getJavaSettings();
+    settings.METHOD_CALL_CHAIN_WRAP = CommonCodeStyleSettings.WRAP_ALWAYS;
+    doTest(); 
+  }
+  public void testCallChainWrong() { doTest(); }
+  public void testCallChainWrong2() { doTest(); }
+  public void testDeclarationAndCall() { doTest(); }
+  public void testDeclarationAndCallSelfRef() { doTest(); }
+  public void testAssignmentAndCall() { doTest(); }
+
+  public void testDeclarationAndReassignmentWithCall() { doTest(); }
+  public void testAssignmentAndReassignmentWithCall() { doTest(); }
+
+  public void testIfChain() { doTest(); }
+  public void testIfChainPolyadic() { doTest(); }
+  public void testIfChainNoBraces() { doTest(); }
+  public void testIfChainElse() { doTest(); }
+  public void testIfChainSelection() { doTest(); }
+  public void testAtEOF() { doTest(); }
 
   public void testSCR3493() {
     CommonCodeStyleSettings settings = getJavaSettings();
@@ -68,7 +92,7 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
   }
   public void testSCR3493b() {
     CommonCodeStyleSettings settings = getJavaSettings();
-    boolean use_tab_character = settings.getIndentOptions().USE_TAB_CHARACTER;;
+    boolean use_tab_character = settings.getIndentOptions().USE_TAB_CHARACTER;
     boolean smart_tabs = settings.getIndentOptions().SMART_TABS;
     try {
       settings.getIndentOptions().USE_TAB_CHARACTER = true;
@@ -126,6 +150,8 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
   }
 
   public void testLocalVar() { doTest(); }
+  public void testLocalVarAnnotated() { doTest(); }
+  public void testLocalVarImplicit() { doTest(); }
 
   public void testSlashComment() { doTest(); }
   public void testDocComment() { doTest(); }
@@ -169,14 +195,11 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
     }
   }
 
-  @NotNull
-  protected CommonCodeStyleSettings getJavaSettings() {
-    return CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
-  }
+  public void testAssignmentExpression() { doTest(); }
+  public void testAssignmentExpression2() { doTest(); }
+  public void testAssignmentExpressionPrecedence() { doTest(); }
+  public void testAssignmentExpressionPrecedence2() { doTest(); }
 
-  public void testAssignmentExpression() {
-    doTest();
-  }
   public void testReformatInsertsNewlines() {
     CommonCodeStyleSettings settings = getJavaSettings();
     final Element root = new Element("fake");
@@ -221,9 +244,25 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
   
   public void testLeaveTrailingComment() { doTest(); }
 
-  public void testConvertComment() {
+  public void testConvertComment() { doTest();}
+  public void testConvertComment2() { doTest();}
+  public void testConvertFinalLineComment() { doTest();}
+  public void testConvertFinalLineComment2() { doTest();}
+  public void testConvertFinalLineComment3() { doTest();}
+  public void testConvertLongLine() {
+    CommonCodeStyleSettings settings = getJavaSettings();
+    settings.RIGHT_MARGIN = 79;
+
     doTest();
   }
+  public void testConvertMultiLongLine() {
+    CommonCodeStyleSettings settings = getJavaSettings();
+    settings.RIGHT_MARGIN = 50;
+
+    doTest();
+  }
+  public void testConvertManyEndOfLineComments() { doTest();}
+  public void testConvertMixed() { doTest();}
 
   public void testJoiningMethodCallWhenItDoesntFit() {
     CommonCodeStyleSettings settings = getJavaSettings();
@@ -266,6 +305,11 @@ public class JoinLinesTest extends LightCodeInsightTestCase {
     EditorActionManager actionManager = EditorActionManager.getInstance();
     EditorActionHandler actionHandler = actionManager.getActionHandler(IdeActions.ACTION_EDITOR_JOIN_LINES);
 
-    actionHandler.execute(getEditor(), DataManager.getInstance().getDataContext());
+    actionHandler.execute(getEditor(), null, DataManager.getInstance().getDataContext());
+  }
+
+  @NotNull
+  private CommonCodeStyleSettings getJavaSettings() {
+    return CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
   }
 }

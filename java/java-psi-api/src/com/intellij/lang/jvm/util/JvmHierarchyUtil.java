@@ -1,22 +1,31 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.jvm.util;
 
 import com.intellij.lang.jvm.JvmClass;
 import com.intellij.openapi.progress.ProgressManager;
-import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static com.intellij.lang.jvm.util.JvmUtil.resolveClass;
 import static com.intellij.lang.jvm.util.JvmUtil.resolveClasses;
 
-public class JvmHierarchyUtil {
-
+public final class JvmHierarchyUtil {
   private JvmHierarchyUtil() {}
+
+  public static boolean testSupers(@NotNull JvmClass start, boolean skipStart, @NotNull Predicate<? super JvmClass> predicate) {
+    Boolean result = traverseSupers(start, skipStart, it -> predicate.test(it) ? Boolean.TRUE : null);
+    return result != null && result;
+  }
+
+  public static <R> R traverseSupers(@NotNull JvmClass start, @NotNull Function<? super JvmClass, R> f) {
+    return traverseSupers(start, false, f);
+  }
 
   /**
    * Traverses class tree in BFS order applying the function to each superclass.
@@ -34,12 +43,17 @@ public class JvmHierarchyUtil {
    * @param <R>   type of the result
    * @return first non-null result or null
    */
-  public static <R> R traverseSupers(@NotNull JvmClass start, @NotNull Function<? super JvmClass, R> f) {
+  public static <R> R traverseSupers(@NotNull JvmClass start, boolean skipStart, @NotNull Function<? super JvmClass, R> f) {
     // TODO implement method returning Stream<JvmClass>
     final Queue<JvmClass> queue = new ArrayDeque<>();
-    queue.offer(start);
+    if (skipStart) {
+      queueSupers(queue, start);
+    }
+    else {
+      queue.offer(start);
+    }
 
-    final Set<JvmClass> visited = new THashSet<>();
+    final Set<JvmClass> visited = new HashSet<>();
     while (!queue.isEmpty()) {
       ProgressManager.checkCanceled();
 
@@ -55,7 +69,7 @@ public class JvmHierarchyUtil {
     return null;
   }
 
-  private static void queueSupers(@NotNull Queue<JvmClass> queue, @NotNull JvmClass current) {
+  private static void queueSupers(@NotNull Queue<? super JvmClass> queue, @NotNull JvmClass current) {
     JvmClass superClass = resolveClass(current.getSuperClassType());
     if (superClass != null) {
       queue.offer(superClass);

@@ -1,44 +1,44 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JdkUtil;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.PropertyKey;
 
 /**
- * Command line has length limit depending on used OS. In order to allow java command lines of any length for any OS, a number of approaches are possible.
+ * <p>Command line has length limit depending on used OS. In order to allow java command lines of any length for any OS,
+ * a number of approaches are possible.</p>
  *
- * Since 2017.3, it's possible to setup shortening command line method per run configuration, e.g. {@link com.intellij.execution.CommonJavaRunConfigurationParameters#getShortenClasspath}
+ * <p>Since 2017.3, it's possible to set up a command line shortening method per run configuration,
+ * e.g. {@link com.intellij.execution.application.JvmMainMethodRunConfigurationOptions#getShortenClasspath()}.</p>
  */
 public enum ShortenCommandLine {
-  NONE("none", "java [options] classname [args]"),
-  MANIFEST("JAR manifest", "java -cp classpath.jar classname [args]"),
-  CLASSPATH_FILE("classpath file", "java WrapperClass classpathFile [args]"),
-  ARGS_FILE("@argFiles (java 9+)", "java @argFile [args]") {
+  NONE("shorten.command.line.method.none", "java [options] className [args]"),
+  MANIFEST("shorten.command.line.method.jar.manifest", "java -cp classpath.jar className [args]"),
+  CLASSPATH_FILE("shorten.command.line.method.classpath.file", "java WrapperClass classpathFile className [args]") {
     @Override
     public boolean isApplicable(String jreRoot) {
-      return jreRoot != null && JdkUtil.isModularRuntime(jreRoot);
+      return jreRoot == null || !JdkUtil.isModularRuntime(jreRoot);
+    }
+  },
+  ARGS_FILE("shorten.command.line.method.argfile", "java @argfile className [args]") {
+    @Override
+    public boolean isApplicable(String jreRoot) {
+      return jreRoot == null || JdkUtil.isModularRuntime(jreRoot);
     }
   };
 
-  private final String myPresentableName;
-  private final String myDescription;
+  private final @PropertyKey(resourceBundle = LangBundle.BUNDLE) String myNameKey;
+  private final @NlsSafe String myDescription;
 
-  ShortenCommandLine(String presentableName, String description) {
-    myPresentableName = presentableName;
+  ShortenCommandLine(@PropertyKey(resourceBundle = LangBundle.BUNDLE) String nameKey, @NlsSafe String description) {
+    myNameKey = nameKey;
     myDescription = description;
   }
 
@@ -46,29 +46,30 @@ public enum ShortenCommandLine {
     return true;
   }
 
-  public String getDescription() {
+  public @NlsContexts.Label String getDescription() {
     return myDescription;
   }
 
-  public String getPresentableName() {
-    return myPresentableName;
+  public @NlsContexts.Label String getPresentableName() {
+    return LangBundle.message(myNameKey);
   }
 
-  public static ShortenCommandLine getDefaultMethod(Project project, String rootPath) {
+  public static @NotNull ShortenCommandLine getDefaultMethod(@Nullable Project project, String rootPath) {
     if (!JdkUtil.useDynamicClasspath(project)) return NONE;
     if (rootPath != null && JdkUtil.isModularRuntime(rootPath)) return ARGS_FILE;
     if (JdkUtil.useClasspathJar()) return MANIFEST;
     return CLASSPATH_FILE;
   }
 
+  /** @deprecated do not use in a new code */
+  @Deprecated
   public static ShortenCommandLine readShortenClasspathMethod(@NotNull Element element) {
     Element mode = element.getChild("shortenClasspath");
-    if (mode != null) {
-      return valueOf(mode.getAttributeValue("name"));
-    }
-    return null;
+    return mode != null ? valueOf(mode.getAttributeValue("name")) : null;
   }
 
+  /** @deprecated do not use in a new code */
+  @Deprecated
   public static void writeShortenClasspathMethod(@NotNull Element element, ShortenCommandLine shortenCommandLine) {
     if (shortenCommandLine != null) {
       element.addContent(new Element("shortenClasspath").setAttribute("name", shortenCommandLine.name()));

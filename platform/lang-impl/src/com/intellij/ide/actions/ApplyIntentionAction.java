@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
@@ -23,11 +24,11 @@ public class ApplyIntentionAction extends AnAction {
   private final Editor myEditor;
   private final PsiFile myFile;
 
-  public ApplyIntentionAction(final HighlightInfo.IntentionActionDescriptor descriptor, String text, Editor editor, PsiFile file) {
+  public ApplyIntentionAction(final HighlightInfo.IntentionActionDescriptor descriptor, @NlsActions.ActionText String text, Editor editor, PsiFile file) {
     this(descriptor.getAction(), text, editor, file);
   }
 
-  public ApplyIntentionAction(final IntentionAction action, String text, Editor editor, PsiFile file) {
+  public ApplyIntentionAction(final IntentionAction action, @NlsActions.ActionText String text, Editor editor, PsiFile file) {
     super(text);
     getTemplatePresentation().setText(text, false);
     myAction = action;
@@ -36,7 +37,7 @@ public class ApplyIntentionAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     PsiDocumentManager.getInstance(myFile.getProject()).commitAllDocuments();
     ShowIntentionActionsHandler.chooseActionAndInvoke(myFile, myEditor, myAction, myAction.getText());
   }
@@ -45,9 +46,8 @@ public class ApplyIntentionAction extends AnAction {
     return ReadAction.compute(() -> myAction.getText());
   }
 
-  @Nullable
-  public static ApplyIntentionAction[] getAvailableIntentions(@NotNull Editor editor, @NotNull PsiFile file) {
-    ShowIntentionsPass.IntentionsInfo info = ShowIntentionsPass.getActionsToShow(editor, file);
+  public static ApplyIntentionAction @Nullable [] getAvailableIntentions(@NotNull Editor editor, @NotNull PsiFile file) {
+    ShowIntentionsPass.IntentionsInfo info = ShowIntentionsPass.getActionsToShow(editor, file, false);
     if (info.isEmpty()) return null;
 
     final List<HighlightInfo.IntentionActionDescriptor> actions = new ArrayList<>();

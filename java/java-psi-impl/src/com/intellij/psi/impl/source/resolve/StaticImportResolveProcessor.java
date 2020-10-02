@@ -85,8 +85,7 @@ public class StaticImportResolveProcessor implements PsiScopeProcessor, NameHint
     return null;
   }
 
-  @NotNull
-  public JavaResolveResult[] getResults() {
+  public JavaResolveResult @NotNull [] getResults() {
     if (myResults.size() + myFieldResults.size() + myClassResult.size() > 1) {
       filterInvalid(myResults);
       filterInvalid(myFieldResults);
@@ -111,7 +110,7 @@ public class StaticImportResolveProcessor implements PsiScopeProcessor, NameHint
   private static class OurResolveResult extends CandidateInfo {
     private final PsiImportStaticReferenceElement myReference;
 
-    public OurResolveResult(@NotNull PsiElement candidate, final PsiImportStaticReferenceElement reference) {
+    OurResolveResult(@NotNull PsiElement candidate, final PsiImportStaticReferenceElement reference) {
       super(candidate, PsiSubstitutor.EMPTY);
       myReference = reference;
     }

@@ -1,29 +1,32 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.meta.model;
 
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.yaml.YAMLBundle;
-import org.jetbrains.yaml.psi.YAMLKeyValue;
+import org.jetbrains.yaml.psi.YAMLMapping;
 import org.jetbrains.yaml.psi.YAMLScalar;
+import org.jetbrains.yaml.psi.YAMLValue;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-@ApiStatus.Experimental
+@ApiStatus.Internal
 @SuppressWarnings("UnusedReturnValue")
 public class YamlMetaClass extends YamlMetaType {
   private final List<Field> myFeatures = new LinkedList<>();
   private final List<Field> myFeaturesRO = Collections.unmodifiableList(myFeatures);
 
-  public YamlMetaClass(@NotNull String typeName) {
+  public YamlMetaClass(@NonNls @NotNull String typeName) {
     super(typeName);
   }
 
+  @Override
   @Nullable
   public Field findFeatureByName(@NotNull String name) {
     if (getFeatures().isEmpty()) {
@@ -40,6 +43,22 @@ public class YamlMetaClass extends YamlMetaType {
         .findAny()
         .orElse(null)
     );
+  }
+
+  @NotNull
+  @Override
+  public List<String> computeMissingFields(@NotNull Set<String> existingFields) {
+    return myFeatures.stream()
+      .filter(Field::isRequired)
+      .map(Field::getName)
+      .filter(name -> !existingFields.contains(name))
+      .collect(Collectors.toList());
+  }
+
+  @NotNull
+  @Override
+  public List<Field> computeKeyCompletions(@Nullable YAMLMapping existingMapping) {
+    return ContainerUtil.filter(myFeatures, Field::isEditable);
   }
 
   @NotNull
@@ -77,6 +96,7 @@ public class YamlMetaClass extends YamlMetaType {
     return child;
   }
 
+  @Override
   public void buildInsertionSuffixMarkup(@NotNull YamlInsertionMarkup markup,
                                          @NotNull Field.Relation relation,
                                          @NotNull ForcedCompletionPath.Iteration iteration) {
@@ -98,11 +118,11 @@ public class YamlMetaClass extends YamlMetaType {
   }
 
   @Override
-  public void validateKeyValue(@NotNull YAMLKeyValue keyValue, @NotNull ProblemsHolder problemsHolder) {
-    super.validateKeyValue(keyValue, problemsHolder);
-    if (keyValue.getValue() instanceof YAMLScalar) {
-      problemsHolder.registerProblem(keyValue.getValue(),
-                                     YAMLBundle.message("YamlMetaClass.error.scalar.value", new Object[]{}));
+  public void validateValue(@NotNull YAMLValue value, @NotNull ProblemsHolder problemsHolder) {
+    super.validateValue(value, problemsHolder);
+    if (value instanceof YAMLScalar) {
+      problemsHolder.registerProblem(value,
+                                     YAMLBundle.message("YamlMetaClass.error.scalar.value", ArrayUtil.EMPTY_OBJECT_ARRAY));
     }
   }
 
@@ -114,7 +134,7 @@ public class YamlMetaClass extends YamlMetaType {
       markup.newLineAndTabs(manyNotOne);
 
       List<Field> allRequired =
-        myFeatures.stream().filter(field -> field.isRequired() || iteration.isNextOnPath(field)).collect(Collectors.toList());
+        ContainerUtil.filter(myFeatures, field -> field.isRequired() || iteration.isNextOnPath(field));
       if (allRequired.isEmpty() && iteration.isEndOfPathReached()) {
         markup.appendCaret();
       }

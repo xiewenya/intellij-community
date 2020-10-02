@@ -15,6 +15,7 @@
  */
 package com.intellij.codeInspection.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.AnActionButton;
 import com.intellij.ui.AnActionButtonRunnable;
@@ -30,7 +31,7 @@ public class ListEditForm {
   JPanel contentPanel;
   ListTable table;
 
-  public ListEditForm(String title, List<String> stringList) {
+  public ListEditForm(@NlsContexts.ColumnName String title, List<String> stringList) {
     table = new ListTable(new ListWrappingTableModel(stringList, title));
 
     contentPanel = ToolbarDecorator.createDecorator(table)
@@ -52,9 +53,7 @@ public class ListEditForm {
             final Component component =
               editor.getTableCellEditorComponent(table,
                                                  null, true, lastRowIndex, 0);
-            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-              IdeFocusManager.getGlobalInstance().requestFocus(component, true);
-            });
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(component, true));
           });
         }
       })

@@ -51,6 +51,7 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
   public void testClsCapturedReturnTypes() { doTest(); }
   public void testOverloadChooserOfReturnType() { doTest(); }
   public void testIDEA98866() { doTest(); }
+  public void testDiamondWithConditionalInside() { doTest(); }
   public void testIncompleteSubstitution() { doTest(); }
   public void testJDK8028774() { doTest(); }
   public void testErasedByReturnConstraint() { doTest(); }
@@ -60,6 +61,7 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
   public void testGrandParentTypeParams() { doTest(); }
   public void testDeepCallsChain() { doTest(); }
   public void testArrayPassedToVarargsMethod() { doTest(); }
+  public void testWrongNumberOfParametersWithLambdaOnUnexpectedPlace() { doTest(); }
   public void testIDEA121055() { doTest(); }
   public void testTargetTypeByAnonymousClass() { doTest(); }
   public void testStaticInheritorsAmbiguity() { doTest(); }
@@ -166,6 +168,9 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
     }
   }
 
+  public void testNameConflictBetweenFreshVariables() { doTest(); }
+  public void testOrderOfGenericsParameterizations() { doTest(); }
+  public void testLowerBoundAssignability() { doTest(); }
   public void testCreateFreshVariablesOnlyForWildcardPlacesDuringReturnTypeProcessing() { doTest(); }
   public void testCapturedConversionDuringDirectSuperCheck() { doTest(); }
   //public void _testResolutionOrderForVariableCycles() { doTest(); }
@@ -191,11 +196,15 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
   public void testVarargsMethodPreferred() { doTest(); }
   public void testSameNamedFreshVariables() { doTest(); }
   public void testEnsureOrderOfFreshVariablesWhenCaptureNonProperTypes() { doTest(); }
+  public void testFreshVariablesBounds() { doTest(); }
+  public void testRawInIntersection() { doTest(); }
 
   public void testApplicabilityCheckFailsExpressionTypeCheckPasses() {
     doTest();
   }
-
+  public void testNotInferredVarShouldNotBeUsedForInferenceJava10() { doTest(); }
+  public void testJavac8UnCaptureBug() { doTest(); }
+  public void testLambdaInConditional() { doTest(); }
   public void testTopLevelParentNoParameters() {
     doTest();
   }

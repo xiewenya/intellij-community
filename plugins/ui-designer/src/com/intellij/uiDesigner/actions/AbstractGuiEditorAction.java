@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.actions;
 
@@ -24,6 +10,7 @@ import com.intellij.uiDesigner.FormEditingUtil;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
 import com.intellij.uiDesigner.designSurface.InplaceEditingLayer;
 import com.intellij.uiDesigner.radComponents.RadComponent;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +31,8 @@ public abstract class AbstractGuiEditorAction extends AnAction implements DumbAw
     myModifying = modifying;
   }
 
-  public final void actionPerformed(final AnActionEvent e) {
+  @Override
+  public final void actionPerformed(@NotNull final AnActionEvent e) {
     final GuiEditor editor = FormEditingUtil.getEditorFromContext(e.getDataContext());
     if (editor != null) {
       final ArrayList<RadComponent> selection = FormEditingUtil.getSelectedComponents(editor);
@@ -70,27 +58,26 @@ public abstract class AbstractGuiEditorAction extends AnAction implements DumbAw
     }
   }
 
-  protected abstract void actionPerformed(final GuiEditor editor, final List<RadComponent> selection, final AnActionEvent e);
+  protected abstract void actionPerformed(final GuiEditor editor, final List<? extends RadComponent> selection, final AnActionEvent e);
 
-  public final void update(AnActionEvent e) {
+  @Override
+  public final void update(@NotNull AnActionEvent e) {
     GuiEditor editor = FormEditingUtil.getEditorFromContext(e.getDataContext());
     if (editor == null) {
-      e.getPresentation().setVisible(false);
-      e.getPresentation().setEnabled(false);
+      e.getPresentation().setEnabledAndVisible(false);
     }
     else {
-      e.getPresentation().setVisible(true);
-      e.getPresentation().setEnabled(true);
+      e.getPresentation().setEnabledAndVisible(true);
       final ArrayList<RadComponent> selection = FormEditingUtil.getSelectedComponents(editor);
       update(editor, selection, e);
     }
   }
 
-  protected void update(@NotNull GuiEditor editor, final ArrayList<RadComponent> selection, final AnActionEvent e) {
+  protected void update(@NotNull GuiEditor editor, final ArrayList<? extends RadComponent> selection, final AnActionEvent e) {
   }
 
   @Nullable
-  protected String getCommandName() {
+  protected @Nls String getCommandName() {
     return null;
   }
 }

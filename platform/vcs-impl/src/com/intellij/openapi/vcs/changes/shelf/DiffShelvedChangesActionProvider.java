@@ -1,11 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.shelf;
 
 import com.intellij.diff.DiffContentFactory;
 import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.chains.DiffRequestChain;
-import com.intellij.diff.chains.DiffRequestProducer;
 import com.intellij.diff.chains.DiffRequestProducerException;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.requests.DiffRequest;
@@ -13,14 +12,17 @@ import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.diff.requests.UnknownFileTypeDiffRequest;
 import com.intellij.diff.tools.util.SoftHardCacheMap;
 import com.intellij.diff.util.DiffUtil;
+import com.intellij.openapi.ListSelection;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.AnActionExtensionProvider;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.diff.impl.patch.*;
 import com.intellij.openapi.diff.impl.patch.apply.ApplyFilePatchBase;
 import com.intellij.openapi.diff.impl.patch.apply.GenericPatchApplier;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -34,36 +36,34 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.CommitContext;
-import com.intellij.openapi.vcs.changes.FilePathsHelper;
 import com.intellij.openapi.vcs.changes.patch.AppliedTextPatch;
 import com.intellij.openapi.vcs.changes.patch.ApplyPatchForBaseRevisionTexts;
 import com.intellij.openapi.vcs.changes.patch.tool.PatchDiffRequest;
 import com.intellij.openapi.vcs.changes.ui.ChangeDiffRequestChain;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.vcsUtil.VcsUtil;
-import org.jetbrains.annotations.CalledInBackground;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static com.intellij.diff.tools.util.DiffNotifications.createNotification;
+import static com.intellij.openapi.diagnostic.Logger.getInstance;
 import static com.intellij.openapi.vcs.changes.patch.PatchDiffRequestFactory.createConflictDiffRequest;
 import static com.intellij.openapi.vcs.changes.patch.PatchDiffRequestFactory.createDiffRequest;
-import static com.intellij.util.ObjectUtils.assertNotNull;
 import static com.intellij.util.ObjectUtils.chooseNotNull;
 
-public class DiffShelvedChangesActionProvider implements AnActionExtensionProvider {
-  private static final String DIFF_WITH_BASE_ERROR = "Base content not found or not applicable.";
-  public static final String SHELVED_VERSION = "Shelved Version";
-  public static final String BASE_VERSION = "Base Version";
-  public static final String CURRENT_VERSION = "Current Version";
+public final class DiffShelvedChangesActionProvider implements AnActionExtensionProvider {
+  private static final Logger LOG = getInstance(DiffShelvedChangesActionProvider.class);
 
   @Override
   public boolean isActive(@NotNull AnActionEvent e) {
@@ -97,179 +97,69 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
     if (project == null) return;
     if (ChangeListManager.getInstance(project).isFreezedWithNotification(null)) return;
 
-    List<ShelvedChangeList> changeLists = ShelvedChangesViewManager.getShelvedLists(dc);
-    ShelvedChangeList changeList = assertNotNull(ContainerUtil.getFirstItem(changeLists));
-
-    final List<ShelvedChange> textChanges = changeList.getChanges(project);
-    final List<ShelvedBinaryFile> binaryChanges = changeList.getBinaryFiles();
-
-    final List<MyDiffRequestProducer> diffRequestProducers = new ArrayList<>();
-
-    processTextChanges(project, textChanges, diffRequestProducers, withLocal);
-    processBinaryFiles(project, binaryChanges, diffRequestProducers);
-
-    Collections.sort(diffRequestProducers, ChangeDiffRequestComparator.getInstance());
-
-    // selected changes inside lists
-    final Set<Object> selectedChanges = new HashSet<>();
-    selectedChanges.addAll(ShelvedChangesViewManager.getShelveChanges(dc));
-    selectedChanges.addAll(ShelvedChangesViewManager.getBinaryShelveChanges(dc));
-
-    int index = 0;
-    for (int i = 0; i < diffRequestProducers.size(); i++) {
-      MyDiffRequestProducer producer = diffRequestProducers.get(i);
-      if (selectedChanges.contains(producer.getBinaryChange()) || selectedChanges.contains(producer.getTextChange())) {
-        index = i;
-        break;
-      }
-    }
-
-    DiffRequestChain chain = new ChangeDiffRequestChain(diffRequestProducers, index);
-    DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.FRAME);
-  }
-
-  private static class ChangeDiffRequestComparator implements Comparator<DiffRequestProducer> {
-    private final static ChangeDiffRequestComparator ourInstance = new ChangeDiffRequestComparator();
-
-    public static ChangeDiffRequestComparator getInstance() {
-      return ourInstance;
-    }
-
-    @Override
-    public int compare(DiffRequestProducer o1, DiffRequestProducer o2) {
-      return FilePathsHelper.convertPath(o1.getName()).compareTo(FilePathsHelper.convertPath(o2.getName()));
-    }
-  }
-
-  private static void processBinaryFiles(@NotNull final Project project,
-                                         @NotNull List<ShelvedBinaryFile> files,
-                                         @NotNull List<MyDiffRequestProducer> diffRequestProducers) {
     final String base = project.getBasePath();
-    for (final ShelvedBinaryFile shelvedChange : files) {
-      final File file = new File(base, shelvedChange.AFTER_PATH == null ? shelvedChange.BEFORE_PATH : shelvedChange.AFTER_PATH);
-      final FilePath filePath = VcsUtil.getFilePath(file);
-      diffRequestProducers.add(new MyDiffRequestProducer(shelvedChange, filePath) {
-        @NotNull
-        @Override
-        public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
-          throws DiffRequestProducerException, ProcessCanceledException {
-          Change change = shelvedChange.createChange(project);
-          return createDiffRequest(project, change, getName(), context, indicator);
-        }
-      });
+    if (base == null) {
+      LOG.error("No base path for project " + project);
+      return;
     }
-  }
 
-  private static void processTextChanges(@NotNull final Project project,
-                                         @NotNull List<ShelvedChange> changesFromFirstList,
-                                         @NotNull List<MyDiffRequestProducer> diffRequestProducers,
-                                         boolean withLocal) {
-    final String base = project.getBasePath();
+    ListSelection<ShelvedWrapper> wrappers = ShelvedChangesViewManager.getSelectedChangesOrAll(dc);
+
     final ApplyPatchContext patchContext = new ApplyPatchContext(project.getBaseDir(), 0, false, false);
     final PatchesPreloader preloader = new PatchesPreloader(project);
     final CommitContext commitContext = new CommitContext();
-    for (final ShelvedChange shelvedChange : changesFromFirstList) {
-      final String beforePath = shelvedChange.getBeforePath();
-      final String afterPath = shelvedChange.getAfterPath();
-      final FilePath filePath = VcsUtil.getFilePath(new File(base, afterPath == null ? beforePath : afterPath));
-      final boolean isNewFile = FileStatus.ADDED.equals(shelvedChange.getFileStatus());
 
-      final VirtualFile file; // isNewFile -> parent directory, !isNewFile -> file
-      try {
-        file = ApplyFilePatchBase.findPatchTarget(patchContext, beforePath, afterPath, isNewFile);
-        if (!isNewFile && (file == null || !file.exists())) throw new FileNotFoundException(beforePath);
+    ListSelection<ShelveDiffRequestProducer> diffRequestProducers = wrappers.map(s -> {
+      ShelvedChange textChange = s.getShelvedChange();
+      if (textChange != null) {
+        return processTextChange(project, base, patchContext, preloader, commitContext, textChange, withLocal);
       }
-      catch (IOException e) {
-        diffRequestProducers.add(new MyDiffRequestProducer(shelvedChange, filePath) {
-          @NotNull
-          @Override
-          public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
-            throws DiffRequestProducerException, ProcessCanceledException {
-            try {
-              TextFilePatch patch = preloader.getPatch(shelvedChange, commitContext);
-              PatchDiffRequest patchDiffRequest =
-                new PatchDiffRequest(createAppliedTextPatch(patch), getName(), VcsBundle.message("patch.apply.conflict.patch"));
-              DiffUtil.addNotification(createNotification("Cannot find local file for '" + chooseNotNull(beforePath, afterPath) + "'"),
-                                       patchDiffRequest);
-              return patchDiffRequest;
-            }
-            catch (VcsException e) {
-              throw new DiffRequestProducerException("Can't show diff for '" + getName() + "'", e);
-            }
-          }
-        });
-        continue;
+      ShelvedBinaryFile binaryChange = s.getBinaryFile();
+      if (binaryChange != null) {
+        return processBinaryChange(project, base, binaryChange);
       }
+      return null;
+    });
+    if (diffRequestProducers.isEmpty()) return;
 
-      diffRequestProducers.add(new MyDiffRequestProducer(shelvedChange, filePath) {
-        @NotNull
-        @Override
-        public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
-          throws DiffRequestProducerException, ProcessCanceledException {
-          if (!isNewFile && file.getFileType() == UnknownFileType.INSTANCE) {
-            return new UnknownFileTypeDiffRequest(file, getName());
-          }
-          if (isNewFile) return createDiffRequest(project, shelvedChange.getChange(project), getName(), context, indicator);
+    DiffRequestChain chain = new ChangeDiffRequestChain(diffRequestProducers.getList(), diffRequestProducers.getSelectedIndex());
+    DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.FRAME);
+  }
 
-          final TextFilePatch patch;
-          try {
-            patch = preloader.getPatch(shelvedChange, commitContext);
-          }
-          catch (VcsException e) {
-            throw new DiffRequestProducerException("Can't show diff for '" + getName() + "'", e);
-          }
+  private static ShelveDiffRequestProducer processBinaryChange(@NotNull Project project,
+                                                               @NotNull String base,
+                                                               @NotNull ShelvedBinaryFile shelvedChange) {
+    final File file = new File(base, shelvedChange.AFTER_PATH == null ? shelvedChange.BEFORE_PATH : shelvedChange.AFTER_PATH);
+    final FilePath filePath = VcsUtil.getFilePath(file);
+    return new BinaryShelveDiffRequestProducer(project, shelvedChange, filePath);
+  }
 
-          if (patch.isDeletedFile()) {
-            return createDiffRequestForDeleted(patch);
-          }
-          return createDiffRequestForModified(patch, commitContext, context, indicator);
-        }
+  private static ShelveDiffRequestProducer processTextChange(@NotNull Project project,
+                                                             @NotNull String base,
+                                                             @NotNull ApplyPatchContext patchContext,
+                                                             @NotNull PatchesPreloader preloader,
+                                                             @NotNull CommitContext commitContext,
+                                                             @NotNull ShelvedChange shelvedChange,
+                                                             boolean withLocal) {
+    final String beforePath = shelvedChange.getBeforePath();
+    final String afterPath = shelvedChange.getAfterPath();
+    final FilePath filePath = VcsUtil.getFilePath(new File(base, afterPath == null ? beforePath : afterPath));
 
-        @NotNull
-        private DiffRequest createDiffRequestForDeleted(@NotNull TextFilePatch patch) {
-          assert file != null;
-          DiffContentFactory contentFactory = DiffContentFactory.getInstance();
-          DiffContent leftContent = withLocal
-                                    ? contentFactory.create(project, file)
-                                    : contentFactory.create(project, patch.getSingleHunkPatchText(), file);
-          return new SimpleDiffRequest(getName(), leftContent,
-                                       contentFactory.createEmpty(),
-                                       withLocal ? CURRENT_VERSION : SHELVED_VERSION, null);
-        }
+    try {
+      if (FileStatus.ADDED.equals(shelvedChange.getFileStatus())) {
+        return new NewFileTextShelveDiffRequestProducer(project, shelvedChange, filePath,
+                                                        preloader, commitContext, withLocal);
+      }
+      else {
+        VirtualFile file = ApplyFilePatchBase.findPatchTarget(patchContext, beforePath, afterPath);
+        if (file == null || !file.exists()) throw new FileNotFoundException(beforePath);
 
-        @NotNull
-        private DiffRequest createDiffRequestForModified(@NotNull TextFilePatch patch,
-                                                         @NotNull CommitContext commitContext,
-                                                         @NotNull UserDataHolder context,
-                                                         @NotNull ProgressIndicator indicator) throws DiffRequestProducerException {
-          assert file != null;
-          CharSequence baseContents = Extensions.findExtension(PatchEP.EP_NAME, project, BaseRevisionTextPatchEP.class)
-            .provideContent(chooseNotNull(patch.getAfterName(), patch.getBeforeName()), commitContext);
-          ApplyPatchForBaseRevisionTexts texts =
-            ApplyPatchForBaseRevisionTexts.create(project, file, patchContext.getPathBeforeRename(file), patch, baseContents);
-          //found base
-          if (texts.isBaseRevisionLoaded()) {
-            assert !texts.isAppliedSomehow();
-
-            //normal diff
-            DiffContentFactory contentFactory = DiffContentFactory.getInstance();
-            DiffContent leftContent = withLocal
-                                      ? contentFactory.create(project, file)
-                                      : contentFactory.create(project, assertNotNull(texts.getBase()), file);
-            return new SimpleDiffRequest(getName(), leftContent, contentFactory.create(project, texts.getPatched(), file),
-                                         withLocal ? CURRENT_VERSION : BASE_VERSION, SHELVED_VERSION);
-          }
-          else {
-            DiffRequest diffRequest = shelvedChange.isConflictingChange(project)
-                                      ? createConflictDiffRequest(project, file, patch, SHELVED_VERSION, texts, getName())
-                                      : createDiffRequest(project, shelvedChange.getChange(project), getName(), context, indicator);
-            if (!withLocal) {
-              DiffUtil.addNotification(createNotification(DIFF_WITH_BASE_ERROR + " Showing difference with local version"), diffRequest);
-            }
-            return diffRequest;
-          }
-        }
-      });
+        return new TextShelveDiffRequestProducer(project, shelvedChange, filePath, file,
+                                                 patchContext, preloader, commitContext, withLocal);
+      }
+    }
+    catch (IOException e) {
+      return new PatchShelveDiffRequestProducer(project, shelvedChange, filePath, preloader, commitContext);
     }
   }
 
@@ -283,19 +173,18 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
     return AppliedTextPatch.create(applier.getAppliedInfo());
   }
 
-  static class PatchesPreloader {
+  final static class PatchesPreloader {
     private final Project myProject;
-    private final SoftHardCacheMap<String, PatchInfo> myFilePatchesMap = new SoftHardCacheMap<>(5, 5);
+    private final SoftHardCacheMap<Path, PatchInfo> myFilePatchesMap = new SoftHardCacheMap<>(5, 5);
     private final ReadWriteLock myLock = new ReentrantReadWriteLock(true);
 
     PatchesPreloader(final Project project) {
       myProject = project;
     }
 
-    @NotNull
-    @CalledInBackground
-    public TextFilePatch getPatch(final ShelvedChange shelvedChange, @Nullable CommitContext commitContext) throws VcsException {
-      String patchPath = shelvedChange.getPatchPath();
+    @RequiresBackgroundThread
+    public @NotNull TextFilePatch getPatch(@NotNull ShelvedChange shelvedChange, @Nullable CommitContext commitContext) throws VcsException {
+      Path patchPath = shelvedChange.getPatchPath();
       if (getInfoFromCache(patchPath) == null || isPatchFileChanged(patchPath)) {
         readFilePatchAndUpdateCaches(patchPath, commitContext);
       }
@@ -307,10 +196,10 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
           }
         }
       }
-      throw new VcsException("Can not find patch for " + shelvedChange.getBeforePath() + " in patch file.");
+      throw new VcsException(VcsBundle.message("changes.can.not.find.patch.for.path.in.patch.file", shelvedChange.getBeforePath()));
     }
 
-    private PatchInfo getInfoFromCache(@NotNull String patchPath) {
+    private PatchInfo getInfoFromCache(@NotNull Path patchPath) {
       try {
         myLock.readLock().lock();
         return myFilePatchesMap.get(patchPath);
@@ -320,11 +209,11 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
       }
     }
 
-    private void readFilePatchAndUpdateCaches(@NotNull String patchPath, @Nullable CommitContext commitContext) throws VcsException {
+    private void readFilePatchAndUpdateCaches(@NotNull Path patchPath, @Nullable CommitContext commitContext) throws VcsException {
       try {
         myLock.writeLock().lock();
         myFilePatchesMap.put(patchPath, new PatchInfo(ShelveChangesManager.loadPatches(myProject, patchPath, commitContext),
-                                                      new File(patchPath).lastModified()));
+                                                      Files.getLastModifiedTime(patchPath).toMillis()));
       }
       catch (IOException | PatchSyntaxException e) {
         throw new VcsException(e);
@@ -334,49 +223,46 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
       }
     }
 
-    public boolean isPatchFileChanged(@NotNull String patchPath) {
+    public boolean isPatchFileChanged(@NotNull Path patchPath) {
       PatchInfo patchInfo = getInfoFromCache(patchPath);
-      long lastModified = new File(patchPath).lastModified();
-      return patchInfo != null && lastModified != patchInfo.myLoadedTimeStamp;
+      if (patchInfo == null) {
+        return false;
+      }
+
+      try {
+        return Files.getLastModifiedTime(patchPath).toMillis() != patchInfo.myLoadedTimeStamp;
+      }
+      catch (IOException e) {
+        return false;
+      }
     }
 
-    private static class PatchInfo {
-
+    private static final class PatchInfo {
       private final long myLoadedTimeStamp;
       @NotNull private final List<TextFilePatch> myTextFilePatches;
 
-      public PatchInfo(@NotNull List<TextFilePatch> patches, long loadedTimeStamp) {
+      PatchInfo(@NotNull List<TextFilePatch> patches, long loadedTimeStamp) {
         myTextFilePatches = patches;
         myLoadedTimeStamp = loadedTimeStamp;
       }
     }
   }
 
-  private static abstract class MyDiffRequestProducer implements ChangeDiffRequestChain.Producer {
-    @Nullable private final ShelvedChange myTextChange;
-    @Nullable private final ShelvedBinaryFile myBinaryChange;
-    @NotNull private final FilePath myFilePath;
+  private static abstract class ShelveDiffRequestProducer implements ChangeDiffRequestChain.Producer {
+    @NotNull protected final FilePath myFilePath;
 
-    public MyDiffRequestProducer(@NotNull ShelvedChange textChange, @NotNull FilePath filePath) {
-      myBinaryChange = null;
-      myTextChange = textChange;
-      myFilePath = filePath;
-    }
-
-    public MyDiffRequestProducer(@NotNull ShelvedBinaryFile binaryChange, @NotNull FilePath filePath) {
-      myBinaryChange = binaryChange;
-      myTextChange = null;
+    ShelveDiffRequestProducer(@NotNull FilePath filePath) {
       myFilePath = filePath;
     }
 
     @Nullable
     public ShelvedChange getTextChange() {
-      return myTextChange;
+      return null;
     }
 
     @Nullable
     public ShelvedBinaryFile getBinaryChange() {
-      return myBinaryChange;
+      return null;
     }
 
     @NotNull
@@ -387,20 +273,254 @@ public class DiffShelvedChangesActionProvider implements AnActionExtensionProvid
 
     @NotNull
     @Override
-    public FileStatus getFileStatus() {
-      if (myTextChange != null) {
-        return myTextChange.getFileStatus();
-      }
-      else {
-        assert myBinaryChange != null;
-        return myBinaryChange.getFileStatus();
-      }
-    }
-
-    @NotNull
-    @Override
     public FilePath getFilePath() {
       return myFilePath;
     }
   }
+
+  private static class BinaryShelveDiffRequestProducer extends ShelveDiffRequestProducer {
+    @NotNull private final Project myProject;
+    @NotNull private final ShelvedBinaryFile myBinaryChange;
+
+    BinaryShelveDiffRequestProducer(@NotNull Project project,
+                                           @NotNull ShelvedBinaryFile change,
+                                           @NotNull FilePath filePath) {
+      super(filePath);
+      myBinaryChange = change;
+      myProject = project;
+    }
+
+    @NotNull
+    @Override
+    public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
+      throws DiffRequestProducerException, ProcessCanceledException {
+      Change change = myBinaryChange.createChange(myProject);
+      return createDiffRequest(myProject, change, getName(), context, indicator);
+    }
+
+    @NotNull
+    @Override
+    public FileStatus getFileStatus() {
+      return myBinaryChange.getFileStatus();
+    }
+
+    @NotNull
+    @Override
+    public ShelvedBinaryFile getBinaryChange() {
+      return myBinaryChange;
+    }
+  }
+
+  private static class PatchShelveDiffRequestProducer extends BaseTextShelveDiffRequestProducer {
+    private final PatchesPreloader myPreloader;
+    private final CommitContext myCommitContext;
+
+    PatchShelveDiffRequestProducer(@NotNull Project project,
+                                          @NotNull ShelvedChange change,
+                                          @NotNull FilePath filePath,
+                                          @NotNull PatchesPreloader preloader,
+                                          @NotNull CommitContext commitContext) {
+      super(project, change, filePath);
+      myPreloader = preloader;
+      myCommitContext = commitContext;
+    }
+
+    @NotNull
+    @Override
+    public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator) throws DiffRequestProducerException {
+      try {
+        TextFilePatch patch = myPreloader.getPatch(myChange, myCommitContext);
+        AppliedTextPatch appliedTextPatch = createAppliedTextPatch(patch);
+        PatchDiffRequest request = new PatchDiffRequest(appliedTextPatch, getName(), VcsBundle.message("patch.apply.conflict.patch"));
+        DiffUtil.addNotification(createNotification(DiffBundle.message("cannot.find.file.error", getFilePath())), request);
+        return request;
+      }
+      catch (VcsException e) {
+        throw new DiffRequestProducerException(VcsBundle.message("changes.error.can.t.show.diff.for", getFilePath()), e);
+      }
+    }
+  }
+
+  private static class NewFileTextShelveDiffRequestProducer extends BaseTextShelveDiffRequestProducer {
+    @NotNull private final PatchesPreloader myPreloader;
+    @NotNull private final CommitContext myCommitContext;
+    private final boolean myWithLocal;
+
+    NewFileTextShelveDiffRequestProducer(@NotNull Project project,
+                                                @NotNull ShelvedChange change,
+                                                @NotNull FilePath filePath,
+                                                @NotNull PatchesPreloader preloader,
+                                                @NotNull CommitContext commitContext,
+                                                boolean withLocal) {
+      super(project, change, filePath);
+      myPreloader = preloader;
+      myCommitContext = commitContext;
+      myWithLocal = withLocal;
+    }
+
+    @NotNull
+    @Override
+    public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
+      throws DiffRequestProducerException, ProcessCanceledException {
+      VirtualFile file = myFilePath.getVirtualFile();
+      if (myWithLocal && file != null) {
+        try {
+          TextFilePatch patch = myPreloader.getPatch(myChange, myCommitContext);
+
+          DiffContentFactory contentFactory = DiffContentFactory.getInstance();
+          DiffContent leftContent = contentFactory.create(myProject, file);
+          DiffContent rightContent = contentFactory.create(myProject, patch.getSingleHunkPatchText(), file);
+
+          return new SimpleDiffRequest(getName(), leftContent, rightContent, DiffBundle.message("merge.version.title.current"),
+                                       VcsBundle.message("shelve.shelved.version"));
+        }
+        catch (VcsException e) {
+          throw new DiffRequestProducerException(VcsBundle.message("changes.error.can.t.show.diff.for", getFilePath()), e);
+        }
+      }
+      else {
+        return createDiffRequest(myProject, myChange.getChange(), getName(), context, indicator);
+      }
+    }
+  }
+
+  private static class TextShelveDiffRequestProducer extends BaseTextShelveDiffRequestProducer {
+    @NotNull private final VirtualFile myFile;
+    @NotNull private final ApplyPatchContext myPatchContext;
+    @NotNull private final PatchesPreloader myPreloader;
+    @NotNull private final CommitContext myCommitContext;
+    private final boolean myWithLocal;
+
+    TextShelveDiffRequestProducer(@NotNull Project project,
+                                         @NotNull ShelvedChange change,
+                                         @NotNull FilePath filePath,
+                                         @NotNull VirtualFile file,
+                                         @NotNull ApplyPatchContext patchContext,
+                                         @NotNull PatchesPreloader preloader,
+                                         @NotNull CommitContext commitContext,
+                                         boolean withLocal) {
+      super(project, change, filePath);
+      myFile = file;
+      myPatchContext = patchContext;
+      myPreloader = preloader;
+      myCommitContext = commitContext;
+      myWithLocal = withLocal;
+    }
+
+    @NotNull
+    @Override
+    public DiffRequest process(@NotNull UserDataHolder context, @NotNull ProgressIndicator indicator)
+      throws DiffRequestProducerException, ProcessCanceledException {
+      if (FileTypeRegistry.getInstance().isFileOfType(myFile, UnknownFileType.INSTANCE)) {
+        return new UnknownFileTypeDiffRequest(myFile, getName());
+      }
+
+      try {
+        TextFilePatch patch = myPreloader.getPatch(myChange, myCommitContext);
+
+        if (patch.isDeletedFile()) {
+          return createDiffRequestForDeleted(patch);
+        }
+        else {
+          String path = chooseNotNull(patch.getAfterName(), patch.getBeforeName());
+          CharSequence baseContents = PatchEP.EP_NAME.findExtensionOrFail(BaseRevisionTextPatchEP.class)
+            .provideContent(myProject, path, myCommitContext);
+
+          ApplyPatchForBaseRevisionTexts texts =
+            ApplyPatchForBaseRevisionTexts.create(myProject, myFile, myPatchContext.getPathBeforeRename(myFile), patch, baseContents);
+
+          if (texts.isBaseRevisionLoaded()) {
+            assert !texts.isAppliedSomehow();
+            return createDiffRequestUsingBase(texts);
+          }
+          else {
+            return createDiffRequestUsingLocal(texts, patch, context, indicator);
+          }
+        }
+      }
+      catch (VcsException e) {
+        throw new DiffRequestProducerException(VcsBundle.message("changes.error.can.t.show.diff.for", getFilePath()), e);
+      }
+    }
+
+    @NotNull
+    private DiffRequest createDiffRequestForDeleted(@NotNull TextFilePatch patch) {
+      DiffContentFactory contentFactory = DiffContentFactory.getInstance();
+
+      DiffContent leftContent;
+      String leftTitle;
+      if (myWithLocal) {
+        leftContent = contentFactory.create(myProject, myFile);
+        leftTitle = DiffBundle.message("merge.version.title.current");
+      }
+      else {
+        leftContent = contentFactory.create(myProject, patch.getSingleHunkPatchText(), myFile);
+        leftTitle = VcsBundle.message("shelve.shelved.version");
+      }
+
+      DiffContent rightContent = contentFactory.createEmpty();
+      String rightTitle = null;
+
+      return new SimpleDiffRequest(getName(), leftContent, rightContent, leftTitle, rightTitle);
+    }
+
+    @NotNull
+    private DiffRequest createDiffRequestUsingBase(@NotNull ApplyPatchForBaseRevisionTexts texts) {
+      DiffContentFactory contentFactory = DiffContentFactory.getInstance();
+
+      DiffContent leftContent;
+      String leftTitle;
+      if (myWithLocal) {
+        leftContent = contentFactory.create(myProject, myFile);
+        leftTitle = DiffBundle.message("merge.version.title.current");
+      }
+      else {
+        leftContent = contentFactory.create(myProject, Objects.requireNonNull(texts.getBase()), myFile);
+        leftTitle = DiffBundle.message("merge.version.title.base");
+      }
+
+      DiffContent rightContent = contentFactory.create(myProject, texts.getPatched(), myFile);
+      return new SimpleDiffRequest(getName(), leftContent, rightContent, leftTitle, VcsBundle.message("shelve.shelved.version"));
+    }
+
+    private DiffRequest createDiffRequestUsingLocal(@NotNull ApplyPatchForBaseRevisionTexts texts,
+                                                    @NotNull TextFilePatch patch,
+                                                    @NotNull UserDataHolder context,
+                                                    @NotNull ProgressIndicator indicator) throws DiffRequestProducerException {
+      DiffRequest diffRequest = myChange.isConflictingChange()
+                                ? createConflictDiffRequest(myProject, myFile, patch, VcsBundle.message("shelve.shelved.version"), texts, getName())
+                                : createDiffRequest(myProject, myChange.getChange(), getName(), context, indicator);
+      if (!myWithLocal) {
+        DiffUtil.addNotification(createNotification(
+          VcsBundle.message("shelve.base.content.not.found.or.not.applicable.error")), diffRequest);
+      }
+      return diffRequest;
+    }
+  }
+
+  private static abstract class BaseTextShelveDiffRequestProducer extends ShelveDiffRequestProducer {
+    @NotNull protected final Project myProject;
+    @NotNull protected final ShelvedChange myChange;
+
+    BaseTextShelveDiffRequestProducer(@NotNull Project project,
+                                             @NotNull ShelvedChange change,
+                                             @NotNull FilePath filePath) {
+      super(filePath);
+      myChange = change;
+      myProject = project;
+    }
+
+    @NotNull
+    @Override
+    public FileStatus getFileStatus() {
+      return myChange.getFileStatus();
+    }
+
+    @NotNull
+    @Override
+    public ShelvedChange getTextChange() {
+      return myChange;
+    }
+  }
 }
+

@@ -23,11 +23,11 @@ import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ex.LocalInspectionToolWrapper;
 import com.intellij.compiler.options.ValidationConfiguration;
 import com.intellij.lang.ExternalLanguageAnnotators;
-import com.intellij.lang.StdLanguages;
 import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.AnnotationSession;
 import com.intellij.lang.annotation.ExternalAnnotator;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.compiler.*;
 import com.intellij.openapi.compiler.options.ExcludesConfiguration;
 import com.intellij.openapi.editor.Document;
@@ -65,12 +65,7 @@ public class InspectionValidatorWrapper implements Validator {
   private final InspectionManager myInspectionManager;
   private final InspectionProjectProfileManager myProfileManager;
   private final PsiDocumentManager myPsiDocumentManager;
-  private static final ThreadLocal<Boolean> ourCompilationThreads = new ThreadLocal<Boolean>() {
-    @Override
-    protected Boolean initialValue() {
-      return Boolean.FALSE;
-    }
-  };
+  private static final ThreadLocal<Boolean> ourCompilationThreads = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
   public InspectionValidatorWrapper(final CompilerManager compilerManager, final InspectionManager inspectionManager,
                                     final InspectionProjectProfileManager profileManager, final PsiDocumentManager psiDocumentManager,
@@ -83,6 +78,18 @@ public class InspectionValidatorWrapper implements Validator {
     myValidator = validator;
   }
 
+  @NotNull
+  public static InspectionValidatorWrapper create(final Project project, InspectionValidator validator) {
+    return new InspectionValidatorWrapper(
+      CompilerManager.getInstance(project),
+      InspectionManager.getInstance(project),
+      InspectionProjectProfileManager.getInstance(project),
+      PsiDocumentManager.getInstance(project),
+      PsiManager.getInstance(project),
+      validator
+    );
+  }
+
   public static boolean isCompilationThread() {
     return ourCompilationThreads.get().booleanValue();
   }
@@ -90,7 +97,7 @@ public class InspectionValidatorWrapper implements Validator {
   private static List<ProblemDescriptor> runInspectionOnFile(@NotNull PsiFile file,
                                                             @NotNull LocalInspectionTool inspectionTool) {
     InspectionManager inspectionManager = InspectionManager.getInstance(file.getProject());
-    GlobalInspectionContext context = inspectionManager.createNewGlobalContext(false);
+    GlobalInspectionContext context = inspectionManager.createNewGlobalContext();
     return InspectionEngine.runInspectionOnFile(file, new LocalInspectionToolWrapper(inspectionTool), context);
   }
 
@@ -99,7 +106,7 @@ public class InspectionValidatorWrapper implements Validator {
     private final PsiManager myPsiManager;
     private PsiElementsValidityState myValidityState;
 
-    public MyValidatorProcessingItem(@NotNull final PsiFile psiFile) {
+    MyValidatorProcessingItem(@NotNull final PsiFile psiFile) {
       myVirtualFile = psiFile.getVirtualFile();
       myPsiManager = psiFile.getManager();
     }
@@ -137,10 +144,9 @@ public class InspectionValidatorWrapper implements Validator {
   }
 
   @Override
-  @NotNull
-  public ProcessingItem[] getProcessingItems(final CompileContext context) {
+  public ProcessingItem @NotNull [] getProcessingItems(final CompileContext context) {
     final Project project = context.getProject();
-    if (project.isDefault() || !ValidationConfiguration.shouldValidate(this, context)) {
+    if (project.isDefault() || !ValidationConfiguration.shouldValidate(this, project)) {
       return ProcessingItem.EMPTY_ARRAY;
     }
     final ExcludesConfiguration excludesConfiguration = ValidationConfiguration.getExcludedEntriesConfiguration(project);
@@ -215,7 +221,7 @@ public class InspectionValidatorWrapper implements Validator {
     return processedItems.toArray(ProcessingItem.EMPTY_ARRAY);
   }
 
-  private boolean checkFile(List<LocalInspectionTool> inspections, final MyValidatorProcessingItem item, final CompileContext context) {
+  private boolean checkFile(List<? extends LocalInspectionTool> inspections, final MyValidatorProcessingItem item, final CompileContext context) {
     boolean hasErrors = false;
     if (!checkUnderReadAction(item, context, () -> myValidator.checkAdditionally(item.getPsiFile()))) {
       hasErrors = true;
@@ -248,7 +254,12 @@ public class InspectionValidatorWrapper implements Validator {
     return !hasErrors;
   }
 
-  private boolean checkUnderReadAction(final MyValidatorProcessingItem item, final CompileContext context, final Computable<Map<ProblemDescriptor, HighlightDisplayLevel>> runnable) {
+  @Override
+  public String getId() {
+    return myValidator.getId();
+  }
+
+  private boolean checkUnderReadAction(final MyValidatorProcessingItem item, final CompileContext context, final Computable<? extends Map<ProblemDescriptor, HighlightDisplayLevel>> runnable) {
     return DumbService.getInstance(context.getProject()).runReadActionInSmartMode(() -> {
       final PsiFile file = item.getPsiFile();
       if (file == null) return false;
@@ -256,7 +267,7 @@ public class InspectionValidatorWrapper implements Validator {
       final Document document = myPsiDocumentManager.getCachedDocument(file);
       if (document != null && myPsiDocumentManager.isUncommited(document)) {
         final String url = file.getViewProvider().getVirtualFile().getUrl();
-        context.addMessage(CompilerMessageCategory.WARNING, CompilerBundle.message("warning.text.file.has.been.changed"), url, -1, -1);
+        context.addMessage(CompilerMessageCategory.WARNING, JavaCompilerBundle.message("warning.text.file.has.been.changed"), url, -1, -1);
         return false;
       }
 
@@ -326,10 +337,11 @@ public class InspectionValidatorWrapper implements Validator {
   private Map<ProblemDescriptor, HighlightDisplayLevel> runXmlFileSchemaValidation(@NotNull XmlFile xmlFile) {
     final AnnotationHolderImpl holder = new AnnotationHolderImpl(new AnnotationSession(xmlFile));
 
-    final List<ExternalAnnotator> annotators = ExternalLanguageAnnotators.allForFile(StdLanguages.XML, xmlFile);
+    final List<ExternalAnnotator> annotators = ExternalLanguageAnnotators.allForFile(XMLLanguage.INSTANCE, xmlFile);
     for (ExternalAnnotator<?, ?> annotator : annotators) {
       processAnnotator(xmlFile, holder, annotator);
     }
+    holder.assertAllAnnotationsCreated();
 
     if (!holder.hasAnnotations()) return Collections.emptyMap();
 
@@ -356,7 +368,7 @@ public class InspectionValidatorWrapper implements Validator {
     if (initial != null) {
       Y result = annotator.doAnnotate(initial);
       if (result != null) {
-        annotator.apply(xmlFile, result, holder);
+        holder.applyExternalAnnotatorWithContext(xmlFile, annotator, result);
       }
     }
   }

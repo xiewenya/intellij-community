@@ -36,16 +36,22 @@ public interface CompileContext extends UserDataHolder, MessageHandler {
   /**
    * @deprecated use {@link org.jetbrains.jps.builders.java.JavaBuilderUtil#isCompileJavaIncrementally(CompileContext)} for java-related usages
    */
+  @Deprecated
   boolean isMake();
 
   /**
    * @deprecated use {@link org.jetbrains.jps.builders.java.JavaBuilderUtil#isForcedRecompilationAllJavaModules(CompileContext)} for java-related usages
    */
+  @Deprecated
   boolean isProjectRebuild();
 
   @Nullable
   String getBuilderParameter(String paramName);
 
+  /**
+   * Registers a listener which will receive events about files which are created, modified or deleted by the build process. In order to
+   * ensure that no events are lost this method may be called in {@link Builder#buildStarted}'s implementation.
+   */
   void addBuildListener(BuildListener listener);
 
   void removeBuildListener(BuildListener listener);
@@ -62,7 +68,7 @@ public interface CompileContext extends UserDataHolder, MessageHandler {
 
   long getCompilationStartStamp(BuildTarget<?> target);
 
-  void setCompilationStartStamp(Collection<BuildTarget<?>> target, long stamp);
+  void setCompilationStartStamp(Collection<? extends BuildTarget<?>> target, long stamp);
 
   void markNonIncremental(ModuleBuildTarget target);
 

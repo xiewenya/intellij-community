@@ -15,17 +15,16 @@
  */
 package com.siyeh.ipp.opassign;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.PsiAssignmentExpression;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiJavaToken;
-import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ipp.base.MutablyNamedIntention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NotNull;
 
 public class ReplaceOperatorAssignmentWithAssignmentIntention extends MutablyNamedIntention {
-
   @Override
   @NotNull
   protected PsiElementPredicate getElementPredicate() {
@@ -37,7 +36,7 @@ public class ReplaceOperatorAssignmentWithAssignmentIntention extends MutablyNam
     final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)element;
     final PsiJavaToken sign = assignmentExpression.getOperationSign();
     final String operator = sign.getText();
-    return IntentionPowerPackBundle.message("replace.operator.assignment.with.assignment.intention.name", operator);
+    return CommonQuickFixBundle.message("fix.replace.x.with.y", operator, "=");
   }
 
   @Override

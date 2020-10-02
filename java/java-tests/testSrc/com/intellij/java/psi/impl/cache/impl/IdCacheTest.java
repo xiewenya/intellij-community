@@ -1,12 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.psi.impl.cache.impl;
 
 import com.intellij.JavaTestUtil;
-import com.intellij.codeInsight.CodeInsightTestCase;
+import com.intellij.codeInsight.JavaCodeInsightTestCase;
 import com.intellij.ide.todo.TodoConfiguration;
 import com.intellij.ide.todo.TodoIndexPatternProvider;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
@@ -18,15 +17,12 @@ import com.intellij.psi.search.TodoPattern;
 import com.intellij.psi.search.UsageSearchContext;
 import com.intellij.testFramework.IdeaTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 
-import java.io.File;
 import java.util.Arrays;
 
-public class IdCacheTest extends CodeInsightTestCase{
-
+public class IdCacheTest extends JavaCodeInsightTestCase {
   private VirtualFile myRootDir;
-  private File myCacheFile;
 
   @Override
   protected void setUp() throws Exception {
@@ -36,19 +32,15 @@ public class IdCacheTest extends CodeInsightTestCase{
 
     PsiTestUtil.removeAllRoots(myModule, IdeaTestUtil.getMockJdk17());
     myRootDir = createTestProjectStructure(root);
-
-    myCacheFile = FileUtil.createTempFile("cache", "");
-    myCacheFile.delete();
-    myFilesToDelete.add(myCacheFile);
   }
 
   public void testBuildCache() {
-    checkCache(CacheManager.SERVICE.getInstance(myProject), TodoCacheManager.SERVICE.getInstance(myProject));
+    checkCache(CacheManager.getInstance(myProject), TodoCacheManager.SERVICE.getInstance(myProject));
   }
 
   public void testLoadCacheNoTodo() {
 
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
 
     checkResult(new String[]{"1.java", "2.java"}, convert(cache.getFilesWithWord("b", UsageSearchContext.ANY, GlobalSearchScope.projectScope(myProject), false)));
   }
@@ -56,7 +48,7 @@ public class IdCacheTest extends CodeInsightTestCase{
   public void testUpdateCache1() throws Exception {
     createChildData(myRootDir, "4.java");
     Thread.sleep(1000);
-    checkCache(CacheManager.SERVICE.getInstance(myProject), TodoCacheManager.SERVICE.getInstance(myProject));
+    checkCache(CacheManager.getInstance(myProject), TodoCacheManager.SERVICE.getInstance(myProject));
   }
 
   public void testUpdateCache2() {
@@ -66,7 +58,7 @@ public class IdCacheTest extends CodeInsightTestCase{
     PsiDocumentManager.getInstance(myProject).commitAllDocuments();
     FileDocumentManager.getInstance().saveAllDocuments();
 
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     final TodoCacheManager todocache = TodoCacheManager.SERVICE.getInstance(myProject);
     final GlobalSearchScope scope = GlobalSearchScope.projectScope(myProject);
     checkResult(new String[] {"1.java"}, convert(cache.getFilesWithWord("xxx", UsageSearchContext.ANY, scope, false)));
@@ -86,11 +78,11 @@ public class IdCacheTest extends CodeInsightTestCase{
     VirtualFile child = myRootDir.findChild("1.java");
     delete(child);
 
-    final CacheManager cache2 = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache2 = CacheManager.getInstance(myProject);
     final TodoCacheManager todocache2 = TodoCacheManager.SERVICE.getInstance(myProject);
     final GlobalSearchScope scope = GlobalSearchScope.projectScope(myProject);
-    checkResult(ArrayUtil.EMPTY_STRING_ARRAY, convert(cache2.getFilesWithWord("xxx", UsageSearchContext.ANY, scope, false)));
-    checkResult(ArrayUtil.EMPTY_STRING_ARRAY, convert(cache2.getFilesWithWord("a", UsageSearchContext.ANY, scope, false)));
+    checkResult(ArrayUtilRt.EMPTY_STRING_ARRAY, convert(cache2.getFilesWithWord("xxx", UsageSearchContext.ANY, scope, false)));
+    checkResult(ArrayUtilRt.EMPTY_STRING_ARRAY, convert(cache2.getFilesWithWord("a", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"2.java"}, convert(cache2.getFilesWithWord("b", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"2.java", "3.java"}, convert(cache2.getFilesWithWord("c", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"2.java", "3.java"}, convert(cache2.getFilesWithWord("d", UsageSearchContext.ANY, scope, false)));
@@ -104,7 +96,7 @@ public class IdCacheTest extends CodeInsightTestCase{
   public void testUpdateCacheNoTodo() {
     createChildData(myRootDir, "4.java");
     final GlobalSearchScope scope = GlobalSearchScope.projectScope(myProject);
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     checkResult(new String[]{"1.java", "2.java"}, convert(cache.getFilesWithWord("b", UsageSearchContext.ANY, scope, false)));
   }
 
@@ -126,7 +118,7 @@ public class IdCacheTest extends CodeInsightTestCase{
   }
 
   public void testFileModification() {
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     final TodoCacheManager todocache = TodoCacheManager.SERVICE.getInstance(myProject);
     checkCache(cache, todocache);
 
@@ -153,7 +145,7 @@ public class IdCacheTest extends CodeInsightTestCase{
   }
 
   public void testFileDeletion() {
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     final TodoCacheManager todocache = TodoCacheManager.SERVICE.getInstance(myProject);
     checkCache(cache, todocache);
 
@@ -174,7 +166,7 @@ public class IdCacheTest extends CodeInsightTestCase{
   }
 
   public void testFileCreation() {
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     final TodoCacheManager todocache = TodoCacheManager.SERVICE.getInstance(myProject);
     checkCache(cache, todocache);
 
@@ -198,14 +190,14 @@ public class IdCacheTest extends CodeInsightTestCase{
   }
 
   public void testCrash() {
-    final CacheManager cache = CacheManager.SERVICE.getInstance(myProject);
+    final CacheManager cache = CacheManager.getInstance(myProject);
     cache.getFilesWithWord("xxx", UsageSearchContext.ANY, GlobalSearchScope.projectScope(myProject), false);
     System.gc();
   }
 
   private void checkCache(CacheManager cache, TodoCacheManager todocache) {
     final GlobalSearchScope scope = GlobalSearchScope.projectScope(myProject);
-    checkResult(ArrayUtil.EMPTY_STRING_ARRAY, convert(cache.getFilesWithWord("xxx", UsageSearchContext.ANY, scope, false)));
+    checkResult(ArrayUtilRt.EMPTY_STRING_ARRAY, convert(cache.getFilesWithWord("xxx", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"1.java"}, convert(cache.getFilesWithWord("a", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"1.java", "2.java"}, convert(cache.getFilesWithWord("b", UsageSearchContext.ANY, scope, false)));
     checkResult(new String[]{"1.java", "2.java", "3.java"}, convert(cache.getFilesWithWord("c", UsageSearchContext.ANY, scope, false)));
@@ -225,14 +217,14 @@ public class IdCacheTest extends CodeInsightTestCase{
     }
     return files;
   }
-  
+
   private static void checkResult(String[] expected, VirtualFile[] result){
     assertEquals(expected.length, result.length);
-    
+
     Arrays.sort(expected);
     Arrays.sort(result, (o1, o2) -> {
-      VirtualFile file1 = (VirtualFile)o1;
-      VirtualFile file2 = (VirtualFile)o2;
+      VirtualFile file1 = o1;
+      VirtualFile file2 = o2;
       return file1.getName().compareTo(file2.getName());
     });
 

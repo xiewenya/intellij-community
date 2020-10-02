@@ -1,26 +1,32 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
+import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.openapi.util.io.PathExecLazyValue;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ObjectUtils;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.util.List;
 
-import static com.intellij.openapi.util.text.StringUtil.containsIgnoreCase;
+import static com.intellij.util.ObjectUtils.notNull;
 
-@SuppressWarnings({"HardCodedStringLiteral", "UtilityClassWithoutPrivateConstructor", "UnusedDeclaration"})
-public class SystemInfo extends SystemInfoRt {
+/**
+ * Provides information about operating system, system-wide settings, and Java Runtime.
+ */
+@SuppressWarnings("unused")
+@NonNls
+public final class SystemInfo {
   public static final String OS_NAME = SystemInfoRt.OS_NAME;
   public static final String OS_VERSION = SystemInfoRt.OS_VERSION;
   public static final String OS_ARCH = System.getProperty("os.arch");
   public static final String JAVA_VERSION = System.getProperty("java.version");
   public static final String JAVA_RUNTIME_VERSION = getRtVersion(JAVA_VERSION);
   public static final String JAVA_VENDOR = System.getProperty("java.vm.vendor", "Unknown");
-  public static final String ARCH_DATA_MODEL = System.getProperty("sun.arch.data.model");
-  public static final String SUN_DESKTOP = System.getProperty("sun.desktop", "");
 
   private static String getRtVersion(@SuppressWarnings("SameParameterValue") String fallback) {
     String rtVersion = System.getProperty("java.runtime.version");
@@ -33,24 +39,22 @@ public class SystemInfo extends SystemInfoRt {
   public static final boolean isFreeBSD = SystemInfoRt.isFreeBSD;
   public static final boolean isSolaris = SystemInfoRt.isSolaris;
   public static final boolean isUnix = SystemInfoRt.isUnix;
+  public static final boolean isChromeOS = isLinux && isCrostini();
 
-  public static final boolean isAppleJvm = containsIgnoreCase(JAVA_VENDOR, "Apple");
-  public static final boolean isOracleJvm = containsIgnoreCase(JAVA_VENDOR, "Oracle");
-  public static final boolean isSunJvm = containsIgnoreCase(JAVA_VENDOR, "Sun") && containsIgnoreCase(JAVA_VENDOR, "Microsystems");
-  public static final boolean isIbmJvm = containsIgnoreCase(JAVA_VENDOR, "IBM");
-  public static final boolean isJetBrainsJvm = containsIgnoreCase(JAVA_VENDOR, "JetBrains");
+  public static final boolean isAppleJvm = Strings.indexOfIgnoreCase(JAVA_VENDOR, "Apple", 0) >= 0;
+  public static final boolean isOracleJvm = Strings.indexOfIgnoreCase(JAVA_VENDOR, "Oracle", 0) >= 0;
+  public static final boolean isSunJvm =
+    Strings.indexOfIgnoreCase(JAVA_VENDOR, "Sun", 0) >= 0 && Strings.indexOfIgnoreCase(JAVA_VENDOR, "Microsystems", 0) >= 0;
+  public static final boolean isIbmJvm = Strings.indexOfIgnoreCase(JAVA_VENDOR, "IBM", 0) >= 0;
+  public static final boolean isAzulJvm = Strings.indexOfIgnoreCase(JAVA_VENDOR, "Azul", 0) >= 0;
+  public static final boolean isJetBrainsJvm = Strings.indexOfIgnoreCase(JAVA_VENDOR, "JetBrains", 0) >= 0;
 
-  public static final boolean IS_AT_LEAST_JAVA9 = isModularJava();
+  @ReviseWhenPortedToJDK("9")
+  public static final boolean IS_AT_LEAST_JAVA9 = SystemInfoRt.IS_AT_LEAST_JAVA9;
 
-  @SuppressWarnings("JavaReflectionMemberAccess")
-  private static boolean isModularJava() {
-    try {
-      Class.class.getMethod("getModule");
-      return true;
-    }
-    catch (Throwable t) {
-      return false;
-    }
+  @SuppressWarnings("SpellCheckingInspection")
+  private static boolean isCrostini() {
+    return new File("/dev/.cros_milestone").exists();
   }
 
   public static boolean isOsVersionAtLeast(@NotNull String version) {
@@ -65,21 +69,30 @@ public class SystemInfo extends SystemInfoRt {
   public static final boolean isWin8OrNewer = isWindows && isOsVersionAtLeast("6.2");
   public static final boolean isWin10OrNewer = isWindows && isOsVersionAtLeast("10.0");
 
-  public static final boolean isXWindow = isUnix && !isMac;
-  public static final boolean isWayland = isXWindow && !StringUtil.isEmpty(System.getenv("WAYLAND_DISPLAY"));
+  public static final boolean isXWindow = SystemInfoRt.isXWindow;
+  public static final boolean isWayland = isXWindow && !Strings.isEmpty(System.getenv("WAYLAND_DISPLAY"));
   /* http://askubuntu.com/questions/72549/how-to-determine-which-window-manager-is-running/227669#227669 */
-  public static final boolean isGNOME = isXWindow && ObjectUtils.notNull(System.getenv("GDMSESSION"), "").startsWith("gnome");
+  public static final boolean isGNOME = isXWindow &&
+                                        (notNull(System.getenv("GDMSESSION"), "").startsWith("gnome") ||
+                                         Strings.toLowerCase(notNull(System.getenv("XDG_CURRENT_DESKTOP"), "")).endsWith("gnome"));
   /* https://userbase.kde.org/KDE_System_Administration/Environment_Variables#KDE_FULL_SESSION */
-  public static final boolean isKDE = isXWindow && !StringUtil.isEmpty(System.getenv("KDE_FULL_SESSION"));
+  public static final boolean isKDE = isXWindow && !Strings.isEmpty(System.getenv("KDE_FULL_SESSION"));
+
+  public static final boolean isXfce = isXWindow && (notNull(System.getenv("GDMSESSION"), "").startsWith("xfce")) ||
+                                       Strings.toLowerCase(notNull(System.getenv("XDG_CURRENT_DESKTOP"), "")).contains("xfce");
+  public static final boolean isI3= isXWindow && (notNull(System.getenv("GDMSESSION"), "").startsWith("i3")) ||
+                                    Strings.toLowerCase(notNull(System.getenv("XDG_CURRENT_DESKTOP"), "")).contains("i3");
 
   public static final boolean isMacSystemMenu = isMac && "true".equals(System.getProperty("apple.laf.useScreenMenuBar"));
 
   public static final boolean isFileSystemCaseSensitive = SystemInfoRt.isFileSystemCaseSensitive;
   public static final boolean areSymLinksSupported = isUnix || isWinVistaOrNewer;
 
-  public static final boolean is32Bit = ARCH_DATA_MODEL == null || ARCH_DATA_MODEL.equals("32");
-  public static final boolean is64Bit = !is32Bit;
-  public static final boolean isMacIntel64 = isMac && "x86_64".equals(OS_ARCH);
+  public static final boolean is32Bit = SystemInfoRt.is32Bit;
+  public static final boolean is64Bit = SystemInfoRt.is64Bit;
+  public static final boolean isIntel64 = "x86_64".equals(OS_ARCH) || "amd64".equals(OS_ARCH);
+  public static final boolean isArm64 = "aarch64".equals(OS_ARCH) || "arm64".equals(OS_ARCH);
+  public static final boolean isMacIntel64 = isMac && isIntel64;
 
   private static final NotNullLazyValue<Boolean> ourHasXdgOpen = new PathExecLazyValue("xdg-open");
   public static boolean hasXdgOpen() {
@@ -91,19 +104,61 @@ public class SystemInfo extends SystemInfoRt {
     return isXWindow && ourHasXdgMime.getValue();
   }
 
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSTiger = isMac && isOsVersionAtLeast("10.4");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSLeopard = isMac && isOsVersionAtLeast("10.5");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSSnowLeopard = isMac && isOsVersionAtLeast("10.6");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSLion = isMac && isOsVersionAtLeast("10.7");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSMountainLion = isMac && isOsVersionAtLeast("10.8");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSMavericks = isMac && isOsVersionAtLeast("10.9");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSYosemite = isMac && isOsVersionAtLeast("10.10");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSElCapitan = isMac && isOsVersionAtLeast("10.11");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSSierra = isMac && isOsVersionAtLeast("10.12");
+  /**
+   * @deprecated IJ Platform requires at least macOS 10.13.
+   */
+  @Deprecated
   public static final boolean isMacOSHighSierra = isMac && isOsVersionAtLeast("10.13");
+  public static final boolean isMacOSMojave = isMac && isOsVersionAtLeast("10.14");
+  public static final boolean isMacOSCatalina = isMac && isOsVersionAtLeast("10.15");
+  public static final boolean isMacOSBigSur = isMac && (isOsVersionAtLeast("11.0") || isOsVersionAtLeast("10.16"));
 
-  @NotNull
-  public static String getMacOSMajorVersion() {
+  public static @NotNull String getMacOSMajorVersion() {
     return getMacOSMajorVersion(OS_VERSION);
   }
 
@@ -112,35 +167,29 @@ public class SystemInfo extends SystemInfoRt {
     return String.format("%d.%d", parts[0], parts[1]);
   }
 
-  @NotNull
-  public static String getMacOSVersionCode() {
+  public static @NotNull String getMacOSVersionCode() {
     return getMacOSVersionCode(OS_VERSION);
   }
 
-  @NotNull
-  public static String getMacOSMajorVersionCode() {
+  public static @NotNull String getMacOSMajorVersionCode() {
     return getMacOSMajorVersionCode(OS_VERSION);
   }
 
-  @NotNull
-  public static String getMacOSMinorVersionCode() {
+  public static @NotNull String getMacOSMinorVersionCode() {
     return getMacOSMinorVersionCode(OS_VERSION);
   }
 
-  @NotNull
-  public static String getMacOSVersionCode(@NotNull String version) {
+  public static @NotNull String getMacOSVersionCode(@NotNull String version) {
     int[] parts = getMacOSVersionParts(version);
     return String.format("%02d%d%d", parts[0], normalize(parts[1]), normalize(parts[2]));
   }
 
-  @NotNull
-  public static String getMacOSMajorVersionCode(@NotNull String version) {
+  public static @NotNull String getMacOSMajorVersionCode(@NotNull String version) {
     int[] parts = getMacOSVersionParts(version);
     return String.format("%02d%d%d", parts[0], normalize(parts[1]), 0);
   }
 
-  @NotNull
-  public static String getMacOSMinorVersionCode(@NotNull String version) {
+  public static @NotNull String getMacOSMinorVersionCode(@NotNull String version) {
     int[] parts = getMacOSVersionParts(version);
     return String.format("%02d%02d", parts[1], parts[2]);
   }
@@ -154,24 +203,24 @@ public class SystemInfo extends SystemInfoRt {
   }
 
   public static String getOsNameAndVersion() {
-    String osName = System.getProperty("os.name");
-    if (isMacOSSierra) {
-      osName = "macOS"; //JDK always returns Mac OS X
-    }
-    return osName + " " + System.getProperty("os.version");
+    return (isMac ? "macOS" : OS_NAME) + ' ' + OS_VERSION;
   }
 
   private static int normalize(int number) {
-    return number > 9 ? 9 : number;
+    return Math.min(number, 9);
   }
 
   private static int toInt(String string) {
     try {
-      return Integer.valueOf(string);
+      return Integer.parseInt(string);
     }
     catch (NumberFormatException e) {
       return 0;
     }
+  }
+
+  public static boolean isJavaVersionAtLeast(int major) {
+    return isJavaVersionAtLeast(major, 0, 0);
   }
 
   public static boolean isJavaVersionAtLeast(int major, int minor, int update) {
@@ -179,31 +228,15 @@ public class SystemInfo extends SystemInfoRt {
   }
 
   //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link #isJavaVersionAtLeast(int, int, int)} (to be removed in IDEA 2020) */
+  /** @deprecated use {@link #isJavaVersionAtLeast(int, int, int)} */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public static boolean isJavaVersionAtLeast(String v) {
     return StringUtil.compareVersionNumbers(JAVA_RUNTIME_VERSION, v) >= 0;
   }
 
-  /** @deprecated use {@link #isWinXpOrNewer} (to be removed in IDEA 2018) */
-  public static final boolean isWindowsXP = isWindows && (OS_VERSION.equals("5.1") || OS_VERSION.equals("5.2"));
-
-  /** @deprecated use {@link #is32Bit} or {@link #is64Bit} (to be removed in IDEA 2018) */
-  public static final boolean isAMD64 = "amd64".equals(OS_ARCH);
-
-  /** @deprecated not for generic use (to be removed in IDEA 2018) */
-  public static String getUnixReleaseName() {
-    return null;
-  }
-
-  /** @deprecated not for generic use (to be removed in IDEA 2018) */
-  public static String getUnixReleaseVersion() {
-    return null;
-  }
-
-  /** @deprecated outdated (to be removed in IDEA 2018) */
-  public static final boolean isOS2 = SystemInfoRt.isOS2;
-
-  /** @deprecated use {@link #isJetBrainsJvm} (to be removed in IDEA 2018)*/
-  public static final boolean isJetbrainsJvm = isJetBrainsJvm;
+  /** @deprecated use {@link #isWinXpOrNewer} */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @Deprecated public static final boolean isWindowsXP = isWindows && (OS_VERSION.equals("5.1") || OS_VERSION.equals("5.2"));
   //</editor-fold>
 }

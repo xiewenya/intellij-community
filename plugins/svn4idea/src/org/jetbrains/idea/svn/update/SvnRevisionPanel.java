@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.update;
 
 import com.intellij.openapi.options.ConfigurationException;
@@ -65,7 +65,8 @@ public class SvnRevisionPanel extends JPanel {
 
     myRevisionField.getTextField().setColumns(10);
     myRevisionField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull final DocumentEvent e) {
         notifyChangeListeners();
       }
     });
@@ -74,7 +75,7 @@ public class SvnRevisionPanel extends JPanel {
   private void chooseRevision() {
     if (myProject != null && myUrlProvider != null) {
       try {
-        SvnRepositoryLocation location = new SvnRepositoryLocation(myUrlProvider.compute().toString());
+        SvnRepositoryLocation location = new SvnRepositoryLocation(myUrlProvider.compute());
         SvnChangeList version = SvnSelectRevisionUtil.chooseCommittedChangeList(myProject, location, myRoot);
         if (version != null) {
           myRevisionField.setText(String.valueOf(version.getNumber()));
@@ -109,10 +110,15 @@ public class SvnRevisionPanel extends JPanel {
 
     final Revision result = Revision.parse(myRevisionField.getText());
     if (!result.isValid()) {
-      throw new ConfigurationException(message("invalid.svn.revision.error.message", myRevisionField.getText()));
+      throw new ConfigurationException(message("error.invalid.svn.revision", myRevisionField.getText()));
     }
 
     return result;
+  }
+
+  @NotNull
+  public JTextField getRevisionTextField() {
+    return myRevisionField.getTextField();
   }
 
   public void setRevisionText(String text) {

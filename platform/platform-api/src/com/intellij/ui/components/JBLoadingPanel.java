@@ -23,6 +23,7 @@ import com.intellij.util.NotNullFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -53,7 +54,7 @@ public class JBLoadingPanel extends JPanel {
     });
   }
 
-  public JBLoadingPanel(@Nullable LayoutManager manager, @NotNull NotNullFunction<JPanel, LoadingDecorator> createLoadingDecorator) {
+  public JBLoadingPanel(@Nullable LayoutManager manager, @NotNull NotNullFunction<? super JPanel, ? extends LoadingDecorator> createLoadingDecorator) {
     super(new BorderLayout());
     myPanel = manager == null ? new JPanel() : new JPanel(manager);
     myPanel.setOpaque(false);
@@ -62,13 +63,24 @@ public class JBLoadingPanel extends JPanel {
     super.add(myDecorator.getComponent(), BorderLayout.CENTER);
   }
 
+  @Override
+  public void setLayout(LayoutManager mgr) {
+    if (!(mgr instanceof BorderLayout)) {
+      throw new IllegalArgumentException(String.valueOf(mgr));
+    }
+    super.setLayout(mgr);
+    if (myDecorator != null) {
+      super.add(myDecorator.getComponent(), BorderLayout.CENTER);
+    }
+  }
+
   public static void customizeStatusText(JLabel text) {
     Font font = text.getFont();
     text.setFont(font.deriveFont(font.getStyle(), font.getSize() + 6));
     text.setForeground(ColorUtil.toAlpha(UIUtil.getLabelForeground(), 150));
   }
 
-  public void setLoadingText(String text) {
+  public void setLoadingText(@Nls String text) {
     myDecorator.setLoadingText(text);
   }
 

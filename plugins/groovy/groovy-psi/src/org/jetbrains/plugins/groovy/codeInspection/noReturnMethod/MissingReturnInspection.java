@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.noReturnMethod;
 
 import com.intellij.codeInspection.ProblemsHolder;
@@ -20,11 +6,10 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.codeInspection.GroovyInspectionBundle;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.GroovySuppressableInspectionTool;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
@@ -54,13 +39,6 @@ import java.util.Map;
  * @author ven
  */
 public class MissingReturnInspection extends GroovySuppressableInspectionTool {
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return GroovyInspectionBundle.message("no.return.display.name");
-  }
 
   public enum ReturnStatus {
     mustReturnValue, shouldReturnValue, shouldNotReturnValue;
@@ -125,7 +103,7 @@ public class MissingReturnInspection extends GroovySuppressableInspectionTool {
     }
 
     for (PsiType type : expectedReturnTypes) {
-      if (PsiType.VOID.equals(type)) return PsiType.VOID;
+      if (PsiType.VOID.equals(type) || PsiType.VOID.equals(PsiPrimitiveType.getUnboxedType(type))) return PsiType.VOID;
     }
     return TypesUtil.getLeastUpperBoundNullable(expectedReturnTypes, closure.getManager());
   }
@@ -210,7 +188,7 @@ public class MissingReturnInspection extends GroovySuppressableInspectionTool {
     if (!lastChild.isValid() || !lastChild.isPhysical() || range.getStartOffset() >= range.getEndOffset()) {
       return;
     }
-    holder.registerProblem(lastChild, GroovyInspectionBundle.message("no.return.message"));
+    holder.registerProblem(lastChild, GroovyBundle.message("no.return.message"));
   }
 
   @Override
@@ -218,10 +196,5 @@ public class MissingReturnInspection extends GroovySuppressableInspectionTool {
   @NotNull
   public String getShortName() {
     return "GroovyMissingReturnStatement";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
   }
 }

@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing;
 
-import com.google.common.collect.Sets;
 import com.intellij.execution.Location;
 import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.facet.Facet;
 import com.intellij.facet.FacetManager;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
@@ -48,13 +34,25 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static com.jetbrains.python.testing.PyTestLegacyInteropKt.isNewTestsModeEnabled;
+
 abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPythonLegacyTestRunConfiguration<T>>
   extends AbstractPythonTestConfigurationProducer<AbstractPythonLegacyTestRunConfiguration<T>> {
-
-  protected PythonTestLegacyConfigurationProducer(final ConfigurationFactory configurationFactory) {
+  /**
+   * @deprecated Override {@link #getConfigurationFactory}
+   */
+  @Deprecated
+  protected PythonTestLegacyConfigurationProducer(ConfigurationFactory configurationFactory) {
     super(configurationFactory);
+
+    if (isNewTestsModeEnabled()) {
+      throw ExtensionNotApplicableException.INSTANCE;
+    }
   }
 
+  protected PythonTestLegacyConfigurationProducer() {
+    // ExtensionNotApplicableException cannot be thrown here because PythonDocTestConfigurationProducer is applicable regardless of mode
+  }
 
   @NotNull
   @Override
@@ -63,7 +61,8 @@ abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPy
   }
 
   @Override
-  public boolean isConfigurationFromContext(AbstractPythonLegacyTestRunConfiguration configuration, ConfigurationContext context) {
+  public boolean isConfigurationFromContext(@NotNull AbstractPythonLegacyTestRunConfiguration configuration,
+                                            @NotNull ConfigurationContext context) {
     final Location location = context.getLocation();
     if (location == null || !isAvailable(location)) return false;
     final PsiElement element = location.getPsiElement();
@@ -113,10 +112,9 @@ abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPy
 
 
   @Override
-  protected boolean setupConfigurationFromContext(AbstractPythonLegacyTestRunConfiguration<T> configuration,
-                                                  ConfigurationContext context,
-                                                  Ref<PsiElement> sourceElement) {
-    if (context == null) return false;
+  protected boolean setupConfigurationFromContext(@NotNull AbstractPythonLegacyTestRunConfiguration<T> configuration,
+                                                  @NotNull ConfigurationContext context,
+                                                  @NotNull Ref<PsiElement> sourceElement) {
     final Location location = context.getLocation();
     if (location == null || !isAvailable(location)) return false;
     PsiElement element = location.getPsiElement();
@@ -219,13 +217,13 @@ abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPy
 
   protected boolean isTestFolder(@NotNull final VirtualFile virtualFile, @NotNull final Project project) {
     @NonNls final String name = virtualFile.getName();
-    final HashSet<VirtualFile> roots = Sets.newHashSet();
+    final HashSet<VirtualFile> roots = new HashSet<VirtualFile>();
     final Module[] modules = ModuleManager.getInstance(project).getModules();
     for (Module module : modules) {
       roots.addAll(PyUtil.getSourceRoots(module));
     }
     Collections.addAll(roots, ProjectRootManager.getInstance(project).getContentRoots());
-    return name.toLowerCase().contains("test") || roots.contains(virtualFile);
+    return StringUtil.toLowerCase(name).contains("test") || roots.contains(virtualFile);
   }
 
   protected boolean isAvailable(@NotNull final Location location) {
@@ -235,12 +233,12 @@ abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPy
   protected boolean isTestClass(@NotNull final PyClass pyClass,
                                 @Nullable final AbstractPythonLegacyTestRunConfiguration configuration,
                                 @Nullable final TypeEvalContext context) {
-    return PythonUnitTestUtil.isTestClass(pyClass, ThreeState.UNSURE, context);
+    return PythonUnitTestDetectorsBasedOnSettings.isTestClass(pyClass, ThreeState.UNSURE, context);
   }
 
   protected boolean isTestFunction(@NotNull final PyFunction pyFunction,
                                    @Nullable final AbstractPythonLegacyTestRunConfiguration configuration) {
-    return PythonUnitTestUtil.isTestFunction(pyFunction, ThreeState.UNSURE, null);
+    return PythonUnitTestDetectorsBasedOnSettings.isTestFunction(pyFunction, ThreeState.UNSURE, null);
   }
 
   protected boolean isTestFile(@NotNull final PyFile file) {
@@ -268,7 +266,7 @@ abstract public class PythonTestLegacyConfigurationProducer<T extends AbstractPy
   protected List<PyStatement> getTestCaseClassesFromFile(@NotNull final PyFile pyFile) {
     final TypeEvalContext context = TypeEvalContext.userInitiated(pyFile.getProject(), pyFile);
     return pyFile.getTopLevelClasses().stream()
-      .filter(o -> PythonUnitTestUtil.isTestClass(o, ThreeState.UNSURE, context))
+      .filter(o -> PythonUnitTestDetectorsBasedOnSettings.isTestClass(o, ThreeState.UNSURE, context))
       .collect(Collectors.toList());
   }
 }

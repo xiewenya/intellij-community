@@ -19,6 +19,7 @@ import com.intellij.codeInsight.editorActions.TextBlockTransferable;
 import com.intellij.codeInsight.editorActions.TextBlockTransferableData;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.actions.BasePasteHandler;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.LineTokenizer;
@@ -49,7 +50,7 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
     CopyPasteManager.getInstance().setContents(contents);
   }
 
-  public static String getSelectedTextForClipboard(@NotNull Editor editor, @NotNull Collection<TextBlockTransferableData> extraDataCollector) {
+  public static String getSelectedTextForClipboard(@NotNull Editor editor, @NotNull Collection<? super TextBlockTransferableData> extraDataCollector) {
     final StringBuilder buf = new StringBuilder();
     String separator = "";
     List<Caret> carets = editor.getCaretModel().getAllCarets();
@@ -69,33 +70,37 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
     return buf.toString();
   }
 
-  @Nullable
   @Override
-  public TextRange[] pasteFromClipboard(@NotNull Editor editor) {
+  public TextRange @Nullable [] pasteFromClipboard(@NotNull Editor editor) throws TooLargeContentException {
     Transferable transferable = EditorModificationUtil.getContentsToPasteToEditor(null);
     return transferable == null ? null : pasteTransferable(editor, transferable);
   }
 
-  @Nullable
   @Override
-  public TextRange[] pasteTransferable(final @NotNull Editor editor, @NotNull Transferable content) {
+  public TextRange @Nullable [] pasteTransferable(final @NotNull Editor editor, @NotNull Transferable content) throws TooLargeContentException {
     String text = EditorModificationUtil.getStringContent(content);
     if (text == null) return null;
 
-    if (editor.getCaretModel().supportsMultipleCarets()) {
+    int textLength = text.length();
+    if (BasePasteHandler.isContentTooLarge(textLength)) throw new TooLargeContentException(textLength);
+
+    CaretModel caretModel = editor.getCaretModel();
+    if (caretModel.supportsMultipleCarets()) {
       CaretStateTransferableData caretData = null;
-      int caretCount = editor.getCaretModel().getCaretCount();
+      int caretCount = caretModel.getCaretCount();
       if (caretCount == 1 && editor.isColumnMode()) {
         int pastedLineCount = LineTokenizer.calcLineCount(text, true);
-        EditorModificationUtil.deleteSelectedText(editor);
-        Caret caret = editor.getCaretModel().getPrimaryCaret();
-        for (int i = 0; i < pastedLineCount - 1; i++) {
-          caret = caret.clone(false);
-          if (caret == null) {
-            break;
+        if (pastedLineCount <= caretModel.getMaxCaretCount()) {
+          EditorModificationUtil.deleteSelectedText(editor);
+          Caret caret = caretModel.getPrimaryCaret();
+          for (int i = 0; i < pastedLineCount - 1; i++) {
+            caret = caret.clone(false);
+            if (caret == null) {
+              break;
+            }
           }
+          caretCount = caretModel.getCaretCount();
         }
-        caretCount = editor.getCaretModel().getCaretCount();
       }
       else {
         caretData = CaretStateTransferableData.getFrom(content);
@@ -103,28 +108,25 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
       final TextRange[] ranges = new TextRange[caretCount];
       final Iterator<String> segments = new ClipboardTextPerCaretSplitter().split(text, caretData, caretCount).iterator();
       final int[] index = {0};
-      editor.getCaretModel().runForEachCaret(new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          String normalizedText = TextBlockTransferable.convertLineSeparators(editor, segments.next());
-          normalizedText = trimTextIfNeed(editor, normalizedText);
-          int caretOffset = caret.getOffset();
-          ranges[index[0]++] = new TextRange(caretOffset, caretOffset + normalizedText.length());
-          EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
-        }
+      caretModel.runForEachCaret(caret -> {
+        String normalizedText = TextBlockTransferable.convertLineSeparators(editor, segments.next());
+        normalizedText = trimTextIfNeeded(editor, normalizedText);
+        int caretOffset = caret.getOffset();
+        ranges[index[0]++] = new TextRange(caretOffset, caretOffset + normalizedText.length());
+        EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
       });
       return ranges;
     }
     else {
-      int caretOffset = editor.getCaretModel().getOffset();
+      int caretOffset = caretModel.getOffset();
       String normalizedText = TextBlockTransferable.convertLineSeparators(editor, text);
-      normalizedText = trimTextIfNeed(editor, normalizedText);
+      normalizedText = trimTextIfNeeded(editor, normalizedText);
       EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
       return new TextRange[]{new TextRange(caretOffset, caretOffset + text.length())};
     }
   }
 
-  private static String trimTextIfNeed(Editor editor, String text) {
+  private static String trimTextIfNeeded(Editor editor, String text) {
     JComponent contentComponent = editor.getContentComponent();
     if (contentComponent instanceof JTextComponent) {
       Document document = ((JTextComponent)contentComponent).getDocument();

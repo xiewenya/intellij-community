@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.actions;
 
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.lang.*;
 import com.intellij.lang.parser.GeneratedParserUtilBase;
@@ -39,7 +26,7 @@ public class FlipCommaIntention implements IntentionAction {
   @NotNull
   @Override
   public String getFamilyName() {
-    return "Flip ','";
+    return CodeInsightBundle.message("intention.family.name.flip");
   }
 
   @Override
@@ -50,7 +37,7 @@ public class FlipCommaIntention implements IntentionAction {
     }
     final PsiElement left = smartAdvance(comma, false);
     final PsiElement right = smartAdvance(comma, true);
-    return left != null && right != null && !left.getText().equals(right.getText());
+    return left != null && right != null && !left.getText().equals(right.getText()) && Flipper.isCanFlip(left, right);
   }
 
   @Override
@@ -97,9 +84,16 @@ public class FlipCommaIntention implements IntentionAction {
     LanguageExtension<Flipper> EXTENSION = new LanguageExtension<>("com.intellij.flipCommaIntention.flipper");
 
     /**
-     * @return true, if elements were flipped; false, if default flip implementation should be used.
+     * @return true, if the elements were flipped; false, if the default flip implementation should be used.
      */
-    boolean flip(PsiElement left, PsiElement right);
+    boolean flip(@NotNull PsiElement left, @NotNull PsiElement right);
+
+    /**
+     * @return false, if the elements should not be flipped; true, if the default flip implementation should be used.
+     */
+    default boolean canFlip(@NotNull PsiElement left, @NotNull PsiElement right) {
+      return true;
+    }
 
     static boolean tryFlip(PsiElement left, PsiElement right) {
       final Language language = left.getLanguage();
@@ -109,6 +103,16 @@ public class FlipCommaIntention implements IntentionAction {
         }
       }
       return false;
+    }
+
+    static boolean isCanFlip(PsiElement left, PsiElement right) {
+      final Language language = left.getLanguage();
+      for (Flipper handler : EXTENSION.allForLanguage(language)) {
+        if (!handler.canFlip(left, right)) {
+          return false;
+        }
+      }
+      return true;
     }
   }
 
@@ -131,7 +135,7 @@ public class FlipCommaIntention implements IntentionAction {
   }
 
   private static boolean isComma(@Nullable PsiElement element) {
-    return element != null && element.getText().equals(",");
+    return element != null && element.textMatches(",");
   }
 
   @NotNull

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.history.integration;
 
 import com.intellij.history.*;
@@ -22,31 +8,33 @@ import com.intellij.history.integration.ui.models.EntireFileHistoryDialogModel;
 import com.intellij.history.integration.ui.models.HistoryDialogModel;
 import com.intellij.history.utils.LocalHistoryLog;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.components.ApplicationComponent;
+import com.intellij.openapi.command.CommandListener;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.ShutDownTracker;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileListener;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.util.messages.MessageBus;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
+import com.intellij.util.io.PathKt;
 import com.intellij.util.messages.MessageBusConnection;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.intellij.history.integration.LocalHistoryUtil.findRevisionIndexToRevert;
 
-public class LocalHistoryImpl extends LocalHistory implements ApplicationComponent, Disposable {
-  private final MessageBus myBus;
+public final class LocalHistoryImpl extends LocalHistory implements Disposable {
   private MessageBusConnection myConnection;
   private ChangeList myChangeList;
   private LocalHistoryFacade myVcs;
@@ -55,28 +43,33 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
   private LocalHistoryEventDispatcher myEventDispatcher;
 
   private final AtomicBoolean isInitialized = new AtomicBoolean();
-  private Runnable myShutdownTask;
 
+  @NotNull
   public static LocalHistoryImpl getInstanceImpl() {
     return (LocalHistoryImpl)getInstance();
   }
 
-  public LocalHistoryImpl(@NotNull MessageBus bus) {
-    myBus = bus;
+  public LocalHistoryImpl() {
+    init();
   }
 
-  @Override
-  public void initComponent() {
-    if (!ApplicationManager.getApplication().isUnitTestMode() && ApplicationManager.getApplication().isHeadlessEnvironment()) return;
+  private void init() {
+    Application app = ApplicationManager.getApplication();
+    if (!app.isUnitTestMode() && app.isHeadlessEnvironment()) {
+      return;
+    }
 
-    myShutdownTask = () -> doDispose();
-    ShutDownTracker.getInstance().registerShutdownTask(myShutdownTask);
+    // initialize persistent f
+    @SuppressWarnings("unused")
+    PersistentFS instance = PersistentFS.getInstance();
+
+    ShutDownTracker.getInstance().registerShutdownTask(() -> doDispose());
 
     initHistory();
     isInitialized.set(true);
   }
 
-  protected void initHistory() {
+  private void initHistory() {
     ChangeListStorage storage;
     try {
       storage = new ChangeListStorageImpl(getStorageDir());
@@ -85,6 +78,7 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
       LocalHistoryLog.LOG.warn("cannot create storage, in-memory  implementation will be used", e);
       storage = new InMemoryChangeListStorage();
     }
+
     myChangeList = new ChangeList(storage);
     myVcs = new LocalHistoryFacade(myChangeList);
 
@@ -92,21 +86,15 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
 
     myEventDispatcher = new LocalHistoryEventDispatcher(myVcs, myGateway);
 
-    CommandProcessor.getInstance().addCommandListener(myEventDispatcher, this);
-
-    myConnection = myBus.connect();
+    myConnection = ApplicationManager.getApplication().getMessageBus().connect(this);
     myConnection.subscribe(VirtualFileManager.VFS_CHANGES, myEventDispatcher);
+    myConnection.subscribe(CommandListener.TOPIC, myEventDispatcher);
 
-    VirtualFileManager fm = VirtualFileManager.getInstance();
-    fm.addVirtualFileManagerListener(myEventDispatcher, this);
+    VirtualFileManager.getInstance().addVirtualFileManagerListener(myEventDispatcher, this);
   }
 
-  public File getStorageDir() {
-    return new File(getSystemPath(), "LocalHistory");
-  }
-
-  protected String getSystemPath() {
-    return PathManager.getSystemPath();
+  public static @NotNull Path getStorageDir() {
+    return Paths.get(PathManager.getSystemPath(), "LocalHistory");
   }
 
   @Override
@@ -126,19 +114,17 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
     myChangeList.purgeObsolete(period);
     myChangeList.close();
     LocalHistoryLog.LOG.debug("Local history storage successfully closed.");
-
-    ShutDownTracker.getInstance().unregisterShutdownTask(myShutdownTask);
   }
 
   @TestOnly
   public void cleanupForNextTest() {
     doDispose();
-    FileUtil.delete(getStorageDir());
-    initComponent();
+    PathKt.delete(getStorageDir());
+    init();
   }
 
   @Override
-  public LocalHistoryAction startAction(String name) {
+  public LocalHistoryAction startAction(@NlsContexts.Label String name) {
     if (!isInitialized()) return LocalHistoryAction.NULL;
 
     LocalHistoryActionImpl a = new LocalHistoryActionImpl(myEventDispatcher, name);
@@ -147,7 +133,7 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
   }
 
   @Override
-  public Label putUserLabel(Project p, @NotNull String name) {
+  public Label putUserLabel(@NotNull Project p, @NotNull @NlsContexts.Label String name) {
     if (!isInitialized()) return Label.NULL_INSTANCE;
     myGateway.registerUnsavedDocuments(myVcs);
     return label(myVcs.putUserLabel(name, getProjectId(p)));
@@ -158,13 +144,14 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
   }
 
   @Override
-  public Label putSystemLabel(Project p, @NotNull String name, int color) {
+  public Label putSystemLabel(@NotNull Project p, @NotNull @NlsContexts.Label String name, int color) {
     if (!isInitialized()) return Label.NULL_INSTANCE;
     myGateway.registerUnsavedDocuments(myVcs);
     return label(myVcs.putSystemLabel(name, getProjectId(p), color));
   }
 
-  public void addVFSListenerAfterLocalHistoryOne(VirtualFileListener virtualFileListener, Disposable disposable) {
+  @ApiStatus.Internal
+  public void addVFSListenerAfterLocalHistoryOne(BulkFileListener virtualFileListener, Disposable disposable) {
     myEventDispatcher.addVirtualFileListener(virtualFileListener, disposable);
   }
 
@@ -182,23 +169,22 @@ public class LocalHistoryImpl extends LocalHistory implements ApplicationCompone
     };
   }
 
-  @Nullable
   @Override
-  public byte[] getByteContent(final VirtualFile f, final FileRevisionTimestampComparator c) {
+  public byte @Nullable [] getByteContent(@NotNull VirtualFile f, @NotNull FileRevisionTimestampComparator c) {
     if (!isInitialized()) return null;
     if (!myGateway.areContentChangesVersioned(f)) return null;
     return ReadAction.compute(() -> new ByteContentRetriever(myGateway, myVcs, f, c).getResult());
   }
 
   @Override
-  public boolean isUnderControl(VirtualFile f) {
+  public boolean isUnderControl(@NotNull VirtualFile f) {
     return isInitialized() && myGateway.isVersioned(f);
   }
 
   private boolean isInitialized() {
     return isInitialized.get();
   }
-  
+
   @Nullable
   public LocalHistoryFacade getFacade() {
     return myVcs;

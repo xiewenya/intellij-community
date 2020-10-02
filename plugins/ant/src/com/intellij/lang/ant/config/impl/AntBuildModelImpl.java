@@ -1,26 +1,16 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.config.impl;
 
 import com.intellij.lang.ant.AntSupport;
 import com.intellij.lang.ant.config.*;
-import com.intellij.lang.ant.dom.*;
+import com.intellij.lang.ant.dom.AntDomIncludingDirective;
+import com.intellij.lang.ant.dom.AntDomProject;
+import com.intellij.lang.ant.dom.AntDomTarget;
+import com.intellij.lang.ant.dom.TargetResolver;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -34,19 +24,19 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
 public class AntBuildModelImpl implements AntBuildModelBase {
-
   private final AntBuildFile myFile;
   private final CachedValue<List<AntBuildTargetBase>> myTargets;
 
   public AntBuildModelImpl(final AntBuildFile buildFile) {
     myFile = buildFile;
     final Project project = myFile.getProject();
-    
+
     myTargets = new PsiCachedValueImpl<>(PsiManager.getInstance(project), () -> {
       final Pair<List<AntBuildTargetBase>, Collection<Object>> result = getTargetListImpl(this);
       final Collection<Object> deps = result.getSecond();
@@ -54,6 +44,7 @@ public class AntBuildModelImpl implements AntBuildModelBase {
     });
   }
 
+  @Override
   @Nullable
   public String getDefaultTargetName() {
     final AntDomProject antDomProject = getAntProject();
@@ -63,17 +54,20 @@ public class AntBuildModelImpl implements AntBuildModelBase {
     return "";
   }
 
+  @Override
   @Nullable
-  public String getName() {
+  public @NlsSafe String getName() {
     final AntDomProject project = getAntProject();
     return project != null? project.getName().getRawText() : null;
   }
 
+  @Override
   public AntBuildTarget[] getTargets() {
     final List<AntBuildTargetBase> list = getTargetsList();
     return list.toArray(AntBuildTargetBase.EMPTY_ARRAY);
   }
 
+  @Override
   public AntBuildTarget[] getFilteredTargets() {
     final List<AntBuildTargetBase> filtered = new ArrayList<>();
     for (final AntBuildTargetBase buildTarget : getTargetsList()) {
@@ -84,8 +78,9 @@ public class AntBuildModelImpl implements AntBuildModelBase {
     return (filtered.size() == 0) ? AntBuildTargetBase.EMPTY_ARRAY : filtered.toArray(AntBuildTargetBase.EMPTY_ARRAY);
   }
 
+  @Override
   @Nullable
-  public String getDefaultTargetActionId() {
+  public @NonNls String getDefaultTargetActionId() {
     if (getDefaultTargetName() == null) {
       return null;
     }
@@ -97,25 +92,30 @@ public class AntBuildModelImpl implements AntBuildModelBase {
 
   }
 
+  @Override
   public AntBuildFileBase getBuildFile() {
     return (AntBuildFileBase)myFile;
   }
 
+  @Override
   @Nullable
   public AntBuildTargetBase findTarget(final String name) {
     return ReadAction.compute(() -> findTargetImpl(name, AntBuildModelImpl.this));
   }
 
+  @Override
   @Nullable
   public BuildTask findTask(final String targetName, final String taskName) {
     final AntBuildTargetBase buildTarget = findTarget(targetName);
     return (buildTarget == null) ? null : buildTarget.findTask(taskName);
   }
 
+  @Override
   public AntDomProject getAntProject() {
     return AntSupport.getAntDomProject(getBuildFile().getAntFile());
   }
 
+  @Override
   public boolean hasTargetWithActionId(final String id) {
     return StreamEx.of(getTargetsList()).map(AntBuildTargetBase::getActionId).has(id);
   }
@@ -139,7 +139,7 @@ public class AntBuildModelImpl implements AntBuildModelBase {
   private static Pair<List<AntBuildTargetBase>, Collection<Object>> getTargetListImpl(final AntBuildModelBase model) {
     final List<AntBuildTargetBase> list = new ArrayList<>();
     final Set<Object> dependencies = new HashSet<>();
-    
+
     final AntDomProject project = model.getAntProject();
     if (project != null) {
       final AntBuildFile buildFile = model.getBuildFile();
@@ -151,8 +151,8 @@ public class AntBuildModelImpl implements AntBuildModelBase {
         private boolean myIsImported = false;
         private final Set<VirtualFile> myProcessed = new HashSet<>();
         private AntDomTarget myDefaultTarget = null;
-                
-        private void fillTargets(List<AntBuildTargetBase> list, AntBuildModelBase model, AntDomProject project, VirtualFile sourceFile) {
+
+        private void fillTargets(List<? super AntBuildTargetBase> list, AntBuildModelBase model, AntDomProject project, VirtualFile sourceFile) {
           if (myProcessed.contains(sourceFile)) {
             return;
           }
@@ -161,16 +161,17 @@ public class AntBuildModelImpl implements AntBuildModelBase {
             final TargetResolver.Result result = project.getDefaultTarget().getValue();
             if (result != null) {
               final Pair<AntDomTarget,String> targetWithName = result.getResolvedTarget(project.getDefaultTarget().getRawText());
-              myDefaultTarget = targetWithName != null? targetWithName.getFirst() : null;
+              myDefaultTarget = Pair.getFirst(targetWithName);
             }
           }
           for (final AntDomTarget target : project.getDeclaredTargets()) {
             list.add(new AntBuildTargetImpl(target, model, sourceFile, myIsImported, target.equals(myDefaultTarget)));
           }
-          
+
           myIsImported = true;
-          
-          final Iterable<AntDomIncludingDirective> allIncludes = ContainerUtil.concat((Iterable<AntDomImport>)project.getDeclaredImports(), (Iterable<? extends AntDomInclude>)project.getDeclaredIncludes());
+
+          final Iterable<AntDomIncludingDirective> allIncludes = ContainerUtil.concat(project.getDeclaredImports(),
+                                                                                      project.getDeclaredIncludes());
           for (AntDomIncludingDirective incl : allIncludes) {
             final PsiFileSystemItem includedFile = incl.getFile().getValue();
             if (includedFile instanceof PsiFile) {
@@ -185,11 +186,11 @@ public class AntBuildModelImpl implements AntBuildModelBase {
               if (includedFile == null) {
                 // if not resolved yet, it's possible that the file will be created later,
                 // thus we need to recalculate the cached value
-                dependencies.add(PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
+                dependencies.add(PsiModificationTracker.MODIFICATION_COUNT);
               }
             }
           }
-    
+
         }
       }.fillTargets(list, model, project, sourceFile);
     }

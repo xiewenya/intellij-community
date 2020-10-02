@@ -1,21 +1,28 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
 import com.intellij.credentialStore.Credentials
 import com.intellij.credentialStore.OneTimeString
+import com.intellij.openapi.application.AppUIExecutor
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.invokeAndWaitIfNeed
+import com.intellij.openapi.application.impl.coroutineDispatchingContext
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.dialog
 import com.intellij.ui.layout.*
 import com.intellij.util.PathUtilRt
 import com.intellij.util.text.nullize
 import com.intellij.util.text.trimMiddle
+import kotlinx.coroutines.withContext
 import javax.swing.JPasswordField
 import javax.swing.JTextField
 import javax.swing.event.DocumentEvent
 
-fun showAuthenticationForm(credentials: Credentials?, uri: String, host: String?, path: String?, sshKeyFile: String?): Credentials? {
+internal suspend fun showAuthenticationForm(credentials: Credentials?,
+                                            @NlsSafe uri: String,
+                                            @NlsSafe host: String?,
+                                            @NlsSafe path: String?,
+                                            @NlsSafe sshKeyFile: String?): Credentials? {
   if (ApplicationManager.getApplication()?.isUnitTestMode == true) {
     throw AssertionError("showAuthenticationForm called from tests")
   }
@@ -29,28 +36,33 @@ fun showAuthenticationForm(credentials: Credentials?, uri: String, host: String?
     username = path.substring(1, if (firstSlashIndex == -1) path.length else firstSlashIndex)
   }
 
-  val message = if (sshKeyFile == null) icsMessage("log.in.to", uri.trimMiddle(50)) else "Enter your password for the SSH key \"${PathUtilRt.getFileName(sshKeyFile)}\":"
+  val message = if (sshKeyFile == null)
+    icsMessage("log.in.to", uri.trimMiddle(50))
+  else IcsBundle.message("authentication.form.prompt.enter.ssh.key.password", PathUtilRt.getFileName(sshKeyFile))
 
-  return invokeAndWaitIfNeed {
+  return withContext(AppUIExecutor.onUiThread().coroutineDispatchingContext()) {
     val userField = JTextField(username)
     val passwordField = JPasswordField(credentials?.password?.toString())
 
     val centerPanel = panel {
       noteRow(message)
       if (sshKeyFile == null && !isGitHub) {
-        row("Username:") { userField() }
+        row(IcsBundle.message("authentication.form.username")) { userField() }
       }
 
-      row(if (sshKeyFile == null && isGitHub) "Token:" else "Password:") { passwordField() }
+      val authPrompt =
+        if (sshKeyFile == null && isGitHub) IcsBundle.message("authentication.form.token")
+        else IcsBundle.message("authentication.form.password")
+      row(authPrompt) { passwordField() }
 
       note?.let { noteRow(it) }
     }
 
     val authenticationForm = dialog(
-        title = "Settings Repository",
-        panel = centerPanel,
-        focusedComponent = if (userField.parent == null) passwordField else userField,
-        okActionEnabled = false)
+      title = IcsBundle.message("ics.settings"),
+      panel = centerPanel,
+      focusedComponent = if (userField.parent == null) passwordField else userField,
+      okActionEnabled = false)
 
     passwordField.document.addDocumentListener(object : DocumentAdapter() {
       override fun textChanged(e: DocumentEvent) {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree.nodes;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -23,9 +9,11 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SortedList;
 import com.intellij.xdebugger.evaluation.InlineDebuggerHelper;
 import com.intellij.xdebugger.frame.*;
+import com.intellij.xdebugger.impl.pinned.items.XDebuggerPinToTopManager;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,11 +22,9 @@ import javax.swing.event.HyperlinkListener;
 import javax.swing.tree.TreeNode;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class XValueContainerNode<ValueContainer extends XValueContainer> extends XDebuggerTreeNode implements XCompositeNode, TreeNode {
   private List<XValueNodeImpl> myValueChildren;
   private List<MessageTreeNode> myMessageChildren;
@@ -51,9 +37,14 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   private volatile boolean myObsolete;
   private volatile boolean myAlreadySorted;
 
-  protected XValueContainerNode(XDebuggerTree tree, final XDebuggerTreeNode parent, @NotNull ValueContainer valueContainer) {
-    super(tree, parent, true);
+  protected XValueContainerNode(XDebuggerTree tree, XDebuggerTreeNode parent, boolean leaf, @NotNull ValueContainer valueContainer) {
+    super(tree, parent, leaf);
     myValueContainer = valueContainer;
+  }
+
+  @Deprecated
+  protected XValueContainerNode(XDebuggerTree tree, XDebuggerTreeNode parent, @NotNull ValueContainer valueContainer) {
+    this(tree, parent, true, valueContainer);
   }
 
   private void loadChildren() {
@@ -85,12 +76,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
       if (children.size() > 0) {
         newChildren = new ArrayList<>(children.size());
         if (myValueChildren == null) {
-          if (!myAlreadySorted && XDebuggerSettingsManager.getInstance().getDataViewSettings().isSortValues()) {
-            myValueChildren = new SortedList<>(XValueNodeImpl.COMPARATOR);
-          }
-          else {
-            myValueChildren = new ArrayList<>(children.size());
-          }
+          myValueChildren = initChildrenList(children.size());
         }
         boolean valuesInline = XDebuggerSettingsManager.getInstance().getDataViewSettings().isShowValuesInline();
         InlineDebuggerHelper inlineHelper = getTree().getEditorsProvider().getInlineDebuggerHelper();
@@ -126,14 +112,31 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
     });
   }
 
+  private List<XValueNodeImpl> initChildrenList(int initialSize) {
+    XDebuggerPinToTopManager pinToTopManager = XDebuggerPinToTopManager.Companion.getInstance(myTree.getProject());
+    boolean needBaseSorting = !myAlreadySorted && XDebuggerSettingsManager.getInstance().getDataViewSettings().isSortValues();
+    boolean isPinToTopSupported = pinToTopManager.isEnabled() && pinToTopManager.isPinToTopSupported(this);
+
+    if (!needBaseSorting && !isPinToTopSupported) {
+      return new ArrayList<>(initialSize);
+    }
+
+    Comparator<XValueNodeImpl> comparator = needBaseSorting?
+                                              isPinToTopSupported?
+                                                pinToTopManager.getCompoundComparator()
+                                                : XValueNodeImpl.COMPARATOR
+                                              : pinToTopManager.getPinToTopComparator();
+    return new SortedList<>(comparator);
+  }
+
   private static boolean isUseGetChildrenHack(@NotNull XDebuggerTree tree) {
     return !tree.isUnderRemoteDebug();
   }
 
   @Nullable
-  private List<XValueGroupNodeImpl> createGroupNodes(List<XValueGroup> groups,
+  private List<XValueGroupNodeImpl> createGroupNodes(List<? extends XValueGroup> groups,
                                                      @Nullable List<XValueGroupNodeImpl> prevNodes,
-                                                     List<XValueContainerNode<?>> newChildren) {
+                                                     List<? super XValueContainerNode<?>> newChildren) {
     if (groups.isEmpty()) return prevNodes;
 
     List<XValueGroupNodeImpl> nodes = prevNodes != null ? prevNodes : new SmartList<>();
@@ -186,7 +189,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
     invokeNodeUpdate(() -> setMessageNodes(MessageTreeNode.createMessages(myTree, this, message, link, icon, attributes), false));
   }
 
-  public void setInfoMessage(@NotNull String message, @Nullable HyperlinkListener hyperlinkListener) {
+  public void setInfoMessage(@NotNull @Nls String message, @Nullable HyperlinkListener hyperlinkListener) {
     invokeNodeUpdate(() -> setMessageNodes(Collections.singletonList(MessageTreeNode.createInfoMessage(myTree, message, hyperlinkListener)), false));
   }
 
@@ -211,7 +214,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   }
 
   @NotNull
-  public XDebuggerTreeNode addTemporaryEditorNode(@Nullable Icon icon, @Nullable String text) {
+  public XDebuggerTreeNode addTemporaryEditorNode(@Nullable Icon icon, @Nullable @Nls String text) {
     if (isLeaf()) {
       setLeaf(false);
     }
@@ -236,7 +239,6 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
     }
   }
 
-  @SuppressWarnings("SuspiciousMethodCalls")
   protected int removeChildNode(List children, XDebuggerTreeNode node) {
     int index = children.indexOf(node);
     if (index != -1) {

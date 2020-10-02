@@ -18,6 +18,7 @@ package com.siyeh.ig.j2me;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -26,19 +27,13 @@ import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class SingleCharacterStartsWithInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "single.character.startswith.display.name");
-  }
 
   @Override
   @NotNull
@@ -101,6 +96,14 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
       newExpression.append(character).append('\'');
       final CommentTracker commentTracker = new CommentTracker();
       commentTracker.markUnchanged(qualifier);
+      PsiExpression newCall = JavaPsiFacade.getElementFactory(project).createExpressionFromText(newExpression.toString(), methodCall);
+      if (newCall instanceof PsiPolyadicExpression) {
+        PsiElement insertedElement = ExpressionUtils.replacePolyadicWithParent(methodCall, newCall, commentTracker);
+        if (insertedElement != null) {
+          CodeStyleManager.getInstance(project).reformat(insertedElement);
+          return;
+        }
+      }
       PsiReplacementUtil.replaceExpression(methodCall, newExpression.toString(), commentTracker);
     }
   }

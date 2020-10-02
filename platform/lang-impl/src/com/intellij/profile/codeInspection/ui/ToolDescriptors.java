@@ -1,10 +1,11 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.profile.codeInspection.ui;
 
 import com.intellij.codeInspection.ex.Descriptor;
 import com.intellij.codeInspection.ex.InspectionProfileModifiableModel;
 import com.intellij.codeInspection.ex.ScopeToolState;
 import com.intellij.openapi.project.Project;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ import java.util.stream.Stream;
 /**
  * @author Dmitry Batkovich
  */
-public class ToolDescriptors {
+public final class ToolDescriptors {
 
   @NotNull
   private final Descriptor myDefaultDescriptor;
@@ -50,7 +51,7 @@ public class ToolDescriptors {
 
   @NotNull
   public Stream<Descriptor> getDescriptors() {
-    return Stream.concat(Stream.of(getDefaultDescriptor()), getNonDefaultDescriptors().stream());
+    return StreamEx.of(getNonDefaultDescriptors()).prepend(getDefaultDescriptor());
   }
 
   @NotNull

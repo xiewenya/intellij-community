@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.spellchecker.quickfixes;
 
 import com.intellij.codeInspection.ProblemDescriptor;
@@ -22,36 +8,38 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.impl.text.TextEditorPsiDataProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.refactoring.actions.RenameElementAction;
 import com.intellij.refactoring.rename.NameSuggestionProvider;
 import com.intellij.refactoring.rename.RenameHandlerRegistry;
 import com.intellij.spellchecker.util.SpellCheckerBundle;
-import java.util.HashMap;
+import icons.SpellcheckerIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class RenameTo extends ShowSuggestions implements SpellCheckerQuickFix {
+import javax.swing.*;
+import java.util.HashMap;
 
-  public static final String FIX_NAME =  SpellCheckerBundle.message("rename.to");
+import static com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil.findInjectionHost;
 
+public class RenameTo extends LazySuggestions implements SpellCheckerQuickFix {
   public RenameTo(String wordWithTypo) {
     super(wordWithTypo);
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
-    return FIX_NAME;
+    return getFixName();
   }
 
   @Nullable
   private static DictionarySuggestionProvider findProvider() {
-    Object[] extensions = Extensions.getExtensions(NameSuggestionProvider.EP_NAME);
-
-    for (Object extension : extensions) {
+    for (Object extension : NameSuggestionProvider.EP_NAME.getExtensionList()) {
       if (extension instanceof DictionarySuggestionProvider) {
         return (DictionarySuggestionProvider)extension;
       }
@@ -60,12 +48,7 @@ public class RenameTo extends ShowSuggestions implements SpellCheckerQuickFix {
   }
 
 
-  @NotNull
-  public Anchor getPopupActionAnchor() {
-    return Anchor.FIRST;
-  }
-
-  @SuppressWarnings({"SSBasedInspection"})
+  @Override
   public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
     DictionarySuggestionProvider provider = findProvider();
     if (provider != null) {
@@ -81,7 +64,9 @@ public class RenameTo extends ShowSuggestions implements SpellCheckerQuickFix {
     if (editor instanceof EditorWindow) {
       map.put(CommonDataKeys.EDITOR.getName(), editor);
       map.put(CommonDataKeys.PSI_ELEMENT.getName(), psiElement);
-    } else if (ApplicationManager.getApplication().isUnitTestMode()) { // TextEditorComponent / FiledEditorManagerImpl give away the data in real life
+    }
+    else if (ApplicationManager.getApplication().isUnitTestMode()) {
+      // TextEditorComponent / FiledEditorManagerImpl give away the data in real life
       map.put(
         CommonDataKeys.PSI_ELEMENT.getName(),
         new TextEditorPsiDataProvider().getData(CommonDataKeys.PSI_ELEMENT.getName(), editor, editor.getCaretModel().getCurrentCaret())
@@ -102,5 +87,26 @@ public class RenameTo extends ShowSuggestions implements SpellCheckerQuickFix {
     finally {
       editor.putUserData(RenameHandlerRegistry.SELECT_ALL, selectAll);
     }
+  }
+
+  public static String getFixName() {
+    return SpellCheckerBundle.message("rename.to");
+  }
+
+  @Override
+  public Icon getIcon(int flags) {
+    return SpellcheckerIcons.Spellcheck;
+  }
+
+  @Nullable
+  protected Editor getEditor(PsiElement element, @NotNull Project project) {
+    return findInjectionHost(element) != null
+           ? InjectedLanguageUtil.openEditorFor(element.getContainingFile(), project)
+           : FileEditorManager.getInstance(project).getSelectedTextEditor();
+  }
+
+  @Override
+  public boolean startInWriteAction() {
+    return false;
   }
 }

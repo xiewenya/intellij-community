@@ -1,15 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.hierarchy;
 
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.DefaultTreeExpander;
 import com.intellij.ide.actions.CloseTabToolbarAction;
-import com.intellij.ide.util.treeView.AbstractTreeUi;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.SimpleToolWindowPanel;
 import com.intellij.pom.Navigatable;
@@ -20,8 +16,8 @@ import com.intellij.ui.AutoScrollToSourceHandler;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.tabs.PinToolwindowTabAction;
+import com.intellij.ui.tree.StructureTreeModel;
 import com.intellij.ui.treeStructure.Tree;
-import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -34,6 +30,7 @@ import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -69,7 +66,7 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     myContent = content;
   }
 
-  protected void buildUi(JComponent toolbar, JComponent content) {
+  protected void buildUi(@NotNull JComponent toolbar, @NotNull JComponent content) {
     setToolbar(toolbar);
     setContent(content);
   }
@@ -83,7 +80,8 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     return myDisposed;
   }
 
-  protected ActionToolbar createToolbar(final String place, final String helpID) {
+  @NotNull
+  protected ActionToolbar createToolbar(@NotNull String place, final String helpID) {
     final DefaultActionGroup actionGroup = new DefaultActionGroup();
     appendActions(actionGroup, helpID);
     final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(place, actionGroup, true);
@@ -101,7 +99,8 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
   }
 
   protected abstract JTree getCurrentTree();
-  protected abstract HierarchyTreeBuilder getCurrentBuilder();
+
+  abstract StructureTreeModel getCurrentBuilder();
 
   @Nullable
   protected abstract PsiElement getElementFromDescriptor(@NotNull HierarchyNodeDescriptor descriptor);
@@ -150,7 +149,7 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     return result.toArray(PsiElement.EMPTY_ARRAY);
   }
 
-  private void collectElements(HierarchyNodeDescriptor descriptor, Set<PsiElement> out) {
+  private void collectElements(HierarchyNodeDescriptor descriptor, Set<? super PsiElement> out) {
     if (descriptor == null) {
       return;
     }
@@ -193,8 +192,7 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     return list.toArray(new HierarchyNodeDescriptor[0]);
   }
 
-  @NotNull
-  protected PsiElement[] getSelectedElements() {
+  protected PsiElement @NotNull [] getSelectedElements() {
     HierarchyNodeDescriptor[] descriptors = getSelectedDescriptors();
     ArrayList<PsiElement> elements = new ArrayList<>();
     for (HierarchyNodeDescriptor descriptor : descriptors) {
@@ -232,7 +230,7 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
 
   @Override
   @Nullable
-  public Object getData(@NonNls final String dataId) {
+  public Object getData(@NotNull @NonNls final String dataId) {
     if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
       final PsiElement anElement = getSelectedElement();
       return anElement != null && anElement.isValid() ? anElement : super.getData(dataId);
@@ -267,18 +265,12 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     }
 
     @Override
-    public final void actionPerformed(final AnActionEvent e) {
-      final HierarchyTreeBuilder builder = getCurrentBuilder();
-      final AbstractTreeUi treeUi = builder != null ? builder.getUi() : null;
-      final ProgressIndicator progress = treeUi != null ? treeUi.getProgress() : null;
-      if (progress != null) {
-        progress.cancel();
-      }
-      myContent.getManager().removeContent(myContent, true);
+    public final void actionPerformed(@NotNull final AnActionEvent e) {
+      Objects.requireNonNull(myContent.getManager()).removeContent(myContent, true);
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setVisible(myContent != null);
     }
   }
@@ -287,7 +279,6 @@ public abstract class HierarchyBrowserBase extends SimpleToolWindowPanel impleme
     tree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
     tree.setToggleClickCount(-1);
     tree.setCellRenderer(new HierarchyNodeRenderer());
-    UIUtil.setLineStyleAngled(tree);
     new TreeSpeedSearch(tree);
     TreeUtil.installActions(tree);
     myAutoScrollToSourceHandler.install(tree);

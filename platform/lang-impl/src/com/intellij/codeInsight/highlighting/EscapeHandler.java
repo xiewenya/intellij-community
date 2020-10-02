@@ -8,18 +8,16 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
-import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.WindowManager;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Map;
-
 public class EscapeHandler extends EditorActionHandler {
+  @NotNull
   private final EditorActionHandler myOriginalHandler;
 
-  public EscapeHandler(EditorActionHandler originalHandler){
+  public EscapeHandler(@NotNull EditorActionHandler originalHandler) {
     myOriginalHandler = originalHandler;
   }
 
@@ -62,17 +60,7 @@ public class EscapeHandler extends EditorActionHandler {
 
     if (project != null) {
       HighlightManagerImpl highlightManager = (HighlightManagerImpl)HighlightManager.getInstance(project);
-      if (highlightManager != null) {
-        Map<RangeHighlighter, HighlightManagerImpl.HighlightInfo> map = highlightManager.getHighlightInfoMap(editor, false);
-        if (map != null) {
-          for (HighlightManagerImpl.HighlightInfo info : map.values()) {
-            if (!info.editor.equals(editor)) continue;
-            if ((info.flags & HighlightManager.HIDE_BY_ESCAPE) != 0) {
-              return true;
-            }
-          }
-        }
-      }
+      if (highlightManager != null && highlightManager.hasHideByEscapeHighlighters(editor)) return true;
     }
 
     return myOriginalHandler.isEnabled(editor, caret, dataContext);

@@ -17,7 +17,7 @@ package com.siyeh.ig.abstraction;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.testFramework.LightProjectDescriptor;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
  * @author Bas Leijdekkers
  */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-public class OptionalUsedAsFieldOrParameterTypeInspectionTest extends LightInspectionTestCase {
+public class OptionalUsedAsFieldOrParameterTypeInspectionTest extends LightJavaInspectionTestCase {
 
   public void testOptionalField() {
     doTest("import java.util.Optional;" +
@@ -61,12 +61,12 @@ public class OptionalUsedAsFieldOrParameterTypeInspectionTest extends LightInspe
     doTest("import java.util.Optional;" +
            "import java.util.function.Function;" +
            "class X {" +
-           "  Function<Optional<Long>, Long> homebrewOrElseNull = new Function<Optional<Long>, Long>() {" +
-           "    @Override\n" +
-           "    public Long apply(Optional<Long> input) {" +
-           "      return input.isPresent() ? input.get() : null;" +
-           "    }" +
-           "  };" +
+           "" +
+           "" +
+           "" +
+           "" +
+           "  " +
+           "Function<Optional<Long>, Long> homebrewOrElseNull = input-> input.isPresent() ? input.get() : null;" +
            "}");
   }
 

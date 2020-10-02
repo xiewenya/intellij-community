@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
 import com.intellij.ide.actions.RecentProjectsGroup;
@@ -14,31 +14,35 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.impl.welcomeScreen.NewRecentProjectPanel;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Arrays;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class ManageRecentProjectsAction extends DumbAwareAction {
+final class ManageRecentProjectsAction extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Disposable disposable = Disposer.newDisposable();
     Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     NewRecentProjectPanel panel = new NewRecentProjectPanel(disposable) {
       @Override
       protected JBList createList(AnAction[] recentProjectActions, Dimension size) {
-        return super.createList(RecentProjectsGroup.removeCurrentProject(project, recentProjectActions), size);
+        return super.createList(RecentProjectsGroup.removeCurrentProject(project, Arrays.asList(recentProjectActions)), size);
       }
     };
     JList list = UIUtil.findComponentOfType(panel, JList.class);
     JBPopup popup = JBPopupFactory.getInstance().createComponentPopupBuilder(panel, list)
-      .setTitle("Recent Projects")
+      .setTitle(IdeBundle.message("popup.title.recent.projects"))
       .setFocusable(true)
       .setRequestFocus(true)
       .setMayBeParent(true)
       .setMovable(true)
+      .setResizable(true)
+      .setNormalWindowLevel(true)
       .createPopup();
     Disposer.register(popup, disposable);
 
@@ -46,13 +50,9 @@ public class ManageRecentProjectsAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Project project = e.getProject();
-    boolean enable = false;
-    if (project != null) {
-      enable = RecentProjectsManager.getInstance().getRecentProjectsActions(false).length > 0;
-    }
-
+    boolean enable = project != null && !RecentProjectListActionProvider.getInstance().getActions(false).isEmpty();
     e.getPresentation().setEnabledAndVisible(enable);
   }
 }

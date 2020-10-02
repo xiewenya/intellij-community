@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.lang.Language;
@@ -10,9 +10,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
-/**
-* @author egor
-*/
 public class XExpressionImpl implements XExpression {
   public static final XExpression EMPTY_EXPRESSION = fromText("", EvaluationMode.EXPRESSION);
   public static final XExpression EMPTY_CODE_FRAGMENT = fromText("", EvaluationMode.CODE_FRAGMENT);
@@ -81,9 +78,9 @@ public class XExpressionImpl implements XExpression {
 
     XExpressionImpl that = (XExpressionImpl)o;
 
-    if (myCustomInfo != null ? !myCustomInfo.equals(that.myCustomInfo) : that.myCustomInfo != null) return false;
+    if (!Objects.equals(myCustomInfo, that.myCustomInfo)) return false;
     if (!myExpression.equals(that.myExpression)) return false;
-    if (myLanguage != null ? !myLanguage.equals(that.myLanguage) : that.myLanguage != null) return false;
+    if (!Objects.equals(myLanguage, that.myLanguage)) return false;
     if (myMode != that.myMode) return false;
 
     return true;

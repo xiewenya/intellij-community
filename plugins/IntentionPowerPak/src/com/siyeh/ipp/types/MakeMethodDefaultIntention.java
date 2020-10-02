@@ -1,20 +1,24 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ipp.types;
 
 import com.intellij.codeInsight.daemon.impl.quickfix.AddMethodBodyFix;
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.siyeh.IntentionPowerPackBundle;
 import org.jetbrains.annotations.NotNull;
 
 public class MakeMethodDefaultIntention extends BaseElementAtCaretIntentionAction {
 
-  private String text = "Make method default";
+  private @IntentionName String text;
+
+  public MakeMethodDefaultIntention() {
+    text = IntentionPowerPackBundle.message("make.method.default.family.name");
+  }
 
   @NotNull
   @Override
@@ -25,7 +29,7 @@ public class MakeMethodDefaultIntention extends BaseElementAtCaretIntentionActio
   @NotNull
   @Override
   public String getFamilyName() {
-    return getText();
+    return IntentionPowerPackBundle.message("make.method.default.family.name");
   }
 
   @Override
@@ -35,7 +39,7 @@ public class MakeMethodDefaultIntention extends BaseElementAtCaretIntentionActio
       if (psiMethod.getBody() == null && !psiMethod.hasModifierProperty(PsiModifier.DEFAULT)) {
         final PsiClass containingClass = psiMethod.getContainingClass();
         if (containingClass != null && containingClass.isInterface() && !containingClass.isAnnotationType()) {
-          text = "Make '" + psiMethod.getName() + "()' default";
+          text = IntentionPowerPackBundle.message("intention.name.make.default", psiMethod.getName());
           return true;
         }
       }

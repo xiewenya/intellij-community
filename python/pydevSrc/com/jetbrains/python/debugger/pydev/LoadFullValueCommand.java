@@ -12,12 +12,12 @@ import java.util.List;
 public class LoadFullValueCommand extends AbstractFrameCommand {
   public static final String NEXT_VALUE_SEPARATOR = "__pydev_val__";
   private final @NotNull IPyDebugProcess myDebugProcess;
-  private final @NotNull List<PyFrameAccessor.PyAsyncValue<String>> myVars;
+  private final @NotNull List<? extends PyFrameAccessor.PyAsyncValue<String>> myVars;
 
   public LoadFullValueCommand(final @NotNull RemoteDebugger debugger,
                               final @NotNull String threadId,
                               final @NotNull String frameId,
-                              final @NotNull List<PyFrameAccessor.PyAsyncValue<String>> vars) {
+                              final @NotNull List<? extends PyFrameAccessor.PyAsyncValue<String>> vars) {
     super(debugger, LOAD_FULL_VALUE, threadId, frameId);
     myDebugProcess = debugger.getDebugProcess();
     myVars = vars;
@@ -49,10 +49,7 @@ public class LoadFullValueCommand extends AbstractFrameCommand {
   private String buildPayloadForVar(@NotNull PyDebugValue var) {
     StringBuilder sb = new StringBuilder();
     String varName = GetVariableCommand.composeName(var);
-    if (var.getVariableLocator() != null) {
-      sb.append(var.getVariableLocator().getThreadId()).append(var.getVariableLocator().getPyDBLocation());
-    }
-    else if (varName.contains(GetVariableCommand.BY_ID)) {
+    if (varName.contains(GetVariableCommand.BY_ID)) {
       sb.append(getThreadId()).append(varName);
     }
     else {

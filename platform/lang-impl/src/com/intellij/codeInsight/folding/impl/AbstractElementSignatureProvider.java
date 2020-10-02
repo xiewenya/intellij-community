@@ -1,7 +1,6 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.folding.impl;
 
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -10,23 +9,22 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.StringTokenizer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-import java.util.StringTokenizer;
-
 /**
  * @author Denis Zhdanov
- * @since 11/7/11 12:00 PM
  */
 public abstract class AbstractElementSignatureProvider implements ElementSignatureProvider {
   private static final int CHILDREN_COUNT_LIMIT = 100;
 
-  static final String ELEMENTS_SEPARATOR = ";";
-  static final String ELEMENT_TOKENS_SEPARATOR = "#";
+  protected static final String ELEMENTS_SEPARATOR = ";";
+  protected static final String ELEMENT_TOKENS_SEPARATOR = "#";
 
   private static final String ESCAPE_CHAR = "\\";
   private static final List<String> ESCAPE_FROM = Arrays.asList(ESCAPE_CHAR, ELEMENT_TOKENS_SEPARATOR, ELEMENTS_SEPARATOR);
@@ -77,11 +75,11 @@ public abstract class AbstractElementSignatureProvider implements ElementSignatu
   /**
    * @return -1, if {@code parent} has too many children and calculating child index would be too slow
    */
-  protected static <T extends PsiNamedElement> int getChildIndex(T element, PsiElement parent, String name, Class<T> hisClass) {
+  protected static <T extends PsiNamedElement> int getChildIndex(T element, PsiElement parent, String name, Class<? extends T> hisClass) {
     PsiFile file = parent.getContainingFile();
     Set<PsiElement> cache = file == null ? null :
       CachedValuesManager.getCachedValue(file, () -> new CachedValueProvider.Result<>(ContainerUtil.createWeakSet(), file));
-    if (cache != null && cache.contains(parent)) return -1; 
+    if (cache != null && cache.contains(parent)) return -1;
     PsiElement[] children = parent.getChildren();
     if (children.length > CHILDREN_COUNT_LIMIT) {
       if (cache != null) cache.add(parent);
@@ -95,7 +93,7 @@ public abstract class AbstractElementSignatureProvider implements ElementSignatu
         T namedChild = hisClass.cast(child);
         final String childName = namedChild.getName();
 
-        if (Comparing.equal(name, childName)) {
+        if (Objects.equals(name, childName)) {
           if (namedChild.equals(element)) {
             return index;
           }
@@ -108,7 +106,7 @@ public abstract class AbstractElementSignatureProvider implements ElementSignatu
   }
 
   @Nullable
-  static <T extends PsiNamedElement> T restoreElementInternal(@NotNull PsiElement parent,
+  protected static <T extends PsiNamedElement> T restoreElementInternal(@NotNull PsiElement parent,
                                                               String name,
                                                               int index,
                                                               @NotNull Class<T> hisClass)
@@ -120,7 +118,7 @@ public abstract class AbstractElementSignatureProvider implements ElementSignatu
         T namedChild = hisClass.cast(child);
         final String childName = namedChild.getName();
 
-        if (Comparing.equal(name, childName)) {
+        if (Objects.equals(name, childName)) {
           if (index == 0) {
             return namedChild;
           }

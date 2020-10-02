@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.codeInsight.NullableNotNullManager;
@@ -11,8 +11,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
@@ -108,8 +107,7 @@ public class PropertyUtilBase {
     return ContainerUtil.concat(getGetters(psiClass, propertyName), getSetters(psiClass, propertyName));
   }
 
-  @NotNull
-  public static String[] getReadableProperties(@NotNull PsiClass aClass, boolean includeSuperClass) {
+  public static String @NotNull [] getReadableProperties(@NotNull PsiClass aClass, boolean includeSuperClass) {
     List<String> result = new ArrayList<>();
 
     PsiMethod[] methods = includeSuperClass ? aClass.getAllMethods() : aClass.getMethods();
@@ -122,11 +120,10 @@ public class PropertyUtilBase {
       }
     }
 
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
-  @NotNull
-  public static String[] getWritableProperties(@NotNull PsiClass aClass, boolean includeSuperClass) {
+  public static String @NotNull [] getWritableProperties(@NotNull PsiClass aClass, boolean includeSuperClass) {
     List<String> result = new ArrayList<>();
 
     PsiMethod[] methods = includeSuperClass ? aClass.getAllMethods() : aClass.getMethods();
@@ -139,7 +136,7 @@ public class PropertyUtilBase {
       }
     }
 
-    return ArrayUtil.toStringArray(result);
+    return ArrayUtilRt.toStringArray(result);
   }
 
   @Nullable
@@ -218,38 +215,23 @@ public class PropertyUtilBase {
     return null;
   }
 
-  @Nullable
-  public static PsiMethod findPropertyGetterWithType(String propertyName, boolean isStatic, PsiType type, Iterator<PsiMethod> methods) {
-    while (methods.hasNext()) {
-      PsiMethod method = methods.next();
-      if (method.hasModifierProperty(PsiModifier.STATIC) != isStatic) continue;
-      if (isSimplePropertyGetter(method)) {
-        if (getPropertyNameByGetter(method).equals(propertyName)) {
-          if (type.equals(method.getReturnType())) return method;
-        }
-      }
-    }
-    return null;
+  public static PsiMethod findPropertyGetterWithType(@NotNull String propertyName, boolean isStatic, PsiType type, @NotNull Collection<? extends PsiMethod> methods) {
+    return ContainerUtil.find(methods, method ->
+      method.hasModifierProperty(PsiModifier.STATIC) == isStatic &&
+      isSimplePropertyGetter(method) &&
+      getPropertyNameByGetter(method).equals(propertyName) &&
+      type.equals(method.getReturnType()));
   }
 
   public static boolean isSimplePropertyAccessor(PsiMethod method) {
     return isSimplePropertyGetter(method) || isSimplePropertySetter(method);
   }
 
-  @Nullable
-  public static PsiMethod findPropertySetterWithType(String propertyName, boolean isStatic, PsiType type, Iterator<PsiMethod> methods) {
-    while (methods.hasNext()) {
-      PsiMethod method = methods.next();
-      if (method.hasModifierProperty(PsiModifier.STATIC) != isStatic) continue;
-
-      if (isSimplePropertySetter(method)) {
-        if (getPropertyNameBySetter(method).equals(propertyName)) {
-          PsiType methodType = method.getParameterList().getParameters()[0].getType();
-          if (type.equals(methodType)) return method;
-        }
-      }
-    }
-    return null;
+  public static PsiMethod findPropertySetterWithType(@NotNull String propertyName, boolean isStatic, PsiType type, @NotNull Collection<? extends PsiMethod> methods) {
+    return ContainerUtil.find(methods, method->
+      method.hasModifierProperty(PsiModifier.STATIC) == isStatic &&
+      isSimplePropertySetter(method) &&
+      getPropertyNameBySetter(method).equals(propertyName) && type.equals(method.getParameterList().getParameters()[0].getType()));
   }
 
   public enum GetterFlavour {
@@ -276,7 +258,6 @@ public class PropertyUtilBase {
   }
 
 
-  @SuppressWarnings("HardCodedStringLiteral")
   public static boolean hasGetterName(final PsiMethod method) {
     if (method == null) return false;
 
@@ -287,7 +268,7 @@ public class PropertyUtilBase {
     switch (flavour) {
       case GENERIC:
         PsiType returnType = method.getReturnType();
-        return returnType == null || !PsiType.VOID.equals(returnType);
+        return !PsiType.VOID.equals(returnType);
       case BOOLEAN:
         return isBoolean(method.getReturnType());
       case NOT_A_GETTER:
@@ -341,7 +322,6 @@ public class PropertyUtilBase {
   }
 
 
-  @SuppressWarnings("HardCodedStringLiteral")
   public static boolean isSimplePropertySetter(@Nullable PsiMethod method) {
     if (method == null) return false;
 
@@ -400,8 +380,7 @@ public class PropertyUtilBase {
   }
 
   @NonNls
-  @NotNull
-  public static String[] suggestGetterNames(@NotNull String propertyName) {
+  public static String @NotNull [] suggestGetterNames(@NotNull String propertyName) {
     final String str = StringUtil.capitalizeWithJavaBeanConvention(StringUtil.sanitizeJavaIdentifier(propertyName));
     return new String[]{IS_PREFIX + str, GET_PREFIX + str};
   }
@@ -450,7 +429,7 @@ public class PropertyUtilBase {
    */
   @NotNull
   public static PsiMethod generateGetterPrototype(@NotNull PsiField field) {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(field.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(field.getProject());
     Project project = field.getProject();
     String name = field.getName();
     String getName = suggestGetterName(field);
@@ -497,7 +476,7 @@ public class PropertyUtilBase {
   public static PsiMethod generateSetterPrototype(@NotNull PsiField field, @NotNull PsiClass containingClass, boolean returnSelf) {
     Project project = field.getProject();
     JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(project);
-    PsiElementFactory factory = JavaPsiFacade.getInstance(field.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(field.getProject());
 
     String name = field.getName();
     boolean isStatic = field.hasModifierProperty(PsiModifier.STATIC);
@@ -542,12 +521,6 @@ public class PropertyUtilBase {
     Objects.requireNonNull(setMethod.getBody()).replace(body);
     setMethod = (PsiMethod)CodeStyleManager.getInstance(project).reformat(setMethod);
     return setMethod;
-  }
-
-  /** @deprecated use {@link NullableNotNullManager#copyNullableOrNotNullAnnotation(PsiModifierListOwner, PsiModifierListOwner)} (to be removed in IDEA 17) */
-  public static void annotateWithNullableStuff(@NotNull PsiModifierListOwner field,
-                                               @NotNull PsiModifierListOwner listOwner) throws IncorrectOperationException {
-    NullableNotNullManager.getInstance(field.getProject()).copyNullableOrNotNullAnnotation(field, listOwner);
   }
 
   @Nullable

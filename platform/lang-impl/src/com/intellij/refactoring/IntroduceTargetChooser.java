@@ -1,28 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring;
 
 import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.codeInsight.unwrap.ScopeHighlighter;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.JBPopup;
-import com.intellij.openapi.ui.popup.JBPopupAdapter;
-import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.ui.popup.LightweightWindowEvent;
+import com.intellij.openapi.ui.popup.*;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.TextRange;
@@ -33,8 +18,8 @@ import com.intellij.ui.JBColor;
 import com.intellij.util.Function;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -42,41 +27,41 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class IntroduceTargetChooser {
+public final class IntroduceTargetChooser {
   private IntroduceTargetChooser() {
   }
 
   public static <T extends PsiElement> void showChooser(@NotNull Editor editor,
-                                                        @NotNull List<T> expressions,
-                                                        @NotNull Pass<T> callback,
-                                                        @NotNull Function<T, String> renderer) {
-    showChooser(editor, expressions, callback, renderer, "Expressions");
+                                                        @NotNull List<? extends T> expressions,
+                                                        @NotNull Pass<? super T> callback,
+                                                        @NotNull Function<? super T, String> renderer) {
+    showChooser(editor, expressions, callback, renderer, RefactoringBundle.message("introduce.target.chooser.expressions.title"));
   }
 
   public static <T extends PsiElement> void showChooser(@NotNull Editor editor,
-                                                        @NotNull List<T> expressions,
-                                                        @NotNull Pass<T> callback,
-                                                        @NotNull Function<T, String> renderer,
-                                                        @NotNull @Nls String title) {
+                                                        @NotNull List<? extends T> expressions,
+                                                        @NotNull Pass<? super T> callback,
+                                                        @NotNull Function<? super T, String> renderer,
+                                                        @NotNull @NlsContexts.PopupTitle String title) {
     showChooser(editor, expressions, callback, renderer, title, ScopeHighlighter.NATURAL_RANGER);
   }
 
   public static <T extends PsiElement> void showChooser(@NotNull Editor editor,
-                                                        @NotNull List<T> expressions,
-                                                        @NotNull Pass<T> callback,
-                                                        @NotNull Function<T, String> renderer,
-                                                        @NotNull @Nls String title,
-                                                        @NotNull NotNullFunction<PsiElement, TextRange> ranger) {
+                                                        @NotNull List<? extends T> expressions,
+                                                        @NotNull Pass<? super T> callback,
+                                                        @NotNull Function<? super T, String> renderer,
+                                                        @NotNull @NlsContexts.PopupTitle String title,
+                                                        @NotNull NotNullFunction<? super PsiElement, ? extends TextRange> ranger) {
     showChooser(editor, expressions, callback, renderer, title, -1, ranger);
   }
 
   public static <T extends PsiElement> void showChooser(@NotNull Editor editor,
-                                                        @NotNull List<T> expressions,
-                                                        @NotNull Pass<T> callback,
-                                                        @NotNull Function<T, String> renderer,
-                                                        @NotNull @Nls String title,
+                                                        @NotNull List<? extends T> expressions,
+                                                        @NotNull Pass<? super T> callback,
+                                                        @NotNull Function<? super T, String> renderer,
+                                                        @NotNull @NlsContexts.PopupTitle String title,
                                                         int selection,
-                                                        @NotNull NotNullFunction<PsiElement, TextRange> ranger) {
+                                                        @NotNull NotNullFunction<? super PsiElement, ? extends TextRange> ranger) {
     List<MyIntroduceTarget<T>> targets = ContainerUtil.map(expressions, t -> new MyIntroduceTarget<>(t, ranger, renderer));
     Pass<MyIntroduceTarget<T>> callbackWrapper = new Pass<MyIntroduceTarget<T>>() {
       @Override
@@ -89,12 +74,21 @@ public class IntroduceTargetChooser {
 
   public static <T extends IntroduceTarget> void showIntroduceTargetChooser(@NotNull Editor editor,
                                                                             @NotNull List<T> expressions,
-                                                                            @NotNull Pass<T> callback,
-                                                                            @NotNull @Nls String title,
+                                                                            @NotNull Pass<? super T> callback,
+                                                                            @NotNull @NlsContexts.PopupTitle String title,
+                                                                            int selection) {
+    showIntroduceTargetChooser(editor, expressions, callback, title, null, selection);
+  }
+
+  public static <T extends IntroduceTarget> void showIntroduceTargetChooser(@NotNull Editor editor,
+                                                                            @NotNull List<T> expressions,
+                                                                            @NotNull Pass<? super T> callback,
+                                                                            @NotNull @NlsContexts.PopupTitle String title,
+                                                                            @Nullable JComponent southComponent,
                                                                             int selection) {
     AtomicReference<ScopeHighlighter> highlighter = new AtomicReference<>(new ScopeHighlighter(editor));
 
-    JBPopup popup = JBPopupFactory.getInstance().createPopupChooserBuilder(expressions)
+    IPopupChooserBuilder<T> builder = JBPopupFactory.getInstance().createPopupChooserBuilder(expressions)
       .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
       .setSelectedValue(expressions.get(selection > -1 ? selection : 0), true)
       .setAccessibleName(title)
@@ -116,9 +110,9 @@ public class IntroduceTargetChooser {
           callback.pass(expr);
         }
       })
-      .addListener(new JBPopupAdapter() {
+      .addListener(new JBPopupListener() {
         @Override
-        public void onClosed(LightweightWindowEvent event) {
+        public void onClosed(@NotNull LightweightWindowEvent event) {
           highlighter.getAndSet(null).dropHighlight();
         }
       })
@@ -142,25 +136,29 @@ public class IntroduceTargetChooser {
           }
           else {
             setForeground(JBColor.RED);
-            setText("Invalid");
+            setText(IdeBundle.message("invalid.node.text"));
           }
           return rendererComponent;
         }
-      }).createPopup();
+      });
+    if (southComponent != null && builder instanceof PopupChooserBuilder) {
+      ((PopupChooserBuilder<T>)builder).setSouthComponent(southComponent);
+    }
+    JBPopup popup = builder.createPopup();
     popup.showInBestPositionFor(editor);
     Project project = editor.getProject();
-    if (project != null) {
+    if (project != null && !popup.isDisposed()) {
       NavigationUtil.hidePopupIfDumbModeStarts(popup, project);
     }
   }
 
   private static class MyIntroduceTarget<T extends PsiElement> extends PsiIntroduceTarget<T> {
-    private final NotNullFunction<PsiElement, TextRange> myRanger;
-    private final Function<T, String> myRenderer;
+    private final NotNullFunction<? super PsiElement, ? extends TextRange> myRanger;
+    private final Function<? super T, String> myRenderer;
 
-    public MyIntroduceTarget(@NotNull T psi,
-                             @NotNull NotNullFunction<PsiElement, TextRange> ranger,
-                             @NotNull Function<T, String> renderer) {
+    MyIntroduceTarget(@NotNull T psi,
+                             @NotNull NotNullFunction<? super PsiElement, ? extends TextRange> ranger,
+                             @NotNull Function<? super T, String> renderer) {
       super(psi);
       myRanger = ranger;
       myRenderer = renderer;
@@ -176,6 +174,11 @@ public class IntroduceTargetChooser {
     @Override
     public String render() {
       return myRenderer.fun(getPlace());
+    }
+
+    @Override
+    public String toString() {
+      return isValid() ? render() : "invalid";
     }
   }
 }

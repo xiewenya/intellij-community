@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json;
 
 import com.intellij.icons.AllIcons;
@@ -12,10 +13,10 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.util.Consumer;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.testFramework.PlatformTestUtil.assertTreeEqual;
+import static com.intellij.testFramework.PlatformTestUtil.expandAll;
 
 /**
  * @author Mikhail Golubev
@@ -25,7 +26,7 @@ public class JsonStructureViewTest extends JsonTestCase {
   private void doTest(final String expected) {
     myFixture.configureByFile(getTestName(false) + ".json");
     myFixture.testStructureView(svc -> {
-      TreeUtil.expandAll(svc.getTree());
+      expandAll(svc.getTree());
       assertTreeEqual(svc.getTree(), expected);
     });
   }
@@ -148,7 +149,7 @@ public class JsonStructureViewTest extends JsonTestCase {
       assertEquals("aaa", children[0].getPresentation().getPresentableText());
       assertEquals(PlatformIcons.PROPERTY_ICON, children[0].getPresentation().getIcon(false));
       assertEquals("bbb", children[1].getPresentation().getPresentableText());
-      assertEquals(AllIcons.Json.Property_braces, children[1].getPresentation().getIcon(false));
+      assertEquals(AllIcons.Json.Object, children[1].getPresentation().getIcon(false));
 
       children = children[1].getChildren();
       assertEquals(1, children.length);

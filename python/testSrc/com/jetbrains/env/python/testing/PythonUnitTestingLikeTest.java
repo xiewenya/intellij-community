@@ -15,24 +15,24 @@
  */
 package com.jetbrains.env.python.testing;
 
-import com.intellij.execution.ExecutionException;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.testFramework.EdtTestUtil;
-import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.jetbrains.env.EnvTestTagsRequired;
 import com.jetbrains.env.PyEnvTestCase;
 import com.jetbrains.env.ut.PyScriptTestProcessRunner;
 import com.jetbrains.env.ut.PyUnitTestProcessRunner;
-import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.sdk.flavors.IronPythonSdkFlavor;
+import com.jetbrains.python.testing.PyUnitTestConfiguration;
+import com.jetbrains.python.testing.PythonTestConfigurationsModel;
 import org.hamcrest.Matchers;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
 import static com.jetbrains.env.ut.PyScriptTestProcessRunner.TEST_TARGET_PREFIX;
@@ -56,7 +56,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(1, runner.getAllTestsCount());
         assertEquals(0, runner.getPassedTestsCount());
         assertEquals(1, runner.getFailedTestsCount());
@@ -70,6 +70,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
    * Ensure that sys.path[0] is script folder, not helpers folder
    */
   @Test
+  @EnvTestTagsRequired(tags = {}, skipOnFlavors = {IronPythonSdkFlavor.class})
   public void testSysPath() throws Exception {
     runPythonTest(new PyUnitTestLikeProcessWithConsoleTestTask<T>("testRunner/env/unit/sysPath", "test_sample.py", this::createTestRunner) {
 
@@ -83,7 +84,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         Assert.assertEquals(runner.getFormattedTestTree(), 1, runner.getAllTestsCount());
         myFixture.getTempDirFixture().getFile("sysPath");
 
@@ -104,7 +105,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(runner.getFormattedTestTree(), 2, runner.getAllTestsCount());
         assertEquals(runner.getFormattedTestTree(), 2, runner.getPassedTestsCount());
         runner.assertAllTestsPassed();
@@ -131,21 +132,21 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
         protected void checkTestResults(@NotNull final T runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           if (runner.getCurrentRerunStep() == 0) {
             assertEquals("test with docstring produced bad tree", "Test tree:\n" +
-                                                                  "[root]\n" +
-                                                                  ".test_test\n" +
-                                                                  "..SomeTestCase\n" +
+                                                                  "[root](-)\n" +
+                                                                  ".test_test(-)\n" +
+                                                                  "..SomeTestCase(-)\n" +
                                                                   "...testSomething (Only with docstring test is parsed with extra space)(+)\n" +
                                                                   "...testSomethingBad (Fail)(-)\n", runner.getFormattedTestTree());
           }
           else {
             assertEquals("test with docstring failed to rerun",
                          "Test tree:\n" +
-                         "[root]\n" +
-                         ".test_test\n" +
-                         "..SomeTestCase\n" +
+                         "[root](-)\n" +
+                         ".test_test(-)\n" +
+                         "..SomeTestCase(-)\n" +
                          "...testSomethingBad (Fail)(-)\n", runner.getFormattedTestTree());
           }
         }
@@ -161,7 +162,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(1, runner.getAllTestsCount());
         assertEquals(1, runner.getPassedTestsCount());
       }
@@ -176,7 +177,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(runner.getFormattedTestTree(), 3, runner.getAllTestsCount());
         assertEquals(runner.getFormattedTestTree(), 1, runner.getPassedTestsCount());
         assertEquals(runner.getFormattedTestTree(), 2, runner.getFailedTestsCount());
@@ -197,7 +198,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         final List<String> fileNames = runner.getHighlightedStringsInConsole().getSecond();
         Assert.assertTrue(String.format("Not enough highlighted entries(%s) in the following output: %s",
                                         StringUtil.join(fileNames, ","),
@@ -227,7 +228,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
         protected void checkTestResults(@NotNull final T runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           assertEquals(4, runner.getAllTestsCount());
           assertEquals(2, runner.getPassedTestsCount());
           assertEquals(2, runner.getFailedTestsCount());
@@ -246,7 +247,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
         protected void checkTestResults(@NotNull final T runner,
                                         @NotNull final String stdout,
                                         @NotNull final String stderr,
-                                        @NotNull final String all) {
+                                        @NotNull final String all, int exitCode) {
           assertEquals(1, runner.getAllTestsCount());
           assertEquals(1, runner.getPassedTestsCount());
         }
@@ -278,7 +279,7 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         Assert.assertThat("Wrong number of failed tests", runner.getFailedTestsCount(), equalTo(1));
         final int expectedNumberOfTests = (runner.getCurrentRerunStep() == 0 ? 2 : 1);
         Assert.assertThat("Wrong number tests", runner.getAllTestsCount(), equalTo(expectedNumberOfTests));
@@ -286,9 +287,9 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
           // Make sure derived tests are launched, not abstract
           Assert.assertEquals("Wrong tests after rerun",
                               "Test tree:\n" +
-                              "[root]\n" +
-                              ".rerun_derived\n" +
-                              "..TestDerived\n" +
+                              "[root](-)\n" +
+                              ".rerun_derived(-)\n" +
+                              "..TestDerived(-)\n" +
                               "...test_a(-)\n", runner.getFormattedTestTree());
         }
       }
@@ -323,10 +324,28 @@ public abstract class PythonUnitTestingLikeTest<T extends PyScriptTestProcessRun
       protected void checkTestResults(@NotNull final T runner,
                                       @NotNull final String stdout,
                                       @NotNull final String stderr,
-                                      @NotNull final String all) {
+                                      @NotNull final String all, int exitCode) {
         assertEquals(5, runner.getAllTestsCount());
         assertEquals(3, runner.getPassedTestsCount());
       }
     });
+  }
+
+  @Test
+  public void testMultipleCases() {
+    runPythonTest(
+      new CreateConfigurationMultipleCasesTask<PyUnitTestConfiguration>(PythonTestConfigurationsModel.getPythonsUnittestName(),
+                                                                        PyUnitTestConfiguration.class) {
+        @Override
+        protected boolean configurationShouldBeProducedForElement(@NotNull final PsiElement element) {
+          // test_functions.py and test_foo do not contain any TestCase and can't be launched with unittest
+          final PsiFile file = element.getContainingFile();
+          if (file == null) {
+            return true;
+          }
+          final String name = file.getName();
+          return !(name.endsWith("test_functions.py") || name.endsWith("test_foo.py"));
+        }
+      });
   }
 }

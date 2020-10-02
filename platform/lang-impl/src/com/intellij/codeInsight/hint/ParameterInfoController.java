@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.hint;
 
@@ -6,19 +6,26 @@ import com.intellij.codeInsight.AutoPopupController;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.daemon.impl.ParameterHintsPresentationManager;
 import com.intellij.codeInsight.lookup.Lookup;
+import com.intellij.codeInsight.lookup.LookupEvent;
+import com.intellij.codeInsight.lookup.LookupListener;
 import com.intellij.codeInsight.lookup.LookupManager;
+import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.injected.editor.EditorWindow;
+import com.intellij.lang.ASTNode;
 import com.intellij.lang.parameterInfo.*;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.event.*;
-import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.event.CaretEvent;
+import com.intellij.openapi.editor.event.CaretListener;
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon.Position;
 import com.intellij.openapi.util.*;
@@ -28,33 +35,41 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.TokenType;
+import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.HintHint;
 import com.intellij.ui.LightweightHint;
+import com.intellij.ui.ScreenUtil;
 import com.intellij.util.Alarm;
-import com.intellij.util.containers.JBIterable;
+import com.intellij.util.indexing.DumbModeAccessType;
+import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.update.MergingUpdateQueue;
+import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
-import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 
-public class ParameterInfoController extends UserDataHolderBase implements VisibleAreaListener, Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.hint.ParameterInfoController");
+import static com.intellij.codeInsight.hint.ParameterInfoTaskRunnerUtil.runTask;
+
+public class ParameterInfoController extends UserDataHolderBase implements Disposable {
   private static final String WHITESPACE = " \t";
+
   private final Project myProject;
   @NotNull private final Editor myEditor;
 
@@ -64,7 +79,7 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
   private boolean myKeepOnHintHidden;
 
   private final CaretListener myEditorCaretListener;
-  @NotNull private final ParameterInfoHandler<Object, Object> myHandler;
+  @NotNull private final ParameterInfoHandler<PsiElement, Object> myHandler;
   private final MyBestLocationPointProvider myProvider;
 
   private final Alarm myAlarm = new Alarm();
@@ -83,9 +98,12 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     for (int i = 0; i < allControllers.size(); ++i) {
       ParameterInfoController controller = allControllers.get(i);
 
-      if (controller.myLbraceMarker.getStartOffset() == offset) {
-        if (controller.myKeepOnHintHidden || controller.myHint.isVisible()) return controller;
+      int lbraceOffset = controller.myLbraceMarker.getStartOffset();
+      if (lbraceOffset == offset) {
+        if (controller.myKeepOnHintHidden || controller.myHint.isVisible()
+          || ApplicationManager.getApplication().isHeadlessEnvironment()) return controller;
         Disposer.dispose(controller);
+        //noinspection AssignmentToForLoopParameter
         --i;
       }
     }
@@ -142,16 +160,18 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
 
     myEditorCaretListener = new CaretListener(){
       @Override
-      public void caretPositionChanged(CaretEvent e) {
-        rescheduleUpdate();
+      public void caretPositionChanged(@NotNull CaretEvent e) {
+        if (!UndoManager.getInstance(myProject).isUndoOrRedoInProgress()) {
+          syncUpdateOnCaretMove();
+          rescheduleUpdate();
+        }
       }
     };
     myEditor.getCaretModel().addCaretListener(myEditorCaretListener);
-    myEditor.getScrollingModel().addVisibleAreaListener(this);
 
     myEditor.getDocument().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         rescheduleUpdate();
       }
     }, this);
@@ -162,27 +182,67 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
       updateWhenAllCommitted();
     });
 
-    PropertyChangeListener lookupListener = new PropertyChangeListener() {
+
+    LookupListener lookupListener = new LookupListener() {
+      LookupImpl activeLookup = null;
+      final MergingUpdateQueue queue = new MergingUpdateQueue("Update parameter info position", 200, true, myComponent);
+
       @Override
-      public void propertyChange(PropertyChangeEvent evt) {
-        if (LookupManager.PROP_ACTIVE_LOOKUP.equals(evt.getPropertyName())) {
-          Lookup lookup = (Lookup)evt.getNewValue();
-          if (lookup != null) {
-            adjustPositionForLookup(lookup);
+      public void lookupShown(@NotNull LookupEvent event) {
+        activeLookup = (LookupImpl) event.getLookup();
+      }
+
+      @Override
+      public void uiRefreshed() {
+        queue.queue(new Update("PI update") {
+          @Override
+          public void run() {
+            if (activeLookup != null) {
+              updateComponent();
+            }
           }
+        });
+      }
+    };
+
+
+    PropertyChangeListener lookupChangeListener = evt -> {
+      if (LookupManager.PROP_ACTIVE_LOOKUP.equals(evt.getPropertyName())) {
+        Lookup lookup = (Lookup) evt.getNewValue();
+        if (lookup != null) {
+          lookup.addLookupListener(lookupListener);
         }
       }
     };
-    LookupManager.getInstance(project).addPropertyChangeListener(lookupListener, this);
-    if (myEditor instanceof EditorImpl) {
-      Disposer.register(((EditorImpl)myEditor).getDisposable(), this);
-    }
 
-    myComponent.update(mySingleParameterInfo); // to have correct preferred size
+    LookupManager.getInstance(project).addPropertyChangeListener(lookupChangeListener, this);
+    EditorUtil.disposeWithEditor(myEditor, this);
+
+    myProject.getMessageBus().connect(this).subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
+      @Override
+      public void enteredDumbMode() {
+        updateComponent();
+      }
+
+      @Override
+      public void exitDumbMode() {
+        updateComponent();
+      }
+    });
+
     if (showHint) {
       showHint(requestFocus, mySingleParameterInfo);
+    } else {
+      updateComponent();
     }
-    updateComponent();
+  }
+
+  void setDescriptors(Object[] descriptors) {
+    myComponent.setDescriptors(descriptors);
+  }
+
+  private void syncUpdateOnCaretMove() {
+    myHandler.syncUpdateOnCaretMove(new MyLazyUpdateParameterInfoContext());
   }
 
   private LightweightHint createHint() {
@@ -195,78 +255,47 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
   public void dispose(){
     if (myDisposed) return;
     myDisposed = true;
-    myHint.hide();
+    hideHint();
     myHandler.dispose(new MyDeleteParameterInfoContext());
     List<ParameterInfoController> allControllers = getAllControllers(myEditor);
     allControllers.remove(this);
     myEditor.getCaretModel().removeCaretListener(myEditorCaretListener);
-    myEditor.getScrollingModel().removeVisibleAreaListener(this);
-  }
-
-  @Override
-  public void visibleAreaChanged(VisibleAreaEvent e) {
-    if (Registry.is("editor.keep.completion.hints.even.longer")) rescheduleUpdate();
   }
 
   public void showHint(boolean requestFocus, boolean singleParameterInfo) {
     if (myHint.isVisible()) {
-      myHint.getComponent().remove(myComponent);
-      myHint.hide();
+      JComponent myHintComponent = myHint.getComponent();
+      myHintComponent.removeAll();
+      hideHint();
       myHint = createHint();
     }
 
     mySingleParameterInfo = singleParameterInfo && myKeepOnHintHidden;
-    
-    Pair<Point, Short> pos = myProvider.getBestPointPosition(myHint, myComponent.getParameterOwner(), myLbraceMarker.getStartOffset(), 
-                                                             null, true, HintManager.ABOVE);
+
+    int caretOffset = myEditor.getCaretModel().getOffset();
+    Pair<Point, Short> pos = myProvider.getBestPointPosition(myHint, myComponent.getParameterOwner(), caretOffset,
+                                                             null, HintManager.ABOVE);
     HintHint hintHint = HintManagerImpl.createHintHint(myEditor, pos.getFirst(), myHint, pos.getSecond());
     hintHint.setExplicitClose(true);
     hintHint.setRequestFocus(requestFocus);
     hintHint.setShowImmediately(true);
+    hintHint.setBorderColor(ParameterInfoComponent.BORDER_COLOR);
+    hintHint.setBorderInsets(JBUI.insets(4, 1, 4, 1));
+    hintHint.setComponentBorder(JBUI.Borders.empty());
 
     int flags = HintManager.HIDE_BY_ESCAPE | HintManager.UPDATE_BY_SCROLLING;
     if (!singleParameterInfo && myKeepOnHintHidden) flags |= HintManager.HIDE_BY_TEXT_CHANGE;
 
     Editor editorToShow = myEditor instanceof EditorWindow ? ((EditorWindow)myEditor).getDelegate() : myEditor;
+
+    //update presentation of descriptors synchronously
+    myComponent.update(mySingleParameterInfo);
+
     // is case of injection we need to calculate position for EditorWindow
     // also we need to show the hint in the main editor because of intention bulb
     HintManagerImpl.getInstanceImpl().showEditorHint(myHint, editorToShow, pos.getFirst(), flags, 0, false, hintHint);
 
     updateComponent();
-  }
-
-  private void adjustPositionForLookup(@NotNull Lookup lookup) {
-    if (myEditor.isDisposed()) {
-      Disposer.dispose(this);
-      return;
-    }
-
-    if (!myHint.isVisible()) {
-      if (!myKeepOnHintHidden) Disposer.dispose(this);
-      return;
-    }
-
-    IdeTooltip tooltip = myHint.getCurrentIdeTooltip();
-    if (tooltip != null) {
-      JRootPane root = myEditor.getComponent().getRootPane();
-      if (root != null) {
-        Point p = tooltip.getShowingPoint().getPoint(root.getLayeredPane());
-        if (lookup.isPositionedAboveCaret()) {
-          if (Position.above == tooltip.getPreferredPosition()) {
-            myHint.pack();
-            myHint.updatePosition(Position.below);
-            myHint.updateLocation(p.x, p.y + tooltip.getPositionChangeY());
-          }
-        }
-        else {
-          if (Position.below == tooltip.getPreferredPosition()) {
-            myHint.pack();
-            myHint.updatePosition(Position.above);
-            myHint.updateLocation(p.x, p.y - tooltip.getPositionChangeY());
-          }
-        }
-      }
-    }
   }
 
   private void rescheduleUpdate(){
@@ -276,62 +305,114 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
 
   private void updateWhenAllCommitted() {
     if (!myDisposed && !myProject.isDisposed()) {
-      PsiDocumentManager.getInstance(myProject).performLaterWhenAllCommitted(() -> {
-        try {
-          DumbService.getInstance(myProject).withAlternativeResolveEnabled(this::updateComponent);
-        }
-        catch (IndexNotReadyException e) {
-          LOG.info(e);
-          Disposer.dispose(this);
-        }
-      });
+      PsiDocumentManager.getInstance(myProject).performLaterWhenAllCommitted(this::updateComponent);
     }
   }
 
   public void updateComponent(){
-    if (!myKeepOnHintHidden && !myHint.isVisible() || myEditor instanceof EditorWindow && !((EditorWindow)myEditor).isValid()) {
+    if (!myKeepOnHintHidden && !myHint.isVisible() && !ApplicationManager.getApplication().isHeadlessEnvironment() || myEditor instanceof EditorWindow && !((EditorWindow)myEditor).isValid()) {
       Disposer.dispose(this);
       return;
     }
 
     final PsiFile file =  PsiUtilBase.getPsiFileInEditor(myEditor, myProject);
-    CharSequence chars = myEditor.getDocument().getCharsSequence();
     int caretOffset = myEditor.getCaretModel().getOffset();
-    final int offset = myHandler.isWhitespaceSensitive() ? caretOffset :
-                       CharArrayUtil.shiftBackward(chars, caretOffset - 1, WHITESPACE) + 1;
+    final int offset = getCurrentOffset();
+    final MyUpdateParameterInfoContext context = new MyUpdateParameterInfoContext(offset, file);
+    executeFindElementForUpdatingParameterInfo(context, elementForUpdating -> {
+      myHandler.processFoundElementForUpdatingParameterInfo(elementForUpdating, context);
+      if (elementForUpdating != null) {
+        executeUpdateParameterInfo(elementForUpdating, context, () -> {
+          boolean knownParameter = (myComponent.getObjects().length == 1 || myComponent.getHighlighted() != null) &&
+                                   myComponent.getCurrentParameterIndex() != -1;
+          if (mySingleParameterInfo && !knownParameter && myHint.isVisible()) {
+            hideHint();
+          }
+          if (myKeepOnHintHidden && knownParameter && !myHint.isVisible()) {
+            AutoPopupController.getInstance(myProject).autoPopupParameterInfo(myEditor, null);
+          }
+          if (!myDisposed && (myHint.isVisible() && !myEditor.isDisposed() &&
+                              (myEditor.getComponent().getRootPane() != null || ApplicationManager.getApplication().isUnitTestMode()) ||
+                              ApplicationManager.getApplication().isHeadlessEnvironment())) {
+            Model result = myComponent.update(mySingleParameterInfo);
+            result.project = myProject;
+            result.range = myComponent.getParameterOwner().getTextRange();
+            result.editor = myEditor;
+            for (ParameterInfoListener listener : ParameterInfoListener.EP_NAME.getExtensionList()) {
+              listener.hintUpdated(result);
+            }
+            if (ApplicationManager.getApplication().isHeadlessEnvironment()) return;
+            IdeTooltip tooltip = myHint.getCurrentIdeTooltip();
+            short position = tooltip != null
+                             ? toShort(tooltip.getPreferredPosition())
+                             : HintManager.ABOVE;
+            Pair<Point, Short> pos = myProvider.getBestPointPosition(
+              myHint, elementForUpdating,
+              caretOffset, myEditor.getCaretModel().getVisualPosition(), position);
 
-    final UpdateParameterInfoContext context = new MyUpdateParameterInfoContext(offset, file);
-    final Object elementForUpdating = myHandler.findElementForUpdatingParameterInfo(context);
+            HintManagerImpl.adjustEditorHintPosition(myHint, myEditor, pos.getFirst(), pos.getSecond());
+          }
+        });
+      }
+      else {
+        hideHint();
+        if (!myKeepOnHintHidden) {
+          Disposer.dispose(this);
+        }
+      }
+    });
+  }
 
-    if (elementForUpdating != null) {
-      myHandler.updateParameterInfo(elementForUpdating, context);
-      boolean knownParameter = (myComponent.getObjects().length == 1 || myComponent.getHighlighted() != null) && 
-                               myComponent.getCurrentParameterIndex() != -1;
-      if (mySingleParameterInfo && !knownParameter && myHint.isVisible()) {
-        myHint.hide();
-      }
-      if (myKeepOnHintHidden && knownParameter && !myHint.isVisible()) {
-        AutoPopupController.getInstance(myProject).autoPopupParameterInfo(myEditor, null);
-      }
-      if (!myDisposed && myHint.isVisible() && !myEditor.isDisposed() &&
-          (myEditor.getComponent().getRootPane() != null || ApplicationManager.getApplication().isUnitTestMode())) {
-        myComponent.update(mySingleParameterInfo);
-        IdeTooltip tooltip = myHint.getCurrentIdeTooltip();
-        short position = tooltip != null
-                         ? toShort(tooltip.getPreferredPosition())
-                         : HintManager.ABOVE;
-        Pair<Point, Short> pos = myProvider.getBestPointPosition(
-          myHint, elementForUpdating instanceof PsiElement ? (PsiElement)elementForUpdating : null,
-          caretOffset, myEditor.getCaretModel().getVisualPosition(), true, position);
-        HintManagerImpl.adjustEditorHintPosition(myHint, myEditor, pos.getFirst(), pos.getSecond());
-      }
+  private int getCurrentOffset() {
+    int caretOffset = myEditor.getCaretModel().getOffset();
+    CharSequence chars = myEditor.getDocument().getCharsSequence();
+    return myHandler.isWhitespaceSensitive() ? caretOffset :
+           CharArrayUtil.shiftBackward(chars, caretOffset - 1, WHITESPACE) + 1;
+  }
+
+  private void executeFindElementForUpdatingParameterInfo(UpdateParameterInfoContext context,
+                                                          @NotNull Consumer<? super PsiElement> elementForUpdatingConsumer) {
+    runTask(myProject,
+            ReadAction
+              .nonBlocking(() -> {
+                return myHandler.findElementForUpdatingParameterInfo(context);
+              }).withDocumentsCommitted(myProject)
+              .expireWhen(() -> getCurrentOffset() != context.getOffset())
+              .coalesceBy(this)
+              .expireWith(this),
+            elementForUpdatingConsumer,
+            null,
+            myEditor);
+  }
+
+  private void executeUpdateParameterInfo(PsiElement elementForUpdating,
+                                          MyUpdateParameterInfoContext context,
+                                          Runnable continuation) {
+    PsiElement parameterOwner = context.getParameterOwner();
+    if (parameterOwner != null && !parameterOwner.equals(elementForUpdating)) {
+      context.removeHint();
+      return;
     }
-    else {
-      myHint.hide();
-      if (!myKeepOnHintHidden) {
-        Disposer.dispose(this);
-      }
-    }
+
+    runTask(myProject,
+            ReadAction.nonBlocking(() -> {
+              FileBasedIndex.getInstance().ignoreDumbMode(
+                () -> myHandler.updateParameterInfo(elementForUpdating, context), DumbModeAccessType.RELIABLE_DATA_ONLY);
+              return elementForUpdating;
+            })
+              .withDocumentsCommitted(myProject)
+              .expireWhen(() -> !myKeepOnHintHidden && !myHint.isVisible() && !ApplicationManager.getApplication().isHeadlessEnvironment() ||
+                                getCurrentOffset() != context.getOffset() ||
+                                !elementForUpdating.isValid())
+              .expireWith(this),
+            element -> {
+              if (element != null && continuation != null) {
+                context.applyUIChanges();
+                continuation.run();
+              }
+            },
+            null,
+            myEditor);
   }
 
   @HintManager.PositionFlags
@@ -348,12 +429,12 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     }
   }
 
-  public static boolean hasPrevOrNextParameter(Editor editor, int lbraceOffset, boolean isNext) {
+  static boolean hasPrevOrNextParameter(Editor editor, int lbraceOffset, boolean isNext) {
     ParameterInfoController controller = findControllerAtOffset(editor, lbraceOffset);
     return controller != null && controller.getPrevOrNextParameterOffset(isNext) != -1;
   }
 
-  public static void prevOrNextParameter(Editor editor, int lbraceOffset, boolean isNext) {
+  static void prevOrNextParameter(Editor editor, int lbraceOffset, boolean isNext) {
     ParameterInfoController controller = findControllerAtOffset(editor, lbraceOffset);
     int newOffset = controller != null ? controller.getPrevOrNextParameterOffset(isNext) : -1;
     if (newOffset != -1) {
@@ -367,27 +448,35 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     if (argsList == null && !CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION) return;
 
     if (!myHint.isVisible()) AutoPopupController.getInstance(myProject).autoPopupParameterInfo(myEditor, null);
-    
+
     offset = adjustOffsetToInlay(offset);
-    VisualPosition visualPosition = myEditor.offsetToVisualPosition(offset);
-    if (myEditor.getInlayModel().hasInlineElementAt(visualPosition)) {
-      visualPosition = new VisualPosition(visualPosition.line, visualPosition.column + 1);
-    }
-    myEditor.getCaretModel().moveToVisualPosition(visualPosition);
+    myEditor.getCaretModel().moveToOffset(offset);
     myEditor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
     myEditor.getSelectionModel().removeSelection();
     if (argsList != null) {
-      myHandler.updateParameterInfo(argsList, new MyUpdateParameterInfoContext(offset, file));
+      executeUpdateParameterInfo(argsList, new MyUpdateParameterInfoContext(offset, file), null);
     }
   }
 
   private int adjustOffsetToInlay(int offset) {
     CharSequence text = myEditor.getDocument().getImmutableCharSequence();
-    int whitespaceStart = CharArrayUtil.shiftBackward(text, offset, WHITESPACE) + 1;
-    int whitespaceEnd = CharArrayUtil.shiftForward(text, offset, WHITESPACE);
-    List<Inlay> inlays = myEditor.getInlayModel().getInlineElementsInRange(whitespaceStart, whitespaceEnd);
+    int hostWhitespaceStart = CharArrayUtil.shiftBackward(text, offset, WHITESPACE) + 1;
+    int hostWhitespaceEnd = CharArrayUtil.shiftForward(text, offset, WHITESPACE);
+    Editor hostEditor = myEditor;
+    if (myEditor instanceof EditorWindow) {
+      hostEditor = ((EditorWindow)myEditor).getDelegate();
+      hostWhitespaceStart = ((EditorWindow)myEditor).getDocument().injectedToHost(hostWhitespaceStart);
+      hostWhitespaceEnd = ((EditorWindow)myEditor).getDocument().injectedToHost(hostWhitespaceEnd);
+    }
+    List<Inlay> inlays = ParameterHintsPresentationManager.getInstance().getParameterHintsInRange(hostEditor,
+                                                                                                  hostWhitespaceStart, hostWhitespaceEnd);
     for (Inlay inlay : inlays) {
-      if (ParameterHintsPresentationManager.getInstance().isParameterHint(inlay)) return inlay.getOffset();
+      int inlayOffset = inlay.getOffset();
+      if (myEditor instanceof EditorWindow) {
+        if (((EditorWindow)myEditor).getDocument().getHostRange(inlayOffset) == null) continue;
+        inlayOffset = ((EditorWindow)myEditor).getDocument().hostToInjected(inlayOffset);
+      }
+      return inlayOffset;
     }
     return offset;
   }
@@ -396,7 +485,8 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     if (!(myHandler instanceof ParameterInfoHandlerWithTabActionSupport)) return -1;
     ParameterInfoHandlerWithTabActionSupport handler = (ParameterInfoHandlerWithTabActionSupport)myHandler;
 
-    boolean noDelimiter = handler.getActualParameterDelimiterType() == TokenType.WHITE_SPACE;
+    IElementType delimiter = handler.getActualParameterDelimiterType();
+    boolean noDelimiter = delimiter == TokenType.WHITE_SPACE;
     int caretOffset = myEditor.getCaretModel().getOffset();
     CharSequence text = myEditor.getDocument().getImmutableCharSequence();
     int offset = noDelimiter ? caretOffset : CharArrayUtil.shiftBackward(text, caretOffset - 1, WHITESPACE) + 1;
@@ -406,16 +496,14 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     if (argList == null) return -1;
 
     @SuppressWarnings("unchecked") PsiElement[] parameters = handler.getActualParameters(argList);
-    int currentParameterIndex =
-      noDelimiter ? JBIterable.of(parameters).indexOf((o) -> o.getTextRange().containsOffset(offset)) :
-      ParameterInfoUtils.getCurrentParameterIndex(argList.getNode(), offset, handler.getActualParameterDelimiterType());
+    int currentParameterIndex = getParameterIndex(parameters, delimiter, offset);
     if (CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION) {
-      if (currentParameterIndex < 0 || currentParameterIndex >= parameters.length) return -1;
+      if (currentParameterIndex < 0 || currentParameterIndex >= parameters.length && parameters.length > 0) return -1;
       if (offset >= argList.getTextRange().getEndOffset()) currentParameterIndex = isNext ? -1 : parameters.length;
       int prevOrNextParameterIndex = currentParameterIndex + (isNext ? 1 : -1);
       if (prevOrNextParameterIndex < 0 || prevOrNextParameterIndex >= parameters.length) {
         PsiElement parameterOwner = myComponent.getParameterOwner();
-        return (parameterOwner != null && parameterOwner.isValid()) ? parameterOwner.getTextRange().getEndOffset() : -1;
+        return parameterOwner != null && parameterOwner.isValid() ? parameterOwner.getTextRange().getEndOffset() : -1;
       }
       else {
         return getParameterNavigationOffset(parameters[prevOrNextParameterIndex], text);
@@ -426,6 +514,32 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
                                      !isNext && currentParameterIndex > 0 ? currentParameterIndex - 1 : -1;
       return prevOrNextParameterIndex != -1 ? parameters[prevOrNextParameterIndex].getTextRange().getStartOffset() : -1;
     }
+  }
+
+  private static int getParameterIndex(@NotNull PsiElement[] parameters, @NotNull IElementType delimiter, int offset) {
+    for (int i = 0; i < parameters.length; i++) {
+      PsiElement parameter = parameters[i];
+      TextRange textRange = parameter.getTextRange();
+      int startOffset = textRange.getStartOffset();
+      if (offset < startOffset) {
+        if (i == 0) return 0;
+        PsiElement elementInBetween = parameters[i - 1];
+        int currOffset = elementInBetween.getTextRange().getEndOffset();
+        while ((elementInBetween = PsiTreeUtil.nextLeaf(elementInBetween)) != null) {
+          if (currOffset >= startOffset) break;
+          ASTNode node = elementInBetween.getNode();
+          if (node != null && node.getElementType() == delimiter) {
+            return offset <= currOffset ? i - 1 : i;
+          }
+          currOffset += elementInBetween.getTextLength();
+        }
+        return i;
+      }
+      else if (offset <= textRange.getEndOffset()) {
+        return i;
+      }
+    }
+    return Math.max(0, parameters.length - 1);
   }
 
   private static int getParameterNavigationOffset(@NotNull PsiElement parameter, @NotNull CharSequence text) {
@@ -446,7 +560,7 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
           final ParameterInfoHandlerWithTabActionSupport parameterInfoHandler2 = (ParameterInfoHandlerWithTabActionSupport)handler;
 
           // please don't remove typecast in the following line; it's required to compile the code under old JDK 6 versions
-          final E e = (E) ParameterInfoUtils.findArgumentList(file, offset, lbraceOffset, parameterInfoHandler2);
+          final E e = ParameterInfoUtils.findArgumentList(file, offset, lbraceOffset, parameterInfoHandler2);
           if (e != null) return e;
         }
       }
@@ -491,14 +605,16 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
 
   /**
    * Returned Point is in layered pane coordinate system.
-   * Second value is a {@link com.intellij.codeInsight.hint.HintManager.PositionFlags position flag}.
+   * Second value is a {@link HintManager.PositionFlags position flag}.
    */
-  static Pair<Point, Short> chooseBestHintPosition(Project project,
-                                                   Editor editor,
+  static Pair<Point, Short> chooseBestHintPosition(Editor editor,
                                                    VisualPosition pos,
                                                    LightweightHint hint,
-                                                   boolean awtTooltip, short preferredPosition, boolean showLookupHint) {
-    if (ApplicationManager.getApplication().isUnitTestMode()) return Pair.pair(new Point(), HintManager.DEFAULT);
+                                                   LookupImpl activeLookup,
+                                                   short preferredPosition,
+                                                   boolean showLookupHint) {
+    if (ApplicationManager.getApplication().isUnitTestMode() ||
+        ApplicationManager.getApplication().isHeadlessEnvironment()) return Pair.pair(new Point(), HintManager.DEFAULT);
 
     HintManagerImpl hintManager = HintManagerImpl.getInstanceImpl();
     Dimension hintSize = hint.getComponent().getPreferredSize();
@@ -516,15 +632,53 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
       p2 = HintManagerImpl.getHintPosition(hint, editor, pos, HintManager.ABOVE);
     }
 
-    if (!awtTooltip) {
-      p1.x = Math.min(p1.x, layeredPane.getWidth() - hintSize.width);
-      p1.x = Math.max(p1.x, 0);
-      p2.x = Math.min(p2.x, layeredPane.getWidth() - hintSize.width);
-      p2.x = Math.max(p2.x, 0);
+    boolean isRealPopup = hint.isRealPopup();
+
+    boolean p1Ok, p2Ok;
+
+
+    if (!showLookupHint && activeLookup != null && activeLookup.isShown()) {
+      p1Ok = p1.y + hintSize.height + 50 < layeredPane.getHeight();
+      p2Ok = p2.y - hintSize.height - 50 >= 0;
+      Rectangle lookupBounds = activeLookup.getBounds();
+
+      if (activeLookup.isPositionedAboveCaret()) {
+        if (!p1Ok) {
+          var abovePoint = new Point(lookupBounds.x, lookupBounds.y - hintSize.height - 10);
+          SwingUtilities.convertPointToScreen(abovePoint, layeredPane);
+          var screenRectangle = new Rectangle(abovePoint, hintSize);
+          if (isFitTheScreen(screenRectangle)) {
+            // calculate if hint can be shown above lookup
+            abovePoint.move(lookupBounds.x, lookupBounds.y - hintSize.height - 10);
+            hint.setForceShowAsPopup(true);
+            return new Pair<>(abovePoint, HintManager.DEFAULT);
+          }
+        }
+      } else {
+        if (!p2Ok) {
+          var underPoint = new Point(lookupBounds.x, lookupBounds.y + lookupBounds.height + 10);
+          SwingUtilities.convertPointToScreen(underPoint, layeredPane);
+          var screenRectangle = new Rectangle(underPoint, hintSize);
+          if (isFitTheScreen(screenRectangle)) {
+            // calculate if hint can be shown under lookup
+            underPoint.move(lookupBounds.x, lookupBounds.y + lookupBounds.height + 10);
+            hint.setForceShowAsPopup(true);
+            return new Pair<>(underPoint, HintManager.DEFAULT);
+          } else {
+            hint.setForceShowAsPopup(true);
+            var abovePoint = new Point(p2.x - hintSize.width / 2, p2.y - hintSize.height);
+            return new Pair<>(abovePoint, HintManager.ABOVE);
+          }
+        }
+      }
     }
 
-    boolean p1Ok = p1.y + hintSize.height < layeredPane.getHeight();
-    boolean p2Ok = p2.y >= 0;
+    if (isRealPopup) {
+      hint.setForceShowAsPopup(false);
+    }
+
+    p1Ok = p1.y + hintSize.height < layeredPane.getHeight();
+    p2Ok = p2.y >= 0;
 
     if (!showLookupHint) {
       if (preferredPosition != HintManager.DEFAULT) {
@@ -544,18 +698,32 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     return aboveSpace > underSpace ? new Pair<>(new Point(p2.x, 0), HintManager.UNDER) : new Pair<>(p1,
                                                                                                     HintManager.ABOVE);
   }
+  private static boolean isFitTheScreen(Rectangle aRectangle){
+    int screenX = aRectangle.x + aRectangle.width / 2;
+    int screenY = aRectangle.y + aRectangle.height / 2;
+    Rectangle screen = ScreenUtil.getScreenRectangle(screenX, screenY);
+    return screen.contains(aRectangle);
+
+  }
+
 
   public static boolean areParameterTemplatesEnabledOnCompletion() {
     return Registry.is("java.completion.argument.live.template") && !CodeInsightSettings.getInstance().SHOW_PARAMETER_NAME_HINTS_ON_COMPLETION;
   }
 
-  public class MyUpdateParameterInfoContext implements UpdateParameterInfoContext {
+  private class MyUpdateParameterInfoContext implements UpdateParameterInfoContext {
     private final int myOffset;
     private final PsiFile myFile;
+    private final boolean[] enabled;
 
-    public MyUpdateParameterInfoContext(final int offset, final PsiFile file) {
+    MyUpdateParameterInfoContext(final int offset, final PsiFile file) {
       myOffset = offset;
       myFile = file;
+
+      enabled = new boolean[getObjects().length];
+      for(int i = 0; i < enabled.length; i++) {
+        enabled[i] = myComponent.isEnabled(i);
+      }
     }
 
     @Override
@@ -586,8 +754,12 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
 
     @Override
     public void removeHint() {
-      myHint.hide();
-      if (!myKeepOnHintHidden) Disposer.dispose(ParameterInfoController.this);
+      ApplicationManager.getApplication().invokeLater(() -> {
+        if (!myHint.isVisible()) return;
+
+        hideHint();
+        if (!myKeepOnHintHidden) Disposer.dispose(ParameterInfoController.this);
+      });
     }
 
     @Override
@@ -617,12 +789,12 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
 
     @Override
     public boolean isUIComponentEnabled(int index) {
-      return myComponent.isEnabled(index);
+      return enabled[index];
     }
 
     @Override
     public void setUIComponentEnabled(int index, boolean enabled) {
-      myComponent.setEnabled(index, enabled);
+      this.enabled[index] = enabled;
     }
 
     @Override
@@ -660,66 +832,165 @@ public class ParameterInfoController extends UserDataHolderBase implements Visib
     }
 
     @Override
+    public boolean isSingleParameterInfo() {
+      return mySingleParameterInfo;
+    }
+
+    @Override
     public UserDataHolderEx getCustomContext() {
       return ParameterInfoController.this;
     }
+
+    void applyUIChanges() {
+      ApplicationManager.getApplication().assertIsDispatchThread();
+
+      for (int index = 0, len = enabled.length; index < len; index++) {
+        if (enabled[index] != myComponent.isEnabled(index)) {
+          myComponent.setEnabled(index, enabled[index]);
+        }
+      }
+    }
+  }
+
+  private final class MyLazyUpdateParameterInfoContext extends MyUpdateParameterInfoContext {
+    private PsiFile myFile;
+
+    private MyLazyUpdateParameterInfoContext() {
+      super(myEditor.getCaretModel().getOffset(), null);
+    }
+
+    @Override
+    public PsiFile getFile() {
+      if (myFile == null) {
+        myFile = PsiUtilBase.getPsiFileInEditor(myEditor, myProject);
+      }
+      return myFile;
+    }
+  }
+
+  protected void hideHint() {
+    myHint.hide();
+    for (ParameterInfoListener listener : ParameterInfoListener.EP_NAME.getExtensionList()) {
+      listener.hintHidden(myProject);
+    }
+  }
+
+  public interface SignatureItemModel {
+  }
+
+  public static class RawSignatureItem implements SignatureItemModel {
+    public final String htmlText;
+
+    RawSignatureItem(String htmlText) {
+      this.htmlText = htmlText;
+    }
+  }
+
+  public static class SignatureItem implements SignatureItemModel {
+    public final String text;
+    public final boolean deprecated;
+    public final boolean disabled;
+    public final List<Integer> startOffsets;
+    public final List<Integer> endOffsets;
+
+    SignatureItem(String text,
+                  boolean deprecated,
+                  boolean disabled,
+                  List<Integer> startOffsets,
+                  List<Integer> endOffsets) {
+      this.text = text;
+      this.deprecated = deprecated;
+      this.disabled = disabled;
+      this.startOffsets = startOffsets;
+      this.endOffsets = endOffsets;
+    }
+  }
+
+  public static class Model {
+    public final List<SignatureItemModel> signatures = new ArrayList<>();
+    public int current = -1;
+    public int highlightedSignature = -1;
+    public TextRange range;
+    public Editor editor;
+    public Project project;
   }
 
   private static class MyBestLocationPointProvider  {
     private final Editor myEditor;
     private int previousOffset = -1;
+    private Rectangle previousLookupBounds;
+    private Dimension previousHintSize;
     private Point previousBestPoint;
     private Short previousBestPosition;
 
-    public MyBestLocationPointProvider(final Editor editor) {
+    MyBestLocationPointProvider(final Editor editor) {
       myEditor = editor;
     }
 
     @NotNull
     private Pair<Point, Short> getBestPointPosition(LightweightHint hint,
-                                                   final PsiElement list,
-                                                   int offset,
-                                                   VisualPosition pos,
-                                                   final boolean awtTooltip,
-                                                   short preferredPosition) {
+                                                    final PsiElement list,
+                                                    int offset,
+                                                    VisualPosition pos,
+                                                    short preferredPosition) {
       if (list != null) {
         TextRange range = list.getTextRange();
         TextRange rangeWithoutParens = TextRange.from(range.getStartOffset() + 1, Math.max(range.getLength() - 2, 0));
         if (!rangeWithoutParens.contains(offset)) {
-          if (offset < rangeWithoutParens.getStartOffset())
-            offset = rangeWithoutParens.getStartOffset();
-          else
-            offset = rangeWithoutParens.getEndOffset();
+          offset = offset < rangeWithoutParens.getStartOffset() ? rangeWithoutParens.getStartOffset() : rangeWithoutParens.getEndOffset();
           pos = null;
         }
       }
-      if (previousOffset == offset) return Pair.create(previousBestPoint, previousBestPosition);
+
+      LookupImpl activeLookup = (LookupImpl)LookupManager.getActiveLookup(myEditor);
+      Rectangle lookupBounds = !ApplicationManager.getApplication().isUnitTestMode()
+              && activeLookup != null
+              && activeLookup.isShown()
+              ? activeLookup.getBounds()
+              : null;
+
+      Dimension hintSize = hint.getSize();
+
+      boolean lookupPositionChanged = lookupBounds != null && !lookupBounds.equals(previousLookupBounds);
+      boolean hintSizeChanged = !hintSize.equals(previousHintSize);
+
+      if (previousOffset == offset && !lookupPositionChanged && !hintSizeChanged) return Pair.create(previousBestPoint, previousBestPosition);
 
       final boolean isMultiline = list != null && StringUtil.containsAnyChar(list.getText(), "\n\r");
-      if (pos == null) pos = myEditor.logicalToVisualPosition(myEditor.offsetToLogicalPosition(offset).leanForward(true));
+      Editor editor = myEditor;
+      if (pos == null) {
+        pos = EditorUtil.inlayAwareOffsetToVisualPosition(myEditor, offset);
+        // The position above is always in the host editor. If we are in an injected
+        // editor this position will likely be outside of our range and the hint position
+        // will be our range's end. To avoid that and compute hint position correctly,
+        // switch to the host editor.
+        editor = myEditor instanceof EditorWindow ? ((EditorWindow)myEditor).getDelegate() : editor;
+      }
       Pair<Point, Short> position;
 
       if (!isMultiline) {
-        position = chooseBestHintPosition(myEditor.getProject(), myEditor, pos, hint, awtTooltip, preferredPosition, false);
+        position = chooseBestHintPosition(editor, pos, hint, activeLookup, preferredPosition, false);
       }
       else {
-        Point p = HintManagerImpl.getHintPosition(hint, myEditor, pos, HintManager.ABOVE);
+        Point p = HintManagerImpl.getHintPosition(hint, editor, pos, HintManager.ABOVE);
         position = new Pair<>(p, HintManager.ABOVE);
       }
       previousBestPoint = position.getFirst();
       previousBestPosition = position.getSecond();
       previousOffset = offset;
+      previousLookupBounds = lookupBounds;
+      previousHintSize = hintSize;
       return position;
     }
   }
 
   private static class WrapperPanel extends JPanel {
-    public WrapperPanel() {
+    WrapperPanel() {
       super(new BorderLayout());
       setBorder(JBUI.Borders.empty());
     }
 
-    // foreground/background/font are used to style the popup (HintManagerImpl.createHintHint) 
+    // foreground/background/font are used to style the popup (HintManagerImpl.createHintHint)
     @Override
     public Color getForeground() {
       return getComponentCount() == 0 ? super.getForeground() : getComponent(0).getForeground();

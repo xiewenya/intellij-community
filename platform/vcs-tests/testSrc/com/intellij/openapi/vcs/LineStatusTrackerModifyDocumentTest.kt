@@ -1,23 +1,66 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs
 
+import com.intellij.openapi.vcs.LineStatusTrackerTestUtil.parseInput
 import com.intellij.openapi.vcs.ex.Range
 
 class LineStatusTrackerModifyDocumentTest : BaseLineStatusTrackerTestCase() {
+  fun testInitialEmpty() {
+    test("", "") {
+      assertRanges()
+      compareRanges()
+    }
+  }
+
+  fun testInitialEquals() {
+    test("1234_2345_3456",
+         "1234_2345_3456") {
+      assertRanges()
+      compareRanges()
+    }
+  }
+
+  fun testInitialInsertion() {
+    test("1234_2345_3456",
+         "1234_3456") {
+      assertRanges(Range(1, 2, 1, 1))
+      compareRanges()
+    }
+  }
+
+  fun testInitialDeletion() {
+    test("1234_3456", "1234_2345_3456") {
+      assertRanges(Range(1, 1, 1, 2))
+      compareRanges()
+    }
+  }
+
+  fun testInitialModification1() {
+    test("1234_x_3456", "1234_2345_3456") {
+      assertRanges(Range(1, 2, 1, 2))
+      compareRanges()
+    }
+  }
+
+  fun testInitialModification2() {
+    test("1_3_4_5_6_7", "1_2_3_5_6_12") {
+      assertRanges(Range(1, 1, 1, 2),
+                   Range(2, 3, 3, 3),
+                   Range(5, 6, 5, 6))
+      compareRanges()
+    }
+  }
+
+  fun testInitialHeuristic() {
+    test("1234567__1234567__1234567__1234567",
+         "1234567__XXXXXX__1234567__XXXXXX__1234567__XXXXXX__1234567") {
+      assertRanges(Range(2, 2, 2, 4),
+                   Range(4, 4, 6, 8),
+                   Range(6, 6, 10, 12))
+      compareRanges()
+    }
+  }
+
   fun testSimpleInsert() {
     test("1234_2345_3456") {
       "12".insertAfter("a")
@@ -738,7 +781,7 @@ class LineStatusTrackerModifyDocumentTest : BaseLineStatusTrackerTestCase() {
       tracker.doFrozen(Runnable {
         assertNull(tracker.getRanges())
 
-        tracker.setBaseRevision(parseInput("X_X_X_Z_Z"))
+        simpleTracker.setBaseRevision(parseInput("X_X_X_Z_Z"))
 
         runCommandVerify {
           document.setText(parseInput("Y_X_X_X_X_Z_Z"))
@@ -751,4 +794,22 @@ class LineStatusTrackerModifyDocumentTest : BaseLineStatusTrackerTestCase() {
     }
   }
 
+  fun testFreeze5() {
+    test("__", "") {
+      tracker.doFrozen(Runnable {
+        simpleTracker.setBaseRevision(parseInput(" 23"))
+      })
+
+      assertRanges(Range(0, 3, 0, 1))
+    }
+  }
+
+  fun testCompensatedModifications() {
+    test("X_X_X_X_X_X_X_X") {
+      (1 th "X_").insertBefore("X_")
+      (7 th "X_").delete()
+      assertTextContentIs("X_X_X_X_X_X_X_X")
+      assertRangesEmpty()
+    }
+  }
 }

@@ -29,7 +29,6 @@ import java.awt.*;
  * Current interface defines a contract for such a text drawing delegation task.
  *
  * @author Denis Zhdanov
- * @since Jul 1, 2010 8:01:30 PM
  */
 public interface TextDrawingCallback {
 
@@ -46,5 +45,5 @@ public interface TextDrawingCallback {
    * @param fontInfo  font info to use during drawing target text at the given graphics buffer
    * @param color     color to use during drawing target text at the given graphics buffer
    */
-  void drawChars(@NotNull Graphics g, @NotNull char[] data, int start, int end, int x, int y, Color color, FontInfo fontInfo);
+  void drawChars(@NotNull Graphics g, char @NotNull [] data, int start, int end, int x, int y, Color color, FontInfo fontInfo);
 }

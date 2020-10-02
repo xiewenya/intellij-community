@@ -1,32 +1,16 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.vfs.encoding.EncodingManager;
-import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.util.EnvironmentUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.Charset;
 import java.util.Locale;
 import java.util.Map;
 
-public class EncodingEnvironmentUtil {
+public final class EncodingEnvironmentUtil {
   private static final Logger LOG = Logger.getInstance(EncodingEnvironmentUtil.class);
 
   private static final String LC_ALL = "LC_ALL";
@@ -42,7 +26,7 @@ public class EncodingEnvironmentUtil {
    * <p/>
    * Unfortunately, Mac OSX has a special behavior:<br/>
    * These environment variables aren't passed to an IDE, if the IDE is launched from Spotlight.<br/>
-   * Unfortunately, even {@link EnvironmentUtil#getEnvironment()} doesn't have these variables.<p/>
+   * Unfortunately, even {@link EnvironmentUtil#getEnvironmentMap()} doesn't have these variables.<p/>
    * As a result, no encoding environment variables are passed to Ruby/Node.js/Python/other processes that are launched from IDE.
    * Thus, these processes wrongly assume that the default encoding is US-ASCII.
    * <p/>
@@ -52,6 +36,7 @@ public class EncodingEnvironmentUtil {
    *
    * @param commandLine GeneralCommandLine instance
    */
+  @Deprecated
   public static void setLocaleEnvironmentIfMac(@NotNull GeneralCommandLine commandLine) {
     if (SystemInfo.isMac && !isLocaleDefined(commandLine)) {
       setLocaleEnvironment(commandLine.getEnvironment(), commandLine.getCharset());
@@ -63,6 +48,7 @@ public class EncodingEnvironmentUtil {
    *
    * Sets default encoding on Mac if it's undefined. <br/>
    */
+  @Deprecated
   public static void setLocaleEnvironmentIfMac(@NotNull Map<String, String> env, @NotNull Charset charset) {
     if (SystemInfo.isMac && !isLocaleDefined(env)) {
       setLocaleEnvironment(env, charset);
@@ -90,23 +76,5 @@ public class EncodingEnvironmentUtil {
 
   private static boolean isLocaleDefined(@NotNull Map<String, String> env) {
     return !env.isEmpty() && (env.containsKey(LC_CTYPE) || env.containsKey(LC_ALL) || env.containsKey(LANG));
-  }
-
-  /** @deprecated use {@link #setLocaleEnvironmentIfMac(GeneralCommandLine)} instead (to be removed in IDEA 16) */
-  public static void fixDefaultEncodingIfMac(@NotNull GeneralCommandLine commandLine, @Nullable Project project) {
-    if (SystemInfo.isMac && !isLocaleDefined(commandLine)) {
-      setLocaleEnvironment(commandLine.getEnvironment(), getCharset(project));
-    }
-  }
-
-  /** @deprecated use {@link #setLocaleEnvironmentIfMac(Map, Charset)} instead (to be removed in IDEA 16) */
-  public static void fixDefaultEncodingIfMac(@NotNull Map<String, String> env, @Nullable Project project) {
-    if (SystemInfo.isMac && !isLocaleDefined(env)) {
-      setLocaleEnvironment(env, getCharset(project));
-    }
-  }
-
-  private static Charset getCharset(Project project) {
-    return (project != null ? EncodingProjectManager.getInstance(project) : EncodingManager.getInstance()).getDefaultCharset();
   }
 }

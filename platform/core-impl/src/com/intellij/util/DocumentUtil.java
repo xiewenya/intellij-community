@@ -18,7 +18,6 @@ package com.intellij.util;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.util.TextRange;
 import org.jetbrains.annotations.NotNull;
 
@@ -36,25 +35,21 @@ public final class DocumentUtil {
    * @param executeInBulk  {@code true} to force given document to be in bulk mode when given task is executed;
    *                       {@code false} to force given document to be <b>not</b> in bulk mode when given task is executed
    * @param task           task to execute
+   *
+   * @see Document#setInBulkUpdate(boolean)
    */
   public static void executeInBulk(@NotNull Document document, final boolean executeInBulk, @NotNull Runnable task) {
-    if (!(document instanceof DocumentEx)) {
+    if (executeInBulk == document.isInBulkUpdate()) {
       task.run();
       return;
     }
 
-    DocumentEx documentEx = (DocumentEx)document;
-    if (executeInBulk == documentEx.isInBulkUpdate()) {
-      task.run();
-      return;
-    }
-
-    documentEx.setInBulkUpdate(executeInBulk);
+    document.setInBulkUpdate(executeInBulk);
     try {
       task.run();
     }
     finally {
-      documentEx.setInBulkUpdate(!executeInBulk);
+      document.setInBulkUpdate(!executeInBulk);
     }
   }
 
@@ -118,8 +113,10 @@ public final class DocumentUtil {
 
   public static boolean isSurrogatePair(@NotNull Document document, int offset) {
     CharSequence text = document.getImmutableCharSequence();
-    if (offset < 0 || (offset + 1) >= text.length()) return false;
-    return Character.isSurrogatePair(text.charAt(offset), text.charAt(offset + 1));
+    return offset >= 0 &&
+           offset + 1 < text.length() &&
+           Character.isHighSurrogate(text.charAt(offset)) &&
+           Character.isLowSurrogate(text.charAt(offset + 1));
   }
 
   public static boolean isInsideSurrogatePair(@NotNull Document document, int offset) {
@@ -132,5 +129,42 @@ public final class DocumentUtil {
 
   public static int getNextCodePointOffset(@NotNull Document document, int offset) {
     return offset + (isSurrogatePair(document, offset) ? 2 : 1);
+  }
+
+  /**
+   * Tells whether given offset lies between surrogate pair characters or between characters of Windows-style line break (\r\n).
+   */
+  public static boolean isInsideCharacterPair(@NotNull Document document, int offset) {
+    if (offset <= 0 || offset >= document.getTextLength()) return false;
+    CharSequence text = document.getImmutableCharSequence();
+    char prev = text.charAt(offset - 1);
+    return prev == '\r' ? text.charAt(offset) == '\n' : Character.isHighSurrogate(prev) && Character.isLowSurrogate(text.charAt(offset));
+  }
+
+  public static boolean isLineEmpty(@NotNull Document document, final int line) {
+    final CharSequence chars = document.getCharsSequence();
+    int start = document.getLineStartOffset(line);
+    int end = Math.min(document.getLineEndOffset(line), document.getTextLength() - 1);
+    for (int i = start; i <= end; i++) {
+      if (!Character.isWhitespace(chars.charAt(i))) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Calculates indent of the line containing {@code offset}
+   * @return Whitespaces at the beginning of the line
+   */
+  public static CharSequence getIndent(@NotNull Document document, int offset) {
+    int lineOffset = getLineStartOffset(offset, document);
+    int result = 0;
+    while (lineOffset + result < document.getTextLength() &&
+           Character.isWhitespace(document.getCharsSequence().charAt(lineOffset + result))) {
+      result++;
+    }
+    if (result + lineOffset > document.getTextLength()) {
+      result--;
+    }
+    return document.getCharsSequence().subSequence(lineOffset, lineOffset + Math.max(result, 0));
   }
 }

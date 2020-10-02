@@ -15,16 +15,18 @@
  */
 package com.intellij.testGuiFramework.tests.community
 
-import com.intellij.testGuiFramework.framework.FirstStartWith
+import com.intellij.ide.projectWizard.CommandLineProjectGuiTest
 import com.intellij.testGuiFramework.framework.GuiTestSuite
+import com.intellij.testGuiFramework.framework.GuiTestSuiteRunner
 import com.intellij.testGuiFramework.framework.RunWithIde
 import com.intellij.testGuiFramework.launcher.ide.CommunityIde
-import com.intellij.testGuiFramework.launcher.ide.CommunityIdeFirstStart
+import com.intellij.testGuiFramework.tests.community.toolWindow.DockedModeGuiTest
 import org.junit.runner.RunWith
 import org.junit.runners.Suite
 
-@RunWith(GuiTestSuite::class)
+@RunWith(GuiTestSuiteRunner::class)
 @RunWithIde(CommunityIde::class)
-@FirstStartWith(CommunityIdeFirstStart::class)
-@Suite.SuiteClasses(CommandLineProjectTest::class)
-class CommunityTestSuite
+@Suite.SuiteClasses(CommandLineProjectGuiTest::class,
+                    DockedModeGuiTest::class,
+                    SaveFilesOnFrameDeactivationGuiTest::class)
+class CommunityTestSuite : GuiTestSuite()

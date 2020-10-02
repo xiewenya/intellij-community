@@ -5,6 +5,7 @@ package com.intellij.openapi.roots.impl;
 
 import com.intellij.codeInsight.daemon.impl.quickfix.LocateLibraryDialog;
 import com.intellij.codeInsight.daemon.impl.quickfix.OrderEntryFix;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.jarRepository.JarRepositoryManager;
 import com.intellij.jarRepository.RepositoryAttachDialog;
 import com.intellij.openapi.application.WriteAction;
@@ -26,6 +27,7 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.concurrency.Promises;
+import org.jetbrains.idea.maven.utils.library.RepositoryLibraryDescription;
 import org.jetbrains.idea.maven.utils.library.RepositoryLibraryProperties;
 
 import java.util.Collection;
@@ -33,9 +35,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * @author nik
- */
 public class IdeaProjectModelModifier extends JavaProjectModelModifier {
   private static final Logger LOG = Logger.getInstance(IdeaProjectModelModifier.class);
 
@@ -58,7 +57,7 @@ public class IdeaProjectModelModifier extends JavaProjectModelModifier {
   }
 
   @Override
-  public Promise<Void> addExternalLibraryDependency(@NotNull final Collection<Module> modules,
+  public Promise<Void> addExternalLibraryDependency(@NotNull final Collection<? extends Module> modules,
                                                     @NotNull final ExternalLibraryDescriptor descriptor,
                                                     @NotNull final DependencyScope scope) {
     List<String> defaultRoots = descriptor.getLibraryClassesRoots();
@@ -69,20 +68,21 @@ public class IdeaProjectModelModifier extends JavaProjectModelModifier {
       classesRoots = new LocateLibraryDialog(firstModule, defaultRoots, descriptor.getPresentableName()).showAndGetResult();
     }
     else {
-      String version = descriptor.getMinVersion();
+      String version = descriptor.getPreferredVersion();
       String mavenCoordinates = descriptor.getLibraryGroupId() + ":" +
-                                descriptor.getLibraryArtifactId() +
-                                (version != null ? ":" + version : "");
+                                descriptor.getLibraryArtifactId() + ":" +
+                                (version != null ? version : RepositoryLibraryDescription.ReleaseVersionId);
       RepositoryAttachDialog dialog = new RepositoryAttachDialog(myProject, mavenCoordinates, RepositoryAttachDialog.Mode.DOWNLOAD);
       if (!dialog.showAndGet()) {
         return Promises.rejectedPromise();
       }
 
-      RepositoryLibraryProperties libraryProperties = new RepositoryLibraryProperties(dialog.getCoordinateText(), true);
+      RepositoryLibraryProperties libraryProperties = new RepositoryLibraryProperties(dialog.getSelectedLibraryDescriptor());
       Collection<OrderRoot> roots =
         JarRepositoryManager.loadDependenciesModal(myProject, libraryProperties, dialog.getAttachSources(), dialog.getAttachJavaDoc(), dialog.getDirectoryPath(), null);
       if (roots.isEmpty()) {
-        Messages.showErrorDialog(myProject, descriptor.getPresentableName() + " was not loaded.", "Failed to Download Library");
+        Messages.showErrorDialog(myProject, JavaUiBundle.message("dialog.mesage.0.was.not.loaded", descriptor.getPresentableName()),
+                                 JavaUiBundle.message("dialog.title.failed.to.download.library"));
         return Promises.rejectedPromise();
       }
       classesRoots = roots.stream()
@@ -108,7 +108,6 @@ public class IdeaProjectModelModifier extends JavaProjectModelModifier {
           for (Module module : modules) {
             ModuleRootModificationUtil.addDependency(module, library, scope, false);
           }
-          ;
         });
       }
     }

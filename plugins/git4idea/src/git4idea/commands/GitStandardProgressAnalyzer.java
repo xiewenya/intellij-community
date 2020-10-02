@@ -19,6 +19,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.Key;
 import gnu.trove.TObjectDoubleHashMap;
 import gnu.trove.TObjectDoubleProcedure;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.regex.Matcher;
@@ -37,12 +38,13 @@ public class GitStandardProgressAnalyzer implements GitProgressAnalyzer {
 
   public static GitLineHandlerListener createListener(@NotNull final ProgressIndicator indicator) {
     final GitStandardProgressAnalyzer progressAnalyzer = new GitStandardProgressAnalyzer();
-    return new GitLineHandlerAdapter() {
+    return new GitLineHandlerListener() {
       @Override
       public void onLineAvailable(String line, Key outputType) {
         final double fraction = progressAnalyzer.analyzeProgress(line);
         if (fraction >= 0) {
           indicator.setFraction(fraction);
+          indicator.setText2(line);
         }
       }
     };
@@ -74,7 +76,7 @@ public class GitStandardProgressAnalyzer implements GitProgressAnalyzer {
     private final Pattern myPattern;
     private final double myFractionInTotal;
 
-    Operation(String pattern, double fractionInTotal) {
+    Operation(@NonNls String pattern, double fractionInTotal) {
       myPattern = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
       myFractionInTotal = fractionInTotal;
     }

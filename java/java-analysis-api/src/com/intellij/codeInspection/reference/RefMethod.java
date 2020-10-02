@@ -18,8 +18,10 @@ package com.intellij.codeInspection.reference;
 import com.intellij.codeInspection.GlobalInspectionTool;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiModifierListOwner;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UDeclaration;
 
 import java.util.Collection;
 
@@ -27,7 +29,6 @@ import java.util.Collection;
  * A node in the reference graph corresponding to a Java method.
  *
  * @author anna
- * @since 6.0
  */
 public interface RefMethod extends RefJavaElement {
   /**
@@ -141,24 +142,33 @@ public interface RefMethod extends RefJavaElement {
    * @return the list of exceptions declared but not thrown, or null if there are no
    * such exceptions.
    */
-  @Nullable PsiClass[] getUnThrownExceptions();
+  PsiClass @Nullable [] getUnThrownExceptions();
 
   /**
    * Returns the list of reference graph nodes for the method parameters.
    *
    * @return the method parameters.
    */
-  @NotNull RefParameter[] getParameters();
+  RefParameter @NotNull [] getParameters();
 
   /**
    * Returns the class to which the method belongs.
    *
    * @return the class instance.
    */
+  @Nullable
   RefClass getOwnerClass();
 
+  @Deprecated
   @Override
-  PsiModifierListOwner getElement();
+  default PsiModifierListOwner getElement() {
+    return ObjectUtils.tryCast(getPsiElement(), PsiModifierListOwner.class);
+  }
+
+  @Override
+  default UDeclaration getUastElement() {
+    throw new UnsupportedOperationException();
+  }
 
   boolean isCalledOnSubClass();
 }

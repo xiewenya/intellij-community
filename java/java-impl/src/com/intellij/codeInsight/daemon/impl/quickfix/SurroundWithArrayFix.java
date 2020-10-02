@@ -17,6 +17,8 @@
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -46,7 +48,7 @@ public class SurroundWithArrayFix extends PsiElementBaseIntentionAction {
   @Override
   @NotNull
   public String getText() {
-    return "Surround with array initialization";
+    return QuickFixBundle.message("surround.with.array.initialization");
   }
 
   @Override
@@ -65,10 +67,9 @@ public class SurroundWithArrayFix extends PsiElementBaseIntentionAction {
     if (myMethodCall == null || !myMethodCall.isValid()) {
       return myExpression == null || !myExpression.isValid() ? null : myExpression;
     }
-    final PsiElement method = myMethodCall.resolveMethod();
+    final PsiMethod method = myMethodCall.resolveMethod();
     if (method != null) {
-      final PsiMethod psiMethod = (PsiMethod)method;
-      return checkMethod(element, psiMethod);
+      return checkMethod(element, method);
     } else if (myMethodCall instanceof PsiMethodCallExpression){
       final Collection<PsiElement> psiElements = TargetElementUtil.getInstance()
         .getTargetCandidates(((PsiMethodCallExpression)myMethodCall).getMethodExpression());
@@ -93,7 +94,7 @@ public class SurroundWithArrayFix extends PsiElementBaseIntentionAction {
           final PsiType paramType = psiParameters[idx].getType();
           if (paramType instanceof PsiArrayType) {
             final PsiType expressionType = TypeConversionUtil.erasure(expression.getType());
-            if (expressionType != null && PsiTypesUtil.isDenotableType(expressionType) && expressionType != PsiType.NULL) {
+            if (expressionType != null && PsiTypesUtil.isDenotableType(expressionType, element) && expressionType != PsiType.NULL) {
               final PsiType componentType = ((PsiArrayType)paramType).getComponentType();
               if (TypeConversionUtil.isAssignable(componentType, expressionType)) {
                 return expression;
@@ -115,7 +116,7 @@ public class SurroundWithArrayFix extends PsiElementBaseIntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
     final PsiExpression expression = getExpression(element);
     assert expression != null;
     final PsiExpression toReplace = elementFactory.createExpressionFromText(getArrayCreation(expression), element);
@@ -128,5 +129,11 @@ public class SurroundWithArrayFix extends PsiElementBaseIntentionAction {
     assert expressionType != null;
     final PsiType arrayComponentType = TypeConversionUtil.erasure(expressionType);
     return "new " + arrayComponentType.getCanonicalText() + "[]{" + expression.getText()+ "}";
+  }
+
+  @Override
+  public @Nullable FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new SurroundWithArrayFix(PsiTreeUtil.findSameElementInCopy(myMethodCall, target),
+                                    PsiTreeUtil.findSameElementInCopy(myExpression, target));
   }
 }

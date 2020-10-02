@@ -18,6 +18,7 @@ package com.intellij.util.gist;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.indexing.FileBasedIndexExtension;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,9 +40,9 @@ import org.jetbrains.annotations.Nullable;
  *   <li>Gists are project-dependent.</li>
  *   <li>Gists are calculated on request for specific files, index processes all files in advance. Thus gists can be used to speed up the indexing phase and move the logic into later stages, when it's beneficial.</li>
  * </ul>
- * @since 171.*
  * @author peter
  */
+@ApiStatus.NonExtendable
 public interface VirtualFileGist<Data> {
 
   /**

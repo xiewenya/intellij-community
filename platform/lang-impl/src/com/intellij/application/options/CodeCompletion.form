@@ -3,14 +3,14 @@
   <grid id="8765f" binding="myPanel" layout-manager="GridLayoutManager" row-count="1" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
     <margin top="0" left="0" bottom="0" right="0"/>
     <constraints>
-      <xy x="17" y="22" width="356" height="423"/>
+      <xy x="17" y="22" width="591" height="438"/>
     </constraints>
     <properties>
       <enabled value="true"/>
     </properties>
     <border type="none"/>
     <children>
-      <grid id="be0ff" layout-manager="GridLayoutManager" row-count="2" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
+      <grid id="be0ff" layout-manager="GridLayoutManager" row-count="4" column-count="3" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
         <margin top="0" left="0" bottom="0" right="0"/>
         <constraints>
           <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="9" fill="0" indent="0" use-parent-layout="false"/>
@@ -21,40 +21,22 @@
           <grid id="7f988" layout-manager="GridLayoutManager" row-count="9" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
             <margin top="0" left="0" bottom="0" right="0"/>
             <constraints>
-              <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
+              <grid row="0" column="0" row-span="1" col-span="3" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
             </constraints>
             <properties/>
             <clientProperties>
               <BorderFactoryClass class="java.lang.String" value="com.intellij.ui.IdeBorderFactory$PlainSmallWithIndent"/>
               <html.disable class="java.lang.Boolean" value="false"/>
             </clientProperties>
-            <border type="none" title-resource-bundle="messages/ApplicationBundle" title-key="title.code.completion"/>
+            <border type="none"/>
             <children>
-              <component id="9c981" class="javax.swing.JCheckBox" binding="myCbOnCodeCompletion">
-                <constraints>
-                  <grid row="2" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="8" fill="0" indent="2" use-parent-layout="false"/>
-                </constraints>
-                <properties>
-                  <margin top="2" left="2" bottom="2" right="2"/>
-                  <text resource-bundle="messages/ApplicationBundle" key="checkbox.autocomplete.basic"/>
-                </properties>
-              </component>
-              <component id="8276c" class="javax.swing.JCheckBox" binding="myCbOnSmartTypeCompletion">
-                <constraints>
-                  <grid row="3" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="8" fill="0" indent="2" use-parent-layout="false"/>
-                </constraints>
-                <properties>
-                  <margin top="2" left="2" bottom="2" right="2"/>
-                  <text resource-bundle="messages/ApplicationBundle" key="checkbox.autocomplete.smart.type"/>
-                </properties>
-              </component>
               <component id="8063c" class="javax.swing.JCheckBox" binding="myCbSorting">
                 <constraints>
                   <grid row="4" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="9" fill="0" indent="0" use-parent-layout="false"/>
                 </constraints>
                 <properties>
                   <margin top="2" left="2" bottom="2" right="2"/>
-                  <text value="Sort lookup items lexicographically"/>
+                  <text resource-bundle="messages/ApplicationBundle" key="completion.option.sort.suggestions.alphabetically"/>
                 </properties>
               </component>
               <component id="51007" class="javax.swing.JLabel" binding="myAutoInsertLabel">
@@ -74,25 +56,14 @@
                   <text resource-bundle="messages/ApplicationBundle" key="editbox.auto.complete"/>
                 </properties>
               </component>
-              <grid id="f8961" layout-manager="GridLayoutManager" row-count="2" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="0">
+              <grid id="f8961" layout-manager="GridLayoutManager" row-count="1" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="0">
                 <margin top="0" left="0" bottom="0" right="0"/>
                 <constraints>
-                  <grid row="8" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
+                  <grid row="7" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
                 </constraints>
                 <properties/>
                 <border type="none"/>
                 <children>
-                  <component id="b0975" class="com.intellij.ui.components.JBLabel">
-                    <constraints>
-                      <grid row="1" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="9" fill="0" indent="2" use-parent-layout="false"/>
-                    </constraints>
-                    <properties>
-                      <componentStyle value="SMALL"/>
-                      <enabled value="true"/>
-                      <fontColor value="BRIGHTER"/>
-                      <text value="For explicitly invoked completion"/>
-                    </properties>
-                  </component>
                   <grid id="52549" layout-manager="GridBagLayout">
                     <constraints>
                       <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
@@ -133,23 +104,12 @@
                   </grid>
                 </children>
               </grid>
-              <grid id="6f2d3" layout-manager="GridLayoutManager" row-count="1" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
-                <margin top="0" left="0" bottom="0" right="0"/>
-                <constraints>
-                  <grid row="7" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="0" fill="3" indent="0" use-parent-layout="false">
-                    <minimum-size width="-1" height="4"/>
-                  </grid>
-                </constraints>
-                <properties/>
-                <border type="none"/>
-                <children/>
-              </grid>
               <component id="b0b0f" class="com.intellij.ui.components.JBCheckBox" binding="myCbSelectByChars">
                 <constraints>
                   <grid row="6" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="2" use-parent-layout="false"/>
                 </constraints>
                 <properties>
-                  <text value="Insert selected variant by typing dot, space, etc."/>
+                  <text resource-bundle="messages/ApplicationBundle" key="completion.option.insert.selected.suggestion"/>
                 </properties>
               </component>
               <grid id="ab3d3" layout-manager="GridBagLayout">
@@ -159,23 +119,98 @@
                 <properties/>
                 <border type="none"/>
                 <children>
-                  <component id="85153" class="javax.swing.JLabel">
+                  <component id="a6640" class="com.intellij.ui.components.JBCheckBox" binding="myCbMatchCase">
                     <constraints>
-                      <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="1" anchor="8" fill="0" indent="0" use-parent-layout="false"/>
-                      <gridbag weightx="0.0" weighty="1.0"/>
+                      <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="0" fill="0" indent="0" use-parent-layout="false"/>
+                      <gridbag weightx="0.0" weighty="0.0"/>
                     </constraints>
                     <properties>
-                      <horizontalAlignment value="10"/>
-                      <text resource-bundle="messages/ApplicationBundle" key="combobox.case.sensitive.completion"/>
+                      <text resource-bundle="messages/ApplicationBundle" key="completion.option.match.case"/>
                     </properties>
                   </component>
-                  <component id="fccaa" class="javax.swing.JComboBox" binding="myCaseSensitiveCombo">
+                  <component id="2b836" class="com.intellij.ui.components.JBRadioButton" binding="myFirstLetterOnly">
                     <constraints>
-                      <grid row="0" column="1" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="8" fill="0" indent="0" use-parent-layout="false"/>
-                      <gridbag top="0" left="5" bottom="0" right="0" weightx="0.0" weighty="1.0"/>
+                      <grid row="0" column="1" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="0" fill="0" indent="0" use-parent-layout="false"/>
+                      <gridbag weightx="0.0" weighty="0.0"/>
                     </constraints>
-                    <properties/>
+                    <properties>
+                      <selected value="true"/>
+                      <text resource-bundle="messages/ApplicationBundle" key="completion.option.first.letter.only"/>
+                    </properties>
                   </component>
+                  <component id="b71b7" class="com.intellij.ui.components.JBRadioButton" binding="myAllLetters">
+                    <constraints>
+                      <grid row="0" column="2" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="0" fill="0" indent="0" use-parent-layout="false"/>
+                      <gridbag weightx="0.0" weighty="0.0"/>
+                    </constraints>
+                    <properties>
+                      <text resource-bundle="messages/ApplicationBundle" key="completion.option.all.letters"/>
+                    </properties>
+                  </component>
+                </children>
+              </grid>
+              <grid id="e7f70" binding="myCbOnCodeCompletionPanel" layout-manager="GridLayoutManager" row-count="1" column-count="3" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
+                <margin top="0" left="0" bottom="0" right="0"/>
+                <constraints>
+                  <grid row="2" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
+                </constraints>
+                <properties/>
+                <border type="none"/>
+                <children>
+                  <component id="9c981" class="javax.swing.JCheckBox" binding="myCbOnCodeCompletion">
+                    <constraints>
+                      <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="8" fill="0" indent="2" use-parent-layout="false"/>
+                    </constraints>
+                    <properties>
+                      <margin top="2" left="2" bottom="2" right="2"/>
+                      <text resource-bundle="messages/ApplicationBundle" key="checkbox.autocomplete.basic"/>
+                    </properties>
+                  </component>
+                  <component id="8b80b" class="com.intellij.ui.components.JBLabel" binding="myBasicShortcut">
+                    <constraints>
+                      <grid row="0" column="1" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="0" fill="0" indent="0" use-parent-layout="false"/>
+                    </constraints>
+                    <properties>
+                      <text value="Ctrl+Space" noi18n="true"/>
+                    </properties>
+                  </component>
+                  <hspacer id="dc00d">
+                    <constraints>
+                      <grid row="0" column="2" row-span="1" col-span="1" vsize-policy="1" hsize-policy="6" anchor="0" fill="1" indent="0" use-parent-layout="false"/>
+                    </constraints>
+                  </hspacer>
+                </children>
+              </grid>
+              <grid id="d12fa" binding="myCbOnSmartTypeCompletionPanel" layout-manager="GridLayoutManager" row-count="1" column-count="3" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
+                <margin top="0" left="0" bottom="0" right="0"/>
+                <constraints>
+                  <grid row="3" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
+                </constraints>
+                <properties/>
+                <border type="none"/>
+                <children>
+                  <component id="8276c" class="javax.swing.JCheckBox" binding="myCbOnSmartTypeCompletion">
+                    <constraints>
+                      <grid row="0" column="0" row-span="1" col-span="1" vsize-policy="0" hsize-policy="3" anchor="8" fill="0" indent="2" use-parent-layout="false"/>
+                    </constraints>
+                    <properties>
+                      <margin top="2" left="2" bottom="2" right="2"/>
+                      <text resource-bundle="messages/ApplicationBundle" key="checkbox.autocomplete.smart.type"/>
+                    </properties>
+                  </component>
+                  <component id="4e971" class="com.intellij.ui.components.JBLabel" binding="mySmartShortcut">
+                    <constraints>
+                      <grid row="0" column="1" row-span="1" col-span="1" vsize-policy="0" hsize-policy="0" anchor="0" fill="0" indent="0" use-parent-layout="false"/>
+                    </constraints>
+                    <properties>
+                      <text value="Ctrl+Shift+Space" noi18n="true"/>
+                    </properties>
+                  </component>
+                  <hspacer id="9ec23">
+                    <constraints>
+                      <grid row="0" column="2" row-span="1" col-span="1" vsize-policy="1" hsize-policy="6" anchor="0" fill="1" indent="0" use-parent-layout="false"/>
+                    </constraints>
+                  </hspacer>
                 </children>
               </grid>
             </children>
@@ -183,7 +218,7 @@
           <grid id="8dae3" layout-manager="GridLayoutManager" row-count="3" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
             <margin top="0" left="0" bottom="0" right="0"/>
             <constraints>
-              <grid row="1" column="0" row-span="1" col-span="1" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
+              <grid row="2" column="0" row-span="1" col-span="3" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="false"/>
             </constraints>
             <properties/>
             <clientProperties>
@@ -252,8 +287,33 @@
               </grid>
             </children>
           </grid>
+          <grid id="4ae92" binding="myAddonPanelAfter" layout-manager="GridLayoutManager" row-count="1" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
+            <margin top="0" left="0" bottom="0" right="0"/>
+            <constraints>
+              <grid row="3" column="0" row-span="1" col-span="3" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="true"/>
+            </constraints>
+            <properties/>
+            <border type="none"/>
+            <children/>
+          </grid>
+          <grid id="ad008" binding="myAddonPanelBefore" layout-manager="GridLayoutManager" row-count="1" column-count="1" same-size-horizontally="false" same-size-vertically="false" hgap="-1" vgap="-1">
+            <margin top="0" left="0" bottom="0" right="0"/>
+            <constraints>
+              <grid row="1" column="0" row-span="1" col-span="3" vsize-policy="3" hsize-policy="3" anchor="0" fill="3" indent="0" use-parent-layout="true"/>
+            </constraints>
+            <properties/>
+            <border type="none"/>
+            <children/>
+          </grid>
         </children>
       </grid>
     </children>
   </grid>
+  <buttonGroups>
+    <group name="myCaseSensitive">
+      <member id="2b836"/>
+      <member id="2b836"/>
+      <member id="b71b7"/>
+    </group>
+  </buttonGroups>
 </form>

@@ -16,13 +16,13 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class IteratorNextDoesNotThrowNoSuchElementExceptionInspectionTest extends LightInspectionTestCase {
+public class IteratorNextDoesNotThrowNoSuchElementExceptionInspectionTest extends LightJavaInspectionTestCase {
 
   public void testPrevious() {
     doTest("import java.util.*;" +
@@ -90,6 +90,25 @@ public class IteratorNextDoesNotThrowNoSuchElementExceptionInspectionTest extend
            "  }" +
            "  public void remove() {}" +
            "}");
+  }
+
+  public void testInsideAnonymous() {
+    doTest("import java.util.*;" +
+           "class A<T> {{" +
+           "Iterator<T> i = new Iterator<T>() {" +
+           "  Enumeration<T> myEnumeration;" +
+           "  public boolean hasNext() {" +
+           "    return myEnumeration.hasMoreElements();" +
+           "  }" +
+           "  public T next() {" +
+           "    if (this.hasNext()) {\n" +
+           "      return null;\n" +
+           "    }\n" +
+           "    throw new NoSuchElementException();" +
+           "  }" +
+           "  public void remove() {}" +
+           "};" +
+           "}}");
   }
 
   @Nullable

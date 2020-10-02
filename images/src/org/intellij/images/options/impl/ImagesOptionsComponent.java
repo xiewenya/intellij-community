@@ -29,6 +29,7 @@ import com.intellij.ui.ColorPanel;
 import com.intellij.ui.DocumentAdapter;
 import org.intellij.images.ImagesBundle;
 import org.intellij.images.options.*;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -37,7 +38,6 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.Position;
-import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -58,18 +58,6 @@ final class ImagesOptionsComponent {
   private JCheckBox showChessboard;
   private JSpinner chessboardSize;
   private JLabel chessboardSizeLabel;
-  private JCheckBox wheelZooming;
-  private JCheckBox smartZooming;
-  private JSpinner smartZoomingWidth;
-  private JLabel smartZoomingWidthLabel;
-  private JSpinner smartZoomingHeight;
-  private JLabel smartZoomingHeightLabel;
-  private JLabel gridLineColorLabel;
-  private ColorPanel gridLineColor;
-  private JLabel chessboardWhiteColorLabel;
-  private JLabel chessboardBlackColorLabel;
-  private ColorPanel chessboardBlackColor;
-  private ColorPanel chessboardWhiteColor;
   private JLabel externalEditorLabel;
   private TextFieldWithBrowseButton externalEditorPath;
 
@@ -77,33 +65,16 @@ final class ImagesOptionsComponent {
   private final Options options = new OptionsImpl();
 
   ImagesOptionsComponent() {
-
-    wheelZooming.setText(ImagesBundle.message("enable.mousewheel.zooming", SystemInfo.isMac ? "Cmd" : "Ctrl"));
-      
     // Setup labels
     gridLineZoomFactorLabel.setLabelFor(gridLineZoomFactor);
     gridLineSpanLabel.setLabelFor(gridLineSpan);
     chessboardSizeLabel.setLabelFor(chessboardSize);
-    smartZoomingWidthLabel.setLabelFor(smartZoomingWidth);
-    smartZoomingHeightLabel.setLabelFor(smartZoomingHeight);
-    gridLineColorLabel.setLabelFor(gridLineColor);
-    chessboardWhiteColorLabel.setLabelFor(chessboardWhiteColor);
-    chessboardBlackColorLabel.setLabelFor(chessboardBlackColor);
     externalEditorLabel.setLabelFor(externalEditorPath);
 
-    // Setup listeners for enabling and disabling linked checkbox groups
-    smartZooming.addItemListener(new LinkEnabledListener(new JComponent[]{
-      smartZoomingHeightLabel,
-      smartZoomingHeight,
-      smartZoomingWidthLabel,
-      smartZoomingWidth,
-    }));
     // Setup spinners models
     gridLineZoomFactor.setModel(new SpinnerNumberModel(GridOptions.DEFAULT_LINE_ZOOM_FACTOR, 2, 8, 1));
     gridLineSpan.setModel(new SpinnerNumberModel(GridOptions.DEFAULT_LINE_SPAN, 1, 100, 1));
     chessboardSize.setModel(new SpinnerNumberModel(TransparencyChessboardOptions.DEFAULT_CELL_SIZE, 1, 100, 1));
-    smartZoomingWidth.setModel(new SpinnerNumberModel(ZoomOptions.DEFAULT_PREFFERED_SIZE.width, 1, 9999, 1));
-    smartZoomingHeight.setModel(new SpinnerNumberModel(ZoomOptions.DEFAULT_PREFFERED_SIZE.height, 1, 9999, 1));
 
     // Setup listeners for chnages
     showGrid.addItemListener(new CheckboxOptionsListener(GridOptions.ATTR_SHOW_DEFAULT));
@@ -111,13 +82,6 @@ final class ImagesOptionsComponent {
     gridLineSpan.addChangeListener(new SpinnerOptionsListener(GridOptions.ATTR_LINE_SPAN));
     showChessboard.addItemListener(new CheckboxOptionsListener(TransparencyChessboardOptions.ATTR_SHOW_DEFAULT));
     chessboardSize.addChangeListener(new SpinnerOptionsListener(TransparencyChessboardOptions.ATTR_CELL_SIZE));
-    wheelZooming.addItemListener(new CheckboxOptionsListener(ZoomOptions.ATTR_WHEEL_ZOOMING));
-    smartZooming.addItemListener(new CheckboxOptionsListener(ZoomOptions.ATTR_SMART_ZOOMING));
-    smartZoomingWidth.addChangeListener(new SpinnerOptionsListener(ZoomOptions.ATTR_PREFFERED_WIDTH));
-    smartZoomingHeight.addChangeListener(new SpinnerOptionsListener(ZoomOptions.ATTR_PREFFERED_HEIGHT));
-    gridLineColor.addActionListener(new ColorOptionsListener(GridOptions.ATTR_LINE_COLOR));
-    chessboardWhiteColor.addActionListener(new ColorOptionsListener(TransparencyChessboardOptions.ATTR_WHITE_COLOR));
-    chessboardBlackColor.addActionListener(new ColorOptionsListener(TransparencyChessboardOptions.ATTR_BLACK_COLOR));
     externalEditorPath.getTextField().getDocument()
       .addDocumentListener(new TextDocumentOptionsListener(ExternalEditorOptions.ATTR_EXECUTABLE_PATH));
 
@@ -137,6 +101,7 @@ final class ImagesOptionsComponent {
       this.children = children.clone();
     }
 
+    @Override
     public void itemStateChanged(ItemEvent e) {
       setSelected(e.getStateChange() == ItemEvent.SELECTED);
     }
@@ -148,6 +113,7 @@ final class ImagesOptionsComponent {
     }
   }
 
+  @NotNull
   public Options getOptions() {
     return options;
   }
@@ -161,28 +127,21 @@ final class ImagesOptionsComponent {
     showGrid.setSelected(gridOptions.isShowDefault());
     gridLineZoomFactor.setValue(gridOptions.getLineZoomFactor());
     gridLineSpan.setValue(gridOptions.getLineSpan());
-    gridLineColor.setSelectedColor(gridOptions.getLineColor());
     TransparencyChessboardOptions transparencyChessboardOptions = editorOptions.getTransparencyChessboardOptions();
     showChessboard.setSelected(transparencyChessboardOptions.isShowDefault());
     chessboardSize.setValue(transparencyChessboardOptions.getCellSize());
-    chessboardWhiteColor.setSelectedColor(transparencyChessboardOptions.getWhiteColor());
-    chessboardBlackColor.setSelectedColor(transparencyChessboardOptions.getBlackColor());
-    ZoomOptions zoomOptions = editorOptions.getZoomOptions();
-    wheelZooming.setSelected(zoomOptions.isWheelZooming());
-    smartZooming.setSelected(zoomOptions.isSmartZooming());
-    Dimension prefferedSize = zoomOptions.getPrefferedSize();
-    smartZoomingWidth.setValue(prefferedSize.width);
-    smartZoomingHeight.setValue(prefferedSize.height);
     externalEditorPath.setText(externalEditorOptions.getExecutablePath());
   }
 
   private final class CheckboxOptionsListener implements ItemListener {
+    @NotNull
     private final String name;
 
-    private CheckboxOptionsListener(String name) {
+    private CheckboxOptionsListener(@NotNull String name) {
       this.name = name;
     }
 
+    @Override
     @SuppressWarnings({"UnnecessaryBoxing"})
     public void itemStateChanged(ItemEvent e) {
       options.setOption(name, Boolean.valueOf(ItemEvent.SELECTED == e.getStateChange()));
@@ -196,6 +155,7 @@ final class ImagesOptionsComponent {
       this.name = name;
     }
 
+    @Override
     public void stateChanged(ChangeEvent e) {
       JSpinner source = (JSpinner)e.getSource();
       options.setOption(name, source.getValue());
@@ -209,6 +169,7 @@ final class ImagesOptionsComponent {
       this.name = name;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       ColorPanel source = (ColorPanel)e.getSource();
       options.setOption(name, source.getSelectedColor());
@@ -218,11 +179,12 @@ final class ImagesOptionsComponent {
   private final class TextDocumentOptionsListener extends DocumentAdapter {
     private final String name;
 
-    public TextDocumentOptionsListener(String name) {
+    TextDocumentOptionsListener(String name) {
       this.name = name;
     }
 
-    protected void textChanged(DocumentEvent documentEvent) {
+    @Override
+    protected void textChanged(@NotNull DocumentEvent documentEvent) {
       Document document = documentEvent.getDocument();
       Position startPosition = document.getStartPosition();
       try {
@@ -235,6 +197,7 @@ final class ImagesOptionsComponent {
   }
 
   private final class ExternalEditorPathActionListener implements ActionListener {
+    @Override
     public void actionPerformed(ActionEvent e) {
       Application application = ApplicationManager.getApplication();
       VirtualFile previous = application.runWriteAction((NullableComputable<VirtualFile>)() -> {

@@ -15,11 +15,12 @@
  */
 package com.intellij.projectImport;
 
-import com.intellij.ide.IdeBundle;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.ElementsChooser;
 import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.uiDesigner.core.GridConstraints;
@@ -40,13 +41,15 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
 
   public SelectImportedProjectsStep(WizardContext context) {
     super(context);
-    fileChooser = new ElementsChooser<T>(true) {
+    fileChooser = new ElementsChooser<>(true) {
+      @Override
       protected String getItemText(@NotNull T item) {
         return getElementText(item);
       }
 
+      @Override
       protected Icon getItemIcon(@NotNull final T item) {
-        return getElementIcon (item);
+        return getElementIcon(item);
       }
     };
 
@@ -59,13 +62,13 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
 
     final AnAction selectAllAction = new AnAction(RefactoringBundle.message("select.all.button")) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         fileChooser.setAllElementsMarked(true);
       }
     };
     final AnAction unselectAllAction = new AnAction(RefactoringBundle.message("unselect.all.button")) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         fileChooser.setAllElementsMarked(false);
       }
     };
@@ -75,7 +78,7 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
                                                  GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW,
                                                  GridConstraints.SIZEPOLICY_CAN_SHRINK, null, null, null));
 
-    openModuleSettingsCheckBox = new JCheckBox(IdeBundle.message("project.import.show.settings.after"));
+    openModuleSettingsCheckBox = new JCheckBox(JavaUiBundle.message("project.import.show.settings.after"));
     panel.add(openModuleSettingsCheckBox, new GridConstraints(2, 0, 1, 1, GridConstraints.ANCHOR_SOUTH, GridConstraints.FILL_HORIZONTAL,
                                                               GridConstraints.SIZEPOLICY_CAN_SHRINK | GridConstraints.SIZEPOLICY_WANT_GROW,
                                                               GridConstraints.SIZEPOLICY_FIXED, null, null, null));
@@ -83,11 +86,12 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
 
   @Nullable
   protected Icon getElementIcon(final T item) {
-    return null;    
+    return null;
   }
 
-  protected abstract String getElementText(final T item);
+  protected abstract @NlsSafe String getElementText(final T item);
 
+  @Override
   public JComponent getComponent() {
     return panel;
   }
@@ -96,6 +100,7 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
     return true;
   }
 
+  @Override
   public void updateStep() {
     fileChooser.clear();
     for (T element : getContext().getList()) {
@@ -107,20 +112,24 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
     }
 
     fileChooser.setBorder(IdeBorderFactory.createTitledBorder(
-      IdeBundle.message("project.import.select.title", getContext().getName()), false));
+      JavaUiBundle.message("project.import.select.title", getContext().getName()), false));
     openModuleSettingsCheckBox.setSelected(getBuilder().isOpenProjectSettingsAfter());
   }
 
+  @Override
   public boolean validate() throws ConfigurationException {
     getContext().setList(fileChooser.getMarkedElements());
     if (fileChooser.getMarkedElements().size() == 0) {
-      throw new ConfigurationException("Nothing found to import", "Unable to proceed");
+      throw new ConfigurationException(JavaUiBundle.message("select.imported.projects.dialog.message.nothing.found"),
+                                       JavaUiBundle.message("select.imported.projects.dialog.title.unable.to.proceed"));
     }
     return true;
   }
 
+  @Override
   public void updateDataModel() {}
 
+  @Override
   public void onStepLeaving() {
     super.onStepLeaving();
     getContext().setOpenProjectSettingsAfter(openModuleSettingsCheckBox.isSelected());
@@ -130,4 +139,3 @@ public abstract class SelectImportedProjectsStep<T> extends ProjectImportWizardS
     return getBuilder();
   }
 }
-

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.annotator.intentions;
 
 import com.intellij.ide.util.SuperMethodWarningUtil;
@@ -24,7 +10,6 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.changeSignature.JavaChangeSignatureDialog;
 import com.intellij.refactoring.changeSignature.ParameterInfoImpl;
 import com.intellij.util.IncorrectOperationException;
@@ -47,6 +32,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static com.intellij.refactoring.changeSignature.ParameterInfo.NEW_PARAMETER;
+
 /**
  * @author Max Medvedev
  */
@@ -60,14 +47,14 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
 
   @NotNull
   @Override
-  public String getText() {
-    return GroovyBundle.message("create.parameter.from.usage", myName);
+  public String getFamilyName() {
+    return GroovyBundle.message("create.parameter.from.usage.family.name");
   }
 
   @NotNull
   @Override
-  public String getFamilyName() {
-    return GroovyBundle.message("create.from.usage.family.name");
+  public String getText() {
+    return GroovyBundle.message("create.parameter.from.usage", myName);
   }
 
   @Override
@@ -110,21 +97,22 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
 
     if (scopes.size() == 1) {
       final GrMethod owner = scopes.get(0);
-      final PsiMethod toSearchFor;
-      toSearchFor = SuperMethodWarningUtil.checkSuperMethod(owner, RefactoringBundle.message("to.refactor"));
+      final PsiMethod toSearchFor = SuperMethodWarningUtil.checkSuperMethod(owner);
       if (toSearchFor == null) return; //if it is null, refactoring was canceled
       showDialog(toSearchFor, ref, project);
     }
     else if (scopes.size() > 1) {
       myEnclosingMethodsPopup = MethodOrClosureScopeChooser.create(scopes, editor, this, (owner, element) -> {
-        showDialog((PsiMethod)owner, ref, project);
+        if (owner != null) {
+          showDialog((PsiMethod)owner, ref, project);
+        }
         return null;
       });
       myEnclosingMethodsPopup.showInBestPositionFor(editor);
     }
   }
 
-  private static void showDialog(final PsiMethod method, final GrReferenceExpression ref, final Project project) {
+  private static void showDialog(@NotNull PsiMethod method, @NotNull GrReferenceExpression ref, @NotNull Project project) {
     final String name = ref.getReferenceName();
     final List<PsiType> types = GroovyExpectedTypesProvider.getDefaultExpectedTypes(ref);
 
@@ -140,10 +128,13 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
       dialog.setParameterInfos(parameters);
       dialog.show();
     }
-    else if (method != null) {
+    else {
       JavaChangeSignatureDialog dialog = new JavaChangeSignatureDialog(project, method, false, ref);
       final List<ParameterInfoImpl> parameterInfos = new ArrayList<>(Arrays.asList(ParameterInfoImpl.fromMethod(method)));
-      ParameterInfoImpl parameterInfo = new ParameterInfoImpl(-1, name, type, PsiTypesUtil.getDefaultValueOfType(type), false);
+      ParameterInfoImpl parameterInfo = ParameterInfoImpl.createNew()
+        .withName(name)
+        .withType(type)
+        .withDefaultValue(PsiTypesUtil.getDefaultValueOfType(type));
       if (!method.isVarArgs()) {
         parameterInfos.add(parameterInfo);
       }
@@ -158,7 +149,7 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
   private static GrParameterInfo createParameterInfo(String name, PsiType type) {
     String notNullName = name != null ? name : "";
     String defaultValueText = GroovyToJavaGenerator.getDefaultValueText(type.getCanonicalText());
-    return new GrParameterInfo(notNullName, defaultValueText, "", type, -1, false);
+    return new GrParameterInfo(notNullName, defaultValueText, "", type, NEW_PARAMETER, false);
   }
 
   @Override

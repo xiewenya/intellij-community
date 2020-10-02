@@ -5,6 +5,7 @@ import com.intellij.codeInsight.editorActions.FixDocCommentAction;
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.ide.util.PackageUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.java.JavaDocumentationProvider;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -25,6 +26,9 @@ public class AddJavadocIntention extends BaseElementAtCaretIntentionAction imple
         element instanceof PsiJavaCodeReferenceElement ||
         element instanceof PsiJavaModuleReferenceElement) {
       PsiElement targetElement = PsiTreeUtil.skipParentsOfType(element, PsiIdentifier.class, PsiJavaCodeReferenceElement.class, PsiJavaModuleReferenceElement.class);
+      if (targetElement instanceof PsiVariable && PsiTreeUtil.isAncestor(((PsiVariable)targetElement).getInitializer(), element, false)) {
+        return false;
+      }
       if (targetElement instanceof PsiJavaDocumentedElement &&
           !(targetElement instanceof PsiTypeParameter) &&
           !(targetElement instanceof PsiAnonymousClass)) {
@@ -46,7 +50,7 @@ public class AddJavadocIntention extends BaseElementAtCaretIntentionAction imple
   @Override
   public String getFamilyName() {
     //noinspection DialogTitleCapitalization
-    return "Add Javadoc";
+    return JavaBundle.message("intention.family.add.javadoc");
   }
 
   @NotNull

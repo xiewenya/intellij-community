@@ -15,21 +15,23 @@
  */
 package com.intellij.application;
 
+import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.Experiments;
 import com.intellij.openapi.project.DumbAwareAction;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class ShowExperimentsAction extends DumbAwareAction {
+public class ShowExperimentsAction extends DumbAwareAction implements LightEditCompatible {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     new ExperimentsDialog(e.getProject()).show();
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     boolean hasExperimentalFeatures = Experiments.EP_NAME.getExtensions().length > 0;
     e.getPresentation().setEnabledAndVisible(hasExperimentalFeatures);
   }

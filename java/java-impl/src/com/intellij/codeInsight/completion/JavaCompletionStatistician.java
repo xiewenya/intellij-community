@@ -23,7 +23,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.statistics.JavaStatisticsManager;
 import com.intellij.psi.statistics.StatisticsInfo;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.patterns.PsiJavaPatterns.psiElement;
@@ -35,13 +35,14 @@ public class JavaCompletionStatistician extends CompletionStatistician{
   private static final ElementPattern<PsiElement> SUPER_CALL = psiElement().afterLeaf(psiElement().withText(".").afterLeaf(PsiKeyword.SUPER));
 
   @Override
-  public StatisticsInfo serialize(final LookupElement element, final CompletionLocation location) {
+  public StatisticsInfo serialize(@NotNull final LookupElement element, @NotNull final CompletionLocation location) {
     Object o = element.getObject();
 
     if (o instanceof PsiLocalVariable || o instanceof PsiParameter || 
         o instanceof PsiThisExpression || o instanceof PsiKeyword || 
         element.getUserData(JavaCompletionUtil.SUPER_METHOD_PARAMETERS) != null ||
-        FunctionalExpressionCompletionProvider.isFunExprItem(element)) {
+        FunctionalExpressionCompletionProvider.isFunExprItem(element) ||
+        element.as(StreamConversion.StreamMethodInvocation.class) != null) {
       return StatisticsInfo.EMPTY;
     }
 
@@ -50,7 +51,9 @@ public class JavaCompletionStatistician extends CompletionStatistician{
     }
 
     PsiElement position = location.getCompletionParameters().getPosition();
-    if (SUPER_CALL.accepts(position) || ReferenceExpressionCompletionContributor.IN_SWITCH_LABEL.accepts(position)) {
+    if (SUPER_CALL.accepts(position) ||
+        JavaCompletionContributor.IN_SWITCH_LABEL.accepts(position) ||
+        PreferByKindWeigher.isComparisonRhs(position)) {
       return StatisticsInfo.EMPTY;
     }
 
@@ -66,10 +69,7 @@ public class JavaCompletionStatistician extends CompletionStatistician{
   }
 
   private static boolean isInEnumAnnotationParameter(PsiElement position, ExpectedTypeInfo firstInfo) {
-    if (PsiTreeUtil.getParentOfType(position, PsiNameValuePair.class) == null) return false;
-    
-    PsiClass expectedClass = PsiUtil.resolveClassInType(firstInfo.getType());
-    return expectedClass != null && expectedClass.isEnum();
+    return PsiTreeUtil.getParentOfType(position, PsiNameValuePair.class) != null && PreferByKindWeigher.isEnumClass(firstInfo);
   }
 
   @Nullable

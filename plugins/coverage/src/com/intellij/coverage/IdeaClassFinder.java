@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.coverage;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -18,16 +19,13 @@ import java.util.Collection;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/**
-* @author anna
-*/
-class IdeaClassFinder extends ClassFinder {
+final class IdeaClassFinder extends ClassFinder {
   private static final Logger LOG = Logger.getInstance(IdeaClassFinder.class);
 
   private final Project myProject;
   private final CoverageSuitesBundle myCurrentSuite;
 
-  public IdeaClassFinder(Project project, CoverageSuitesBundle currentSuite) {
+  IdeaClassFinder(Project project, CoverageSuitesBundle currentSuite) {
     super(obtainPatternsFromSuite(currentSuite), new ArrayList());
     myProject = project;
     myCurrentSuite = currentSuite;

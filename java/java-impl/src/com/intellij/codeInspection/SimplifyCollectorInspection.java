@@ -1,11 +1,11 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.impl.PsiDiamondTypeUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
@@ -18,9 +18,6 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Tagir Valeev
- */
 public class SimplifyCollectorInspection extends AbstractBaseJavaLocalInspectionTool {
   @NotNull
   @Override
@@ -49,7 +46,7 @@ public class SimplifyCollectorInspection extends AbstractBaseJavaLocalInspection
         if (isCollectorMethod(downstream, "maxBy", "minBy", "reducing") &&
             downstream.getArgumentList().getExpressionCount() == 1) {
           String replacement = nameElement.getText().equals("groupingBy") ? "toMap" : "toConcurrentMap";
-          holder.registerProblem(nameElement, InspectionsBundle.message("inspection.simplify.collector.message", replacement),
+          holder.registerProblem(nameElement, JavaBundle.message("inspection.simplify.collector.message", replacement),
                                  new SimplifyCollectorFix(replacement));
         }
       }
@@ -100,7 +97,7 @@ public class SimplifyCollectorInspection extends AbstractBaseJavaLocalInspection
   private static class SimplifyCollectorFix implements LocalQuickFix {
     private final String myMethodName;
 
-    public SimplifyCollectorFix(String methodName) {
+    SimplifyCollectorFix(String methodName) {
       myMethodName = methodName;
     }
 
@@ -108,14 +105,14 @@ public class SimplifyCollectorInspection extends AbstractBaseJavaLocalInspection
     @NotNull
     @Override
     public String getName() {
-      return InspectionsBundle.message("inspection.simplify.collector.fix.name", myMethodName);
+      return JavaBundle.message("inspection.simplify.collector.fix.name", myMethodName);
     }
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return InspectionsBundle.message("inspection.simplify.collector.fix.family.name");
+      return JavaBundle.message("inspection.simplify.collector.fix.family.name");
     }
 
     @Override
@@ -162,7 +159,7 @@ public class SimplifyCollectorInspection extends AbstractBaseJavaLocalInspection
       String replacement = StreamEx.of(keyMapper, valueMapper, merger, mapSupplier).nonNull()
         .joining(",", CommonClassNames.JAVA_UTIL_STREAM_COLLECTORS + "." + myMethodName + "(", ")");
       PsiElement result = ct.replaceAndRestoreComments(call, replacement);
-      PsiDiamondTypeUtil.removeRedundantTypeArguments(result);
+      RemoveRedundantTypeArgumentsUtil.removeRedundantTypeArguments(result);
       result = JavaCodeStyleManager.getInstance(project).shortenClassReferences(result);
       CodeStyleManager.getInstance(project).reformat(result);
     }

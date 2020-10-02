@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.core;
 
 import com.intellij.configurationStore.DefaultStateSerializerKt;
@@ -24,11 +10,12 @@ import com.intellij.openapi.components.impl.stores.FileStorageCoreUtil;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.impl.ProjectRootManagerImpl;
+import com.intellij.openapi.roots.impl.libraries.LibraryStateSplitter;
 import com.intellij.openapi.roots.impl.libraries.LibraryTableBase;
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable;
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.project.ProjectKt;
-import com.intellij.util.JdomKt;
 import org.jdom.Element;
 import org.jdom.JDOMException;
 import org.jetbrains.annotations.NotNull;
@@ -40,7 +27,7 @@ import java.util.Map;
 /**
  * @author yole
  */
-public class CoreProjectLoader {
+public final class CoreProjectLoader {
   public static boolean loadProject(MockProject project, @NotNull VirtualFile virtualFile) throws IOException, JDOMException {
     VirtualFile ideaDir = ProjectKt.getProjectStoreDirectory(virtualFile);
     if (ideaDir != null) {
@@ -76,19 +63,17 @@ public class CoreProjectLoader {
       ((ProjectRootManagerImpl)ProjectRootManager.getInstance(project)).loadState(projectRootManagerState);
     }
 
-    VirtualFile libraries = dotIdea.findChild("libraries");
-    if (libraries != null) {
-      Map<String, Element> data = DirectoryStorageUtil.loadFrom(libraries, PathMacroManager.getInstance(project));
-      Element libraryTable = DefaultStateSerializerKt.deserializeState(DirectoryStorageUtil.getCompositeState(data, new ProjectLibraryTable.LibraryStateSplitter()), Element.class, null);
-      ((LibraryTableBase) ProjectLibraryTable.getInstance(project)).loadState(libraryTable);
+    Map<String, Element> data = DirectoryStorageUtil.loadFrom(dotIdea.toNioPath().resolve("libraries"), PathMacroManager.getInstance(project));
+    if (!data.isEmpty()) {
+      Element libraryTable = DefaultStateSerializerKt.deserializeState(DirectoryStorageUtil.getCompositeState(data, new LibraryStateSplitter()), Element.class, null);
+      ((LibraryTableBase)LibraryTablesRegistrar.getInstance().getLibraryTable(project)).loadState(libraryTable);
     }
 
     moduleManager.loadModules();
     project.projectOpened();
   }
 
-  @NotNull
-  static Map<String, Element> loadStorageFile(@NotNull ComponentManager componentManager, @NotNull VirtualFile modulesXml) throws JDOMException, IOException {
-    return FileStorageCoreUtil.load(JdomKt.loadElement(modulesXml.getInputStream()), PathMacroManager.getInstance(componentManager));
+  static @NotNull Map<String, Element> loadStorageFile(@NotNull ComponentManager componentManager, @NotNull VirtualFile modulesXml) throws JDOMException, IOException {
+    return FileStorageCoreUtil.load(JDOMUtil.load(modulesXml.getInputStream()), PathMacroManager.getInstance(componentManager), false);
   }
 }

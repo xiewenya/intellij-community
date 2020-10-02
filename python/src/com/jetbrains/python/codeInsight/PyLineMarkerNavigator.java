@@ -6,6 +6,7 @@ import com.intellij.codeInsight.daemon.impl.PsiElementListNavigator;
 import com.intellij.ide.util.DefaultPsiElementCellRenderer;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts.PopupTitle;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.psi.NavigatablePsiElement;
 import com.intellij.psi.PsiElement;
@@ -39,7 +40,7 @@ abstract class PyLineMarkerNavigator<T extends PsiElement> implements GutterIcon
       }
       return true;
     });
-    /**
+    /*
      * For test purposes, we should be able to access list of methods to check em.
      * {@link PsiElementListNavigator} simply opens then (hence it is swing-based) and can't be used in tests.
      * So, in unit tests we save data in element and data could be obtained with {@link #getNavigationTargets(UserDataHolder)}
@@ -54,15 +55,15 @@ abstract class PyLineMarkerNavigator<T extends PsiElement> implements GutterIcon
   }
 
   /**
-   * @see {@link #navigate(MouseEvent, PsiElement)} and {@link #MARKERS}
+   * @see #navigate(MouseEvent, PsiElement)
+   * @see #MARKERS
    */
   @TestOnly
-  @Nullable
-  static NavigatablePsiElement[] getNavigationTargets(@NotNull final UserDataHolder holder) {
+  static NavigatablePsiElement @Nullable [] getNavigationTargets(@NotNull final UserDataHolder holder) {
     return holder.getUserData(MARKERS);
   }
 
-  protected abstract String getTitle(T elt);
+  protected abstract @PopupTitle String getTitle(T elt);
 
   @Nullable
   protected abstract Query<? extends PsiElement> search(T elt, @NotNull TypeEvalContext context);

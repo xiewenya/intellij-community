@@ -16,7 +16,10 @@
 package com.intellij.java.codeInsight.daemon.quickFix;
 
 
+import com.intellij.codeInsight.daemon.quickFix.ActionHint;
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
+import com.intellij.codeInsight.intention.IntentionManager;
+import com.intellij.codeInsight.intention.impl.config.IntentionManagerImpl;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.streamMigration.StreamApiMigrationInspection;
 import com.intellij.pom.java.LanguageLevel;
@@ -47,12 +50,12 @@ import org.junit.runners.Suite;
   StreamApiMigrationInspectionTestSuite.SummingTest.class,
   StreamApiMigrationInspectionTestSuite.Java9Test.class,
   StreamApiMigrationInspectionTestSuite.Java10Test.class,
+  StreamApiMigrationInspectionTestSuite.Java14Test.class,
 })
 public class StreamApiMigrationInspectionTestSuite {
   public static abstract class StreamApiMigrationInspectionBaseTest extends LightQuickFixParameterizedTestCase {
-    @NotNull
     @Override
-    protected LocalInspectionTool[] configureLocalInspectionTools() {
+    protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
       StreamApiMigrationInspection inspection = new StreamApiMigrationInspection();
       inspection.SUGGEST_FOREACH = true;
       return new LocalInspectionTool[]{
@@ -65,7 +68,11 @@ public class StreamApiMigrationInspectionTestSuite {
       return LanguageLevel.JDK_1_8;
     }
 
-    public void test() { doAllTests(); }
+      @Override
+    protected void doAction(@NotNull ActionHint actionHint, @NotNull String testFullPath, @NotNull String testName) throws Exception {
+      ((IntentionManagerImpl)IntentionManager.getInstance())
+        .withDisabledIntentions(() -> super.doAction(actionHint, testFullPath, testName));
+    }
 
     abstract String getFolder();
 
@@ -220,6 +227,13 @@ public class StreamApiMigrationInspectionTestSuite {
     @Override
     String getFolder() {
       return "java10";
+    }
+  }
+
+  public static class Java14Test extends StreamApiMigrationInspectionBaseTest {
+    @Override
+    String getFolder() {
+      return "java14";
     }
   }
 }

@@ -18,6 +18,7 @@ package org.zmlx.hg4idea.action.mq;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.util.NlsContexts;
 import org.jetbrains.annotations.NotNull;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.ui.HgMqUnAppliedPatchesPanel;
@@ -27,7 +28,7 @@ import java.util.List;
 public abstract class HgActionFromMqPatches extends DumbAwareAction {
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final HgMqUnAppliedPatchesPanel patchInfo = e.getRequiredData(HgMqUnAppliedPatchesPanel.MQ_PATCHES);
     final List<String> names = patchInfo.getSelectedPatchNames();
     final HgRepository repository = patchInfo.getRepository();
@@ -39,7 +40,7 @@ public abstract class HgActionFromMqPatches extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     HgMqUnAppliedPatchesPanel patchInfo = e.getData(HgMqUnAppliedPatchesPanel.MQ_PATCHES);
     e.getPresentation().setEnabled(patchInfo != null && patchInfo.getSelectedRowsCount() != 0 && isEnabled(patchInfo.getRepository()));
   }
@@ -50,6 +51,7 @@ public abstract class HgActionFromMqPatches extends DumbAwareAction {
 
   protected abstract void executeInCurrentThread(@NotNull HgRepository repository, @NotNull List<String> patchNames);
 
+  @NlsContexts.ProgressTitle
   @NotNull
   protected abstract String getTitle();
 }

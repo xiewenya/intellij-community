@@ -17,7 +17,7 @@ package org.jetbrains.debugger
 
 import com.intellij.openapi.util.NotNullLazyValue
 
-const val RECEIVER_NAME = "this"
+const val RECEIVER_NAME: String = "this"
 
 @Deprecated("")
 /**
@@ -40,4 +40,6 @@ abstract class CallFrameBase(override val functionName: String?, override val li
   override val asyncFunctionName: String? = null
 
   override val isFromAsyncStack: Boolean = false
+
+  override val returnValue: Variable? = null
 }

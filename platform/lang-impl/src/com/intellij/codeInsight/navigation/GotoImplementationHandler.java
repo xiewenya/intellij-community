@@ -19,23 +19,33 @@ package com.intellij.codeInsight.navigation;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.ContainerProvider;
 import com.intellij.codeInsight.TargetElementUtil;
+import com.intellij.codeInsight.daemon.GutterMark;
+import com.intellij.codeInsight.daemon.LineMarkerInfo;
+import com.intellij.codeInsight.daemon.NavigateAction;
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.navigation.NavigationItem;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.ElementDescriptionUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.PsiElementProcessor;
+import com.intellij.usageView.UsageViewShortNameLocation;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.function.Function;
 
 public class GotoImplementationHandler extends GotoTargetHandler {
@@ -49,6 +59,12 @@ public class GotoImplementationHandler extends GotoTargetHandler {
   public GotoData getSourceAndTargetElements(@NotNull Editor editor, PsiFile file) {
     int offset = editor.getCaretModel().getOffset();
     PsiElement source = TargetElementUtil.getInstance().findTargetElement(editor, ImplementationSearcher.getFlags(), offset);
+    if (source == null) {
+      offset = tryGetNavigationSourceOffsetFromGutterIcon(editor, IdeActions.ACTION_GOTO_IMPLEMENTATION);
+      if (offset >= 0) {
+        source = TargetElementUtil.getInstance().findTargetElement(editor, ImplementationSearcher.getFlags(), offset);
+      }
+    }
     if (source == null) return null;
     return createDataForSource(editor, offset, source);
   }
@@ -59,6 +75,7 @@ public class GotoImplementationHandler extends GotoTargetHandler {
     PsiElement[] targets = new ImplementationSearcher.FirstImplementationsSearcher() {
       @Override
       protected boolean accept(PsiElement element) {
+        if (reference != null && !reference.getElement().isValid()) return false;
         return instance.acceptImplementationForReference(reference, element);
       }
 
@@ -67,7 +84,12 @@ public class GotoImplementationHandler extends GotoTargetHandler {
         return false;
       }
     }.searchImplementations(editor, source, offset);
-    if (targets == null) return null;
+    if (targets == null) {
+      //canceled search
+      GotoData data = new GotoData(source, PsiElement.EMPTY_ARRAY, Collections.emptyList());
+      data.isCanceled = true;
+      return data;
+    }
     GotoData gotoData = new GotoData(source, targets, Collections.emptyList());
     gotoData.listUpdaterTask = new ImplementationsUpdaterTask(gotoData, editor, offset, reference) {
       @Override
@@ -82,8 +104,27 @@ public class GotoImplementationHandler extends GotoTargetHandler {
     return gotoData;
   }
 
+  public static int tryGetNavigationSourceOffsetFromGutterIcon(@NotNull Editor editor, String actionId) {
+    int line = editor.getCaretModel().getVisualPosition().line;
+    List<GutterMark> renderers = ((EditorGutterComponentEx)editor.getGutter()).getGutterRenderers(line);
+    List<PsiElement> elementCandidates = new ArrayList<>();
+    for (GutterMark renderer : renderers) {
+      if (renderer instanceof LineMarkerInfo.LineMarkerGutterIconRenderer) {
+        LineMarkerInfo.LineMarkerGutterIconRenderer lineMarkerRenderer = (LineMarkerInfo.LineMarkerGutterIconRenderer)renderer;
+        AnAction clickAction = ((LineMarkerInfo.LineMarkerGutterIconRenderer)renderer).getClickAction();
+        if (clickAction instanceof NavigateAction && actionId.equals(((NavigateAction)clickAction).getOriginalActionId())) {
+          elementCandidates.add(lineMarkerRenderer.getLineMarkerInfo().getElement());
+        }
+      }
+    }
+    if (elementCandidates.size() == 1) {
+      return elementCandidates.iterator().next().getTextRange().getStartOffset();
+    }
+    return -1;
+  }
+
   @Override
-  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<GotoData> successCallback) {
+  protected void chooseFromAmbiguousSources(Editor editor, PsiFile file, Consumer<? super GotoData> successCallback) {
     int offset = editor.getCaretModel().getOffset();
     PsiElementProcessor<PsiElement> navigateProcessor = element -> {
       GotoData data = createDataForSource(editor, offset, element);
@@ -92,8 +133,11 @@ public class GotoImplementationHandler extends GotoTargetHandler {
       }
       return true;
     };
+    Project project = editor.getProject();
+    if (project == null) return;
+
     GotoDeclarationAction
-      .chooseAmbiguousTarget(editor, offset, navigateProcessor, CodeInsightBundle.message("declaration.navigation.title"), null);
+      .chooseAmbiguousTarget(project, editor, offset, navigateProcessor, CodeInsightBundle.message("declaration.navigation.title"), null);
   }
 
   private static PsiElement getContainer(PsiElement refElement) {
@@ -106,7 +150,7 @@ public class GotoImplementationHandler extends GotoTargetHandler {
 
   @Override
   @NotNull
-  protected String getChooserTitle(@NotNull PsiElement sourceElement, String name, int length, boolean finished) {
+  protected String getChooserTitle(@NotNull PsiElement sourceElement, @Nullable String name, int length, boolean finished) {
     ItemPresentation presentation = ((NavigationItem)sourceElement).getPresentation();
     String fullName;
     if (presentation == null) {
@@ -118,13 +162,14 @@ public class GotoImplementationHandler extends GotoTargetHandler {
       String containerText = containerPresentation == null ? null : containerPresentation.getPresentableText();
       fullName = (containerText == null ? "" : containerText+".") + presentation.getPresentableText();
     }
-    return CodeInsightBundle.message("goto.implementation.chooserTitle", fullName, length, finished ? "" : " so far");
+    return CodeInsightBundle.message("goto.implementation.chooserTitle",
+                                     fullName == null ? "unnamed element" : StringUtil.escapeXmlEntities(fullName), length, finished ? "" : " so far");
   }
 
   @NotNull
   @Override
   protected String getFindUsagesTitle(@NotNull PsiElement sourceElement, String name, int length) {
-    return CodeInsightBundle.message("goto.implementation.findUsages.title", name, length);
+    return CodeInsightBundle.message("goto.implementation.findUsages.title", StringUtil.escapeXmlEntities(name), length);
   }
 
   @NotNull
@@ -139,8 +184,10 @@ public class GotoImplementationHandler extends GotoTargetHandler {
     private final GotoData myGotoData;
     private final PsiReference myReference;
 
+    // due to javac bug: java.lang.ClassFormatError: Illegal field name "com.intellij.codeInsight.navigation.GotoImplementationHandler$this" in class com/intellij/codeInsight/navigation/GotoImplementationHandler$ImplementationsUpdaterTask
+    @SuppressWarnings("Convert2Lambda")
     ImplementationsUpdaterTask(@NotNull GotoData gotoData, @NotNull Editor editor, int offset, final PsiReference reference) {
-      super(gotoData.source.getProject(), ImplementationSearcher.SEARCHING_FOR_IMPLEMENTATIONS,
+      super(gotoData.source.getProject(), ImplementationSearcher.getSearchingForImplementations(),
             createComparatorWrapper(Comparator.comparing(new Function<PsiElement, Comparable>() {
                 @Override
                 public Comparable apply(PsiElement e1) {
@@ -177,7 +224,8 @@ public class GotoImplementationHandler extends GotoTargetHandler {
 
     @Override
     public String getCaption(int size) {
-      return getChooserTitle(myGotoData.source, ((PsiNamedElement)myGotoData.source).getName(), size, isFinished());
+      String name = ElementDescriptionUtil.getElementDescription(myGotoData.source, UsageViewShortNameLocation.INSTANCE);
+      return getChooserTitle(myGotoData.source, name, size, isFinished());
     }
   }
 }

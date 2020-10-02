@@ -15,20 +15,26 @@
  */
 package com.intellij.debugger.memory.action;
 
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.xdebugger.memory.ui.TypeInfo;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
-import com.sun.jdi.ReferenceType;
+import org.jetbrains.annotations.NotNull;
 
 abstract class ShowInstancesAction extends ClassesActionBase {
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
-    final ReferenceType ref = getSelectedClass(e);
-    final boolean enabled = isEnabled(e) && ref != null && ref.virtualMachine().canGetInstanceInfo();
+    final TypeInfo ref = getSelectedClass(e);
+    final boolean enabled = isEnabled(e) && ref != null && ref.canGetInstanceInfo();
     presentation.setEnabled(enabled);
     if (enabled) {
-      presentation.setText(String.format("%s (%d)", getLabel(), getInstancesCount(e)));
+      presentation.setText(getPresentation(e));
     }
+  }
+
+  private @NlsSafe String getPresentation(@NotNull AnActionEvent e) {
+    return String.format("%s (%d)", getLabel(), getInstancesCount(e));
   }
 
   protected abstract String getLabel();

@@ -1,9 +1,7 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.override;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Streams;
 import com.intellij.codeInsight.CodeInsightUtilCore;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.featureStatistics.ProductivityFeatureNames;
@@ -14,20 +12,23 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.ui.SpeedSearchComparator;
-import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.ParamHelper;
 import com.jetbrains.python.psi.impl.PyFunctionBuilder;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
-import com.jetbrains.python.psi.types.*;
+import com.jetbrains.python.psi.types.PyCallableParameter;
+import com.jetbrains.python.psi.types.PyNoneType;
+import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiUtil;
+import com.jetbrains.python.refactoring.PyPsiRefactoringUtil;
 import com.jetbrains.python.refactoring.classes.PyClassRefactoringUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -35,8 +36,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * @author Alexey.Ivanov
@@ -72,14 +71,14 @@ public class PyOverrideImplementUtil {
     PyPsiUtils.assertValid(cls);
     ApplicationManager.getApplication().assertReadAccessAllowed();
 
-    chooseAndOverrideOrImplementMethods(project, editor, cls, getAllSuperMethods(cls, context), false);
+    chooseAndOverrideOrImplementMethods(project, editor, cls, PyPsiRefactoringUtil.getAllSuperMethods(cls, context), false);
   }
 
   public static void chooseAndImplementMethods(@NotNull Project project,
                                                @NotNull Editor editor,
                                                @NotNull PyClass cls,
                                                @NotNull TypeEvalContext context) {
-    chooseAndImplementMethods(project, editor, cls, getAllSuperAbstractMethods(cls, context));
+    chooseAndImplementMethods(project, editor, cls, PyPsiRefactoringUtil.getAllSuperAbstractMethods(cls, context));
   }
 
   public static void chooseAndImplementMethods(@NotNull Project project,
@@ -114,20 +113,9 @@ public class PyOverrideImplementUtil {
       return;
     }
 
-    final MemberChooser<PyMethodMember> chooser =
-      new MemberChooser<PyMethodMember>(elements.toArray(new PyMethodMember[0]), false, true, project) {
-        @Override
-        protected SpeedSearchComparator getSpeedSearchComparator() {
-          return new SpeedSearchComparator(false) {
-            @Nullable
-            @Override
-            public Iterable<TextRange> matchingFragments(@NotNull String pattern, @NotNull String text) {
-              return super.matchingFragments(PyMethodMember.trimUnderscores(pattern), text);
-            }
-          };
-        }
-      };
-    chooser.setTitle(implement ? "Select Methods to Implement" : "Select Methods to Override");
+    final MemberChooser<PyMethodMember> chooser = new MemberChooser<>(elements.toArray(new PyMethodMember[0]), false, true, project);
+    chooser.setTitle(implement ? PyBundle.message("code.insight.select.methods.to.implement")
+                               : PyBundle.message("code.insight.select.methods.to.override"));
     chooser.setCopyJavadocVisible(false);
     chooser.show();
     if (chooser.getExitCode() != DialogWrapper.OK_EXIT_CODE) {
@@ -141,9 +129,9 @@ public class PyOverrideImplementUtil {
     if (membersToOverride == null) {
       return;
     }
-    WriteCommandAction.writeCommandAction(pyClass.getProject(), pyClass.getContainingFile()).run(() -> {
-      write(pyClass, membersToOverride, editor, implement);
-    });
+    WriteCommandAction
+      .writeCommandAction(pyClass.getProject(), pyClass.getContainingFile())
+      .run(() -> write(pyClass, membersToOverride, editor, implement));
   }
 
   private static void write(@NotNull PyClass pyClass, @NotNull List<PyMethodMember> newMembers, @NotNull Editor editor, boolean implement) {
@@ -159,14 +147,8 @@ public class PyOverrideImplementUtil {
     }
 
     PyFunction element = null;
-    final LanguageLevel languageLevel = LanguageLevel.forElement(statementList);
     for (PyMethodMember newMember : Lists.reverse(newMembers)) {
-      final PyFunction baseFunction = (PyFunction)newMember.getPsiElement();
-      final PyFunctionBuilder builder = buildOverriddenFunction(pyClass, baseFunction, implement);
-      final PyFunction function = builder.addFunctionAfter(statementList, anchor, languageLevel);
-
-      addImports(baseFunction, function);
-      element = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(function);
+      element = writeMember(pyClass, (PyFunction)newMember.getPsiElement(), anchor, implement);
     }
 
     PyPsiUtils.removeRedundantPass(statementList);
@@ -179,12 +161,36 @@ public class PyOverrideImplementUtil {
     }
   }
 
+  @Nullable
+  private static PyFunction writeMember(@NotNull PyClass cls,
+                                        @NotNull PyFunction baseFunction,
+                                        @Nullable PsiElement anchor,
+                                        boolean implement) {
+    final PyStatementList statementList = cls.getStatementList();
+    final TypeEvalContext context = TypeEvalContext.userInitiated(cls.getProject(), cls.getContainingFile());
+
+    final PyFunction function = buildOverriddenFunction(cls, baseFunction, implement).addFunctionAfter(statementList, anchor);
+    addImports(baseFunction, function, context);
+
+    PyiUtil
+      .getOverloads(baseFunction, context)
+      .forEach(
+        baseOverload -> {
+          final PyFunction overload = (PyFunction)statementList.addBefore(baseOverload, function);
+          addImports(baseOverload, overload, context);
+        }
+      );
+
+    return CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(function);
+  }
+
   private static PyFunctionBuilder buildOverriddenFunction(PyClass pyClass,
                                                            PyFunction baseFunction,
                                                            boolean implement) {
-    final boolean overridingNew = PyNames.NEW.equals(baseFunction.getName());
-    assert baseFunction.getName() != null;
-    PyFunctionBuilder pyFunctionBuilder = new PyFunctionBuilder(baseFunction.getName(), baseFunction);
+    final String functionName = baseFunction.getName();
+    final boolean overridingNew = PyNames.NEW.equals(functionName);
+    assert functionName != null;
+    PyFunctionBuilder pyFunctionBuilder = new PyFunctionBuilder(functionName, baseFunction);
     final PyDecoratorList decorators = baseFunction.getDecoratorList();
     boolean baseMethodIsStatic = false;
     if (decorators != null) {
@@ -216,13 +222,7 @@ public class PyOverrideImplementUtil {
 
       if (namedParameter != null) {
         final StringBuilder parameterBuilder = new StringBuilder();
-        if (namedParameter.isPositionalContainer()) {
-          parameterBuilder.append("*");
-        }
-        else if (namedParameter.isKeywordContainer()) {
-          parameterBuilder.append("**");
-        }
-        parameterBuilder.append(namedParameter.getName());
+        parameterBuilder.append(ParamHelper.getNameInSignature(namedParameter));
         final PyAnnotation annotation = namedParameter.getAnnotation();
         if (annotation != null && !level.isPython2()) {
           parameterBuilder.append(annotation.getText());
@@ -259,16 +259,18 @@ public class PyOverrideImplementUtil {
       else if (psi instanceof PySingleStarParameter) {
         hadStar = true;
       }
-      else if (psi != null) {
+      else if (psi != null && !(psi instanceof PySlashParameter)) {
         parameters.add(psi.getText());
       }
     }
 
-    if (PyNames.TYPES_INSTANCE_TYPE.equals(baseClass.getQualifiedName()) || baseFunction.onlyRaisesNotImplementedError() || implement) {
+    if (implement ||
+        baseFunction.onlyRaisesNotImplementedError() ||
+        PyKnownDecoratorUtil.hasAbstractDecorator(baseFunction, context)) {
       statementBody.append(PyNames.PASS);
     }
     else {
-      if (!PyNames.INIT.equals(baseFunction.getName()) && context.getReturnType(baseFunction) != PyNoneType.INSTANCE || overridingNew) {
+      if (!PyNames.INIT.equals(functionName) && context.getReturnType(baseFunction) != PyNoneType.INSTANCE || overridingNew) {
         statementBody.append("return ");
       }
       if (baseFunction.isAsync()) {
@@ -282,25 +284,25 @@ public class PyOverrideImplementUtil {
         if (langLevel.isPython2()) {
           final String baseFirstName = !baseParams.isEmpty() ? baseParams.get(0).getName() : null;
           final String firstName = baseFirstName != null ? baseFirstName : PyNames.CANONICAL_SELF;
-          PsiElement outerClass = PsiTreeUtil.getParentOfType(pyClass, PyClass.class, true, PyFunction.class);
+          PyClass outerClass = PsiTreeUtil.getParentOfType(pyClass, PyClass.class, true, PyFunction.class);
           String className = pyClass.getName();
           final List<String> nameResult = Lists.newArrayList(className);
           while (outerClass != null) {
-            nameResult.add(0, ((PyClass)outerClass).getName());
+            nameResult.add(0, outerClass.getName());
             outerClass = PsiTreeUtil.getParentOfType(outerClass, PyClass.class, true, PyFunction.class);
           }
 
           StringUtil.join(nameResult, ".", statementBody);
           statementBody.append(", ").append(firstName);
         }
-        statementBody.append(").").append(baseFunction.getName()).append("(");
+        statementBody.append(").").append(functionName).append("(");
         // type.__new__ is explicitly decorated as @staticmethod in our stubs, but not in real Python code
         if (parameters.size() > 0 && !(baseMethodIsStatic || overridingNew)) {
           parameters.remove(0);
         }
       }
       else {
-        statementBody.append(getReferenceText(pyClass, baseClass)).append(".").append(baseFunction.getName()).append("(");
+        statementBody.append(getReferenceText(pyClass, baseClass)).append(".").append(functionName).append("(");
       }
       StringUtil.join(parameters, ", ", statementBody);
       statementBody.append(")");
@@ -324,64 +326,20 @@ public class PyOverrideImplementUtil {
     return toClass.getName();
   }
 
-  @NotNull
-  public static List<PyFunction> getAllSuperAbstractMethods(@NotNull PyClass cls, @NotNull TypeEvalContext context) {
-    return ContainerUtil.filter(getAllSuperMethods(cls, context), method -> isAbstractMethodForClass(method, cls, context));
-  }
-
-  private static boolean isAbstractMethodForClass(@NotNull PyFunction method, @NotNull PyClass cls, @NotNull TypeEvalContext context) {
-    final String methodName = method.getName();
-    if (methodName == null ||
-        cls.findMethodByName(methodName, false, context) != null ||
-        cls.findClassAttribute(methodName, false, context) != null) {
-      return false;
-    }
-    final PyClass methodClass = method.getContainingClass();
-    if (methodClass != null) {
-      for (PyClass ancestor : cls.getAncestorClasses(context)) {
-        if (ancestor.equals(methodClass)) break;
-        if (ancestor.findClassAttribute(methodName, false, context) != null) return false;
-      }
-    }
-    return method.onlyRaisesNotImplementedError() || PyKnownDecoratorUtil.hasAbstractDecorator(method, context);
-  }
-
   /**
-   * Returns all super functions available through MRO.
-   */
-  @NotNull
-  public static List<PyFunction> getAllSuperMethods(@NotNull PyClass pyClass, @NotNull TypeEvalContext context) {
-    final Map<String, PyFunction> functions = Maps.newLinkedHashMap();
-    for (final PyClassLikeType type : pyClass.getAncestorTypes(context)) {
-      if (type != null) {
-        for (PyFunction function : PyTypeUtil.getMembersOfType(type, PyFunction.class, false, context)) {
-          final String name = function.getName();
-          if (name != null && !functions.containsKey(name)) {
-            functions.put(name, function);
-          }
-        }
-      }
-    }
-    return Lists.newArrayList(functions.values());
-  }
-
-  /**
-   * Adds imports for type hints in overridden function (PY-18553).
+   * Adds imports for type hints and decorators in overridden function.
    *
    * @param baseFunction base function used to resolve types
    * @param function overridden function
    */
-  private static void addImports(@NotNull PyFunction baseFunction, @NotNull PyFunction function) {
-    final TypeEvalContext typeEvalContext = TypeEvalContext.userInitiated(baseFunction.getProject(), baseFunction.getContainingFile());
-
+  private static void addImports(@NotNull PyFunction baseFunction, @NotNull PyFunction function, @NotNull TypeEvalContext context) {
     final UnresolvedExpressionVisitor unresolvedExpressionVisitor = new UnresolvedExpressionVisitor();
-    final List<PyAnnotation> annotations = getAnnotations(function, typeEvalContext);
-    annotations.forEach(annotation -> unresolvedExpressionVisitor.visitPyElement(annotation));
-    final List<PyReferenceExpression> unresolved = unresolvedExpressionVisitor.getUnresolved();
+    getAnnotations(function, context).forEach(annotation -> annotation.accept(unresolvedExpressionVisitor));
+    getDecorators(function).forEach(decorator -> decorator.accept(unresolvedExpressionVisitor));
 
-    final ResolveExpressionVisitor resolveExpressionVisitor = new ResolveExpressionVisitor(unresolved);
-    final List<PyAnnotation> baseAnnotations = getAnnotations(baseFunction, typeEvalContext);
-    baseAnnotations.forEach(annotation -> resolveExpressionVisitor.visitPyElement(annotation));
+    final ResolveExpressionVisitor resolveExpressionVisitor = new ResolveExpressionVisitor(unresolvedExpressionVisitor.getUnresolved());
+    getAnnotations(baseFunction, context).forEach(annotation -> annotation.accept(resolveExpressionVisitor));
+    getDecorators(baseFunction).forEach(decorator -> decorator.accept(resolveExpressionVisitor));
   }
 
   /**
@@ -391,18 +349,22 @@ public class PyOverrideImplementUtil {
    * @param typeEvalContext
    * @return
    */
+  @NotNull
   private static List<PyAnnotation> getAnnotations(@NotNull PyFunction function, @NotNull TypeEvalContext typeEvalContext) {
-    return Streams.concat(
-      function.getParameters(typeEvalContext).stream()
+    return StreamEx.of(function.getParameters(typeEvalContext))
         .map(PyCallableParameter::getParameter)
-        .filter(PyNamedParameter.class::isInstance)
-        .map(PyNamedParameter.class::cast)
-        .filter(parameter -> !parameter.isSelf())
-        .map(pyNamedParameter -> pyNamedParameter.getAnnotation()),
-      Stream.of(function.getAnnotation())
-    )
-      .filter(Objects::nonNull)
-      .collect(Collectors.toList());
+        .select(PyNamedParameter.class)
+        .remove(PyParameter::isSelf)
+        .map(PyAnnotationOwner::getAnnotation)
+        .append(function.getAnnotation())
+        .nonNull()
+        .toList();
+  }
+
+  @NotNull
+  private static List<PyDecorator> getDecorators(@NotNull PyFunction function) {
+    final PyDecoratorList decoratorList = function.getDecoratorList();
+    return decoratorList == null ? Collections.emptyList() : Arrays.asList(decoratorList.getDecorators());
   }
 
   /**
@@ -413,9 +375,9 @@ public class PyOverrideImplementUtil {
     private final List<PyReferenceExpression> myUnresolved = new ArrayList<>();
 
     @Override
-    public void visitPyReferenceExpression(final PyReferenceExpression referenceExpression) {
+    public void visitPyReferenceExpression(final @NotNull PyReferenceExpression referenceExpression) {
       super.visitPyReferenceExpression(referenceExpression);
-      final PyResolveContext resolveContext = PyResolveContext.noImplicits();
+      final PyResolveContext resolveContext = PyResolveContext.defaultContext();
       if (referenceExpression.getReference(resolveContext).multiResolve(false).length == 0) {
         myUnresolved.add(referenceExpression);
       }
@@ -451,7 +413,7 @@ public class PyOverrideImplementUtil {
     }
 
     @Override
-    public void visitPyReferenceExpression(final PyReferenceExpression referenceExpression) {
+    public void visitPyReferenceExpression(final @NotNull PyReferenceExpression referenceExpression) {
       super.visitPyReferenceExpression(referenceExpression);
 
       if (myExpressionsToResolve.containsKey(referenceExpression.getName())) {

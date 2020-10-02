@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -14,16 +12,19 @@ import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
+import com.intellij.testFramework.RunAll;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.util.ExceptionUtil;
+import com.intellij.util.ThrowableRunnable;
 import gnu.trove.THashSet;
 import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NonNls;
@@ -36,16 +37,23 @@ import org.jetbrains.idea.maven.utils.MavenProgressIndicator;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.*;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public abstract class MavenTestCase extends UsefulTestCase {
+  protected static final String MAVEN_COMPILER_PROPERTIES = "<properties>\n" +
+                                                            "        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n" +
+                                                            "        <maven.compiler.source>1.7</maven.compiler.source>\n" +
+                                                            "        <maven.compiler.target>1.7</maven.compiler.target>\n" +
+                                                            "</properties>\n";
   protected static final MavenConsole NULL_MAVEN_CONSOLE = new NullMavenConsole();
   // should not be static
-  protected static MavenProgressIndicator EMPTY_MAVEN_PROCESS = new MavenProgressIndicator(new EmptyProgressIndicator(ModalityState.NON_MODAL));
+  protected static MavenProgressIndicator EMPTY_MAVEN_PROCESS =
+    new MavenProgressIndicator(new EmptyProgressIndicator(ModalityState.NON_MODAL), null);
 
   private File ourTempDir;
 
@@ -97,31 +105,33 @@ public abstract class MavenTestCase extends UsefulTestCase {
         }
       });
     });
-
   }
 
   @Override
   protected void tearDown() throws Exception {
-    try {
-      MavenServerManager.getInstance().shutdown(true);
-      MavenArtifactDownloader.awaitQuiescence(100, TimeUnit.SECONDS);
-      myProject = null;
-      EdtTestUtil.runInEdtAndWait(() -> tearDownFixtures());
+    new RunAll(
+      () -> MavenServerManager.getInstance().shutdown(true),
+      () -> checkAllMavenConnectorsDisposed(),
+      () -> MavenArtifactDownloader.awaitQuiescence(100, TimeUnit.SECONDS),
+      () -> myProject = null,
+      () -> EdtTestUtil.runInEdtAndWait(() -> tearDownFixtures()),
+      () -> MavenIndicesManager.getInstance().clear(),
+      () -> {
+        FileUtil.delete(myDir);
+        // cannot use reliably the result of the com.intellij.openapi.util.io.FileUtil.delete() method
+        // because com.intellij.openapi.util.io.FileUtilRt.deleteRecursivelyNIO() does not honor this contract
+        if (myDir.exists()) {
+          System.err.println("Cannot delete " + myDir);
+          //printDirectoryContent(myDir);
+          myDir.deleteOnExit();
+        }
+      },
+      () -> super.tearDown()
+    ).run();
+  }
 
-      MavenIndicesManager.getInstance().clear();
-    }
-    finally {
-      super.tearDown();
-      FileUtil.delete(myDir);
-      // cannot use reliably the result of the com.intellij.openapi.util.io.FileUtil.delete() method
-      // because com.intellij.openapi.util.io.FileUtilRt.deleteRecursivelyNIO() does not honor this contract
-      if (myDir.exists()) {
-        System.err.println("Cannot delete " + myDir);
-        //printDirectoryContent(myDir);
-        myDir.deleteOnExit();
-      }
-      resetClassFields(getClass());
-    }
+  private void checkAllMavenConnectorsDisposed() {
+    assertEmpty("all maven connectors should be disposed", MavenServerManager.getInstance().getAllConnectors());
   }
 
   private void ensureTempDirCreated() throws IOException {
@@ -147,7 +157,7 @@ public abstract class MavenTestCase extends UsefulTestCase {
     File[] files = dir.listFiles();
     if (files == null) return;
 
-    for (File file : files) {
+    for (File file: files) {
       System.out.println(file.getAbsolutePath());
 
       if (file.isDirectory()) {
@@ -157,64 +167,30 @@ public abstract class MavenTestCase extends UsefulTestCase {
   }
 
   protected void tearDownFixtures() throws Exception {
-    myTestFixture.tearDown();
-    myTestFixture = null;
-  }
-
-  private void resetClassFields(final Class<?> aClass) {
-    if (aClass == null) return;
-
-    final Field[] fields = aClass.getDeclaredFields();
-    for (Field field : fields) {
-      final int modifiers = field.getModifiers();
-      if ((modifiers & Modifier.FINAL) == 0
-          && (modifiers & Modifier.STATIC) == 0
-          && !field.getType().isPrimitive()) {
-        field.setAccessible(true);
-        try {
-          field.set(this, null);
-        }
-        catch (IllegalAccessException e) {
-          e.printStackTrace();
-        }
-      }
+    try {
+      myTestFixture.tearDown();
     }
-
-    if (aClass == MavenTestCase.class) return;
-    resetClassFields(aClass.getSuperclass());
+    finally {
+      myTestFixture = null;
+    }
   }
 
   @Override
-  protected void runTest() throws Throwable {
+  protected void runTestRunnable(@NotNull ThrowableRunnable<Throwable> testRunnable) throws Throwable {
     try {
       if (runInWriteAction()) {
-        try {
-          WriteAction.runAndWait(()-> super.runTest());
-        }
-        catch (Throwable throwable) {
-          ExceptionUtil.rethrowAllAsUnchecked(throwable);
-        }
+        WriteAction.runAndWait(() -> super.runTestRunnable(testRunnable));
       }
       else {
-        super.runTest();
+        super.runTestRunnable(testRunnable);
       }
     }
-    catch (Exception throwable) {
-      Throwable each = throwable;
-      do {
-        if (each instanceof HeadlessException) {
-          printIgnoredMessage("Doesn't work in Headless environment");
-          return;
-        }
+    catch (Throwable throwable) {
+      if (ExceptionUtil.causedBy(throwable, HeadlessException.class)) {
+        printIgnoredMessage("Doesn't work in Headless environment");
       }
-      while ((each = each.getCause()) != null);
       throw throwable;
     }
-  }
-
-  @Override
-  protected void invokeTestRunnable(@NotNull Runnable runnable) {
-    runnable.run();
   }
 
   protected boolean runInWriteAction() {
@@ -227,7 +203,9 @@ public abstract class MavenTestCase extends UsefulTestCase {
   }
 
   protected static String getEnvVar() {
-    if (SystemInfo.isWindows) return "TEMP";
+    if (SystemInfo.isWindows) {
+      return "TEMP";
+    }
     else if (SystemInfo.isLinux) return "HOME";
     return "TMPDIR";
   }
@@ -293,7 +271,7 @@ public abstract class MavenTestCase extends UsefulTestCase {
     String mirror = System.getProperty("idea.maven.test.mirror",
                                        // use JB maven proxy server for internal use by default, see details at
                                        // https://confluence.jetbrains.com/display/JBINT/Maven+proxy+server
-                                       "http://maven.labs.intellij.net/repo1");
+                                       "https://repo.labs.intellij.net/repo1");
     return "<settings>" +
            content +
            "<mirrors>" +
@@ -328,15 +306,17 @@ public abstract class MavenTestCase extends UsefulTestCase {
     }
   }
 
-  protected VirtualFile createProjectPom(@NotNull @Language("xml") String xml) {
+  protected VirtualFile createProjectPom(@NotNull @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     return myProjectPom = createPomFile(myProjectRoot, xml);
   }
 
-  protected VirtualFile createModulePom(String relativePath, String xml) {
+  protected VirtualFile createModulePom(String relativePath,
+                                        @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     return createPomFile(createProjectSubDir(relativePath), xml);
   }
 
-  protected VirtualFile createPomFile(final VirtualFile dir, String xml) {
+  protected VirtualFile createPomFile(final VirtualFile dir,
+                                      @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     VirtualFile f = dir.findChild("pom.xml");
     if (f == null) {
       try {
@@ -354,8 +334,9 @@ public abstract class MavenTestCase extends UsefulTestCase {
     return f;
   }
 
-  @NonNls @Language(value="XML")
-  public static String createPomXml(@NonNls @Language(value="XML", prefix="<xml>", suffix="</xml>") String xml) {
+  @NonNls
+  @Language(value = "XML")
+  public static String createPomXml(@NonNls @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     return "<?xml version=\"1.0\"?>" +
            "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"" +
            "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"" +
@@ -441,7 +422,7 @@ public abstract class MavenTestCase extends UsefulTestCase {
   }
 
   protected void createProjectSubDirs(String... relativePaths) {
-    for (String path : relativePaths) {
+    for (String path: relativePaths) {
       createProjectSubDir(path);
     }
   }
@@ -469,10 +450,10 @@ public abstract class MavenTestCase extends UsefulTestCase {
     try {
       WriteAction.runAndWait(() -> {
         if (advanceStamps) {
-          file.setBinaryContent(content.getBytes(), -1, file.getTimeStamp() + 4000);
+          file.setBinaryContent(content.getBytes(StandardCharsets.UTF_8), -1, file.getTimeStamp() + 4000);
         }
         else {
-          file.setBinaryContent(content.getBytes(), file.getModificationStamp(), file.getTimeStamp());
+          file.setBinaryContent(content.getBytes(StandardCharsets.UTF_8), file.getModificationStamp(), file.getTimeStamp());
         }
       });
     }
@@ -485,9 +466,10 @@ public abstract class MavenTestCase extends UsefulTestCase {
     assertOrderedElementsAreEqual(actual, expected.toArray());
   }
 
-  protected static <T> void assertUnorderedElementsAreEqual(Collection<T> actual, Collection<T> expected) {
-    assertEquals(new HashSet<>(expected), new HashSet<>(actual));
+  protected static <T> void assertUnorderedElementsAreEqual(@NotNull Collection<T> actual, @NotNull Collection<T> expected) {
+    assertThat(actual).hasSameElementsAs(expected);
   }
+
   protected static void assertUnorderedPathsAreEqual(Collection<String> actual, Collection<String> expected) {
     assertEquals(new SetWithToString<>(new THashSet<>(expected, FileUtil.PATH_HASHING_STRATEGY)),
                  new SetWithToString<>(new THashSet<>(actual, FileUtil.PATH_HASHING_STRATEGY)));
@@ -555,6 +537,14 @@ public abstract class MavenTestCase extends UsefulTestCase {
     System.out.println(toPrint);
   }
 
+  protected <R, E extends Throwable> R runWriteAction(@NotNull ThrowableComputable<R, E> computable) throws E {
+    return WriteCommandAction.writeCommandAction(myProject).compute(computable);
+  }
+
+  protected <E extends Throwable> void runWriteAction(@NotNull ThrowableRunnable<E> runnable) throws E {
+    WriteCommandAction.writeCommandAction(myProject).run(runnable);
+  }
+
   private static String getTestMavenHome() {
     return System.getProperty("idea.maven.test.home");
   }
@@ -563,7 +553,7 @@ public abstract class MavenTestCase extends UsefulTestCase {
 
     private final Set<T> myDelegate;
 
-    public SetWithToString(@NotNull Set<T> delegate) {
+    SetWithToString(@NotNull Set<T> delegate) {
       myDelegate = delegate;
     }
 
@@ -598,5 +588,4 @@ public abstract class MavenTestCase extends UsefulTestCase {
       return myDelegate.hashCode();
     }
   }
-
 }

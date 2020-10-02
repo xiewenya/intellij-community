@@ -15,10 +15,10 @@
  */
 package com.intellij.task.impl;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.task.ModuleFilesBuildTask;
-import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -26,7 +26,6 @@ import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/14/2016
  */
 public class ModuleFilesBuildTaskImpl extends ModuleBuildTaskImpl implements ModuleFilesBuildTask {
   private final VirtualFile[] myFiles;
@@ -36,8 +35,8 @@ public class ModuleFilesBuildTaskImpl extends ModuleBuildTaskImpl implements Mod
     myFiles = files;
   }
 
-  public ModuleFilesBuildTaskImpl(Module module, boolean isIncrementalBuild, Collection<VirtualFile> files) {
-    this(module, isIncrementalBuild, ArrayUtil.toObjectArray(files, VirtualFile.class));
+  public ModuleFilesBuildTaskImpl(Module module, boolean isIncrementalBuild, Collection<? extends VirtualFile> files) {
+    this(module, isIncrementalBuild, files.toArray(VirtualFile.EMPTY_ARRAY));
   }
 
   @Override
@@ -48,6 +47,6 @@ public class ModuleFilesBuildTaskImpl extends ModuleBuildTaskImpl implements Mod
   @NotNull
   @Override
   public String getPresentableName() {
-    return "Files build task '" + Arrays.toString(myFiles) + "'";
+    return LangBundle.message("project.task.name.files.build.task.0", Arrays.toString(myFiles));
   }
 }

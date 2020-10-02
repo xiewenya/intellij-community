@@ -16,7 +16,11 @@
 package com.intellij.ui;
 
 import com.intellij.openapi.components.ServiceManager;
-import org.jetbrains.annotations.Nls;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts.DialogTitle;
+import com.intellij.ui.awt.RelativePoint;
+import com.intellij.ui.picker.ColorListener;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
@@ -31,22 +35,17 @@ public abstract class ColorChooserService {
   }
 
   /**
-   * @deprecated Use {@link #showDialog(Component, String, Color, boolean, java.util.List, boolean)}
+   * @deprecated this overload does not work with headless implementation, use one with the Project instead
    */
-  @Nullable
   @Deprecated
-  public abstract Color showDialog(Component parent, @Nls(capitalization = Nls.Capitalization.Title) String caption, Color preselectedColor, boolean enableOpacity,
-                                   ColorPickerListener[] listeners);
-
-  /**
-   * @deprecated Use {@link #showDialog(Component, String, Color, boolean, java.util.List, boolean)}
-   */
   @Nullable
-  @Deprecated
-  public abstract Color showDialog(Component parent, @Nls(capitalization = Nls.Capitalization.Title) String caption, Color preselectedColor, boolean enableOpacity,
-                                   ColorPickerListener[] listeners, boolean opacityInPercent);
-
+  public abstract Color showDialog(Component parent, @DialogTitle String caption, Color preselectedColor, boolean enableOpacity,
+                                   List<? extends ColorPickerListener> listeners, boolean opacityInPercent);
   @Nullable
-  public abstract Color showDialog(Component parent, @Nls(capitalization = Nls.Capitalization.Title) String caption, Color preselectedColor, boolean enableOpacity,
-                                   List<ColorPickerListener> listeners, boolean opacityInPercent);
+  public abstract Color showDialog(Project project, Component parent, @DialogTitle String caption, Color preselectedColor, boolean enableOpacity,
+                                   List<? extends ColorPickerListener> listeners, boolean opacityInPercent);
+
+  public void showColorPickerPopup(@Nullable Project project, @Nullable Color currentColor, @NotNull ColorListener listener, @Nullable RelativePoint location, boolean showAlpha) {
+    throw new UnsupportedOperationException();
+  }
 }

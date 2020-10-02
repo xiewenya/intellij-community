@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.editor.HighlighterColors;
@@ -22,21 +8,18 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.impl.view.IterationState;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
+import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.openapi.fileTypes.PlainTextFileType;
 import com.intellij.testFramework.EditorTestUtil;
-import com.intellij.testFramework.fixtures.EditorMouseFixture;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
 
 import java.awt.*;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 
-public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase {
+public class IterationStateTest extends AbstractEditorTest {
   private Color DEFAULT_BACKGROUND;
   private Color CARET_ROW_BACKGROUND;
   private Color SELECTION_BACKGROUND;
@@ -48,7 +31,7 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
     DEFAULT_BACKGROUND = colorsScheme.getDefaultBackground();
     CARET_ROW_BACKGROUND = colorsScheme.getColor(EditorColors.CARET_ROW_COLOR);
     SELECTION_BACKGROUND = colorsScheme.getColor(EditorColors.SELECTION_BACKGROUND_COLOR);
-    assertEquals(3, new HashSet<>(Arrays.asList(DEFAULT_BACKGROUND, CARET_ROW_BACKGROUND, SELECTION_BACKGROUND)).size());
+    assertEquals(3, ContainerUtil.set(DEFAULT_BACKGROUND, CARET_ROW_BACKGROUND, SELECTION_BACKGROUND).size());
   }
 
   public void testBlockSelection() {
@@ -121,13 +104,13 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
     setColumnModeOn();
 
     Color breakpointColor = Color.RED;
-    myFixture.getEditor().getMarkupModel().addLineHighlighter(0,
-                                                              HighlighterLayer.CARET_ROW + 1,
-                                                              new TextAttributes(null, breakpointColor, null, null, Font.PLAIN));
+    getEditor().getMarkupModel().addLineHighlighter(0,
+                                                    HighlighterLayer.CARET_ROW + 1,
+                                                    new TextAttributes(null, breakpointColor, null, null, Font.PLAIN));
     Color currentDebuggingLineColor = Color.CYAN;
-    myFixture.getEditor().getMarkupModel().addLineHighlighter(0,
-                                                              HighlighterLayer.SELECTION - 1,
-                                                              new TextAttributes(null, currentDebuggingLineColor, null, null, Font.PLAIN));
+    getEditor().getMarkupModel().addLineHighlighter(0,
+                                                    HighlighterLayer.SELECTION - 1,
+                                                    new TextAttributes(null, currentDebuggingLineColor, null, null, Font.PLAIN));
 
     mouse().pressAt(0, 4).dragTo(0, 6).release();
     verifySplitting(false,
@@ -142,9 +125,9 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
          "     line2");
 
     Color breakpointColor = Color.RED;
-    myFixture.getEditor().getMarkupModel().addLineHighlighter(0,
-                                                              HighlighterLayer.CARET_ROW + 1,
-                                                              new TextAttributes(null, breakpointColor, null, null, Font.PLAIN));
+    getEditor().getMarkupModel().addLineHighlighter(0,
+                                                    HighlighterLayer.CARET_ROW + 1,
+                                                    new TextAttributes(null, breakpointColor, null, null, Font.PLAIN));
 
     verifySplitting(false,
                     new Segment(0, 5, breakpointColor),
@@ -153,12 +136,12 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
                     new Segment(11, 16, DEFAULT_BACKGROUND),
                     new Segment(16, 21, DEFAULT_BACKGROUND));
   }
-  
+
   public void testBoldDefaultFont() {
     init("abc");
-    myFixture.getEditor().getColorsScheme().setAttributes(HighlighterColors.TEXT, 
-                                                          new TextAttributes(Color.black, Color.white, null, null, Font.BOLD));
-    IterationState it = new IterationState((EditorEx)myFixture.getEditor(), 0, 3, null, false, false, true, false);
+    getEditor().getColorsScheme().setAttributes(HighlighterColors.TEXT,
+                                                new TextAttributes(Color.black, Color.white, null, null, Font.BOLD));
+    IterationState it = new IterationState((EditorEx)getEditor(), 0, 3, null, false, false, true, false);
     assertFalse(it.atEnd());
     assertEquals(0, it.getStartOffset());
     assertEquals(3, it.getEndOffset());
@@ -166,8 +149,31 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
     assertEquals(Font.BOLD, attributes.getFontType());
   }
 
-  private void verifySplitting(boolean checkForegroundColor, @NotNull Segment... expectedSegments) {
-    EditorEx editor = (EditorEx)myFixture.getEditor();
+  public void testBreakAttributesAtSoftWrap() {
+    init("a bc");
+    EditorTestUtil.configureSoftWraps(getEditor(), 2);
+    assertNotNull(getEditor().getSoftWrapModel().getSoftWrap(2));
+    addRangeHighlighter(1, 3, 0, Color.red);
+    addRangeHighlighter(1, 2, 1, Color.blue);
+    IterationState it = new IterationState((EditorEx)getEditor(), 0, 4, null, false, false, false, false);
+    it.advance();
+    it.advance();
+    assertFalse(it.atEnd());
+    assertEquals(2, it.getStartOffset());
+    assertEquals(3, it.getEndOffset());
+    assertEquals(Color.red, it.getPastLineEndBackgroundAttributes().getBackgroundColor());
+    assertEquals(Color.red, it.getBeforeLineStartBackgroundAttributes().getBackgroundColor());
+  }
+
+  private void addRangeHighlighter(int startOffset, int endOffset, int layer, Color bgColor) {
+    getEditor().getMarkupModel().addRangeHighlighter(startOffset, endOffset, layer,
+                                                     new TextAttributes(null, bgColor, null, null, Font.PLAIN),
+                                                     HighlighterTargetArea.EXACT_RANGE);
+  }
+
+
+  private void verifySplitting(boolean checkForegroundColor, Segment @NotNull ... expectedSegments) {
+    EditorEx editor = (EditorEx)getEditor();
     IterationState.CaretData caretData = IterationState.createCaretData(editor);
     IterationState iterationState = new IterationState(editor, 0, editor.getDocument().getTextLength(),
                                                        caretData, false, false, true, false);
@@ -186,19 +192,15 @@ public class IterationStateTest extends LightPlatformCodeInsightFixtureTestCase 
   }
 
   private void init(String text) {
-    myFixture.configureByText(PlainTextFileType.INSTANCE, text);
-    EditorTestUtil.setEditorVisibleSize(myFixture.getEditor(), 1000, 1000);
+    configureFromFileText(getTestName(true) + ".txt", text);
+    EditorTestUtil.setEditorVisibleSize(getEditor(), 1000, 1000);
   }
 
   private void setColumnModeOn() {
-    ((EditorEx)myFixture.getEditor()).setColumnMode(true);
+    ((EditorEx)getEditor()).setColumnMode(true);
   }
 
-  private EditorMouseFixture mouse() {
-    return new EditorMouseFixture((EditorImpl)myFixture.getEditor());
-  }
-
-  private static class Segment {
+  private static final class Segment {
     private final int start;
     private final int end;
     private final Color color;

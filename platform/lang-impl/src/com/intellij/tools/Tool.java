@@ -1,13 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tools;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.execution.configurations.PtyCommandLine;
 import com.intellij.execution.executors.DefaultRunExecutor;
-import com.intellij.execution.process.OSProcessHandler;
-import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.process.ProcessListener;
+import com.intellij.execution.process.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.runners.ProgramRunner;
@@ -23,6 +22,8 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.options.SchemeElement;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -32,20 +33,26 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Objects;
 
 public class Tool implements SchemeElement {
-  private static final Logger LOG = Logger.getInstance("#" + Tool.class.getPackage().getName());
+  private static final Logger LOG = Logger.getInstance(Tool.class);
 
   @NonNls public static final String ACTION_ID_PREFIX = "Tool_";
 
   public static final String DEFAULT_GROUP_NAME = "External Tools";
-  private String myName;
+  protected static final ProcessEvent NOT_STARTED_EVENT = new ProcessEvent(new NopProcessHandler(), -1);
+  private @NlsSafe String myName;
   private String myDescription;
   @NotNull private String myGroup = DEFAULT_GROUP_NAME;
+
+  // These 4 fields and everything related are effectively not used anymore, see IDEA-190856.
+  // Let's keep them for a while for compatibility in case we have to reconsider.
   private boolean myShownInMainMenu;
   private boolean myShownInEditor;
   private boolean myShownInProjectViews;
   private boolean myShownInSearchResultsPopup;
+
   private boolean myEnabled;
 
   private boolean myUseConsole;
@@ -62,14 +69,15 @@ public class Tool implements SchemeElement {
   public Tool() {
   }
 
-  public String getName() {
+  public @NlsSafe String getName() {
     return myName;
   }
 
-  public String getDescription() {
+  public @NlsSafe String getDescription() {
     return myDescription;
   }
 
+  @NlsSafe
   @NotNull
   public String getGroup() {
     return myGroup;
@@ -115,27 +123,27 @@ public class Tool implements SchemeElement {
     return mySynchronizeAfterExecution;
   }
 
-  void setName(String name) {
+  public void setName(@NlsSafe String name) {
     myName = name;
   }
 
-  void setDescription(String description) {
+  public void setDescription(@NlsSafe String description) {
     myDescription = description;
   }
 
-  void setGroup(@NotNull String group) {
-    myGroup = StringUtil.isEmpty(group)?DEFAULT_GROUP_NAME:group;
+  public void setGroup(@NonNls @NotNull String group) {
+    myGroup = StringUtil.isEmpty(group) ? DEFAULT_GROUP_NAME : group;
   }
 
-  void setShownInMainMenu(boolean shownInMainMenu) {
+  public void setShownInMainMenu(boolean shownInMainMenu) {
     myShownInMainMenu = shownInMainMenu;
   }
 
-  void setShownInEditor(boolean shownInEditor) {
+  public void setShownInEditor(boolean shownInEditor) {
     myShownInEditor = shownInEditor;
   }
 
-  void setShownInProjectViews(boolean shownInProjectViews) {
+  public void setShownInProjectViews(boolean shownInProjectViews) {
     myShownInProjectViews = shownInProjectViews;
   }
 
@@ -143,15 +151,15 @@ public class Tool implements SchemeElement {
     myShownInSearchResultsPopup = shownInSearchResultsPopup;
   }
 
-  void setUseConsole(boolean useConsole) {
+  public void setUseConsole(boolean useConsole) {
     myUseConsole = useConsole;
   }
 
-  void setShowConsoleOnStdOut(boolean showConsole) {
+  public void setShowConsoleOnStdOut(boolean showConsole) {
     myShowConsoleOnStdOut = showConsole;
   }
 
-  void setShowConsoleOnStdErr(boolean showConsole) {
+  public void setShowConsoleOnStdErr(boolean showConsole) {
     myShowConsoleOnStdErr = showConsole;
   }
 
@@ -224,9 +232,9 @@ public class Tool implements SchemeElement {
 
     Tool source = (Tool)obj;
     return
-      Comparing.equal(myName, source.myName) &&
-      Comparing.equal(myDescription, source.myDescription) &&
-      Comparing.equal(myGroup, source.myGroup) &&
+      Objects.equals(myName, source.myName) &&
+      Objects.equals(myDescription, source.myDescription) &&
+      Objects.equals(myGroup, source.myGroup) &&
       myShownInMainMenu == source.myShownInMainMenu &&
       myShownInEditor == source.myShownInEditor &&
       myShownInProjectViews == source.myShownInProjectViews &&
@@ -236,9 +244,9 @@ public class Tool implements SchemeElement {
       myShowConsoleOnStdOut == source.myShowConsoleOnStdOut &&
       myShowConsoleOnStdErr == source.myShowConsoleOnStdErr &&
       mySynchronizeAfterExecution == source.mySynchronizeAfterExecution &&
-      Comparing.equal(myWorkingDirectory, source.myWorkingDirectory) &&
-      Comparing.equal(myProgram, source.myProgram) &&
-      Comparing.equal(myParameters, source.myParameters) &&
+      Objects.equals(myWorkingDirectory, source.myWorkingDirectory) &&
+      Objects.equals(myProgram, source.myProgram) &&
+      Objects.equals(myParameters, source.myParameters) &&
       Comparing.equal(myOutputFilters, source.myOutputFilters);
   }
 
@@ -253,10 +261,23 @@ public class Tool implements SchemeElement {
     return name.toString();
   }
 
+  protected static void notifyCouldNotStart(@Nullable ProcessListener listener) {
+    if (listener != null) listener.processTerminated(NOT_STARTED_EVENT);
+  }
+
   public void execute(AnActionEvent event, DataContext dataContext, long executionId, @Nullable final ProcessListener processListener) {
+    if (!executeIfPossible(event, dataContext, executionId, processListener)) {
+      notifyCouldNotStart(processListener);
+    }
+  }
+
+  public boolean executeIfPossible(AnActionEvent event,
+                                   DataContext dataContext,
+                                   long executionId,
+                                   @Nullable final ProcessListener processListener) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
-      return;
+      return false;
     }
 
     FileDocumentManager.getInstance().saveAllDocuments();
@@ -264,23 +285,29 @@ public class Tool implements SchemeElement {
       if (isUseConsole()) {
         ExecutionEnvironment environment = ExecutionEnvironmentBuilder.create(project,
                                                                               DefaultRunExecutor.getRunExecutorInstance(),
-                                                                              new ToolRunProfile(this, dataContext)).build();
-        environment.setExecutionId(executionId);
-        environment.getRunner().execute(environment, new ProgramRunner.Callback() {
-          @Override
-          public void processStarted(RunContentDescriptor descriptor) {
-            ProcessHandler processHandler = descriptor.getProcessHandler();
-            if (processHandler != null && processListener != null) {
-              LOG.assertTrue(!processHandler.isStartNotified(), "ProcessHandler is already startNotified, the listener won't be correctly notified");
-              processHandler.addProcessListener(processListener);
+                                                                              new ToolRunProfile(this, dataContext))
+          .build(new ProgramRunner.Callback() {
+            @Override
+            public void processStarted(RunContentDescriptor descriptor) {
+              ProcessHandler processHandler = descriptor.getProcessHandler();
+              if (processHandler != null && processListener != null) {
+                LOG.assertTrue(!processHandler.isStartNotified(),
+                               "ProcessHandler is already startNotified, the listener won't be correctly notified");
+                processHandler.addProcessListener(processListener);
+              }
             }
-          }
-        });
+          });
+        if (environment.getState() == null) {
+          return false;
+        }
+
+        environment.setExecutionId(executionId);
+        environment.getRunner().execute(environment);
       }
       else {
         GeneralCommandLine commandLine = createCommandLine(dataContext);
         if (commandLine == null) {
-          return;
+          return false;
         }
         OSProcessHandler handler = new OSProcessHandler(commandLine);
         handler.addProcessListener(new ToolProcessAdapter(project, synchronizeAfterExecution(), getName()));
@@ -292,7 +319,9 @@ public class Tool implements SchemeElement {
     }
     catch (ExecutionException ex) {
       ExecutionErrorDialog.show(ex, ToolsBundle.message("tools.process.start.error"), project);
+      return false;
     }
+    return true;
   }
 
   @Nullable
@@ -301,7 +330,9 @@ public class Tool implements SchemeElement {
       setWorkingDirectory("$ProjectFileDir$");
     }
 
-    GeneralCommandLine commandLine = new GeneralCommandLine();
+    GeneralCommandLine commandLine = Registry.is("use.tty.for.external.tools", false)
+                                     ? new PtyCommandLine().withConsoleMode(true)
+                                     : new GeneralCommandLine();
     try {
       String paramString = MacroManager.getInstance().expandMacrosInString(getParameters(), true, dataContext);
       String workingDir = MacroManager.getInstance().expandMacrosInString(getWorkingDirectory(), true, dataContext);
@@ -328,7 +359,7 @@ public class Tool implements SchemeElement {
     catch (Macro.ExecutionCancelledException ignored) {
       return null;
     }
-    return commandLine;
+    return ToolsCustomizer.customizeCommandLine(commandLine, dataContext);
   }
 
   @Override

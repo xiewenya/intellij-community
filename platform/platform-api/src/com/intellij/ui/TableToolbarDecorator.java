@@ -15,6 +15,7 @@
  */
 package com.intellij.ui;
 
+import com.intellij.openapi.actionSystem.ActionToolbarPosition;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.EditableModel;
@@ -60,7 +61,13 @@ class TableToolbarDecorator extends ToolbarDecorator {
   }
 
   @Override
-  protected JComponent getComponent() {
+  public @NotNull ToolbarDecorator initPosition() {
+    setToolbarPosition(ActionToolbarPosition.BOTTOM);
+    return this;
+  }
+
+  @Override
+  protected @NotNull JComponent getComponent() {
     return myTable;
   }
 
@@ -130,9 +137,7 @@ class TableToolbarDecorator extends ToolbarDecorator {
           if (editorComponent != null) {
             final Rectangle bounds = editorComponent.getBounds();
             table.scrollRectToVisible(bounds);
-            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-              IdeFocusManager.getGlobalInstance().requestFocus(editorComponent, true);
-            });
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(editorComponent, true));
           }
         });
 
@@ -145,9 +150,7 @@ class TableToolbarDecorator extends ToolbarDecorator {
       public void run(AnActionButton button) {
         if (TableUtil.doRemoveSelectedItems(table, tableModel, null)) {
           updateButtons();
-          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-            IdeFocusManager.getGlobalInstance().requestFocus(table, true);
-          });
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
           TableUtil.updateScroller(table);
         }
       }
@@ -164,6 +167,7 @@ class TableToolbarDecorator extends ToolbarDecorator {
       public void run(AnActionButton button) {
         int row = table.getEditingRow();
         int col = table.getEditingColumn();
+        int rowCount = table.getModel().getRowCount();
         TableUtil.stopEditing(table);
         int[] idx = table.getSelectedRows();
         Arrays.sort(idx);
@@ -173,18 +177,19 @@ class TableToolbarDecorator extends ToolbarDecorator {
 
         if (idx.length == 0) return;
         if (idx[0] + delta < 0) return;
-        if (idx[idx.length - 1] + delta > table.getModel().getRowCount()) return;
+        if (idx[idx.length - 1] + delta > rowCount) return;
 
         for (int i = 0; i < idx.length; i++) {
           tableModel.exchangeRows(idx[i], idx[i] + delta);
           idx[i] += delta;
         }
         TableUtil.selectRows(table, idx);
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(table, true);
-        });
-        if (row > 0 && col != -1) {
-          table.editCellAt(row - 1, col);
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
+        if (row != -1 && col != -1) {
+          int newEditingRow = row + delta;
+          if (newEditingRow != -1 && newEditingRow < rowCount) {
+            table.editCellAt(newEditingRow, col);
+          }
         }
       }
     }

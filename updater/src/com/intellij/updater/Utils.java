@@ -1,22 +1,22 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.DosFileAttributeView;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
-import java.util.List;
+import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class Utils {
-  private static final long REQUIRED_FREE_SPACE = 10_0000_0000L;
+  private static final String OS_NAME = System.getProperty("os.name").toLowerCase(Locale.ENGLISH);
+  public static final boolean IS_WINDOWS = OS_NAME.startsWith("windows");
+  public static final boolean IS_MAC = OS_NAME.startsWith("mac");
+
+  private static final long REQUIRED_FREE_SPACE = 2_000_000_000L;
 
   private static final int BUFFER_SIZE = 8192;  // to minimize native memory allocations for I/O operations
-  private static final byte[] BUFFER = new byte[BUFFER_SIZE];
 
   private static File myTempDir;
 
@@ -43,7 +43,7 @@ public class Utils {
   public static File getTempFile(String name) throws IOException {
     if (myTempDir == null) {
       myTempDir = Files.createTempDirectory(Paths.get(findDirectory(REQUIRED_FREE_SPACE)), "idea.updater.files.").toFile();
-      Runner.logger().info("created working directory: " + myTempDir);
+      Runner.logger().info("created a working directory: " + myTempDir);
     }
 
     File myTempFile;
@@ -58,7 +58,7 @@ public class Utils {
   public static void cleanup() throws IOException {
     if (myTempDir == null) return;
     delete(myTempDir);
-    Runner.logger().info("deleted working directory: " + myTempDir.getPath());
+    Runner.logger().info("deleted a working directory: " + myTempDir.getPath());
     myTempDir = null;
   }
 
@@ -81,16 +81,21 @@ public class Utils {
     }
   }
 
-  @SuppressWarnings("BusyWait")
   private static void tryDelete(Path path) throws IOException {
+    IOException lastError = null;
+
     for (int i = 0; i < 10; i++) {
       try {
-        if (Files.deleteIfExists(path) || !Files.exists(path)) {
-          Runner.logger().info("deleted: " + path);
-          return;
-        }
+        Files.delete(path);
+        Runner.logger().info("deleted: " + path);
+        return;
+      }
+      catch (NoSuchFileException e) {
+        Runner.logger().info("already deleted: " + path);
+        return;
       }
       catch (AccessDeniedException e) {
+        lastError = e;
         try {
           DosFileAttributeView view = Files.getFileAttributeView(path, DosFileAttributeView.class);
           if (view != null && view.readAttributes().isReadOnly()) {
@@ -100,12 +105,14 @@ public class Utils {
         }
         catch (IOException ignore) { }
       }
-      catch (IOException ignore) { }
+      catch (IOException e) {
+        lastError = e;
+      }
 
       pause(10);
     }
 
-    throw new IOException("Cannot delete: " + path);
+    throw new IOException("Cannot delete: " + path, lastError);
   }
 
   public static boolean isExecutable(File file) {
@@ -113,8 +120,12 @@ public class Utils {
   }
 
   public static void setExecutable(File file) throws IOException {
+    setExecutable(file, true);
+  }
+
+  public static void setExecutable(File file, boolean executable) throws IOException {
     Runner.logger().info("Setting executable permissions for: " + file);
-    if (!file.setExecutable(true, false)) {
+    if (!file.setExecutable(executable, false)) {
       throw new IOException("Cannot set executable permissions for: " + file);
     }
   }
@@ -133,37 +144,44 @@ public class Utils {
     Files.createSymbolicLink(path, Paths.get(target));
   }
 
-  public static void copy(File from, File to) throws IOException {
-    if (!from.exists()) throw new IOException("Source does not exist: " + from);
+  public static void copy(File from, File to, boolean overwrite) throws IOException {
+    Runner.logger().info(from + (overwrite ? " over " : " into ") + to);
 
-    if (isLink(from)) {
-      if (to.exists()) throw new IOException("Target already exists: " + to);
-      Runner.logger().info("Link: " + from.getPath() + " to " + to.getPath());
-
-      File dir = to.getParentFile();
-      if (!(dir.isDirectory() || dir.mkdirs())) throw new IOException("Cannot create: " + dir);
-
-      createLink(readLink(from), to);
-    }
-    else if (from.isDirectory()) {
-      Runner.logger().info("Dir: " + from.getPath() + " to " + to.getPath());
-      if (!(to.mkdirs() || to.isDirectory())) throw new IOException("Cannot create: " + to);
+    if (Files.isDirectory(from.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+      Files.createDirectories(to.toPath());
     }
     else {
-      if (to.exists()) throw new IOException("Target already exists: " + to);
-      Runner.logger().info("File: " + from.getPath() + " to " + to.getPath());
-
-      File dir = to.getParentFile();
-      if (!(dir.isDirectory() || dir.mkdirs())) throw new IOException("Cannot create: " + dir);
-
-      try (InputStream in = new BufferedInputStream(new FileInputStream(from))) {
-        copyStreamToFile(in, to);
-      }
-
-      if (isExecutable(from)) {
-        setExecutable(to);
-      }
+      Files.createDirectories(to.toPath().getParent());
+      CopyOption[] options =
+        overwrite ? new CopyOption[]{LinkOption.NOFOLLOW_LINKS, StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING} :
+                    new CopyOption[]{LinkOption.NOFOLLOW_LINKS, StandardCopyOption.COPY_ATTRIBUTES};
+      Files.copy(from.toPath(), to.toPath(), options);
     }
+  }
+
+  public static void copyDirectory(Path from, Path to) throws IOException {
+    Runner.logger().info(from + " into " + to);
+
+    CopyOption[] options = {LinkOption.NOFOLLOW_LINKS, StandardCopyOption.COPY_ATTRIBUTES};
+    Files.walkFileTree(from, new SimpleFileVisitor<Path>() {
+      @Override
+      public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+        if (dir != from || !Files.exists(to)) {
+          Path copy = to.resolve(from.relativize(dir));
+          Runner.logger().info("  " + dir + " into " + copy);
+          Files.createDirectory(copy);
+        }
+        return FileVisitResult.CONTINUE;
+      }
+
+      @Override
+      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+        Path copy = to.resolve(from.relativize(file));
+        Runner.logger().info("  " + file + " into " + copy);
+        Files.copy(file, copy, options);
+        return FileVisitResult.CONTINUE;
+      }
+    });
   }
 
   public static void copyFileToStream(File from, OutputStream out) throws IOException {
@@ -193,7 +211,7 @@ public class Utils {
     int offset = 0;
     while (offset < count) {
       int n = in.read(bytes, offset, count - offset);
-      if (n < 0) throw new IOException("Premature end of stream");
+      if (n < 0) throw new IOException("A premature end of stream");
       offset += n;
     }
     return bytes;
@@ -209,10 +227,11 @@ public class Utils {
   }
 
   public static void copyStream(InputStream from, OutputStream to) throws IOException {
+    byte[] buffer = new byte[BUFFER_SIZE];
     while (true) {
-      int read = from.read(BUFFER);
+      int read = from.read(buffer);
       if (read < 0) break;
-      to.write(BUFFER, 0, read);
+      to.write(buffer, 0, read);
     }
   }
 
@@ -228,48 +247,49 @@ public class Utils {
 
   public static ZipEntry getZipEntry(ZipFile zipFile, String entryPath) throws IOException {
     ZipEntry entry = zipFile.getEntry(entryPath);
-    if (entry == null) throw new IOException("Entry " + entryPath + " not found");
+    if (entry == null) throw new FileNotFoundException("Entry " + entryPath + " not found");
     Runner.logger().info("entryPath: " + entryPath);
     return entry;
   }
 
   public static InputStream findEntryInputStreamForEntry(ZipFile zipFile, ZipEntry entry) throws IOException {
     if (entry.isDirectory()) return null;
-    // There is a bug in some JVM implementations where for a directory "X/" in a zipfile, if we do
+    // There is a bug in some JVM implementations where for a directory "X/" in a .zip file, if we do
     // "zip.getEntry("X/").isDirectory()" returns true, but if we do "zip.getEntry("X").isDirectory()" is false.
-    // getEntry for "name" falls back to finding "X/", so here we make sure that didn't happen.
+    // getEntry for "name" falls back to finding "X/", so here we make sure this didn't happen.
     if (zipFile.getEntry(entry.getName() + "/") != null) return null;
 
     return new BufferedInputStream(zipFile.getInputStream(entry));
   }
 
-  public static LinkedHashSet<String> collectRelativePaths(File dir) {
+  // always collect files and folders - to avoid cases such as IDEA-152249
+  public static LinkedHashSet<String> collectRelativePaths(Path root) throws IOException {
     LinkedHashSet<String> result = new LinkedHashSet<>();
-    collectRelativePaths(dir, result, null);
+
+    Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+      @Override
+      public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+        if (dir != root) {
+          result.add(root.relativize(dir).toString().replace('\\', '/') + '/');
+        }
+        return FileVisitResult.CONTINUE;
+      }
+
+      @Override
+      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+        result.add(root.relativize(file).toString().replace('\\', '/'));
+        return FileVisitResult.CONTINUE;
+      }
+    });
+
     return result;
-  }
-
-  private static void collectRelativePaths(File dir, LinkedHashSet<String> result, String parentPath) {
-    File[] children = dir.listFiles();
-    if (children == null) return;
-
-    for (File each : children) {
-      String relativePath = (parentPath == null ? "" : parentPath + '/') + each.getName();
-      if (each.isDirectory()) {
-        result.add(relativePath + '/');  // the trailing slash is used by zip to determine whether it is a directory
-        collectRelativePaths(each, result, relativePath);
-      }
-      else {
-        result.add(relativePath);
-      }
-    }
   }
 
   public static InputStream newFileInputStream(File file, boolean normalize) throws IOException {
     return normalize && isZipFile(file.getName()) ? new NormalizedZipInputStream(file) : new FileInputStream(file);
   }
 
-  private static class NormalizedZipInputStream extends InputStream {
+  private static final class NormalizedZipInputStream extends InputStream {
     private final ZipFile myZip;
     private final List<? extends ZipEntry> myEntries;
     private InputStream myStream = null;
@@ -279,7 +299,7 @@ public class Utils {
     private NormalizedZipInputStream(File file) throws IOException {
       myZip = new ZipFile(file);
       myEntries = Collections.list(myZip.entries());
-      Collections.sort(myEntries, Comparator.comparing(ZipEntry::getName));
+      myEntries.sort(Comparator.comparing(ZipEntry::getName));
       loadNextEntry();
     }
 
@@ -325,7 +345,7 @@ public class Utils {
     @Override
     @SuppressWarnings("NonPrivateFieldAccessedInSynchronizedContext")
     public synchronized void writeTo(OutputStream out) throws IOException {
-      writeBytes(buf, count, out);
+      Utils.writeBytes(buf, count, out);
     }
   }
 

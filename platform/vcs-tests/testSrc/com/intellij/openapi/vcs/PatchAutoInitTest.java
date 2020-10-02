@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.diff.impl.patch.PatchHunk;
+import com.intellij.openapi.diff.impl.patch.PatchLine;
 import com.intellij.openapi.diff.impl.patch.PatchReader;
 import com.intellij.openapi.diff.impl.patch.TextFilePatch;
 import com.intellij.openapi.util.io.FileUtil;
@@ -25,29 +12,45 @@ import com.intellij.openapi.vcs.changes.patch.MatchPatchPaths;
 import com.intellij.openapi.vcs.changes.shelf.ShelvedBinaryFile;
 import com.intellij.openapi.vcs.changes.shelf.ShelvedBinaryFilePatch;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.HeavyPlatformTestCase;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.VfsTestUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-@PlatformTestCase.WrapInCommand
-public class PatchAutoInitTest extends PlatformTestCase {
+@HeavyPlatformTestCase.WrapInCommand
+public class PatchAutoInitTest extends HeavyPlatformTestCase {
   private static final String BINARY_FILENAME = "binary.png";
 
+  @Override
+  protected @NotNull Path getProjectDirOrFile(boolean isDirectoryBasedProject) {
+    try {
+      // create extra space for test with files above `getBaseDir`
+      Path projectRoot = getTempDir().newPath().resolve("test/test/test/root");
+      Files.createDirectories(projectRoot);
+      return projectRoot;
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   public void testSimple() {
-    final VirtualFile root = myProject.getBaseDir();
-    final VirtualFile dir = createChildDirectory(root, "dir");
+    VirtualFile root = getOrCreateProjectBaseDir();
+    VirtualFile dir = createChildDirectory(root, "dir");
     createChildData(dir, "somefile.txt");
 
     final TextFilePatch patch = create("dir/somefile.txt");
 
-    final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> filePatchInProgresses = iterator.execute(Collections.singletonList(patch));
+    MatchPatchPaths iterator = new MatchPatchPaths(myProject);
+    List<AbstractFilePatchInProgress<?>> filePatchInProgresses = iterator.execute(Collections.singletonList(patch));
 
     assertEquals(1, filePatchInProgresses.size());
     assertEquals(root, filePatchInProgresses.get(0).getBase());
@@ -58,7 +61,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
   }
 
   static TextFilePatch create(String s) {
-    final TextFilePatch patch = new TextFilePatch(null);
+    TextFilePatch patch = new TextFilePatch(null);
     patch.setBeforeName(s);
     patch.setAfterName(s);
     return patch;
@@ -78,7 +81,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
 
   // 1. several files with different bases; one can be matched to 2 bases
   public void testDiffBases() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -107,7 +110,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
     ShelvedBinaryFilePatch shelvedBinaryPatch = createShelvedBinarySimplePatch("c/" + BINARY_FILENAME);
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, shelvedBinaryPatch));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, shelvedBinaryPatch));
     checkPath(result, "b/c/f1.txt", Arrays.asList(a, e), 0);
     checkPath(result, "a/b/c/f2.txt", Collections.singletonList(root), 0);
     checkPath(result, "e/b/c/f3.txt", Collections.singletonList(root), 0);
@@ -116,7 +119,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
   }
 
   public void testBestBinaryVariant() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
     VirtualFile a = createChildDirectory(root, "a");
@@ -134,9 +137,9 @@ public class PatchAutoInitTest extends PlatformTestCase {
 
     ShelvedBinaryFilePatch shelvedBinaryPatch = createShelvedBinarySimplePatch(cBinary);
     final MatchPatchPaths matchPatchPaths = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> resultProjectBase = matchPatchPaths.execute(Collections.singletonList(shelvedBinaryPatch));
+    final List<AbstractFilePatchInProgress<?>> resultProjectBase = matchPatchPaths.execute(Collections.singletonList(shelvedBinaryPatch));
     checkPath(resultProjectBase, cBinary, Arrays.asList(root, b, f), 0);
-    assertEquals(resultProjectBase.get(0).getBase(), myProject.getBaseDir());
+    assertEquals(resultProjectBase.get(0).getBase(), getOrCreateProjectBaseDir());
   }
 
   @NotNull
@@ -164,7 +167,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
   }
 
   private void checkSingleFileOperationAmongSimilarFolders(final String filePath, final TextFilePatch patch){
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
     PsiTestUtil.addContentRoot(myModule, root);
     VfsTestUtil.createFile(root, "platform/platform-impl/src/com/intellij/util/io/A.java");
     VfsTestUtil.createFile(root, "platform/platform-impl/src/io/B.java");
@@ -177,14 +180,14 @@ public class PatchAutoInitTest extends PlatformTestCase {
     VfsTestUtil.createFile(root, "platform/util/src/com/intellij/openapi/util/io/I.java");
     VfsTestUtil.createFile(root, "platform/util/completely/different/folder/J.java");
 
-    final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Collections.singletonList(patch));
+    MatchPatchPaths iterator = new MatchPatchPaths(myProject);
+    List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
     checkPath(result, filePath, Collections.singletonList(root), 0);
   }
 
   // inspired by IDEA-118644
   public void testFileAdditionToNonexistentSubfolder() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
     PsiTestUtil.addContentRoot(myModule, root);
     VfsTestUtil.createDir(root, "platform/editor-ui-ex/src/com/intellij/openapi/editor/colors");
     VfsTestUtil.createDir(root, "plugins/properties/src/com/intellij/openapi/options/colors");
@@ -196,12 +199,12 @@ public class PatchAutoInitTest extends PlatformTestCase {
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
     String path = "platform/platform-tests/testSrc/com/intellij/openapi/editor/colors/impl/A.java";
     TextFilePatch patch = create(path);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Collections.singletonList(patch));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
     checkPath(result, path, Collections.singletonList(root), 0);
   }
 
   public void testFileAdditionGeneratedFromSuperRoot() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
     PsiTestUtil.addContentRoot(myModule, root);
     VfsTestUtil.createDir(root, "editor-ui-ex/src/com/intellij/openapi/editor/colors");
     VfsTestUtil.createDir(root, "platform-api/src/com/intellij/openapi/editor/colors");
@@ -212,23 +215,96 @@ public class PatchAutoInitTest extends PlatformTestCase {
     String prefix = "community/platform/";
     String path = "platform-tests/testSrc/com/intellij/openapi/editor/colors/A.java";
     TextFilePatch patch = create(prefix + path);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Collections.singletonList(patch));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
     checkPath(result, path, Collections.singletonList(root), StringUtil.split(prefix, "/").size());
   }
 
-  private static void checkPath(List<AbstractFilePatchInProgress> filePatchInProgresses, String path, List<VirtualFile> bases, int strip) {
-    for (AbstractFilePatchInProgress patch : filePatchInProgresses) {
+  public void testFileAdditionWithMultipleSimilarModules() {
+    final VirtualFile root = getOrCreateProjectBaseDir();
+    PsiTestUtil.addContentRoot(myModule, root);
+    VfsTestUtil.createDir(root, "module-1/src/com/intellij/openapi/colors");
+    VfsTestUtil.createDir(root, "module-2/src/com/intellij/openapi/editor");
+    VfsTestUtil.createDir(root, "module-3/src/com/intellij/openapi/modules");
+    VfsTestUtil.createDir(root, "platform-tests/testSrc/com/intellij/openapi/editor");
+
+    TextFilePatch patch = createFileAddition("module-new/src/com/intellij/openapi/tests/SomeNewFile.java");
+
+    final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
+    checkPath(result, "module-new/src/com/intellij/openapi/tests/SomeNewFile.java", Collections.singletonList(root), 0);
+  }
+
+  public void testFileModificationWithMultipleSimilarModules() {
+    final VirtualFile root = getOrCreateProjectBaseDir();
+    PsiTestUtil.addContentRoot(myModule, root);
+    VfsTestUtil.createFile(root, "module-1/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(root, "module-2/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(root, "module-3/folder/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(root, ".idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+
+    TextFilePatch patch = create(".idea/module.xml");
+    PatchHunk hunk = new PatchHunk(0, 3, 0, 3);
+    hunk.addLine(new PatchLine(PatchLine.Type.CONTEXT, "1"));
+    hunk.addLine(new PatchLine(PatchLine.Type.REMOVE, "2"));
+    hunk.addLine(new PatchLine(PatchLine.Type.ADD, "New"));
+    hunk.addLine(new PatchLine(PatchLine.Type.CONTEXT, "3"));
+    patch.addHunk(hunk);
+
+    final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
+    checkPath(result, ".idea/module.xml", Collections.singletonList(root), 0);
+  }
+
+  public void testFileModificationAboveProjectDir() {
+    final VirtualFile root = getOrCreateProjectBaseDir();
+    VirtualFile grandRoot = root.getParent().getParent();
+
+    PsiTestUtil.addContentRoot(myModule, root);
+    VfsTestUtil.createFile(grandRoot, "module-1/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(grandRoot, "module-2/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(root, "module-1/.idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+    VfsTestUtil.createFile(root, ".idea/module.xml", "1\n2\n3\n4\n5\n6\n");
+
+    TextFilePatch patch1 = create("../../module-1/.idea/module.xml");
+    TextFilePatch patch2 = create("../../module-2/.idea/module.xml");
+
+    final MatchPatchPaths iterator1 = new MatchPatchPaths(myProject);
+    final List<AbstractFilePatchInProgress<?>> result1 = iterator1.execute(Collections.singletonList(patch1), true);
+    checkPath(result1, "module-1/.idea/module.xml", Collections.singletonList(grandRoot), 2);
+
+    final MatchPatchPaths iterator2 = new MatchPatchPaths(myProject);
+    final List<AbstractFilePatchInProgress<?>> result2 = iterator2.execute(Collections.singletonList(patch2), true);
+    checkPath(result2, "module-2/.idea/module.xml", Collections.singletonList(grandRoot), 2);
+  }
+
+  public void testBinaryModificationWithMultipleSimilarModules() {
+    final VirtualFile root = getOrCreateProjectBaseDir();
+    PsiTestUtil.addContentRoot(myModule, root);
+    VfsTestUtil.createFile(root, "module-1/.idea/module.bin");
+    VfsTestUtil.createFile(root, "module-2/.idea/module.bin");
+    VfsTestUtil.createFile(root, "module-3/folder/.idea/module.bin");
+    VfsTestUtil.createFile(root, ".idea/module.bin");
+
+    final ShelvedBinaryFilePatch patch = createShelvedBinarySimplePatch(".idea/module.bin");
+
+    final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Collections.singletonList(patch));
+    checkPath(result, ".idea/module.bin", Collections.singletonList(root), 0);
+  }
+
+  private static void checkPath(List<AbstractFilePatchInProgress<?>> filePatchInProgresses, String path, List<VirtualFile> bases, int strip) {
+    for (AbstractFilePatchInProgress<?> patch : filePatchInProgresses) {
       if (bases.contains(patch.getBase()) && path.equals(patch.getCurrentPath()) && (patch.getCurrentStrip() == strip)) {
         return;
       }
     }
-    assertTrue("Failed for (first base only shown) '" + bases.iterator().next().getPath() + " + " + path + " " + strip +
-               "'; results: " + printPatches(filePatchInProgresses), false);
+    fail("Failed for (first base only shown) '" + bases.iterator().next().getPath() + " + " + path + " " + strip +
+         "'; results: " + printPatches(filePatchInProgresses));
   }
 
-  private static String printPatches(final List<AbstractFilePatchInProgress> filePatchInProgresses) {
-    final StringBuilder sb = new StringBuilder();
-    for (AbstractFilePatchInProgress patch : filePatchInProgresses) {
+  private static String printPatches(@NotNull List<AbstractFilePatchInProgress<?>> filePatchInProgresses) {
+    StringBuilder sb = new StringBuilder();
+    for (AbstractFilePatchInProgress<?> patch : filePatchInProgresses) {
       sb.append("\n").append(patch.getBase().getPath()).append(" + ").append(patch.getCurrentPath()).
         append(' ').append(patch.getCurrentStrip());
     }
@@ -237,7 +313,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
 
   // 2. files can be for 1 dir and 1 strip distance
   public void testOneBaseAndStrip() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -257,7 +333,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
     ShelvedBinaryFilePatch shelvedBinaryPatch = createShelvedBinarySimplePatch("t/b/c/" + BINARY_FILENAME);
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, shelvedBinaryPatch));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, shelvedBinaryPatch));
 
     checkPath(result, "b/c/f1.txt", Collections.singletonList(a), 1);
     checkPath(result, "b/c/f2.txt", Collections.singletonList(a), 1);
@@ -268,7 +344,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
 
   // 3. files can be with 2 base dirs and 1-one distance, 2-different distances
   public void testOneBaseAndDifferentStrips() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -298,13 +374,13 @@ public class PatchAutoInitTest extends PlatformTestCase {
     final TextFilePatch patch2 = create("h1/c/f2.txt");
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Arrays.asList(patch1, patch2));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Arrays.asList(patch1, patch2));
     checkPath(result, "a1/b1/c/f1.txt", Collections.singletonList(e), 0);
     checkPath(result, "h1/c/f2.txt", Collections.singletonList(e), 0);
   }
 
   public void testPreviousFirstVariantAlsoMatches() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -322,14 +398,14 @@ public class PatchAutoInitTest extends PlatformTestCase {
     final ShelvedBinaryFilePatch shelvedBinaryPatch = createShelvedBinarySimplePatch("a1/b1/c/" + BINARY_FILENAME);
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Arrays.asList(patch1, patch2, shelvedBinaryPatch));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Arrays.asList(patch1, patch2, shelvedBinaryPatch));
     checkPath(result, "c/f1.txt", Collections.singletonList(b), 2);
     checkPath(result, "c/f2.txt", Collections.singletonList(b), 1);
     checkPath(result, "c/" + BINARY_FILENAME, Collections.singletonList(b), 2);
   }
 
   public void testDefaultStrategyWorks() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -348,7 +424,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
     TextFilePatch patch5 = create("h1/c/f10.txt");
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, patch5));
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(Arrays.asList(patch1, patch2, patch3, patch4, patch5));
     checkPath(result, "c/f1.txt", Collections.singletonList(b), 2);
     checkPath(result, "f2.txt", Collections.singletonList(c), 2);
     checkPath(result, "b/c/f3.txt", Collections.singletonList(a), 0);
@@ -357,7 +433,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
   }
 
   public void testExactWins() {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -385,7 +461,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
     ShelvedBinaryFilePatch shelvedBinaryPatch2 = createShelvedBinarySimplePatch("mod2/b/c/" + BINARY_FILENAME);
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result =
+    final List<AbstractFilePatchInProgress<?>> result =
       iterator.execute(Arrays.asList(patch1, patch2, patch3, shelvedBinaryPatch1, shelvedBinaryPatch2));
     checkPath(result, "mod1/b/c/f1.txt", Collections.singletonList(a), 0);
     checkPath(result, "mod2/b/c/f1.txt", Collections.singletonList(a), 0);
@@ -395,7 +471,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
   }
 
   public void testFindByContext() throws Exception {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -464,12 +540,12 @@ public class PatchAutoInitTest extends PlatformTestCase {
                                                         "\\ No newline at end of file\n").readTextPatches();
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(patches);
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(patches);
     checkPath(result, "coupleFiles/file1.txt", Collections.singletonList(b2), 0);
   }
 
   public void testFindByContext2() throws Exception {
-    final VirtualFile root = myProject.getBaseDir();
+    final VirtualFile root = getOrCreateProjectBaseDir();
 
     PsiTestUtil.addContentRoot(myModule, root);
 
@@ -536,12 +612,12 @@ public class PatchAutoInitTest extends PlatformTestCase {
                                                         "\\ No newline at end of file\n").readTextPatches();
 
     final MatchPatchPaths iterator = new MatchPatchPaths(myProject);
-    final List<AbstractFilePatchInProgress> result = iterator.execute(patches);
+    final List<AbstractFilePatchInProgress<?>> result = iterator.execute(patches);
     checkPath(result, "coupleFiles/file1.txt", Collections.singletonList(b1), 0);
   }
 
   public void testFindProjectDirBasedOrAccordingContext() throws Exception {
-    VirtualFile root = myProject.getBaseDir();
+    VirtualFile root = getOrCreateProjectBaseDir();
     PsiTestUtil.addContentRoot(myModule, root);
 
     createChildData(root, "fff1.txt");
@@ -568,7 +644,7 @@ public class PatchAutoInitTest extends PlatformTestCase {
                                                   " eeee\n" +
                                                   "\\ No newline at end of file\n").readTextPatches();
 
-    List<AbstractFilePatchInProgress> result = new MatchPatchPaths(myProject).execute(patches, true);
+    List<AbstractFilePatchInProgress<?>> result = new MatchPatchPaths(myProject).execute(patches, true);
     checkPath(result, "fff1.txt", Collections.singletonList(root), 0);
     result = new MatchPatchPaths(myProject).execute(patches);
     checkPath(result, "fff1.txt", Collections.singletonList(subdir), 0);

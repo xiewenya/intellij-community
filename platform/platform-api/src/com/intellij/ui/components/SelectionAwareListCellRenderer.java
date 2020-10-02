@@ -8,10 +8,10 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 
-public class SelectionAwareListCellRenderer<T> extends DefaultListCellRenderer {
-  private final NotNullFunction<T, JComponent> myFun;
+public class SelectionAwareListCellRenderer<T> implements ListCellRenderer<T> {
+  private final NotNullFunction<? super T, ? extends JComponent> myFun;
 
-  public SelectionAwareListCellRenderer(NotNullFunction<T, JComponent> fun) {myFun = fun;}
+  public SelectionAwareListCellRenderer(NotNullFunction<? super T, ? extends JComponent> fun) {myFun = fun;}
 
   @NotNull
   @Override

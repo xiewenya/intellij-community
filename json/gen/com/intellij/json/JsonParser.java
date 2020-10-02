@@ -23,43 +23,15 @@ public class JsonParser implements PsiParser, LightPsiParser {
     boolean r;
     b = adapt_builder_(t, b, this, EXTENDS_SETS_);
     Marker m = enter_section_(b, 0, _COLLAPSE_, null);
-    if (t == ARRAY) {
-      r = array(b, 0);
-    }
-    else if (t == BOOLEAN_LITERAL) {
-      r = boolean_literal(b, 0);
-    }
-    else if (t == LITERAL) {
-      r = literal(b, 0);
-    }
-    else if (t == NULL_LITERAL) {
-      r = null_literal(b, 0);
-    }
-    else if (t == NUMBER_LITERAL) {
-      r = number_literal(b, 0);
-    }
-    else if (t == OBJECT) {
-      r = object(b, 0);
-    }
-    else if (t == PROPERTY) {
-      r = property(b, 0);
-    }
-    else if (t == REFERENCE_EXPRESSION) {
-      r = reference_expression(b, 0);
-    }
-    else if (t == STRING_LITERAL) {
-      r = string_literal(b, 0);
-    }
-    else if (t == VALUE) {
-      r = value(b, 0);
-    }
-    else {
-      r = parse_root_(t, b, 0);
-    }
+    r = parse_root_(t, b);
     exit_section_(b, 0, m, t, r, true, TRUE_CONDITION);
   }
 
-  protected boolean parse_root_(IElementType t, PsiBuilder b, int l) {
+  protected boolean parse_root_(IElementType t, PsiBuilder b) {
+    return parse_root_(t, b, 0);
+  }
+
+  static boolean parse_root_(IElementType t, PsiBuilder b, int l) {
     return json(b, l + 1);
   }
 
@@ -87,11 +59,10 @@ public class JsonParser implements PsiParser, LightPsiParser {
   // array_element*
   private static boolean array_1(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "array_1")) return false;
-    int c = current_position_(b);
     while (true) {
+      int c = current_position_(b);
       if (!array_element(b, l + 1)) break;
       if (!empty_element_parsed_guard_(b, "array_1", c)) break;
-      c = current_position_(b);
     }
     return true;
   }
@@ -150,11 +121,10 @@ public class JsonParser implements PsiParser, LightPsiParser {
     boolean r;
     Marker m = enter_section_(b);
     r = value(b, l + 1);
-    int c = current_position_(b);
     while (r) {
+      int c = current_position_(b);
       if (!value(b, l + 1)) break;
       if (!empty_element_parsed_guard_(b, "json", c)) break;
-      c = current_position_(b);
     }
     exit_section_(b, m, null, r);
     return r;
@@ -189,10 +159,8 @@ public class JsonParser implements PsiParser, LightPsiParser {
   private static boolean not_brace_or_next_value_0(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "not_brace_or_next_value_0")) return false;
     boolean r;
-    Marker m = enter_section_(b);
     r = consumeToken(b, R_CURLY);
     if (!r) r = value(b, l + 1);
-    exit_section_(b, m, null, r);
     return r;
   }
 
@@ -211,10 +179,8 @@ public class JsonParser implements PsiParser, LightPsiParser {
   private static boolean not_bracket_or_next_value_0(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "not_bracket_or_next_value_0")) return false;
     boolean r;
-    Marker m = enter_section_(b);
     r = consumeToken(b, R_BRACKET);
     if (!r) r = value(b, l + 1);
-    exit_section_(b, m, null, r);
     return r;
   }
 
@@ -260,11 +226,10 @@ public class JsonParser implements PsiParser, LightPsiParser {
   // object_element*
   private static boolean object_1(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "object_1")) return false;
-    int c = current_position_(b);
     while (true) {
+      int c = current_position_(b);
       if (!object_element(b, l + 1)) break;
       if (!empty_element_parsed_guard_(b, "object_1", c)) break;
-      c = current_position_(b);
     }
     return true;
   }
@@ -333,10 +298,8 @@ public class JsonParser implements PsiParser, LightPsiParser {
   static boolean property_name(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "property_name")) return false;
     boolean r;
-    Marker m = enter_section_(b);
     r = literal(b, l + 1);
     if (!r) r = reference_expression(b, l + 1);
-    exit_section_(b, m, null, r);
     return r;
   }
 
@@ -379,12 +342,12 @@ public class JsonParser implements PsiParser, LightPsiParser {
     return r;
   }
 
-  final static Parser not_brace_or_next_value_parser_ = new Parser() {
+  static final Parser not_brace_or_next_value_parser_ = new Parser() {
     public boolean parse(PsiBuilder b, int l) {
       return not_brace_or_next_value(b, l + 1);
     }
   };
-  final static Parser not_bracket_or_next_value_parser_ = new Parser() {
+  static final Parser not_bracket_or_next_value_parser_ = new Parser() {
     public boolean parse(PsiBuilder b, int l) {
       return not_bracket_or_next_value(b, l + 1);
     }

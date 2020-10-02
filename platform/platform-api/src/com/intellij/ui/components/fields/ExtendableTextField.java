@@ -1,38 +1,33 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components.fields;
 
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CustomShortcutSet;
+import com.intellij.openapi.keymap.KeymapUtil;
+import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.ui.UIBundle;
 import com.intellij.ui.components.JBTextField;
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.plaf.TextUI;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import static com.intellij.util.ui.JBUI.scale;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.unmodifiableList;
 
-/**
- * @author Sergey Malenkov
- */
-public class ExtendableTextField extends JBTextField {
-  public static final String VARIANT = "extendable";
+public class ExtendableTextField extends JBTextField implements ExtendableTextComponent {
   private List<Extension> extensions = emptyList();
 
   public ExtendableTextField() {
@@ -43,78 +38,52 @@ public class ExtendableTextField extends JBTextField {
     this(null, columns);
   }
 
-  public ExtendableTextField(String text) {
+  public ExtendableTextField(@Nls String text) {
     this(text, 20);
   }
 
-  public ExtendableTextField(String text, int columns) {
+  public ExtendableTextField(@Nls String text, int columns) {
     super(text, columns);
   }
 
+  @Override
   public List<Extension> getExtensions() {
     return extensions;
   }
 
+  @Override
   public void setExtensions(Extension... extensions) {
     setExtensions(asList(extensions));
   }
 
-  public void setExtensions(Collection<Extension> extensions) {
+  @Override
+  public void setExtensions(Collection<? extends Extension> extensions) {
     setExtensions(new ArrayList<>(extensions));
   }
 
-  private void setExtensions(List<Extension> extensions) {
+  private void setExtensions(List<? extends Extension> extensions) {
     putClientProperty("JTextField.variant", null);
     this.extensions = unmodifiableList(extensions);
-    putClientProperty("JTextField.variant", VARIANT);
+    putClientProperty("JTextField.variant", ExtendableTextComponent.VARIANT);
   }
 
+  @Override
   public void addExtension(@NotNull Extension extension) {
-    ArrayList<Extension> extensions = new ArrayList<>(getExtensions());
-    if (extensions.add(extension)) setExtensions(extensions);
+    if (!getExtensions().contains(extension)) {
+      List<Extension> extensions = new ArrayList<>(getExtensions());
+      extensions.add(extension);
+      setExtensions(extensions);
+    }
   }
 
+  @Override
   public void removeExtension(@NotNull Extension extension) {
     ArrayList<Extension> extensions = new ArrayList<>(getExtensions());
     if (extensions.remove(extension)) setExtensions(extensions);
   }
 
-
-  public interface Extension {
-    Icon getIcon(boolean hovered);
-
-    default int getIconGap() {
-      return scale(5);
-    }
-
-    default int getPreferredSpace() {
-      Icon icon1 = getIcon(true);
-      Icon icon2 = getIcon(false);
-      if (icon1 == null && icon2 == null) return 0;
-      if (icon1 == null) return getIconGap() + icon2.getIconWidth();
-      if (icon2 == null) return getIconGap() + icon1.getIconWidth();
-      return getIconGap() + Math.max(icon1.getIconWidth(), icon2.getIconWidth());
-    }
-
-    default int getBeforeIconOffset() {
-      return 0;
-    }
-
-    default boolean isIconBeforeText() {
-      return false;
-    }
-
-    default Runnable getActionOnClick() {
-      return null;
-    }
-
-    default String getTooltip() {
-      return null;
-    }
-  }
-
   /**
-   * Temporary solution to support icons in the text component for different L&F.
+   * @deprecated Temporary solution to support icons in the text component for different L&F.
    * This method replaces non-supported UI with Darcula UI.
    *
    * @param ui an object to paint this text component
@@ -142,5 +111,24 @@ public class ExtendableTextField extends JBTextField {
       catch (Exception ignore) {
       }
     }
+  }
+
+  @ApiStatus.Experimental
+  public ExtendableTextField addBrowseExtension(@NotNull Runnable action, @Nullable Disposable parentDisposable) {
+    KeyStroke keyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK);
+    String tooltip = UIBundle.message("component.with.browse.button.browse.button.tooltip.text") + " (" + KeymapUtil.getKeystrokeText(keyStroke) + ")";
+
+    ExtendableTextComponent.Extension browseExtension =
+      ExtendableTextComponent.Extension.create(AllIcons.General.OpenDisk, AllIcons.General.OpenDiskHover, tooltip, action);
+
+    new DumbAwareAction() {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
+        action.run();
+      }
+    }.registerCustomShortcutSet(new CustomShortcutSet(keyStroke), this, parentDisposable);
+    addExtension(browseExtension);
+
+    return this;
   }
 }

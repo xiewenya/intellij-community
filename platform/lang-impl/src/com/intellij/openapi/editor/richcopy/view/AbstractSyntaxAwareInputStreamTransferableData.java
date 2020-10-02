@@ -30,7 +30,6 @@ import java.io.UnsupportedEncodingException;
 
 /**
  * @author Denis Zhdanov
- * @since 3/28/13 1:20 PM
  */
 abstract class AbstractSyntaxAwareInputStreamTransferableData extends InputStream implements RawTextWithMarkup {
   private static final Logger LOG = Logger.getInstance(AbstractSyntaxAwareInputStreamTransferableData.class);
@@ -74,7 +73,7 @@ abstract class AbstractSyntaxAwareInputStreamTransferableData extends InputStrea
   }
 
   @Override
-  public int read(@NotNull byte[] b, int off, int len) throws IOException {
+  public int read(byte @NotNull [] b, int off, int len) throws IOException {
     return getDelegate().read(b, off, len);
   }
 

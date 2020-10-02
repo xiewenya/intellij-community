@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.refactoring.inline;
 
@@ -21,8 +7,8 @@ import com.intellij.lang.refactoring.InlineHandler;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.*;
 import com.intellij.psi.search.LocalSearchScope;
@@ -32,6 +18,7 @@ import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.inline.InlineOptionsDialog;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
@@ -39,7 +26,7 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
-import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrClosureSignature;
+import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrSignature;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrBlockStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrIfStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
@@ -60,13 +47,12 @@ import org.jetbrains.plugins.groovy.refactoring.GroovyRefactoringUtil;
 
 import java.util.*;
 
+import static org.jetbrains.annotations.Nls.Capitalization.Title;
+
 /**
  * @author ilyas
  */
-@SuppressWarnings({"SuspiciousMethodCalls"})
-public class GroovyInlineMethodUtil {
-  public static final String REFACTORING_NAME = GroovyRefactoringBundle.message("inline.method.title");
-
+public final class GroovyInlineMethodUtil {
   private GroovyInlineMethodUtil() {
   }
 
@@ -75,7 +61,7 @@ public class GroovyInlineMethodUtil {
 
     final Project project = method.getProject();
     if (method.isConstructor()) {
-      String message = GroovyRefactoringBundle.message("refactoring.cannot.be.applied.to.constructors", REFACTORING_NAME);
+      String message = GroovyRefactoringBundle.message("refactoring.cannot.be.applied.to.constructors", getRefactoringName());
       showErrorMessage(message, project, editor);
       return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
     }
@@ -87,7 +73,7 @@ public class GroovyInlineMethodUtil {
       PsiElement element = reference.getElement();
 
       if (!(element instanceof GrExpression && element.getParent() instanceof GrCallExpression)) {
-        String message = GroovyRefactoringBundle.message("refactoring.is.available.only.for.method.calls", REFACTORING_NAME);
+        String message = GroovyRefactoringBundle.message("refactoring.is.available.only.for.method.calls", getRefactoringName());
         showErrorMessage(message, project, editor);
         return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
       }
@@ -95,7 +81,7 @@ public class GroovyInlineMethodUtil {
       GrCallExpression call = (GrCallExpression)element.getParent();
 
       if (PsiTreeUtil.getParentOfType(element, GrParameter.class) != null) {
-        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.in.parameter.initializers", REFACTORING_NAME);
+        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.in.parameter.initializers", getRefactoringName());
         showErrorMessage(message, project, editor);
         return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
       }
@@ -103,14 +89,16 @@ public class GroovyInlineMethodUtil {
 
       GroovyRefactoringUtil.highlightOccurrences(project, editor, new GrExpression[]{call});
       if (hasBadReturns(method) && !isTailMethodCall(call)) {
-        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.when.return.statement.interrupts.the.execution.flow", REFACTORING_NAME);
+        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.when.return.statement.interrupts.the.execution.flow",
+                                                         getRefactoringName());
         showErrorMessage(message, project, editor);
         return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
       }
     }
     else {
       if (hasBadReturns(method)) {
-        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.when.return.statement.interrupts.the.execution.flow", REFACTORING_NAME);
+        String message = GroovyRefactoringBundle.message("refactoring.is.not.supported.when.return.statement.interrupts.the.execution.flow",
+                                                         getRefactoringName());
         showErrorMessage(message, project, editor);
         return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
       }
@@ -118,8 +106,8 @@ public class GroovyInlineMethodUtil {
 
     if (method.getBlock() == null) {
       String message = method.hasModifierProperty(PsiModifier.ABSTRACT)
-                       ? GroovyRefactoringBundle.message("refactoring.cannot.be.applied.to.abstract.methods", REFACTORING_NAME)
-                       : GroovyRefactoringBundle.message("refactoring.cannot.be.applied.no.sources.attached", REFACTORING_NAME);
+                       ? GroovyRefactoringBundle.message("refactoring.cannot.be.applied.to.abstract.methods", getRefactoringName())
+                       : GroovyRefactoringBundle.message("refactoring.cannot.be.applied.no.sources.attached", getRefactoringName());
       showErrorMessage(message, project, editor);
       return InlineHandler.Settings.CANNOT_INLINE_SETTINGS;
     }
@@ -245,8 +233,8 @@ public class GroovyInlineMethodUtil {
 
   }
 
-  private static void showErrorMessage(String message, final Project project, Editor editor) {
-    CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.INLINE_METHOD);
+  private static void showErrorMessage(@DialogMessage String message, final Project project, Editor editor) {
+    CommonRefactoringUtil.showErrorHint(project, editor, message, getRefactoringName(), HelpID.INLINE_METHOD);
   }
 
   static boolean isStaticMethod(@NotNull GrMethod method) {
@@ -315,7 +303,7 @@ public class GroovyInlineMethodUtil {
       return declaration.hasModifierProperty(PsiModifier.STATIC);
     }
 
-    public ReferenceExpressionInfo(GrReferenceExpression expression, int offsetInMethod, PsiMember declaration, PsiClass containingClass) {
+    ReferenceExpressionInfo(GrReferenceExpression expression, int offsetInMethod, PsiMember declaration, PsiClass containingClass) {
       this.expression = expression;
       this.offsetInMethod = offsetInMethod;
       this.declaration = declaration;
@@ -324,7 +312,7 @@ public class GroovyInlineMethodUtil {
   }
 
 
-  static void addQualifiersToInnerReferences(GrMethod method, Collection<ReferenceExpressionInfo> infos, @NotNull GrExpression qualifier)
+  static void addQualifiersToInnerReferences(GrMethod method, Collection<? extends ReferenceExpressionInfo> infos, @NotNull GrExpression qualifier)
       throws IncorrectOperationException {
     Set<GrReferenceExpression> exprs = new HashSet<>();
     for (ReferenceExpressionInfo info : infos) {
@@ -363,12 +351,11 @@ public class GroovyInlineMethodUtil {
 
 
   static class InlineMethodDialog extends InlineOptionsDialog {
-    public static final String REFACTORING_NAME = GroovyRefactoringBundle.message("inline.method.title");
     private final boolean myAllowInlineThisOnly;
 
     private final PsiMethod myMethod;
 
-    public InlineMethodDialog(Project project,
+    InlineMethodDialog(Project project,
                               PsiMethod method,
                               boolean invokedOnReference,
                               final boolean allowInlineThisOnly) {
@@ -377,7 +364,7 @@ public class GroovyInlineMethodUtil {
       myAllowInlineThisOnly = allowInlineThisOnly;
       myInvokedOnReference = invokedOnReference;
 
-      setTitle(REFACTORING_NAME);
+      setTitle(getRefactoringName());
 
       init();
     }
@@ -417,8 +404,8 @@ public class GroovyInlineMethodUtil {
     }
 
     @Override
-    protected void doHelpAction() {
-      HelpManager.getInstance().invokeHelp(HelpID.INLINE_METHOD);
+    protected String getHelpId() {
+      return HelpID.INLINE_METHOD;
     }
 
     @Override
@@ -446,7 +433,7 @@ public class GroovyInlineMethodUtil {
     Project project = call.getProject();
 
     final GroovyResolveResult resolveResult = call.advancedResolve();
-    GrClosureSignature signature = GrClosureSignatureUtil.createSignature(method, resolveResult.getSubstitutor());
+    GrSignature signature = GrClosureSignatureUtil.createSignature(method, resolveResult.getSubstitutor());
 
     if (signature == null) {
       return;
@@ -472,7 +459,7 @@ public class GroovyInlineMethodUtil {
   }
 
   @Nullable
-  private static GrExpression inferArg(GrClosureSignature signature,
+  private static GrExpression inferArg(GrSignature signature,
                                        GrParameter[] parameters,
                                        GrParameter parameter,
                                        GrClosureSignatureUtil.ArgInfo<PsiElement> argInfo,
@@ -525,7 +512,7 @@ public class GroovyInlineMethodUtil {
     GrParameter[] parameters = method.getParameters();
     for (GrParameter parameter : parameters) {
       GrExpression initializer = parameter.getInitializerGroovy();
-      if (nameFilter.contains(parameter.getName()) && initializer != null) {
+      if (initializer != null && nameFilter.contains(parameter.getName())) {
         replaceAllOccurrencesWithExpression(method, call, initializer, parameter);
       }
     }
@@ -614,5 +601,9 @@ public class GroovyInlineMethodUtil {
     }
 
     return true;
+  }
+
+  public static @Nls(capitalization = Title) String getRefactoringName() {
+    return GroovyRefactoringBundle.message("inline.method.title");
   }
 }

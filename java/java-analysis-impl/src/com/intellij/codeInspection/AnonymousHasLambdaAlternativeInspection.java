@@ -1,22 +1,21 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
 import java.util.function.UnaryOperator;
 
-/**
- * @author Tagir Valeev
- */
 public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLocalInspectionTool {
   public static final Logger LOG = Logger.getInstance(AnonymousHasLambdaAlternativeInspection.class);
 
@@ -26,7 +25,10 @@ public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLoc
     final String myLambdaAlternative;
     final String myReplacementMessage;
 
-    public AnonymousLambdaAlternative(String className, String methodName, String lambdaAlternative, String replacementMessage) {
+    AnonymousLambdaAlternative(@NonNls String className,
+                               @NonNls String methodName,
+                               @NonNls String lambdaAlternative,
+                               @NonNls String replacementMessage) {
       myClassName = className;
       myMethodName = methodName;
       myLambdaAlternative = lambdaAlternative;
@@ -44,7 +46,7 @@ public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLoc
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
-    if (!PsiUtil.isLanguageLevel8OrHigher(holder.getFile())) {
+    if (!JavaFeature.THREAD_LOCAL_WITH_INITIAL.isFeatureSupported(holder.getFile())) {
       return PsiElementVisitor.EMPTY_VISITOR;
     }
     return new JavaElementVisitor() {
@@ -61,7 +63,8 @@ public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLoc
             final PsiElement lBrace = aClass.getLBrace();
             LOG.assertTrue(lBrace != null);
             final TextRange rangeInElement = new TextRange(0, lBrace.getStartOffsetInParent() + aClass.getStartOffsetInParent() - 1);
-            holder.registerProblem(aClass.getParent(), "Anonymous #ref #loc can be replaced with "+alternative.myReplacementMessage,
+            holder.registerProblem(aClass.getParent(),
+                                   JavaAnalysisBundle.message("anonymous.ref.loc.can.be.replaced.with.0", alternative.myReplacementMessage),
                                    ProblemHighlightType.LIKE_UNUSED_SYMBOL, rangeInElement, new ReplaceWithLambdaAlternativeFix(alternative));
           }
         }
@@ -83,7 +86,7 @@ public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLoc
   static class ReplaceWithLambdaAlternativeFix implements LocalQuickFix {
     private final @NotNull AnonymousLambdaAlternative myAlternative;
 
-    public ReplaceWithLambdaAlternativeFix(@NotNull AnonymousLambdaAlternative alternative) {
+    ReplaceWithLambdaAlternativeFix(@NotNull AnonymousLambdaAlternative alternative) {
       myAlternative = alternative;
     }
 
@@ -91,14 +94,14 @@ public class AnonymousHasLambdaAlternativeInspection extends AbstractBaseJavaLoc
     @NotNull
     @Override
     public String getName() {
-      return "Replace with "+myAlternative.myReplacementMessage;
+      return JavaAnalysisBundle.message("replace.with.0", myAlternative.myReplacementMessage);
     }
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace anonymous class with lambda alternative";
+      return JavaAnalysisBundle.message("replace.anonymous.class.with.lambda.alternative");
     }
 
     @Override

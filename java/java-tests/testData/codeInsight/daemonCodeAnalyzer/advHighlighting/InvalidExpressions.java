@@ -48,10 +48,10 @@ public class a12 {
     ++<error descr="Variable expected">5</error>;
     <error descr="Variable expected">5</error> += 5;
 
-    <error descr="Cannot resolve method 'foo123Unresolved(?)'">foo123Unresolved</error>(<error descr="Expression expected">String</error>);
-    <error descr="Cannot resolve method 'foo123Unresolved(?)'">foo123Unresolved</error>(<error descr="Cannot resolve symbol 'xxxx'">xxxx</error>);
+    <error descr="Cannot resolve method 'foo123Unresolved' in 'a12'">foo123Unresolved</error>(<error descr="Expression expected">String</error>);
+    <error descr="Cannot resolve method 'foo123Unresolved' in 'a12'">foo123Unresolved</error>(<error descr="Cannot resolve symbol 'xxxx'">xxxx</error>);
 
-    <error descr="Cannot resolve method 'xxxxxx(?)'">xxxxxx</error>(<error descr="Cannot resolve symbol 'xxxxxx'">xxxxxx</error>);
+    <error descr="Cannot resolve method 'xxxxxx' in 'a12'">xxxxxx</error>(<error descr="Cannot resolve symbol 'xxxxxx'">xxxxxx</error>);
 
     // incomplete code should not cause 'expr expected'
     Object<error descr="';' expected"> </error>
@@ -110,3 +110,12 @@ public class a12 {
 }
 
 
+//invalid arrays
+class array {
+  {
+    int[] a1 =<error descr="Expression expected"> </error><error descr="Unexpected token">.</error>new <error descr="Cannot resolve symbol 'C'">C</error>[0];
+    int[] a2 = {}.new <error descr="Cannot resolve symbol 'D'">D</error>[0];
+    int[] a3 = t -><error descr="'{' expected"> </error>.new <error descr="Cannot resolve symbol 'E'">E</error>[0];
+    int[] a4 = <error descr="Cannot resolve symbol 'a'">a</error>::<error descr="';' expected"><error descr="Identifier expected"><error descr="Unexpected token">.</error></error></error>new <error descr="Cannot resolve symbol 'F'">F</error>[0];
+  }
+}

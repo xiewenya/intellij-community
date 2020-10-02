@@ -2,6 +2,9 @@
   <action id="ShowNavBar">
     <keyboard-shortcut first-keystroke="alt HOME"/>
   </action>
+  <action id="OpenInRightSplit">
+    <keyboard-shortcut first-keystroke="shift ENTER"/>
+  </action>
   <action id="FileChooser.TogglePathShowing">
     <keyboard-shortcut first-keystroke="control P"/>
   </action>
@@ -37,6 +40,9 @@
     <keyboard-shortcut first-keystroke="alt F10"/>
   </action>
   <action id="EditorEscape">
+    <keyboard-shortcut first-keystroke="ESCAPE"/>
+  </action>
+  <action id="FocusEditor">
     <keyboard-shortcut first-keystroke="ESCAPE"/>
   </action>
   <action id="StepInto">
@@ -123,8 +129,15 @@
   <action id="EditorAddRectangularSelectionOnMouseDrag">
     <mouse-shortcut keystroke="ctrl alt shift button1"/>
   </action>
+  <action id="EditorCreateRectangularSelectionOnMouseDrag">
+    <mouse-shortcut keystroke="alt button1"/>
+    <mouse-shortcut keystroke="button2"/>
+  </action>
   <action id="EditorCreateRectangularSelection">
     <mouse-shortcut keystroke="alt shift button2"/>
+  </action>
+  <action id="EditorAddCaretPerSelectedLine">
+    <keyboard-shortcut first-keystroke="shift alt G"/>
   </action>
   <action id="GotoDeclaration">
     <keyboard-shortcut first-keystroke="control B"/>
@@ -137,7 +150,7 @@
     <keyboard-shortcut first-keystroke="control shift B"/>
     <mouse-shortcut keystroke="ctrl shift button1"/>
   </action>
-  
+
   <action id="GotoBookmark0">
     <keyboard-shortcut first-keystroke="control 0"/>
   </action>
@@ -294,7 +307,14 @@
   <action id="RecentFiles">
     <keyboard-shortcut first-keystroke="control E"/>
   </action>
-  <action id="RecentChangedFiles">
+  <action id="SwitcherRecentEditedChangedToggleCheckBox">
+    <keyboard-shortcut first-keystroke="control E"/>
+  </action>
+  <action id="SwitcherIterateItems">
+    <keyboard-shortcut first-keystroke="control E"/>
+  </action>
+  <action id="RecentChangedFiles"/>
+  <action id="RecentLocations">
     <keyboard-shortcut first-keystroke="control shift E"/>
   </action>
   <action id="QuickChangeScheme">
@@ -313,6 +333,9 @@
     <keyboard-shortcut first-keystroke="control Q"/>
     <mouse-shortcut keystroke="alt button2"/>
   </action>
+  <action id="ToggleRenderedDocPresentation">
+    <keyboard-shortcut first-keystroke="control alt Q"/>
+  </action>
   <action id="ShowBookmarks">
     <keyboard-shortcut first-keystroke="shift F11"/>
   </action>
@@ -324,9 +347,6 @@
   </action>
   <action id="ActivateTerminalToolWindow">
     <keyboard-shortcut first-keystroke="alt F12"/>
-  </action>
-  <action id="ActivateMessagesToolWindow">
-    <keyboard-shortcut first-keystroke="alt 0"/>
   </action>
   <action id="CloseContent">
     <keyboard-shortcut first-keystroke="control F4"/>
@@ -562,11 +582,23 @@
   <action id="NextDiff">
     <keyboard-shortcut first-keystroke="F7"/>
   </action>
+  <action id="Diff.PrevChange">
+    <keyboard-shortcut first-keystroke="alt LEFT"/>
+  </action>
+  <action id="Diff.NextChange">
+    <keyboard-shortcut first-keystroke="alt RIGHT"/>
+  </action>
   <action id="Diff.FocusOppositePane">
     <keyboard-shortcut first-keystroke="control TAB"/>
   </action>
   <action id="Diff.FocusOppositePaneAndScroll">
     <keyboard-shortcut first-keystroke="control shift TAB"/>
+  </action>
+  <action id="Diff.ApplyLeftSide">
+    <keyboard-shortcut first-keystroke="alt shift RIGHT"/>
+  </action>
+  <action id="Diff.ApplyRightSide">
+    <keyboard-shortcut first-keystroke="alt shift LEFT"/>
   </action>
   <action id="Move">
     <keyboard-shortcut first-keystroke="F6"/>
@@ -592,6 +624,12 @@
   </action>
   <action id="ChangesView.Revert">
     <keyboard-shortcut first-keystroke="control alt Z"/>
+  </action>
+  <action id="Vcs.MoveChangedLinesToChangelist">
+    <keyboard-shortcut first-keystroke="alt shift M"/>
+  </action>
+  <action id="ChangesView.Move">
+    <keyboard-shortcut first-keystroke="alt shift M"/>
   </action>
 
   <action id="GotoNextError">
@@ -621,7 +659,6 @@
   <action id="EditorScrollToCenter">
     <keyboard-shortcut first-keystroke="control M"/>
   </action>
-  <action id="RunGc"/>
   <action id="$Redo">
     <keyboard-shortcut first-keystroke="control shift Z"/>
     <keyboard-shortcut first-keystroke="alt shift BACK_SPACE"/>
@@ -706,6 +743,9 @@
   </action>
   <action id="XDebugger.NewWatch">
     <keyboard-shortcut first-keystroke="INSERT"/>
+  </action>
+  <action id="XDebugger.AttachToProcess">
+    <keyboard-shortcut first-keystroke="control alt F5"/>
   </action>
   <action id="Debugger.EditTypeSource">
     <keyboard-shortcut first-keystroke="shift F4"/>
@@ -867,22 +907,25 @@
   <action id="ActivateDebugToolWindow">
     <keyboard-shortcut first-keystroke="alt 5"/>
   </action>
-  <action id="ActivateTODOToolWindow">
+  <action id="ActivateProblemsViewToolWindow">
     <keyboard-shortcut first-keystroke="alt 6"/>
   </action>
   <action id="ActivateStructureToolWindow">
     <keyboard-shortcut first-keystroke="alt 7"/>
   </action>
-  <action id="ActivateHierarchyToolWindow">
+  <action id="ActivateHierarchyToolWindow"/>
+  <action id="ActivateServicesToolWindow">
     <keyboard-shortcut first-keystroke="alt 8"/>
   </action>
   <action id="ActivateVersionControlToolWindow">
     <keyboard-shortcut first-keystroke="alt 9"/>
-    <keyboard-shortcut first-keystroke="alt shift 9"/>
+  </action>
+  <action id="ActivateCommitToolWindow">
+    <keyboard-shortcut first-keystroke="alt 0"/>
   </action>
   <action id="NewElement">
-     <keyboard-shortcut first-keystroke="alt INSERT"/>
-   </action>
+    <keyboard-shortcut first-keystroke="alt INSERT"/>
+  </action>
   <action id="NewElementSamePlace">
     <keyboard-shortcut first-keystroke="control alt INSERT"/>
   </action>
@@ -929,6 +972,9 @@
   <action id="SafeDelete">
     <keyboard-shortcut first-keystroke="alt DELETE"/>
   </action>
+  <action id="SelectVirtualTemplateElement">
+    <keyboard-shortcut first-keystroke="TAB"/>
+  </action>
   <action id="NextTemplateVariable">
     <keyboard-shortcut first-keystroke="TAB"/>
     <keyboard-shortcut first-keystroke="ENTER"/>
@@ -953,6 +999,9 @@
   </action>
   <action id="Refresh">
     <keyboard-shortcut first-keystroke="control F5"/>
+  </action>
+  <action id="ForceRefresh">
+    <keyboard-shortcut first-keystroke="control shift F5"/>
   </action>
   <action id="Rerun">
     <keyboard-shortcut first-keystroke="control F5"/>
@@ -980,6 +1029,9 @@
   </action>
   <action id="VcsShowPrevChangeMarker">
     <keyboard-shortcut first-keystroke="shift control alt UP"/>
+  </action>
+  <action id="Vcs.ToggleAmendCommitMode">
+    <keyboard-shortcut first-keystroke="alt M"/>
   </action>
   <action id="Vcs.ShowMessageHistory">
     <keyboard-shortcut first-keystroke="control M"/>
@@ -1031,6 +1083,12 @@
   <action id="VcsHistory.ShowAllAffected">
     <keyboard-shortcut first-keystroke="alt shift A" />
   </action>
+  <action id="ChangesView.GroupBy.Directory">
+    <keyboard-shortcut first-keystroke="control alt P"/>
+  </action>
+  <action id="ChangesView.GroupBy.Module">
+    <keyboard-shortcut first-keystroke="control alt M"/>
+  </action>
   <action id="ShelveChanges.UnshelveWithDialog">
     <keyboard-shortcut first-keystroke="control shift U" />
   </action>
@@ -1068,6 +1126,20 @@
     <keyboard-shortcut first-keystroke="Shift F6"/>
   </action>
 
+  <action id="Git.Rename.Local.Branch">
+    <keyboard-shortcut first-keystroke="F2" />
+    <keyboard-shortcut first-keystroke="Shift F6"/>
+  </action>
+
+  <action id="ChangesView.SetDefault">
+    <keyboard-shortcut first-keystroke="control SPACE" />
+  </action>
+
+  <action id="ChangesView.Rename">
+    <keyboard-shortcut first-keystroke="F2" />
+    <keyboard-shortcut first-keystroke="Shift F6"/>
+  </action>
+
   <action id="DirDiffMenu.SynchronizeDiff">
     <keyboard-shortcut first-keystroke="ENTER"/>
   </action>
@@ -1075,7 +1147,85 @@
     <keyboard-shortcut first-keystroke="control ENTER"/>
   </action>
 
-  <action id="RunDashboard.ShowConfigurations">
+  <action id="ServiceView.ShowServices">
     <keyboard-shortcut first-keystroke="control shift T"/>
+  </action>
+
+  <action id="BraceOrQuoteOut">
+    <keyboard-shortcut first-keystroke="TAB"/>
+  </action>
+
+  <action id="EditorFocusGutter">
+    <keyboard-shortcut first-keystroke="alt shift 6" second-keystroke="F"/>
+  </action>
+  <action id="EditorShowGutterIconTooltip">
+    <keyboard-shortcut first-keystroke="alt shift 6" second-keystroke="T"/>
+  </action>
+  <action id="ShowFilterPopup">
+    <keyboard-shortcut first-keystroke="control alt F"/>
+  </action>
+  <action id="ShowSearchHistory">
+    <keyboard-shortcut first-keystroke="alt down"/>
+  </action>
+
+  <action id="SearchEverywhere.NextTab">
+    <keyboard-shortcut first-keystroke="TAB"/>
+  </action>
+  <action id="SearchEverywhere.PrevTab">
+    <keyboard-shortcut first-keystroke="shift TAB"/>
+  </action>
+  <action id="SearchEverywhere.CompleteCommand">
+    <keyboard-shortcut first-keystroke="TAB"/>
+  </action>
+  <action id="SearchEverywhere.SelectItem">
+    <keyboard-shortcut first-keystroke="Enter"/>
+  </action>
+  <action id="SearchEverywhere.NavigateToNextGroup">
+    <keyboard-shortcut first-keystroke="PAGE_DOWN"/>
+    <keyboard-shortcut first-keystroke="control DOWN"/>
+  </action>
+  <action id="SearchEverywhere.NavigateToPrevGroup">
+    <keyboard-shortcut first-keystroke="PAGE_UP"/>
+    <keyboard-shortcut first-keystroke="control UP"/>
+  </action>
+
+  <action id="TodoViewGroupByShowModules">
+    <keyboard-shortcut first-keystroke="control alt M"/>
+  </action>
+  <action id="TodoViewGroupByShowPackages">
+    <keyboard-shortcut first-keystroke="control alt P"/>
+  </action>
+  <action id="TodoViewGroupByFlattenPackage">
+    <keyboard-shortcut first-keystroke="control alt C"/>
+  </action>
+
+  <action id="ServiceView.GroupByContributor">
+    <keyboard-shortcut first-keystroke="control alt T"/>
+  </action>
+  <action id="ServiceView.GroupByServiceGroups">
+    <keyboard-shortcut first-keystroke="control alt P"/>
+  </action>
+
+  <action id="ToggleFindInSelection">
+    <keyboard-shortcut first-keystroke="control alt E"/>
+  </action>
+
+  <action id="UsageGrouping.Module">
+    <keyboard-shortcut first-keystroke="control alt M"/>
+  </action>
+  <action  id="UsageGrouping.Directory">
+    <keyboard-shortcut first-keystroke="control alt P"/>
+  </action>
+  <action id="UsageGrouping.UsageType">
+    <keyboard-shortcut first-keystroke="control alt T"/>
+  </action>
+  <action id="UsageGrouping.FlattenModules">
+    <keyboard-shortcut first-keystroke="control alt O"/>
+  </action>
+  <action id="UsageGrouping.FileStructure">
+    <keyboard-shortcut first-keystroke="control alt F"/>
+  </action>
+  <action id="UsageGrouping.DirectoryStructure">
+    <keyboard-shortcut first-keystroke="control alt D"/>
   </action>
 </keymap>

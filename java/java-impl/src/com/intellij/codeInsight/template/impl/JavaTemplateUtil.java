@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.impl;
 
 import com.intellij.codeInsight.lookup.LookupElement;
@@ -32,8 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-public class JavaTemplateUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.template.impl.JavaTemplateUtil");
+public final class JavaTemplateUtil {
+  private static final Logger LOG = Logger.getInstance(JavaTemplateUtil.class);
 
   private JavaTemplateUtil() {
   }
@@ -135,14 +121,14 @@ public class JavaTemplateUtil {
     }
   }
 
-  public static LookupElement addElementLookupItem(Set<LookupElement> items, PsiElement element) {
+  public static LookupElement addElementLookupItem(Set<? super LookupElement> items, PsiElement element) {
     final LookupElement item = LookupItemUtil.objectToLookupItem(element);
     items.add(item);
     item.putUserData(TemplateLookupSelectionHandler.KEY_IN_LOOKUP_ITEM, new JavaTemplateLookupSelectionHandler());
     return item;
   }
 
-  public static LookupElement addTypeLookupItem(Set<LookupElement> items, PsiType type) {
+  public static LookupElement addTypeLookupItem(Set<? super LookupElement> items, PsiType type) {
     final LookupElement item = PsiTypeLookupItem.createLookupItem(type, null);
     items.add(item);
     item.putUserData(TemplateLookupSelectionHandler.KEY_IN_LOOKUP_ITEM, new JavaTemplateLookupSelectionHandler());

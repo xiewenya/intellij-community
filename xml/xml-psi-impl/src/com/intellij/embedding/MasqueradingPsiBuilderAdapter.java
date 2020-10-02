@@ -16,7 +16,6 @@
 package com.intellij.embedding;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.LighterLazyParseableNode;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.impl.DelegateMarker;
@@ -55,19 +54,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
                         @NotNull final MasqueradingLexer lexer,
                         @NotNull final ASTNode chameleon,
                         @NotNull final CharSequence text) {
-    this(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
-  }
-
-  public MasqueradingPsiBuilderAdapter(@NotNull final Project project,
-                        @NotNull final ParserDefinition parserDefinition,
-                        @NotNull final MasqueradingLexer lexer,
-                        @NotNull final LighterLazyParseableNode chameleon,
-                        @NotNull final CharSequence text) {
-    this(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
-  }
-
-  private MasqueradingPsiBuilderAdapter(PsiBuilderImpl builder) {
-    super(builder);
+    super(new PsiBuilderImpl(project, parserDefinition, lexer, chameleon, text));
 
     LOG.assertTrue(myDelegate instanceof PsiBuilderImpl);
     myBuilderDelegate = ((PsiBuilderImpl)myDelegate);
@@ -78,6 +65,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     initShrunkSequence();
   }
 
+  @NotNull
   @Override
   public CharSequence getOriginalText() {
     return myShrunkCharSequence;
@@ -320,7 +308,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     public final int shrunkStart;
     public final int shrunkEnd;
 
-    public MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
+    MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
       this.elementType = elementType;
       this.realStart = realStart;
       this.realEnd = realEnd;
@@ -340,7 +328,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
 
     private final Marker myOriginalPositionMarker;
 
-    public MyMarker(Marker delegate, Marker originalPositionMarker, int builderPosition) {
+    MyMarker(Marker delegate, Marker originalPositionMarker, int builderPosition) {
       super(delegate);
 
       myBuilderPosition = builderPosition;
@@ -366,7 +354,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     @Override
-    public void doneBefore(@NotNull IElementType type, @NotNull Marker before, String errorMessage) {
+    public void doneBefore(@NotNull IElementType type, @NotNull Marker before, @NotNull String errorMessage) {
       if (myOriginalPositionMarker != null) {
         myOriginalPositionMarker.drop();
       }
@@ -398,7 +386,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     @Override
-    public void error(String message) {
+    public void error(@NotNull String message) {
       if (myOriginalPositionMarker != null) {
         myOriginalPositionMarker.drop();
       }

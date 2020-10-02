@@ -1,19 +1,35 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
-import com.intellij.ide.Bootstrap;
+import com.intellij.ide.BootstrapBundle;
+import com.intellij.ide.BootstrapClassLoaderUtil;
+import com.intellij.ide.WindowsCommandLineProcessor;
+import com.intellij.ide.startup.StartupActionScriptManager;
 import com.intellij.openapi.application.JetBrainsProtocolHandler;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.util.lang.JavaVersion;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Properties;
 
-public class Main {
+public final class Main {
   public static final int NO_GRAPHICS = 1;
   public static final int RESTART_FAILED = 2;
   public static final int STARTUP_EXCEPTION = 3;
@@ -23,26 +39,37 @@ public class Main {
   public static final int LICENSE_ERROR = 7;
   public static final int PLUGIN_ERROR = 8;
   public static final int OUT_OF_MEMORY = 9;
-  @SuppressWarnings("unused") // left for compatibility and reserved for future use
   public static final int UNSUPPORTED_JAVA_VERSION = 10;
   public static final int PRIVACY_POLICY_REJECTION = 11;
   public static final int INSTALLATION_CORRUPTED = 12;
+  public static final int ACTIVATE_WRONG_TOKEN_CODE = 13;
+  public static final int ACTIVATE_NOT_INITIALIZED = 14;
+  public static final int ACTIVATE_ERROR = 15;
+  public static final int ACTIVATE_DISPOSING = 16;
+
+  public static final String FORCE_PLUGIN_UPDATES = "idea.force.plugin.updates";
 
   private static final String AWT_HEADLESS = "java.awt.headless";
   private static final String PLATFORM_PREFIX_PROPERTY = "idea.platform.prefix";
-  private static final String[] NO_ARGS = {};
-  private static final List<String> HEADLESS_COMMANDS = Arrays.asList(
-    "ant", "duplocate", "traverseUI", "buildAppcodeCache", "format", "keymap", "update", "inspections", "intentions");
+  @SuppressWarnings("SSBasedInspection")
+  private static final String[] NO_ARGS = new String[0];
+  private static final List<@NonNls String> HEADLESS_COMMANDS = Arrays.asList(
+    "ant", "duplocate", "dump-shared-index", "traverseUI", "buildAppcodeCache", "format", "keymap", "update", "inspections", "intentions",
+    "rdserver-headless", "thinClient-headless");
+  private static final List<@NonNls String> GUI_COMMANDS = Arrays.asList("diff", "merge");
 
   private static boolean isHeadless;
   private static boolean isCommandLine;
   private static boolean hasGraphics = true;
+  private static boolean isLightEdit;
 
   private Main() { }
 
-  @SuppressWarnings("MethodNamesDifferingOnlyByCase")
   public static void main(String[] args) {
-    if (args.length == 1 && "%f".equals(args[0])) {
+    LinkedHashMap<@NonNls String, Long> startupTimings = new LinkedHashMap<>(6);
+    startupTimings.put("startup begin", System.nanoTime());
+
+    if (args.length == 1 && "%f".equals(args[0])) { // NON-NLS
       args = NO_ARGS;
     }
 
@@ -57,12 +84,56 @@ public class Main {
       System.exit(NO_GRAPHICS);
     }
 
+    // avoid loading of JavaVersion class
+    if (!System.getProperty("java.version", "").startsWith("11.") && JavaVersion.current().compareTo(JavaVersion.compose(11, 0, 0, 0, false)) < 0) {
+      showMessage(BootstrapBundle.message("bootstrap.error.title.unsupported.java.version"),
+                  BootstrapBundle.message("bootstrap.error.message.cannot.start.under.java.0.java.11.or.later.is.required", SystemInfo.JAVA_RUNTIME_VERSION), true);
+      System.exit(UNSUPPORTED_JAVA_VERSION);
+    }
+
     try {
-      Bootstrap.main(args, Main.class.getName() + "Impl", "start");
+      bootstrap(args, startupTimings);
     }
     catch (Throwable t) {
-      showMessage("Start Failed", t);
+      showMessage(BootstrapBundle.message("bootstrap.error.title.start.failed"), t);
       System.exit(STARTUP_EXCEPTION);
+    }
+  }
+
+  private static void bootstrap(String[] args, LinkedHashMap<@NonNls String, Long> startupTimings) throws Exception {
+    startupTimings.put("properties loading", System.nanoTime());
+    PathManager.loadProperties();
+
+    // this check must be performed before system directories are locked
+    String configPath = PathManager.getConfigPath();
+    boolean configImportNeeded = !isHeadless() && !Files.exists(Paths.get(configPath));
+    if (!configImportNeeded) {
+      installPluginUpdates();
+    }
+
+    startupTimings.put("classloader init", System.nanoTime());
+    ClassLoader newClassLoader = BootstrapClassLoaderUtil.initClassLoader();
+    Thread.currentThread().setContextClassLoader(newClassLoader);
+
+    startupTimings.put("MainRunner search", System.nanoTime());
+    Class<?> klass = Class.forName("com.intellij.ide.plugins.MainRunner", true, newClassLoader);
+    WindowsCommandLineProcessor.ourMainRunnerClass = klass;
+    Method startMethod = klass.getMethod("start", String.class, String[].class, LinkedHashMap.class);
+    startMethod.setAccessible(true);
+    startMethod.invoke(null, Main.class.getName() + "Impl", args, startupTimings); //NON-NLS
+  }
+
+  private static void installPluginUpdates() {
+    if (isCommandLine() && !Boolean.getBoolean(FORCE_PLUGIN_UPDATES)) {
+      return;
+    }
+
+    try {
+      StartupActionScriptManager.executeActionScript();
+    }
+    catch (IOException e) {
+      showMessage(BootstrapBundle.message("bootstrap.error.title.plugin.installation.error"),
+                  BootstrapBundle.message("bootstrap.error.message.plugin.installation.error", e.getMessage()), false);
     }
   }
 
@@ -74,16 +145,47 @@ public class Main {
     return isCommandLine;
   }
 
-  public static void setFlags(String[] args) {
-    isHeadless = isHeadless(args);
-    isCommandLine = isCommandLine(args);
-    if (isHeadless()) {
-      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
-    }
+  public static boolean isLightEdit() {
+    return isLightEdit;
   }
 
-  public static boolean isHeadless(String[] args) {
-    if (Boolean.valueOf(System.getProperty(AWT_HEADLESS))) {
+  public static void setFlags(String @NotNull [] args) {
+    isHeadless = isHeadless(args);
+    isCommandLine = isHeadless || (args.length > 0 && GUI_COMMANDS.contains(args[0]));
+    if (isHeadless) {
+      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
+    }
+
+    isLightEdit = "LightEdit".equals(System.getProperty(PLATFORM_PREFIX_PROPERTY)) || !isCommandLine && isFileAfterOptions(args);
+  }
+
+  private static boolean isFileAfterOptions(String @NotNull [] args) {
+    for (String arg : args) {
+      if (!arg.startsWith("-")) { // If not an option
+        try {
+          Path path = Paths.get(arg);
+          return Files.isRegularFile(path) || !Files.exists(path);
+        }
+        catch (Throwable t) {
+          return false;
+        }
+      }
+      else if (arg.equals("-l") || arg.equals("--line") || arg.equals("-c") || arg.equals("--column")) { // NON-NLS
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @TestOnly
+  public static void setHeadlessInTestMode(boolean isHeadless) {
+    Main.isHeadless = isHeadless;
+    isCommandLine = true;
+    isLightEdit = false;
+  }
+
+  public static boolean isHeadless(String @NotNull [] args) {
+    if (Boolean.getBoolean(AWT_HEADLESS)) {
       return true;
     }
 
@@ -92,47 +194,46 @@ public class Main {
     }
 
     String firstArg = args[0];
-    return HEADLESS_COMMANDS.contains(firstArg) || firstArg.length() < 20 && firstArg.endsWith("inspect");
-  }
-
-  private static boolean isCommandLine(String[] args) {
-    if (isHeadless()) return true;
-    return args.length > 0 && Comparing.strEqual(args[0], "diff");
+    return HEADLESS_COMMANDS.contains(firstArg) || firstArg.length() < 20 && firstArg.endsWith("inspect"); //NON-NLS
   }
 
   private static boolean checkGraphics() {
     if (GraphicsEnvironment.isHeadless()) {
-      showMessage("Startup Error", "Unable to detect graphics environment", true);
+      showMessage(BootstrapBundle.message("bootstrap.error.title.startup.error"),
+                  BootstrapBundle.message("bootstrap.error.message.no.graphics.environment"),
+                  true);
       return false;
     }
-
     return true;
   }
 
-  public static boolean isApplicationStarterForBuilding(final String[] args) {
-    return args.length > 0 && (Comparing.strEqual(args[0], "traverseUI") ||
-                               Comparing.strEqual(args[0], "listBundledPlugins") ||
-                               Comparing.strEqual(args[0], "buildAppcodeCache"));
-  }
-
-  public static void showMessage(String title, Throwable t) {
-    StringWriter message = new StringWriter();
+  public static void showMessage(@Nls(capitalization = Nls.Capitalization.Title) String title, Throwable t) {
+    @Nls(capitalization = Nls.Capitalization.Sentence) StringWriter message = new StringWriter();
 
     AWTError awtError = findGraphicsError(t);
     if (awtError != null) {
-      message.append("Failed to initialize graphics environment\n\n");
+      message.append(BootstrapBundle.message("bootstrap.error.message.failed.to.initialize.graphics.environment"));
+      message.append("\n\n");
       hasGraphics = false;
       t = awtError;
     }
     else {
-      message.append("Internal error. Please report to ");
       boolean studio = "AndroidStudio".equalsIgnoreCase(System.getProperty(PLATFORM_PREFIX_PROPERTY));
-      message.append(studio ? "https://code.google.com/p/android/issues" : "http://jb.gg/ide/critical-startup-errors");
+      String bugReportLink = studio ? "https://code.google.com/p/android/issues" : "https://jb.gg/ide/critical-startup-errors";
+      message.append(BootstrapBundle.message("bootstrap.error.message.internal.error.please.refer.to.0", bugReportLink));
       message.append("\n\n");
     }
 
     t.printStackTrace(new PrintWriter(message));
-    showMessage(title, message.toString(), true);
+
+    Properties sp = System.getProperties();
+    String jre = sp.getProperty("java.runtime.version", sp.getProperty("java.version", "(unknown)"));
+    String vendor = sp.getProperty("java.vendor", "(unknown vendor)");
+    String arch = sp.getProperty("os.arch", "(unknown arch)");
+    String home = sp.getProperty("java.home", "(unknown java.home)");
+    message.append(BootstrapBundle.message("bootstrap.error.title.jre.0.os.arch.1.by.vendor.2.java.home.3", jre, arch, vendor, home));
+
+    showMessage(title, message.toString(), true); //NON-NLS
   }
 
   private static AWTError findGraphicsError(Throwable t) {
@@ -145,40 +246,51 @@ public class Main {
     return null;
   }
 
-  @SuppressWarnings({"UseJBColor", "UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
-  public static void showMessage(String title, String message, boolean error) {
+  @SuppressWarnings({"UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
+  public static void showMessage(@Nls(capitalization = Nls.Capitalization.Title) String title,
+                                 @Nls(capitalization = Nls.Capitalization.Sentence) String message,
+                                 boolean error) {
     PrintStream stream = error ? System.err : System.out;
-    stream.println("\n" + title + ": " + message);
+    stream.println();
+    stream.println(title);
+    stream.println(message);
 
     boolean headless = !hasGraphics || isCommandLine() || GraphicsEnvironment.isHeadless();
-    if (!headless) {
-      try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
-      catch (Throwable ignore) { }
+    if (headless) {
+      return;
+    }
 
-      try {
-        JTextPane textPane = new JTextPane();
-        textPane.setEditable(false);
-        textPane.setText(message.replaceAll("\t", "    "));
-        textPane.setBackground(UIManager.getColor("Panel.background"));
-        textPane.setCaretPosition(0);
-        JScrollPane scrollPane = new JScrollPane(
-          textPane, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setBorder(null);
+    try {
+      UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+    }
+    catch (Throwable ignore) {
+    }
 
-        int maxHeight = Toolkit.getDefaultToolkit().getScreenSize().height / 2;
-        int maxWidth = Toolkit.getDefaultToolkit().getScreenSize().width / 2;
-        Dimension component = scrollPane.getPreferredSize();
-        if (component.height > maxHeight || component.width > maxWidth) {
-          scrollPane.setPreferredSize(new Dimension(Math.min(maxWidth, component.width), Math.min(maxHeight, component.height)));
-        }
+    try {
+      JTextPane textPane = new JTextPane();
+      textPane.setEditable(false);
+      textPane.setText(message.replaceAll("\t", "    "));
+      textPane.setBackground(UIManager.getColor("Panel.background"));
+      textPane.setCaretPosition(0);
+      JScrollPane scrollPane = new JScrollPane(textPane,
+                                               ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                                               ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+      scrollPane.setBorder(null);
 
-        int type = error ? JOptionPane.ERROR_MESSAGE : JOptionPane.WARNING_MESSAGE;
-        JOptionPane.showMessageDialog(JOptionPane.getRootFrame(), scrollPane, title, type);
+      int maxHeight = Toolkit.getDefaultToolkit().getScreenSize().height / 2;
+      int maxWidth = Toolkit.getDefaultToolkit().getScreenSize().width / 2;
+      Dimension component = scrollPane.getPreferredSize();
+      if (component.height > maxHeight || component.width > maxWidth) {
+        scrollPane.setPreferredSize(new Dimension(Math.min(maxWidth, component.width), Math.min(maxHeight, component.height)));
       }
-      catch (Throwable t) {
-        stream.println("\nAlso, an UI exception occurred on attempt to show above message:");
-        t.printStackTrace(stream);
-      }
+
+      int type = error ? JOptionPane.ERROR_MESSAGE : JOptionPane.WARNING_MESSAGE;
+      JOptionPane.showMessageDialog(JOptionPane.getRootFrame(), scrollPane, title, type);
+    }
+    catch (Throwable t) {
+      stream.println();
+      stream.println(BootstrapBundle.message("bootstrap.error.title.ui.exception.occurred.on.an.attempt.to.show.the.above.message"));
+      t.printStackTrace(stream);
     }
   }
 }

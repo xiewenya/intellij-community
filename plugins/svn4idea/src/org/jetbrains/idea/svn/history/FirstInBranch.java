@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.history;
 
 import com.google.common.base.MoreObjects;
@@ -14,9 +14,11 @@ import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.api.Target;
 import org.jetbrains.idea.svn.api.Url;
 
+import java.util.Objects;
+
 import static com.intellij.openapi.util.text.StringUtil.join;
-import static com.intellij.util.ObjectUtils.notNull;
 import static com.intellij.util.containers.ContainerUtil.immutableList;
+import static org.jetbrains.idea.svn.SvnBundle.message;
 import static org.jetbrains.idea.svn.SvnUtil.*;
 import static org.jetbrains.idea.svn.commandLine.CommandUtil.format;
 
@@ -25,11 +27,11 @@ public class FirstInBranch {
   private static final Logger LOG = Logger.getInstance(FirstInBranch.class);
 
   @NotNull private final SvnVcs myVcs;
-  @NotNull private final String myAbsoluteBranchUrl;
-  @NotNull private final String myAbsoluteTrunkUrl;
+  @NotNull private final Url myAbsoluteBranchUrl;
+  @NotNull private final Url myAbsoluteTrunkUrl;
   @NotNull private final Url myRepositoryRoot;
 
-  public FirstInBranch(@NotNull SvnVcs vcs, @NotNull Url repositoryRoot, @NotNull String branchUrl, @NotNull String trunkUrl) {
+  public FirstInBranch(@NotNull SvnVcs vcs, @NotNull Url repositoryRoot, @NotNull Url branchUrl, @NotNull Url trunkUrl) {
     myVcs = vcs;
     myRepositoryRoot = repositoryRoot;
     myAbsoluteBranchUrl = branchUrl;
@@ -38,8 +40,8 @@ public class FirstInBranch {
 
   @Nullable
   public CopyData run() throws VcsException {
-    Target trunk = Target.on(createUrl(myAbsoluteTrunkUrl), Revision.HEAD);
-    Target branch = Target.on(createUrl(myAbsoluteBranchUrl), Revision.HEAD);
+    Target trunk = Target.on(myAbsoluteTrunkUrl, Revision.HEAD);
+    Target branch = Target.on(myAbsoluteBranchUrl, Revision.HEAD);
     CopyData result = find(new BranchPoint(trunk), new BranchPoint(branch), true);
 
     debug(result);
@@ -89,7 +91,8 @@ public class FirstInBranch {
 
   private void debug(@Nullable CopyData copyData) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Found branch point " + join(immutableList(myAbsoluteTrunkUrl, myAbsoluteBranchUrl, copyData), ", "));
+      LOG.debug("Found branch point " +
+                join(immutableList(myAbsoluteTrunkUrl.toDecodedString(), myAbsoluteBranchUrl.toDecodedString(), copyData), ", "));
     }
   }
 
@@ -99,7 +102,7 @@ public class FirstInBranch {
     }
   }
 
-  private class BranchPoint {
+  private final class BranchPoint {
     @NotNull private final Target myTarget;
     @Nullable private LogEntry myEntry;
     @Nullable private LogEntryPath myPath;
@@ -136,13 +139,13 @@ public class FirstInBranch {
       client.doLog(myTarget, Revision.of(1), myTarget.getPegRevision(), true, true, false, 1, null, entry::set);
 
       if (entry.isNull()) {
-        throw new VcsException("No branch point found for " + myTarget);
+        throw new VcsException(message("error.no.branch.point.found.for.target", myTarget));
       }
 
       LogEntryPath path = entry.get().getChangedPaths().get(relativePath());
 
       if (path == null) {
-        throw new VcsException(myTarget + " not found in " + entry.get().getChangedPaths());
+        throw new VcsException(message("error.target.not.found.in.paths", myTarget, entry.get().getChangedPaths()));
       }
 
       return Pair.create(entry.get(), path);
@@ -150,18 +153,18 @@ public class FirstInBranch {
 
     private boolean hasCopyPath() throws VcsException {
       init();
-      return notNull(myPath).getCopyPath() != null;
+      return Objects.requireNonNull(myPath).getCopyPath() != null;
     }
 
     @NotNull
     private String copyPath() throws VcsException {
       init();
-      return notNull(myPath).getCopyPath();
+      return Objects.requireNonNull(myPath).getCopyPath();
     }
 
     private long copyRevision() throws VcsException {
       init();
-      return notNull(myPath).getCopyRevision();
+      return Objects.requireNonNull(myPath).getCopyRevision();
     }
 
     @NotNull
@@ -176,7 +179,7 @@ public class FirstInBranch {
 
     private long revision() throws VcsException {
       init();
-      return notNull(myEntry).getRevision();
+      return Objects.requireNonNull(myEntry).getRevision();
     }
 
     @NotNull

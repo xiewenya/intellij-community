@@ -23,6 +23,7 @@ import com.intellij.lang.Language;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.PsiDocumentManagerBase;
 import com.intellij.psi.impl.SharedPsiElementImplUtil;
 import com.intellij.psi.impl.source.PsiFileImpl;
@@ -39,11 +40,11 @@ import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 
 public abstract class MultiplePsiFilesPerDocumentFileViewProvider extends AbstractFileViewProvider {
-  private final ConcurrentMap<Language, PsiFileImpl> myRoots = ContainerUtil.newConcurrentMap(1, 0.75f, 1);
+  protected final ConcurrentMap<Language, PsiFileImpl> myRoots = ContainerUtil.newConcurrentMap(1, 0.75f, 1);
   private MultiplePsiFilesPerDocumentFileViewProvider myOriginal;
 
   public MultiplePsiFilesPerDocumentFileViewProvider(@NotNull PsiManager manager, @NotNull VirtualFile virtualFile, boolean eventSystemEnabled) {
-    super(manager, virtualFile, eventSystemEnabled, virtualFile.getFileType());
+    super(manager, virtualFile, eventSystemEnabled);
   }
 
   @Override
@@ -77,18 +78,11 @@ public abstract class MultiplePsiFilesPerDocumentFileViewProvider extends Abstra
   protected PsiFile getPsiInner(@NotNull final Language target) {
     PsiFileImpl file = myRoots.get(target);
     if (file == null) {
-      if (isPhysical()) {
-        VirtualFile virtualFile = getVirtualFile();
-        if (isIgnored()) return null;
-        VirtualFile parent = virtualFile.getParent();
-        if (parent != null) {
-          getManager().findDirectory(parent);
-        }
-      }
+      if (!shouldCreatePsi()) return null;
       if (target != getBaseLanguage() && !getLanguages().contains(target)) {
         return null;
       }
-      file = (PsiFileImpl)createFile(target);
+      file = createPsiFileImpl(target);
       if (file == null) return null;
       if (myOriginal != null) {
         final PsiFile originalFile = myOriginal.getPsi(target);
@@ -101,6 +95,10 @@ public abstract class MultiplePsiFilesPerDocumentFileViewProvider extends Abstra
     return file;
   }
 
+  @Nullable
+  protected PsiFileImpl createPsiFileImpl(@NotNull Language target) {
+    return (PsiFileImpl)createFile(target);
+  }
 
   @Override
   public final PsiFile getCachedPsi(@NotNull Language target) {
@@ -186,7 +184,7 @@ public abstract class MultiplePsiFilesPerDocumentFileViewProvider extends Abstra
       final PsiReference reference = SharedPsiElementImplUtil.findReferenceAt(psiRoot, offset, language);
       if (reference == null) continue;
       final TextRange textRange = reference.getRangeInElement().shiftRight(reference.getElement().getTextRange().getStartOffset());
-      if (minRange.contains(textRange) && !textRange.contains(minRange)) {
+      if (minRange.contains(textRange) && (!textRange.contains(minRange) || ret == null)) {
         minRange = textRange;
         ret = reference;
       }
@@ -202,17 +200,10 @@ public abstract class MultiplePsiFilesPerDocumentFileViewProvider extends Abstra
       if (!languages.contains(entry.getKey())) {
         PsiFileImpl file = entry.getValue();
         iterator.remove();
-        file.markInvalidated();
+        DebugUtil.performPsiModification(getClass().getName() + " root change", () -> file.markInvalidated());
       }
     }
     super.contentsSynchronized();
   }
 
-  @Override
-  public final void markInvalidated() {
-    for (PsiFileImpl file : myRoots.values()) {
-      file.markInvalidated();
-    }
-    super.markInvalidated();
-  }
 }

@@ -20,24 +20,34 @@ import com.intellij.diff.comparison.DiffTooBigException;
 import com.intellij.diff.requests.ContentDiffRequest;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.tools.util.DiffNotifications;
+import com.intellij.diff.tools.util.FoldingModelSupport;
 import com.intellij.diff.tools.util.base.TextDiffViewerUtil;
 import com.intellij.diff.tools.util.side.ThreesideTextDiffViewer;
 import com.intellij.diff.tools.util.text.FineMergeLineFragment;
 import com.intellij.diff.tools.util.text.MergeInnerDifferences;
 import com.intellij.diff.tools.util.text.SimpleThreesideTextDiffProvider;
 import com.intellij.diff.util.*;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.Separator;
+import com.intellij.icons.AllIcons;
+import com.intellij.idea.ActionsBundle;
+import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
+import com.intellij.util.concurrency.annotations.RequiresWriteLock;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.CalledInAwt;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 
 public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
@@ -49,22 +59,32 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   public SimpleThreesideDiffViewer(@NotNull DiffContext context, @NotNull DiffRequest request) {
     super(context, (ContentDiffRequest)request);
 
-    myTextDiffProvider = new SimpleThreesideTextDiffProvider(getTextSettings(), this::rediff, this);
+    DiffUserDataKeys.ThreeSideDiffColors colorsMode = DiffUtil.getUserData(myRequest, myContext, DiffUserDataKeys.THREESIDE_DIFF_COLORS_MODE);
+    if (colorsMode == null) colorsMode = DiffUserDataKeys.ThreeSideDiffColors.MERGE_CONFLICT;
+
+    myTextDiffProvider = new SimpleThreesideTextDiffProvider(getTextSettings(), colorsMode, this::rediff, this);
   }
 
   @NotNull
   @Override
   protected List<AnAction> createToolbarActions() {
-    List<AnAction> group = new ArrayList<>(myTextDiffProvider.getToolbarActions());
+    List<AnAction> group = new ArrayList<>();
+
+    DefaultActionGroup diffGroup = DefaultActionGroup.createPopupGroup(() -> ActionsBundle.message("group.compare.contents.text"));
+    diffGroup.getTemplatePresentation().setIcon(AllIcons.Actions.Diff);
+    diffGroup.add(Separator.create(ActionsBundle.message("group.compare.contents.text")));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_LEFT, false));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_RIGHT, false));
+    diffGroup.add(new TextShowPartialDiffAction(PartialDiffMode.LEFT_RIGHT, false));
+    group.add(diffGroup);
+    group.add(Separator.getInstance());
+
+    group.addAll(myTextDiffProvider.getToolbarActions());
+
     group.add(new MyToggleExpandByDefaultAction());
     group.add(new MyToggleAutoScrollAction());
     group.add(new MyEditorReadOnlyLockAction());
     group.add(myEditorSettingsAction);
-
-    group.add(Separator.getInstance());
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_LEFT, false));
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.MIDDLE_RIGHT, false));
-    group.add(new TextShowPartialDiffAction(PartialDiffMode.LEFT_RIGHT, false));
 
     group.add(Separator.getInstance());
     group.addAll(super.createToolbarActions());
@@ -81,6 +101,22 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
 
     group.add(Separator.getInstance());
     group.addAll(super.createPopupActions());
+
+    return group;
+  }
+
+  @NotNull
+  @Override
+  protected List<AnAction> createEditorPopupActions() {
+    List<AnAction> group = new ArrayList<>();
+
+    group.add(new ReplaceSelectedChangesAction(ThreeSide.LEFT, ThreeSide.BASE));
+    group.add(new ReplaceSelectedChangesAction(ThreeSide.RIGHT, ThreeSide.BASE));
+    group.add(new ReplaceSelectedChangesAction(ThreeSide.BASE, ThreeSide.LEFT));
+    group.add(new ReplaceSelectedChangesAction(ThreeSide.BASE, ThreeSide.RIGHT));
+
+    group.add(Separator.getInstance());
+    group.addAll(super.createEditorPopupActions());
 
     return group;
   }
@@ -102,14 +138,13 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
     try {
       indicator.checkCanceled();
 
-      List<CharSequence> sequences = ContainerUtil.map(getContents(), content -> {
-        return content.getDocument().getImmutableCharSequence();
-      });
+      List<CharSequence> sequences = ContainerUtil.map(getContents(), content -> content.getDocument().getImmutableCharSequence());
 
       List<FineMergeLineFragment> lineFragments = myTextDiffProvider.compare(sequences.get(0), sequences.get(1), sequences.get(2),
                                                                              indicator);
+      FoldingModelSupport.Data foldingState = myFoldingModel.createState(lineFragments, getFoldingModelSettings());
 
-      return apply(lineFragments);
+      return apply(lineFragments, foldingState);
     }
     catch (DiffTooBigException e) {
       return applyNotification(DiffNotifications.createDiffTooBig());
@@ -124,36 +159,14 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   }
 
   @NotNull
-  private static MergeConflictType invertConflictType(@NotNull MergeConflictType oldConflictType) {
-    TextDiffType oldDiffType = oldConflictType.getDiffType();
-
-    if (oldDiffType != TextDiffType.INSERTED && oldDiffType != TextDiffType.DELETED) {
-      return oldConflictType;
-    }
-
-    return new MergeConflictType(oldDiffType == TextDiffType.DELETED ? TextDiffType.INSERTED : TextDiffType.DELETED,
-                                 oldConflictType.isChange(Side.LEFT), oldConflictType.isChange(Side.RIGHT),
-                                 oldConflictType.canBeResolved());
-  }
-
-  @NotNull
-  private MergeConflictType convertConflictType(@NotNull FineMergeLineFragment fragment) {
-    MergeConflictType conflictType = fragment.getConflictType();
-    if (DiffUtil.getUserData(myRequest, myContext, DiffUserDataKeys.THREESIDE_DIFF_WITH_RESULT) == Boolean.TRUE) {
-      conflictType = invertConflictType(conflictType);
-    }
-    return conflictType;
-  }
-
-  @NotNull
-  private Runnable apply(@NotNull final List<FineMergeLineFragment> fragments) {
+  private Runnable apply(@NotNull final List<FineMergeLineFragment> fragments, @Nullable FoldingModelSupport.Data foldingState) {
     return () -> {
       myFoldingModel.updateContext(myRequest, getFoldingModelSettings());
       clearDiffPresentation();
 
       resetChangeCounters();
       for (FineMergeLineFragment fragment : fragments) {
-        MergeConflictType conflictType = convertConflictType(fragment);
+        MergeConflictType conflictType = fragment.getConflictType();
         MergeInnerDifferences innerFragments = fragment.getInnerFragments();
 
         SimpleThreesideDiffChange change = new SimpleThreesideDiffChange(fragment, conflictType, innerFragments, this);
@@ -161,7 +174,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
         onChangeAdded(change);
       }
 
-      myFoldingModel.install(fragments, myRequest, getFoldingModelSettings());
+      myFoldingModel.install(foldingState, myRequest, getFoldingModelSettings());
 
       myInitialScrollHelper.onRediff();
 
@@ -171,7 +184,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void destroyChangedBlocks() {
     super.destroyChangedBlocks();
     for (SimpleThreesideDiffChange change : myDiffChanges) {
@@ -190,7 +203,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   //
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onBeforeDocumentChange(@NotNull DocumentEvent e) {
     super.onBeforeDocumentChange(e);
     if (myDiffChanges.isEmpty()) return;
@@ -215,6 +228,10 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
     if (!invalid.isEmpty()) {
       myDiffChanges.removeAll(invalid);
       myInvalidDiffChanges.addAll(invalid);
+
+      for (SimpleThreesideDiffChange change : invalid) {
+        change.markInvalid();
+      }
     }
   }
 
@@ -243,6 +260,29 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
     return ThreesideTextDiffViewer.canShowRequest(context, request);
   }
 
+  protected boolean isEditable(@NotNull ThreeSide side) {
+    return DiffUtil.isEditable(getEditor(side));
+  }
+
+  //
+  // Modification operations
+  //
+
+  @RequiresWriteLock
+  public void replaceChange(@NotNull SimpleThreesideDiffChange change, @NotNull ThreeSide sourceSide, @NotNull ThreeSide outputSide) {
+    if (!change.isValid()) return;
+
+    DiffUtil.applyModification(getEditor(outputSide).getDocument(), change.getStartLine(outputSide), change.getEndLine(outputSide),
+                               getEditor(sourceSide).getDocument(), change.getStartLine(sourceSide), change.getEndLine(sourceSide));
+
+    myDiffChanges.remove(change);
+    myInvalidDiffChanges.add(change);
+    change.markInvalid();
+
+    // Do not rely on DocumentListener in case of identical change
+    scheduleRediff();
+  }
+
   //
   // Actions
   //
@@ -253,6 +293,145 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
     }
   }
 
+  static String getReplaceActionId(@NotNull ThreeSide master, @NotNull ThreeSide modifiedSide) {
+    if (master == ThreeSide.LEFT && modifiedSide == ThreeSide.BASE) return "Diff.ApplyLeftSide";
+    if (master == ThreeSide.RIGHT && modifiedSide == ThreeSide.BASE) return "Diff.ApplyRightSide";
+    return null;
+  }
+
+  private class ReplaceSelectedChangesAction extends SelectedChangesActionBase {
+    @NotNull protected final ThreeSide mySourceSide;
+    @NotNull protected final ThreeSide myModifiedSide;
+
+    ReplaceSelectedChangesAction(@NotNull ThreeSide sourceSide, @NotNull ThreeSide modifiedSide) {
+      mySourceSide = sourceSide;
+      myModifiedSide = modifiedSide;
+
+      String keymapActionId = getReplaceActionId(sourceSide, modifiedSide);
+      if (keymapActionId != null) copyShortcutFrom(ActionManager.getInstance().getAction(keymapActionId));
+    }
+
+    @Override
+    protected boolean isVisible(@NotNull ThreeSide side) {
+      if (!isEditable(myModifiedSide)) return false;
+      return !isBothEditable() || side == mySourceSide;
+    }
+
+    @Override
+    protected boolean isEnabled(@NotNull ThreesideDiffChangeBase change) {
+      Side side1 = myModifiedSide.select(Side.LEFT, null, Side.RIGHT);
+      if (side1 != null && change.isChange(side1)) return true;
+
+      Side side2 = mySourceSide.select(Side.LEFT, null, Side.RIGHT);
+      if (side2 != null && change.isChange(side2)) return true;
+
+      return false;
+    }
+
+    protected boolean isBothEditable() {
+      return isEditable(mySourceSide) && isEditable(myModifiedSide);
+    }
+
+    @NotNull
+    @Override
+    protected String getText(@NotNull ThreeSide side) {
+      return DiffBundle.message("action.presentation.diff.accept.text");
+    }
+
+    @Nullable
+    @Override
+    protected Icon getIcon(@NotNull ThreeSide side) {
+      Side arrowDirection = Side.fromLeft(mySourceSide == ThreeSide.LEFT ||
+                                          myModifiedSide == ThreeSide.RIGHT);
+      return DiffUtil.getArrowIcon(arrowDirection);
+    }
+
+    @Override
+    protected void doPerform(@NotNull AnActionEvent e, @NotNull ThreeSide side, @NotNull List<SimpleThreesideDiffChange> changes) {
+      if (!isEditable(myModifiedSide)) return;
+
+      String title = DiffBundle.message("message.use.selected.changes.command", e.getPresentation().getText());
+      DiffUtil.executeWriteCommand(getEditor(myModifiedSide).getDocument(), e.getProject(), title, () -> {
+        for (SimpleThreesideDiffChange change : changes) {
+          replaceChange(change, mySourceSide, myModifiedSide);
+        }
+      });
+    }
+  }
+
+  protected abstract class SelectedChangesActionBase extends DumbAwareAction {
+    @Override
+    public void update(@NotNull AnActionEvent e) {
+      if (DiffUtil.isFromShortcut(e)) {
+        // consume shortcut even if there are nothing to do - avoid calling some other action
+        e.getPresentation().setEnabledAndVisible(true);
+        return;
+      }
+
+      Editor editor = e.getData(CommonDataKeys.EDITOR);
+      ThreeSide side = ThreeSide.fromValue(getEditors(), editor);
+      if (side == null || !isVisible(side)) {
+        e.getPresentation().setEnabledAndVisible(false);
+        return;
+      }
+
+      e.getPresentation().setText(getText(side));
+      e.getPresentation().setIcon(getIcon(side));
+
+      e.getPresentation().setVisible(true);
+      e.getPresentation().setEnabled(isSomeChangeSelected(side));
+    }
+
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      Editor editor = e.getData(CommonDataKeys.EDITOR);
+      final ThreeSide side = ThreeSide.fromValue(getEditors(), editor);
+      if (side == null) return;
+
+      final List<SimpleThreesideDiffChange> selectedChanges = getSelectedChanges(side);
+      if (selectedChanges.isEmpty()) return;
+
+      doPerform(e, side, ContainerUtil.reverse(selectedChanges));
+    }
+
+    protected abstract boolean isVisible(@NotNull ThreeSide side);
+
+    protected abstract boolean isEnabled(@NotNull ThreesideDiffChangeBase change);
+
+    @Nls
+    @NotNull
+    protected abstract String getText(@NotNull ThreeSide side);
+
+    @Nullable
+    protected abstract Icon getIcon(@NotNull ThreeSide side);
+
+    @RequiresWriteLock
+    protected abstract void doPerform(@NotNull AnActionEvent e, @NotNull ThreeSide side, @NotNull List<SimpleThreesideDiffChange> changes);
+
+    private boolean isSomeChangeSelected(@NotNull ThreeSide side) {
+      if (getChanges().isEmpty()) return false;
+
+      EditorEx editor = getEditor(side);
+      return DiffUtil.isSomeRangeSelected(editor, lines ->
+        ContainerUtil.exists(getChanges(), change -> isChangeSelected(change, lines, side)));
+    }
+
+    @NotNull
+    @RequiresEdt
+    private List<SimpleThreesideDiffChange> getSelectedChanges(@NotNull ThreeSide side) {
+      EditorEx editor = getEditor(side);
+      BitSet lines = DiffUtil.getSelectedLines(editor);
+      return ContainerUtil.filter(getChanges(), change -> isChangeSelected(change, lines, side));
+    }
+
+    private boolean isChangeSelected(@NotNull ThreesideDiffChangeBase change, @NotNull BitSet lines, @NotNull ThreeSide side) {
+      if (!isEnabled(change)) return false;
+      int line1 = change.getStartLine(side);
+      int line2 = change.getEndLine(side);
+      return DiffUtil.isSelectedByLine(lines, line1, line2);
+    }
+  }
+
   //
   // Helpers
   //
@@ -260,7 +439,7 @@ public class SimpleThreesideDiffViewer extends ThreesideTextDiffViewerEx {
   private class MyDividerPaintable implements DiffDividerDrawUtil.DividerPaintable {
     @NotNull private final Side mySide;
 
-    public MyDividerPaintable(@NotNull Side side) {
+    MyDividerPaintable(@NotNull Side side) {
       mySide = side;
     }
 

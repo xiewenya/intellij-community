@@ -5,30 +5,36 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.startup.StartupActivity;
 import com.intellij.openapi.vcs.BranchChangeListener;
 import com.intellij.openapi.vcs.VcsConfiguration;
+import com.intellij.tasks.BranchInfo;
+import com.intellij.tasks.LocalTask;
+import com.intellij.tasks.TaskBundle;
+import com.intellij.tasks.TaskManager;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 public class BranchContextTracker implements BranchChangeListener {
 
   public static final NotificationGroup NOTIFICATION = new NotificationGroup(
     "Branch Context group", NotificationDisplayType.BALLOON, true);
 
-  private final WorkingContextManager myContextManager;
   private final Project myProject;
   private String myLastBranch;
 
-  private BranchContextTracker(Project project) {
+  public BranchContextTracker(@NotNull Project project) {
     myProject = project;
-    myContextManager = WorkingContextManager.getInstance(project);
-    project.getMessageBus().connect().subscribe(BranchChangeListener.VCS_BRANCH_CHANGED, this);
+  }
+
+  private WorkingContextManager getContextManager() {
+    return WorkingContextManager.getInstance(myProject);
   }
 
   @Override
   public void branchWillChange(@NotNull String branchName) {
     myLastBranch = branchName;
-    myContextManager.saveContext(getContextName(branchName), null);
+    getContextManager().saveContext(getContextName(branchName), null);
   }
 
   @Override
@@ -36,35 +42,46 @@ public class BranchContextTracker implements BranchChangeListener {
     VcsConfiguration vcsConfiguration = VcsConfiguration.getInstance(myProject);
     if (!vcsConfiguration.RELOAD_CONTEXT) return;
 
+    // check if the task is already switched
+    TaskManager manager = TaskManager.getManager(myProject);
+    if (manager != null) {
+      LocalTask task = manager.getActiveTask();
+      List<BranchInfo> branches = task.getBranches(false);
+      if (branches.stream().anyMatch(info -> branchName.equals(info.name)))
+        return;
+    }
+
     String contextName = getContextName(branchName);
-    if (!myContextManager.hasContext(contextName)) return;
+    if (!getContextManager().hasContext(contextName)) return;
 
     TransactionGuard.submitTransaction(myProject, () -> switchContext(branchName, contextName));
   }
 
   private void switchContext(@NotNull String branchName, String contextName) {
-    myContextManager.clearContext();
-    myContextManager.loadContext(contextName);
+    WorkingContextManager contextManager = getContextManager();
+    contextManager.clearContext();
+    contextManager.loadContext(contextName);
 
     Notification notification =
-      NOTIFICATION.createNotification("Workspace is restored to how it was in the ‘" + branchName + "' branch", NotificationType.INFORMATION);
-    if (myLastBranch != null && myContextManager.hasContext(getContextName(myLastBranch))) {
-      notification.addAction(new NotificationAction("Rollback") {
+      NOTIFICATION.createNotification(TaskBundle.message("workspace.associated.with.branch.has.been.restored", branchName), NotificationType.INFORMATION);
+    if (myLastBranch != null && contextManager.hasContext(getContextName(myLastBranch))) {
+      notification.addAction(new NotificationAction(TaskBundle.messagePointer("action.Anonymous.text.rollback")) {
         @Override
         public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
-          myContextManager.clearContext();
-          myContextManager.loadContext(getContextName(myLastBranch));
+          contextManager.clearContext();
+          contextManager.loadContext(getContextName(myLastBranch));
         }
       });
     }
-    notification.addAction(new NotificationAction("Configure...") {
+    notification.addAction(new NotificationAction(TaskBundle.messagePointer("action.Anonymous.text.configure.tree.dots")) {
       @Override
       public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
         new ConfigureBranchContextDialog(myProject).show();
       }
-    }).setContextHelpAction(new AnAction("What is a workspace?", "Workspace includes open editors, current run configuration, and breakpoints.", null) {
+    }).setContextHelpAction(new AnAction(TaskBundle.messagePointer("action.BranchContextTracker.Anonymous.text.what.is.a.workspace"),
+                                         TaskBundle.messagePointer("action.BranchContextTracker.Anonymous.description"), null) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
 
       }
     }).notify(myProject);
@@ -72,14 +89,7 @@ public class BranchContextTracker implements BranchChangeListener {
 
   @NotNull
   private static String getContextName(String branchName) {
-    return "__branch_context_" + branchName;
+    return "__branch_context_" + branchName; //NON-NLS
   }
 
-  public static class TrackerStartupActivity implements StartupActivity{
-
-    @Override
-    public void runActivity(@NotNull Project project) {
-      new BranchContextTracker(project);
-    }
-  }
 }

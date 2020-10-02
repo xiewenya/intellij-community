@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
@@ -31,6 +32,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ClassUtils;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -40,10 +42,16 @@ import java.util.stream.Collectors;
 
 public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseInspection {
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.display.name");
+  @Nls
+  @VisibleForTesting
+  static String getAddNoteFixName() {
+    return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.fix.add.note.name");
+  }
+
+  @Nls
+  @VisibleForTesting
+  static String getGenerateEqualsFixName() {
+    return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.fix.generate.equals.name");
   }
 
   @Override
@@ -52,9 +60,12 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
     return InspectionGadgetsBundle.message("comparable.implemented.but.equals.not.overridden.problem.descriptor");
   }
 
-  @NotNull
   @Override
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
+    if (infos[0] instanceof PsiAnonymousClass) {
+      return new InspectionGadgetsFix[] {new GenerateEqualsMethodFix()};
+    }
+
     return new InspectionGadgetsFix[] {
       new GenerateEqualsMethodFix(),
       new AddNoteFix()
@@ -66,13 +77,13 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Generate 'equals()' method";
+      return getGenerateEqualsFixName();
     }
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiClass aClass = (PsiClass)descriptor.getPsiElement().getParent();
-      final StringBuilder methodText = new StringBuilder();
+      final @NonNls StringBuilder methodText = new StringBuilder();
       if (PsiUtil.isLanguageLevel5OrHigher(aClass)) {
         methodText.append("@java.lang.Override ");
       }
@@ -91,13 +102,13 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
   private static class AddNoteFix extends InspectionGadgetsFix {
 
     private static final Pattern PARAM_PATTERN = Pattern.compile("\\*[ \t]+@");
-    private static final String NOTE = " * Note: this class has a natural ordering that is inconsistent with equals.\n";
+    private static final @Nls String NOTE = " * Note: this class has a natural ordering that is inconsistent with equals.\n";
 
     @Nls
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Add 'ordering inconsistent with equals' JavaDoc note";
+      return getAddNoteFixName();
     }
 
     @Override
@@ -160,7 +171,7 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
       if (equalsMethod != null && !equalsMethod.hasModifierProperty(PsiModifier.ABSTRACT)) {
         return;
       }
-      final String docCommentText = collapseWhitespace(getActualCommentText(aClass.getDocComment()));
+      final String docCommentText = StringUtil.collapseWhiteSpace(getActualCommentText(aClass.getDocComment()));
       if (StringUtil.containsIgnoreCase(docCommentText, "this class has a natural ordering that is inconsistent with equals")) {
         // see Comparable.compareTo() javadoc
         return;
@@ -174,25 +185,6 @@ public class ComparableImplementedButEqualsNotOverriddenInspection extends BaseI
         .filter(e -> (e instanceof PsiDocToken) && ((PsiDocToken)e).getTokenType() == JavaDocTokenType.DOC_COMMENT_DATA)
         .map(PsiElement::getText)
         .collect(Collectors.joining());
-    }
-
-    private static String collapseWhitespace(String s) {
-      final StringBuilder result = new StringBuilder();
-      boolean space = false;
-      for (int i = 0, length = s.length(); i < length; i++) {
-        char ch = s.charAt(i);
-        if (StringUtil.isWhiteSpace(ch)) {
-          if (!space) {
-            result.append(' ');
-            space = true;
-          }
-        }
-        else {
-          result.append(ch);
-          space = false;
-        }
-      }
-      return result.toString();
     }
   }
 }

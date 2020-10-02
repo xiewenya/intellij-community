@@ -25,7 +25,6 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.JBIterable;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,9 +34,9 @@ import java.util.List;
 import java.util.Map;
 
 public class JavaClassReferenceProvider extends GenericReferenceProvider implements CustomizableReferenceProvider {
-
+  /** Tells reference provider to process only qualified class references (e.g. not resolve String as java.lang.String) */
   public static final CustomizationKey<Boolean> RESOLVE_QUALIFIED_CLASS_NAME =
-    new CustomizationKey<>(PsiBundle.message("qualified.resolve.class.reference.provider.option"));
+    new CustomizationKey<>("RESOLVE_QUALIFIED_CLASS_NAME");
   public static final CustomizationKey<List<String>> SUPER_CLASSES = new CustomizationKey<>("SUPER_CLASSES");
   public static final CustomizationKey<List<String>> IMPORTS = new CustomizationKey<>("IMPORTS");
   public static final CustomizationKey<String> CLASS_TEMPLATE = new CustomizationKey<>("CLASS_TEMPLATE");
@@ -51,31 +50,26 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
   public static final CustomizationKey<Boolean> ALLOW_DOLLAR_NAMES = new CustomizationKey<>("ALLOW_DOLLAR_NAMES");
   public static final CustomizationKey<Boolean> ALLOW_WILDCARDS = new CustomizationKey<>("ALLOW_WILDCARDS");
 
-  /** @deprecated use {@code SUPER_CLASSES} instead */
-  public static final CustomizationKey<String[]> EXTEND_CLASS_NAMES = new CustomizationKey<>("EXTEND_CLASS_NAMES");
-  /** @deprecated use {@code IMPORTS} instead */
-  public static final CustomizationKey<String> DEFAULT_PACKAGE = new CustomizationKey<>("DEFAULT_PACKAGE");
+  /** @deprecated use {@link #SUPER_CLASSES} instead */
+  @Deprecated public static final CustomizationKey<String[]> EXTEND_CLASS_NAMES = new CustomizationKey<>("EXTEND_CLASS_NAMES");
+  /** @deprecated use {@link #IMPORTS} instead */
+  @Deprecated public static final CustomizationKey<String> DEFAULT_PACKAGE = new CustomizationKey<>("DEFAULT_PACKAGE");
 
   @Nullable
   private Map<CustomizationKey, Object> myOptions;
 
   private boolean myAllowEmpty;
 
-  private final ParameterizedCachedValueProvider<List<PsiPackage>, Project> myPackagesProvider =
-    new ParameterizedCachedValueProvider<List<PsiPackage>, Project>() {
-      @Override
-      public CachedValueProvider.Result<List<PsiPackage>> compute(Project project) {
-        PsiNameHelper nameHelper = PsiNameHelper.getInstance(project);
-        List<PsiPackage> psiPackages = JBIterable.of("").append(IMPORTS.getValue(myOptions))
-          .filterMap(o -> o == null ? null : JavaPsiFacade.getInstance(project).findPackage(o))
-          .flatten(o -> JBIterable.of(o.getSubPackages()))
-          .filter(o -> nameHelper.isIdentifier(o.getName(), PsiUtil.getLanguageLevel(o)))
-          .toList();
-        return CachedValueProvider.Result.createSingleDependency(psiPackages, PsiModificationTracker.MODIFICATION_COUNT);
-      }
-    };
+  private static final ParameterizedCachedValueProvider<List<PsiPackage>, Project> ourPackagesProvider = project -> {
+    PsiNameHelper nameHelper = PsiNameHelper.getInstance(project);
+    PsiPackage root = JavaPsiFacade.getInstance(project).findPackage("");
+    List<PsiPackage> psiPackages = root == null ? Collections.emptyList() :
+                                   ContainerUtil.filter(root.getSubPackages(),
+                                                        p -> nameHelper.isIdentifier(p.getName(), PsiUtil.getLanguageLevel(p)));
+    return CachedValueProvider.Result.createSingleDependency(psiPackages, PsiModificationTracker.MODIFICATION_COUNT);
+  };
 
-  private static final Key<ParameterizedCachedValue<List<PsiPackage>, Project>> PACKAGES_KEY = Key.create("default packages");
+  private static final Key<ParameterizedCachedValue<List<PsiPackage>, Project>> ourPackagesKey = Key.create("default packages");
 
   public <T> void setOption(CustomizationKey<T> option, T value) {
     if (myOptions == null) {
@@ -113,20 +107,17 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
     return getReferencesByElement(element);
   }
 
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element) {
     final int offsetInElement = ElementManipulators.getOffsetInElement(element);
     final String text = ElementManipulators.getValueText(element);
     return getReferencesByString(text, element, offsetInElement);
   }
 
-  @NotNull
-  public PsiReference[] getReferencesByString(String str, @NotNull PsiElement position, int offsetInPosition) {
+  public PsiReference @NotNull [] getReferencesByString(String str, @NotNull PsiElement position, int offsetInPosition) {
     if (myAllowEmpty && StringUtil.isEmpty(str)) {
       return PsiReference.EMPTY_ARRAY;
     }
@@ -149,8 +140,8 @@ public class JavaClassReferenceProvider extends GenericReferenceProvider impleme
   }
 
   @NotNull
-  protected List<PsiPackage> getDefaultPackages(@NotNull Project project) {
-    return CachedValuesManager.getManager(project).getParameterizedCachedValue(project, PACKAGES_KEY, myPackagesProvider, false, project);
+  static List<PsiPackage> getDefaultPackages(@NotNull Project project) {
+    return CachedValuesManager.getManager(project).getParameterizedCachedValue(project, ourPackagesKey, ourPackagesProvider, false, project);
   }
 
   @Override

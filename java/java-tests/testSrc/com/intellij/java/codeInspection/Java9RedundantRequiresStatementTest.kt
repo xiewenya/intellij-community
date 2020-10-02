@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInspection
 
 import com.intellij.analysis.AnalysisScope
@@ -98,17 +84,30 @@ class Java9RedundantRequiresStatementTest : LightJava9ModulesCodeInsightFixtureT
     mainModule("module MAIN { requires java.base; }")
   }
 
+  fun testSuppressionByComment() {
+    mainClass()
+    mainModule("module M {\n //noinspection Java9RedundantRequiresStatement\n requires M2;\n}")
+  }
+
+  fun testSuppressionByAnnotation() {
+    mainClass()
+    mainModule("@SuppressWarnings(\"Java9RedundantRequiresStatement\") module M { requires M2; }")
+  }
+
   private fun mainModule(@Language("JAVA") text: String) {
     addFile("module-info.java", text, ModuleDescriptor.MAIN)
+
+    val mainFile = myMainFile
+    if (mainFile != null) {
+      myFixture.configureFromExistingVirtualFile(mainFile)
+      myFixture.checkHighlighting() // Sanity check: make sure the imports work (or don't work) as expected
+    }
 
     val toolWrapper = GlobalInspectionToolWrapper(Java9RedundantRequiresStatementInspection())
     val scope = AnalysisScope(project)
     val globalContext = createGlobalContextForTool(scope, project, listOf(toolWrapper))
     InspectionTestUtil.runTool(toolWrapper, scope, globalContext)
     InspectionTestUtil.compareToolResults(globalContext, toolWrapper, true, testDataPath + getTestName(true))
-
-    myFixture.configureFromExistingVirtualFile(myMainClassFile ?: return)
-    myFixture.checkHighlighting() // make sure the imports work
   }
 
   private fun add(packageName: String, className: String, module: ModuleDescriptor, body: String = "", vararg imports: String) {
@@ -121,18 +120,19 @@ class Java9RedundantRequiresStatementTest : LightJava9ModulesCodeInsightFixtureT
         }""".trimIndent(), module = module)
   }
 
-  private var myMainClassFile: VirtualFile? = null
+  private var myMainFile: VirtualFile? = null
 
   private fun mainClass(vararg imports: String, staticImports: List<String> = emptyList()) {
     val importsText = imports.joinToString("\n") { "import ${it};" }
     val staticImportsText = staticImports.joinToString("\n") { "import static ${it};" }
-    myMainClassFile = addFile("org.example.main/Main.java", """
+    val mainText = """
         package org.example.main;
         ${importsText}
         ${staticImportsText}
         public class Main {
           void main() {}
-        }""".trimIndent(), module = ModuleDescriptor.MAIN)
+        }""".trimIndent()
+    myMainFile = addFile("org.example.main/Main.java", mainText)
   }
 
   override fun getTestDataPath() = PathManagerEx.getTestDataPath() + "/inspection/redundantRequiresStatement/"

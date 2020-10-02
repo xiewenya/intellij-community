@@ -15,19 +15,16 @@
  */
 package com.intellij.java.codeInsight.daemon.quickFix;
 
-import com.intellij.codeInsight.daemon.quickFix.LightQuickFixTestCase;
+import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.defUse.DefUseInspection;
 import com.intellij.codeInspection.sillyAssignment.SillyAssignmentInspection;
 import com.intellij.pom.java.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
-public class RemoveUnusedAssignmentTest extends LightQuickFixTestCase {
-  public void test() { doAllTests(); }
-
-  @NotNull
+public class RemoveUnusedAssignmentTest extends LightQuickFixParameterizedTestCase {
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[] {new DefUseInspection(), new SillyAssignmentInspection()};
   }
 
@@ -38,6 +35,6 @@ public class RemoveUnusedAssignmentTest extends LightQuickFixTestCase {
 
   @Override
   protected LanguageLevel getLanguageLevel() {
-    return LanguageLevel.JDK_1_5;
+    return LanguageLevel.JDK_14_PREVIEW;
   }
 }

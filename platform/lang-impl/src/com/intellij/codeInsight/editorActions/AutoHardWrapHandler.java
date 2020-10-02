@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
 import com.intellij.codeInsight.template.TemplateManager;
@@ -27,7 +27,6 @@ import java.util.Map;
  * Encapsulates logic for processing {@link EditorSettings#isWrapWhenTypingReachesRightMargin(Project)} option.
  *
  * @author Denis Zhdanov
- * @since 10/4/10 9:56 AM
  */
 public class AutoHardWrapHandler {
 
@@ -146,14 +145,15 @@ public class AutoHardWrapHandler {
 
     // Is assumed to be max possible number of characters inserted on the visual line with caret.
     int maxPreferredOffset = editor.logicalPositionToOffset(
-      new LogicalPosition(caretModel.getLogicalPosition().line, margin - FormatConstants.getReservedLineWrapWidthInColumns(editor))
+      new LogicalPosition(caretModel.getLogicalPosition().line,
+                          Math.max(0, margin - FormatConstants.getReservedLineWrapWidthInColumns(editor)))
     );
 
     int wrapOffset = strategy.calculateWrapPosition(document, project, startOffset, endOffset, maxPreferredOffset, true, false);
     if (wrapOffset < 0) {
       return;
     }
-    
+
     WhiteSpaceFormattingStrategy formattingStrategy = WhiteSpaceFormattingStrategyFactory.getStrategy(editor);
     if (wrapOffset <= startOffset || wrapOffset > maxPreferredOffset
         || formattingStrategy.check(document.getCharsSequence(), startOffset, wrapOffset) >= wrapOffset)
@@ -168,7 +168,7 @@ public class AutoHardWrapHandler {
     final int baseCaretOffset = caretModel.getOffset();
     DocumentListener listener = new DocumentListener() {
       @Override
-      public void beforeDocumentChange(DocumentEvent event) {
+      public void beforeDocumentChange(@NotNull DocumentEvent event) {
         if (event.getOffset() < baseCaretOffset + caretOffsetDiff[0]) {
           caretOffsetDiff[0] += event.getNewLength() - event.getOldLength();
         }
@@ -188,7 +188,9 @@ public class AutoHardWrapHandler {
     DataManager.getInstance().saveInDataContext(dataContext, AUTO_WRAP_LINE_IN_PROGRESS_KEY, true);
     document.addDocumentListener(listener);
     try {
-      EditorActionManager.getInstance().getActionHandler(IdeActions.ACTION_EDITOR_ENTER).execute(editor, dataContext);
+      EditorActionManager.getInstance().getActionHandler(IdeActions.ACTION_EDITOR_ENTER).execute(editor,
+                                                                                                 editor.getCaretModel().getCurrentCaret(),
+                                                                                                 dataContext);
     }
     finally {
       DataManager.getInstance().saveInDataContext(dataContext, AUTO_WRAP_LINE_IN_PROGRESS_KEY, null);

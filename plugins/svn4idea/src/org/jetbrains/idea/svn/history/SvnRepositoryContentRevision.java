@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.idea.svn.history;
 
@@ -37,14 +37,14 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
     myRevision = revision;
   }
 
+  @Override
   @NotNull
   public String getContent() throws VcsException {
     return ContentRevisionCache.getAsString(getContentAsBytes(), myFile, null);
   }
 
-  @NotNull
   @Override
-  public byte[] getContentAsBytes() throws VcsException {
+  public byte @NotNull [] getContentAsBytes() throws VcsException {
     try {
       if (myFile.getVirtualFile() == null) {
         LocalFileSystem.getInstance().refreshAndFindFileByPath(myFile.getPath());
@@ -76,6 +76,7 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
     return buffer;
   }
 
+  @Override
   @NotNull
   public SvnRevisionNumber getRevisionNumber() {
     return new SvnRevisionNumber(Revision.of(myRevision));
@@ -128,7 +129,7 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
     private final OutputStream myDst;
     private Exception myException;
 
-    public ContentLoader(String path, OutputStream dst, long revision) {
+    ContentLoader(String path, OutputStream dst, long revision) {
       myPath = path;
       myDst = dst;
       myRevision = revision;
@@ -138,6 +139,7 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
       return myException;
     }
 
+    @Override
     public void run() {
       ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
       if (progress != null) {
@@ -148,7 +150,7 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
       try {
         // TODO: Local path could also be used here
         Revision revision = Revision.of(myRevision);
-        byte[] contents = SvnUtil.getFileContents(myVcs, Target.on(SvnUtil.parseUrl(getFullPath())), revision, revision);
+        byte[] contents = SvnUtil.getFileContents(myVcs, Target.on(getUrl()), revision, revision);
         myDst.write(contents);
       }
       catch (VcsException | IOException e) {
@@ -167,7 +169,12 @@ public class SvnRepositoryContentRevision extends SvnBaseContentRevision impleme
   }
 
   @NotNull
+  public Url getUrl() throws SvnBindException {
+    return SvnUtil.createUrl(getFullPath(), false);
+  }
+
+  @NotNull
   public Target toTarget() throws SvnBindException {
-    return Target.on(SvnUtil.createUrl(getFullPath()), getRevisionNumber().getRevision());
+    return Target.on(getUrl(), getRevisionNumber().getRevision());
   }
 }

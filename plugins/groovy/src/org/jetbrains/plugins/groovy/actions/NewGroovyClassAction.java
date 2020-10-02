@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.actions;
 
@@ -50,24 +36,24 @@ import static org.jetbrains.plugins.groovy.projectRoots.RootTypesKt.ROOT_TYPES;
 public class NewGroovyClassAction extends JavaCreateTemplateInPackageAction<GrTypeDefinition> implements DumbAware {
 
   public NewGroovyClassAction() {
-    super(GroovyBundle.message("newclass.menu.action.text"), GroovyBundle.message("newclass.menu.action.description"),
+    super(GroovyBundle.message("new.class.action.text"), GroovyBundle.message("new.class.action.description"),
           JetgroovyIcons.Groovy.Class, ROOT_TYPES);
   }
 
   @Override
   protected void buildDialog(Project project, PsiDirectory directory, CreateFileFromTemplateDialog.Builder builder) {
     builder
-      .setTitle(GroovyBundle.message("newclass.dlg.title"))
-      .addKind("Class", JetgroovyIcons.Groovy.Class, GroovyTemplates.GROOVY_CLASS)
-      .addKind("Interface", JetgroovyIcons.Groovy.Interface, GroovyTemplates.GROOVY_INTERFACE);
+      .setTitle(GroovyBundle.message("new.class.dialog.title"))
+      .addKind(GroovyBundle.message("new.class.list.item.class"), JetgroovyIcons.Groovy.Class, GroovyTemplates.GROOVY_CLASS)
+      .addKind(GroovyBundle.message("new.class.list.item.interface"), JetgroovyIcons.Groovy.Interface, GroovyTemplates.GROOVY_INTERFACE);
 
     if (GroovyConfigUtils.getInstance().isVersionAtLeast(directory, GroovyConfigUtils.GROOVY2_3, true)) {
-      builder.addKind("Trait", JetgroovyIcons.Groovy.Trait, GroovyTemplates.GROOVY_TRAIT);
+      builder.addKind(GroovyBundle.message("new.class.list.item.trait"), JetgroovyIcons.Groovy.Trait, GroovyTemplates.GROOVY_TRAIT);
     }
 
     builder
-      .addKind("Enum", JetgroovyIcons.Groovy.Enum, GroovyTemplates.GROOVY_ENUM)
-      .addKind("Annotation", JetgroovyIcons.Groovy.AnnotationType, GroovyTemplates.GROOVY_ANNOTATION);
+      .addKind(GroovyBundle.message("new.class.list.item.enum"), JetgroovyIcons.Groovy.Enum, GroovyTemplates.GROOVY_ENUM)
+      .addKind(GroovyBundle.message("new.class.list.item.annotation"), JetgroovyIcons.Groovy.AnnotationType, GroovyTemplates.GROOVY_ANNOTATION);
 
     for (FileTemplate template : FileTemplateManager.getInstance(project).getAllTemplates()) {
       FileType fileType = FileTypeManagerEx.getInstanceEx().getFileTypeByExtension(template.getExtension());
@@ -79,7 +65,7 @@ public class NewGroovyClassAction extends JavaCreateTemplateInPackageAction<GrTy
     builder.setValidator(new InputValidatorEx() {
 
       @Override
-      public String getErrorText(String inputString) { return "This is not a valid Groovy qualified name"; }
+      public String getErrorText(String inputString) { return GroovyBundle.message("invalid.qualified.name"); }
 
       @Override
       public boolean checkInput(String inputString) { return true; }
@@ -97,8 +83,8 @@ public class NewGroovyClassAction extends JavaCreateTemplateInPackageAction<GrTy
   }
 
   @Override
-  protected String getActionName(PsiDirectory directory, String newName, String templateName) {
-    return GroovyBundle.message("newclass.menu.action.text");
+  protected String getActionName(PsiDirectory directory, @NotNull String newName, String templateName) {
+    return GroovyBundle.message("new.class.action.text");
   }
 
   @Override
@@ -107,12 +93,12 @@ public class NewGroovyClassAction extends JavaCreateTemplateInPackageAction<GrTy
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     super.update(e);
     Presentation presentation = e.getPresentation();
     if (!presentation.isVisible()) return;
 
-    IdeView view = LangDataKeys.IDE_VIEW.getData(e.getDataContext());
+    IdeView view = e.getData(LangDataKeys.IDE_VIEW);
     if (view == null) return;
     Project project = e.getProject();
     if (project == null) return;

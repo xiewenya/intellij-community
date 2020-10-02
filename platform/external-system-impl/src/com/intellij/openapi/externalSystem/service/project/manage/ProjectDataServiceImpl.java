@@ -34,7 +34,6 @@ import java.util.Collection;
 
 /**
  * @author Denis Zhdanov
- * @since 2/21/13 2:40 PM
  */
 @Order(ExternalSystemConstants.BUILTIN_PROJECT_DATA_SERVICE_ORDER)
 public class ProjectDataServiceImpl extends AbstractProjectDataService<ProjectData, Project> {
@@ -59,7 +58,7 @@ public class ProjectDataServiceImpl extends AbstractProjectDataService<ProjectDa
     DataNode<ProjectData> node = toImport.iterator().next();
     assert projectData == node.getData();
 
-    if (!ExternalSystemApiUtil.isOneToOneMapping(project, node.getData())) {
+    if (!ExternalSystemApiUtil.isOneToOneMapping(project, node.getData(), modelsProvider.getModules())) {
       return;
     }
     

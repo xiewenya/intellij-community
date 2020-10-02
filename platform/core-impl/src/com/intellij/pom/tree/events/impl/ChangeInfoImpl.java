@@ -37,11 +37,29 @@ public class ChangeInfoImpl implements ChangeInfo {
     myNewChild = newChild;
     myOffset = offset;
     myOldLength = oldLength;
-    myNewLength = newChild != null ? newChild.getNotCachedLength() : 0;
+    myNewLength = newChild != null ? newChild.getTextLength() : 0;
   }
 
+  @Nullable
   public TreeElement getOldChild() {
     return myOldChild;
+  }
+
+  public int getOffsetInParent() {
+    return myOffset;
+  }
+
+  public int getOldLength() {
+    return myOldLength;
+  }
+
+  public int getNewLength() {
+    return myNewLength;
+  }
+
+  @Nullable
+  public TreeElement getNewChild() {
+    return myNewChild;
   }
 
   @Override

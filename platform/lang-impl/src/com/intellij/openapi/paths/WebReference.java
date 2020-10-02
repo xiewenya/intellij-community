@@ -16,10 +16,9 @@
 package com.intellij.openapi.paths;
 
 import com.intellij.ide.BrowserUtil;
+import com.intellij.model.psi.PsiExternalReferenceHost;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiReferenceBase;
-import com.intellij.psi.SyntheticElement;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.FakePsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,12 +56,6 @@ public class WebReference extends PsiReferenceBase<PsiElement> {
     return myUrl != null ? myUrl : getValue();
   }
 
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return EMPTY_ARRAY;
-  }
-
   class MyFakePsiElement extends FakePsiElement implements SyntheticElement {
     @Override
     public PsiElement getParent() {
@@ -91,5 +84,13 @@ public class WebReference extends PsiReferenceBase<PsiElement> {
       final TextRange elementRange = myElement.getTextRange();
       return elementRange != null ? rangeInElement.shiftRight(elementRange.getStartOffset()) : rangeInElement;
     }
+  }
+
+  /**
+   * Optimization method to greatly reduce frequency of potentially expensive {@link PsiElement#getReferences()} calls
+   * @return true if the element is able to contain WebReference
+   */
+  public static boolean isWebReferenceWorthy(@NotNull PsiElement element) {
+    return element instanceof HintedReferenceHost || element instanceof ContributedReferenceHost || element instanceof PsiExternalReferenceHost;
   }
 }

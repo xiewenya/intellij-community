@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -22,7 +7,8 @@ import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.util.PairFunction;
 import com.intellij.util.containers.Convertor;
-import gnu.trove.TIntArrayList;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -33,7 +19,7 @@ import static javax.swing.ListSelectionModel.MULTIPLE_INTERVAL_SELECTION;
 
 public class TableSpeedSearch extends SpeedSearchBase<JTable> {
   private static final PairFunction<Object, Cell, String> TO_STRING = (o, cell) -> o == null || o instanceof Boolean ? "" : o.toString();
-  private final PairFunction<Object, Cell, String> myToStringConvertor;
+  private final PairFunction<Object, ? super Cell, String> myToStringConvertor;
 
   public TableSpeedSearch(JTable table) {
     this(table, TO_STRING);
@@ -43,7 +29,7 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
     this(table, (o, c) -> toStringConvertor.convert(o));
   }
 
-  public TableSpeedSearch(JTable table, final PairFunction<Object, Cell, String> toStringConvertor) {
+  public TableSpeedSearch(JTable table, final PairFunction<Object, ? super Cell, String> toStringConvertor) {
     super(table);
 
     myToStringConvertor = toStringConvertor;
@@ -94,9 +80,8 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
     return row > -1 && col > -1 ? row * myComponent.getColumnCount() + col : -1;
   }
 
-  @NotNull
   @Override
-  protected Object[] getAllElements() {
+  protected Object @NotNull [] getAllElements() {
     throw new UnsupportedOperationException("Not implemented");
   }
 
@@ -113,7 +98,7 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
 
     private int myCursor;
 
-    public MyListIterator(int startingIndex) {
+    MyListIterator(int startingIndex) {
       final int total = getElementCount();
       myCursor = startingIndex < 0 ? total : startingIndex;
     }
@@ -165,8 +150,8 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
   }
 
   @NotNull
-  private TIntArrayList findAllFilteredRows(String s) {
-    TIntArrayList rows = new TIntArrayList();
+  private IntList findAllFilteredRows(String s) {
+    IntArrayList rows = new IntArrayList();
     String _s = s.trim();
 
     for (int row = 0; row < myComponent.getRowCount(); row++) {
@@ -185,7 +170,7 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
     @NotNull private final JTable myTable;
     @NotNull private final TableSpeedSearch mySearch;
 
-    public MySelectAllAction(@NotNull JTable table, @NotNull TableSpeedSearch search) {
+    MySelectAllAction(@NotNull JTable table, @NotNull TableSpeedSearch search) {
       myTable = table;
       mySearch = search;
       copyShortcutFrom(ActionManager.getInstance().getAction(IdeActions.ACTION_SELECT_ALL));
@@ -193,23 +178,25 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(mySearch.isPopupActive() &&
                                      myTable.getRowSelectionAllowed() &&
                                      myTable.getSelectionModel().getSelectionMode() == MULTIPLE_INTERVAL_SELECTION);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       ListSelectionModel sm = myTable.getSelectionModel();
 
       String query = mySearch.getEnteredPrefix();
       if (query == null) return;
 
-      TIntArrayList filtered = mySearch.findAllFilteredRows(query);
-      if (filtered.isEmpty()) return;
+      IntList filtered = mySearch.findAllFilteredRows(query);
+      if (filtered.isEmpty()) {
+        return;
+      }
 
-      boolean alreadySelected = Arrays.equals(filtered.toNativeArray(), myTable.getSelectedRows());
+      boolean alreadySelected = Arrays.equals(filtered.toIntArray(), myTable.getSelectedRows());
 
       if (alreadySelected) {
         int anchor = sm.getAnchorSelectionIndex();
@@ -226,11 +213,13 @@ public class TableSpeedSearch extends SpeedSearchBase<JTable> {
           int index = (Integer)currentElement;
           anchor = index / myTable.getColumnCount();
         }
-        if (anchor == -1) anchor = filtered.get(0);
+        if (anchor == -1) {
+          anchor = filtered.getInt(0);
+        }
 
         sm.clearSelection();
         for (int i = 0; i < filtered.size(); i++) {
-          int value = filtered.get(i);
+          int value = filtered.getInt(i);
           sm.addSelectionInterval(value, value);
         }
         sm.setAnchorSelectionIndex(anchor);

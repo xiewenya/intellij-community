@@ -20,7 +20,7 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.StackFrameContext;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
@@ -57,6 +57,7 @@ public class UserExpressionDescriptorImpl extends EvaluationDescriptor implement
     myEnumerationIndex = enumerationIndex;
   }
 
+  @Override
   public String getName() {
     return StringUtil.isEmpty(myName) ? myText.getText() : myName;
   }
@@ -68,10 +69,11 @@ public class UserExpressionDescriptorImpl extends EvaluationDescriptor implement
     return type != null ? type.name() : null;
   }
 
+  @Override
   protected PsiCodeFragment getEvaluationCode(final StackFrameContext context) throws EvaluateException {
     Pair<PsiElement, PsiType> psiClassAndType = DebuggerUtilsImpl.getPsiClassAndType(myTypeName, myProject);
     if (psiClassAndType.first == null) {
-      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.invalid.type.name", myTypeName));
+      throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.invalid.type.name", myTypeName));
     }
     PsiCodeFragment fragment = createCodeFragment(psiClassAndType.first);
     if (fragment instanceof JavaCodeFragment) {
@@ -84,6 +86,7 @@ public class UserExpressionDescriptorImpl extends EvaluationDescriptor implement
     return myParentDescriptor;
   }
 
+  @Override
   protected EvaluationContextImpl getEvaluationContext(final EvaluationContextImpl evaluationContext) {
     return evaluationContext.createEvaluationContext(myParentDescriptor.getValue());
   }

@@ -1,36 +1,24 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.newvfs.impl;
 
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.newvfs.persistent.FSRecords;
 import com.intellij.util.IntSLRUCache;
-import com.intellij.util.containers.IntObjectLinkedMap;
-import com.intellij.util.io.PersistentStringEnumerator;
+import com.intellij.util.containers.IntObjectLRUMap;
 import com.intellij.util.text.ByteArrayCharSequence;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author peter
  */
-public class FileNameCache {
-  private static final PersistentStringEnumerator ourNames = FSRecords.getNames();
-  @SuppressWarnings("unchecked") private static final IntSLRUCache<IntObjectLinkedMap.MapEntry<CharSequence>>[] ourNameCache = new IntSLRUCache[16];
+public final class FileNameCache {
+  @SuppressWarnings("unchecked") private static final IntSLRUCache<CharSequence>[] ourNameCache = new IntSLRUCache[16];
+
   static {
     final int protectedSize = 40000 / ourNameCache.length;
     final int probationalSize = 20000 / ourNameCache.length;
@@ -39,25 +27,37 @@ public class FileNameCache {
     }
   }
 
+  private static final String FS_SEPARATORS = "/" + (File.separatorChar == '/' ? "" : File.separatorChar);
   public static int storeName(@NotNull String name) {
+    assertShortFileName(name);
     final int idx = FSRecords.getNameId(name);
     cacheData(name, idx, calcStripeIdFromNameId(idx));
     return idx;
   }
 
+  private static void assertShortFileName(@NotNull String name) {
+    if (name.length() <= 1) return;
+    int start = 0;
+    if (SystemInfo.isWindows && name.startsWith("//")) {  // Windows UNC: //Network/Ubuntu
+      final int idx = name.indexOf('/', 2);
+      start = idx == -1 ? 2 : idx + 1;
+    }
+    if (StringUtil.containsAnyChar(name, FS_SEPARATORS, start, name.length())) {
+      throw new IllegalArgumentException("Must not intern long path: '" + name + "'");
+    }
+  }
+
   @NotNull
-  private static IntObjectLinkedMap.MapEntry<CharSequence> cacheData(String name, int id, int stripe) {
+  private static IntObjectLRUMap.MapEntry<CharSequence> cacheData(String name, int id, int stripe) {
     if (name == null) {
-      ourNames.markCorrupted();
-      throw new RuntimeException("VFS name enumerator corrupted");
+      FSRecords.handleError(new RuntimeException("VFS name enumerator corrupted"));
     }
 
-    CharSequence rawName = ByteArrayCharSequence.convertToBytesIfAsciiString(name);
-    IntObjectLinkedMap.MapEntry<CharSequence> entry = new IntObjectLinkedMap.MapEntry<>(id, rawName);
-    IntSLRUCache<IntObjectLinkedMap.MapEntry<CharSequence>> cache = ourNameCache[stripe];
+    CharSequence rawName = ByteArrayCharSequence.convertToBytesIfPossible(name);
+    IntSLRUCache<CharSequence> cache = ourNameCache[stripe];
     //noinspection SynchronizationOnLocalVariableOrMethodParameter
     synchronized (cache) {
-      return cache.cacheEntry(entry);
+      return cache.cacheEntry(id, rawName);
     }
   }
 
@@ -75,7 +75,8 @@ public class FileNameCache {
 
   private static final boolean ourTrackStats = false;
   private static final int ourLOneSize = 1024;
-  private static final IntObjectLinkedMap.MapEntry<CharSequence>[] ourArrayCache = new IntObjectLinkedMap.MapEntry[ourLOneSize];
+  @SuppressWarnings("unchecked")
+  private static final IntObjectLRUMap.MapEntry<CharSequence>[] ourArrayCache = new IntObjectLRUMap.MapEntry[ourLOneSize];
 
   private static final AtomicInteger ourQueries = new AtomicInteger();
   private static final AtomicInteger ourMisses = new AtomicInteger();
@@ -85,10 +86,10 @@ public class FileNameCache {
   public interface NameComputer {
     String compute(int id) throws IOException;
   }
-  
+
   @NotNull
   public static CharSequence getVFileName(int nameId, @NotNull NameComputer computeName) throws IOException {
-    assert nameId > 0;
+    assert nameId > 0 : nameId;
 
     if (ourTrackStats) {
       int frequency = 10000000;
@@ -96,13 +97,13 @@ public class FileNameCache {
       if (queryCount >= frequency && ourQueries.compareAndSet(queryCount, 0)) {
         double misses = ourMisses.getAndSet(0);
         //noinspection UseOfSystemOutOrSystemErr
-        System.out.println("Misses: " + (misses / frequency));
+        System.out.println("Misses: " + misses / frequency);
         ourQueries.set(0);
       }
     }
 
     int l1 = nameId % ourLOneSize;
-    IntObjectLinkedMap.MapEntry<CharSequence> entry = ourArrayCache[l1];
+    IntObjectLRUMap.MapEntry<CharSequence> entry = ourArrayCache[l1];
     if (entry != null && entry.key == nameId) {
       return entry.value;
     }
@@ -112,7 +113,7 @@ public class FileNameCache {
     }
 
     final int stripe = calcStripeIdFromNameId(nameId);
-    IntSLRUCache<IntObjectLinkedMap.MapEntry<CharSequence>> cache = ourNameCache[stripe];
+    IntSLRUCache<CharSequence> cache = ourNameCache[stripe];
     //noinspection SynchronizationOnLocalVariableOrMethodParameter
     synchronized (cache) {
       entry = cache.getCachedEntry(nameId);

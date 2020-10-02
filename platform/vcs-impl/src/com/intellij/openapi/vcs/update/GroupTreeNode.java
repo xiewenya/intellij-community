@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.update;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.psi.search.scope.packageSet.PackageSetBase;
 import com.intellij.ui.SimpleTextAttributes;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,19 +24,20 @@ import java.util.*;
  * author: lesya
  */
 public class GroupTreeNode extends AbstractTreeNode implements Disposable {
-  private final String myName;
+  private final @Nls String myName;
   private final boolean mySupportsDeletion;
   private final List<String> myFilePaths = new ArrayList<>();
-  private final Map<String, String> myErrorsMap;
+  private final Map<@NonNls String, @Nls String> myErrorsMap;
   private final SimpleTextAttributes myInvalidAttributes;
   private final Project myProject;
   private final String myFileGroupId;
 
-  public GroupTreeNode(@NotNull String name,
+  public GroupTreeNode(@Nls @NotNull String name,
                        boolean supportsDeletion,
                        @NotNull SimpleTextAttributes invalidAttributes,
                        @NotNull Project project,
-                       @NotNull Map<String, String> errorsMap, String id) {
+                       @NotNull Map<@NonNls String, @Nls String> errorsMap,
+                       @NonNls String id) {
     myName = name;
     mySupportsDeletion = supportsDeletion;
     myInvalidAttributes = invalidAttributes;
@@ -70,8 +58,7 @@ public class GroupTreeNode extends AbstractTreeNode implements Disposable {
 
   @Override
   public Icon getIcon(boolean expanded) {
-    @NonNls String iconName = expanded ? "folderOpen" : "folder";
-    return IconLoader.getIcon("/nodes/" + iconName + ".png");
+    return AllIcons.Nodes.Folder;
   }
 
   @NotNull
@@ -186,11 +173,11 @@ public class GroupTreeNode extends AbstractTreeNode implements Disposable {
   }
 
   private void addFiles(@NotNull AbstractTreeNode parentNode,
-                        @NotNull List<File> roots,
-                        @NotNull final Collection<File> files,
+                        @NotNull List<? extends File> roots,
+                        @NotNull final Collection<? extends File> files,
                         @NotNull GroupByPackages groupByPackages,
                         String parentPath) {
-    Collections.sort(roots, (file1, file2) -> {
+    roots.sort((file1, file2) -> {
       boolean containsFile1 = files.contains(file1);
       boolean containsFile2 = files.contains(file2);
       if (containsFile1 == containsFile2) {
@@ -210,7 +197,7 @@ public class GroupTreeNode extends AbstractTreeNode implements Disposable {
   }
 
   private void buildFiles(@Nullable Pair<PackageSetBase, NamedScopesHolder> filter, boolean showOnlyFilteredItems) {
-    Collections.sort(myFilePaths, (path1, path2) -> path1.compareToIgnoreCase(path2));
+    myFilePaths.sort((path1, path2) -> path1.compareToIgnoreCase(path2));
 
     boolean apply = false;
 

@@ -1,39 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.formatting.contextConfiguration;
 
 import com.intellij.application.options.TabbedLanguageCodeStylePanel;
-import com.intellij.lang.Language;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsCodeFragmentFilter;
-import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.psi.codeStyle.*;
 import com.intellij.ui.components.JBScrollPane;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ArrayUtilRt;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.Collection;
 import java.util.List;
-import java.util.Set;
+import java.util.*;
 
+import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizableOptions.getInstance;
 import static com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider.SettingsType.SPACING_SETTINGS;
 import static com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider.SettingsType.WRAPPING_AND_BRACES_SETTINGS;
 
@@ -41,19 +27,20 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
   private static final Logger LOG = Logger.getInstance(CodeFragmentCodeStyleSettingsPanel.class);
 
   private final CodeStyleSettingsCodeFragmentFilter.CodeStyleSettingsToShow mySettingsToShow;
+  @NotNull private final LanguageCodeStyleSettingsProvider mySettingsProvider;
   private final SelectedTextFormatter mySelectedTextFormatter;
   private SpacesPanelWithoutPreview mySpacesPanel;
   private WrappingAndBracesPanelWithoutPreview myWrappingPanel;
 
   private Runnable mySomethingChangedCallback;
 
-  public CodeFragmentCodeStyleSettingsPanel(@NotNull CodeStyleSettings settings,
-                                            @NotNull CodeStyleSettingsCodeFragmentFilter.CodeStyleSettingsToShow settingsToShow,
-                                            @NotNull Language language,
-                                            @NotNull SelectedTextFormatter selectedTextFormatter)
-  {
-    super(language, settings, settings.clone());
+  CodeFragmentCodeStyleSettingsPanel(@NotNull CodeStyleSettings settings,
+                                     @NotNull CodeStyleSettingsCodeFragmentFilter.CodeStyleSettingsToShow settingsToShow,
+                                     @NotNull LanguageCodeStyleSettingsProvider settingsProvider,
+                                     @NotNull SelectedTextFormatter selectedTextFormatter) {
+    super(settingsProvider.getLanguage(), settings, settings.clone());
     mySettingsToShow = settingsToShow;
+    mySettingsProvider = settingsProvider;
     mySelectedTextFormatter = selectedTextFormatter;
 
     ensureTabs();
@@ -103,12 +90,8 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
   }
 
   public JComponent getPreferredFocusedComponent() {
-    return mySpacesPanel != null ? mySpacesPanel.getPreferredFocusedComponent() 
+    return mySpacesPanel != null ? mySpacesPanel.getPreferredFocusedComponent()
                                  : myWrappingPanel.getPreferredFocusedComponent();
-  }
-
-  public static CodeStyleSettingsCodeFragmentFilter.CodeStyleSettingsToShow calcSettingNamesToShow(CodeStyleSettingsCodeFragmentFilter filter) {
-    return filter.getFieldNamesAffectingCodeFragment(SPACING_SETTINGS, WRAPPING_AND_BRACES_SETTINGS);
   }
 
   public static boolean hasOptionsToShow(LanguageCodeStyleSettingsProvider provider) {
@@ -137,7 +120,7 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
   private class SpacesPanelWithoutPreview extends MySpacesPanel {
     private JPanel myPanel;
 
-    public SpacesPanelWithoutPreview(CodeStyleSettings settings) {
+    SpacesPanelWithoutPreview(CodeStyleSettings settings) {
       super(settings);
     }
 
@@ -154,9 +137,8 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
       if (settingNames.isEmpty()) {
         settingNames = mySettingsToShow.getOtherSetting();
       }
-      
-      String[] names = ContainerUtil.toArray(settingNames, new String[settingNames.size()]);
-      showStandardOptions(names);
+
+      mySettingsProvider.customizeSettings(getFilteredSettingsConsumer(settingNames, this), getSettingsType());
       initTables();
 
       myOptionsTree = createOptionsTree();
@@ -174,11 +156,11 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
 
       isFirstUpdate = false;
     }
-    
+
     public boolean hasSomethingToShow() {
       return !myKeys.isEmpty();
     }
-    
+
     @Override
     public JComponent getPanel() {
       return myPanel;
@@ -197,7 +179,7 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
   private class WrappingAndBracesPanelWithoutPreview extends MyWrappingAndBracesPanel {
     public JPanel myPanel;
 
-    public WrappingAndBracesPanelWithoutPreview(CodeStyleSettings settings) {
+    WrappingAndBracesPanelWithoutPreview(CodeStyleSettings settings) {
       super(settings);
     }
 
@@ -207,14 +189,13 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
       if (settingNames.isEmpty()) {
         settingNames = mySettingsToShow.getOtherSetting();
       }
-      
+
       initTables();
 
       Collection<String> fields = populateWithAssociatedFields(settingNames);
       fields.add("KEEP_LINE_BREAKS");
 
-      String[] names = ContainerUtil.toArray(fields, new String[fields.size()]);
-      showStandardOptions(names);
+      mySettingsProvider.customizeSettings(getFilteredSettingsConsumer(settingNames, this), getSettingsType());
 
       myTreeTable = createOptionsTree(getSettings());
       JBScrollPane scrollPane = new JBScrollPane(myTreeTable) {
@@ -227,20 +208,18 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
       myPanel = new JPanel(new BorderLayout());
       myPanel.add(scrollPane);
 
-      showStandardOptions(names);
-
       isFirstUpdate = false;
     }
 
     @NotNull
     private Collection<String> populateWithAssociatedFields(Collection<String> settingNames) {
-      Set<String> commonFields = ContainerUtil.newHashSet();
+      Set<String> commonFields = new HashSet<>();
       for (String fieldName : settingNames) {
         SettingsGroup settingsGroup = getAssociatedSettingsGroup(fieldName);
         if (settingsGroup == null) {
           commonFields.add(fieldName);
         }
-        else if (settingsGroup.title != WRAPPING_KEEP) {
+        else if (settingsGroup.title != getInstance().WRAPPING_KEEP) {
           commonFields.addAll(settingsGroup.commonCodeStyleSettingFieldNames);
         }
       }
@@ -251,14 +230,14 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
     public JComponent getPanel() {
       return myPanel;
     }
-    
+
     @Override
     protected void somethingChanged() {
       mySelectedTextFormatter.restoreSelectedText();
       reformatSelectedTextWithNewSettings();
       CodeFragmentCodeStyleSettingsPanel.this.somethingChanged();
     }
-    
+
     @Override
     protected String getPreviewText() {
       return null;
@@ -267,5 +246,52 @@ class CodeFragmentCodeStyleSettingsPanel extends TabbedLanguageCodeStylePanel {
     public JComponent getPreferredFocusedComponent() {
       return myTreeTable;
     }
+  }
+
+  @NotNull
+  private static CodeStyleSettingsCustomizable getFilteredSettingsConsumer(@NotNull Collection<String> names, @NotNull CodeStyleSettingsCustomizable original) {
+    return new CodeStyleSettingsCustomizable() {
+      @Override
+      public void showAllStandardOptions() {
+        original.showStandardOptions(ArrayUtilRt.toStringArray(names));
+      }
+
+      @Override
+      public void showStandardOptions(String... optionNames) {
+        String[] toShowOptions = Arrays.stream(optionNames).filter(names::contains).toArray(value -> new String[value]);
+        original.showStandardOptions(toShowOptions);
+      }
+
+      @Override
+      public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                                   @NonNls @NotNull String fieldName,
+                                   @NlsContexts.Label @NotNull String title,
+                                   @Nls @Nullable String groupName,
+                                   Object... options) {
+        if (names.contains(fieldName)) {
+          original.showCustomOption(settingsClass, fieldName, title, groupName, options);
+        }
+      }
+
+      @Override
+      public void renameStandardOption(@NonNls @NotNull String fieldName, @NlsContexts.Label @NotNull String newTitle) {
+        if (names.contains(fieldName)) {
+          original.renameStandardOption(fieldName, newTitle);
+        }
+      }
+
+      @Override
+      public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                                   @NonNls @NotNull String fieldName,
+                                   @NlsContexts.Label @NotNull String title,
+                                   @Nls @Nullable String groupName,
+                                   @Nullable OptionAnchor anchor,
+                                   @NonNls @Nullable String anchorFieldName,
+                                   Object... options) {
+        if (names.contains(fieldName)) {
+          original.showCustomOption(settingsClass, fieldName, title, groupName, anchor, anchorFieldName, options);
+        }
+      }
+    };
   }
 }

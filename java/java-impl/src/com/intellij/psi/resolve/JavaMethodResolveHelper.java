@@ -45,30 +45,31 @@ public class JavaMethodResolveHelper {
   private final Set<MethodSignature> myDuplicates = new THashSet<>();
 
   private final MethodCandidatesProcessor myProcessor;
-  @Nullable private final PsiType[] myArgumentTypes;
+  private final PsiType @Nullable [] myArgumentTypes;
 
-  public JavaMethodResolveHelper(@NotNull final PsiElement argumentList, PsiFile containingFile, @Nullable final PsiType[] argumentTypes) {
+  public JavaMethodResolveHelper(@NotNull final PsiElement argumentList, PsiFile containingFile, final PsiType @Nullable [] argumentTypes) {
     myArgumentTypes = argumentTypes;
     final LanguageLevel languageLevel = PsiUtil.getLanguageLevel(argumentList);
     final PsiConflictResolver resolver = argumentTypes == null ? DuplicateConflictResolver.INSTANCE : new JavaMethodsConflictResolver(argumentList, argumentTypes,
-                                                                                                                                      languageLevel);
+                                                                                                                                      languageLevel, containingFile);
     myProcessor = new MethodResolverProcessor(argumentList, containingFile, new PsiConflictResolver[]{resolver}) {
       @Override
-      protected MethodCandidateInfo createCandidateInfo(@NotNull final PsiMethod method, @NotNull final PsiSubstitutor substitutor,
-                                                        final boolean staticProblem,
-                                                        final boolean accessible, final boolean varargs) {
+      protected @NotNull MethodCandidateInfo createCandidateInfo(@NotNull final PsiMethod method, @NotNull final PsiSubstitutor substitutor,
+                                                                 final boolean staticProblem,
+                                                                 final boolean accessible, final boolean varargs) {
         return JavaMethodResolveHelper.this
           .createCandidateInfo(method, substitutor, staticProblem, myCurrentFileContext, !accessible, argumentList, argumentTypes,
                                languageLevel, varargs);
       }
 
       @Override
-      protected boolean isAccepted(final PsiMethod candidate) {
+      protected boolean isAccepted(@NotNull final PsiMethod candidate) {
         return !candidate.isConstructor();
       }
     };
   }
 
+  @NotNull
   protected MethodCandidateInfo createCandidateInfo(@NotNull PsiMethod method,
                                                     PsiSubstitutor substitutor,
                                                     boolean staticProblem,
@@ -111,7 +112,6 @@ public class JavaMethodResolveHelper {
 
     if (!info.isApplicable()) {
       boolean hasNulls = false;
-      //noinspection ConstantConditions
       final PsiParameter[] parameters = info.getElement().getParameterList().getParameters();
       if (myArgumentTypes.length == parameters.length) {
         for (int i = 0; i < myArgumentTypes.length; i++) {

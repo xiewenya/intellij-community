@@ -1,54 +1,47 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.packaging;
 
+import com.google.common.collect.Sets;
 import com.intellij.execution.ExecutionException;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileVisitor;
+import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.psi.ResolveResult;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.PyPsiPackageUtil;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
-import com.jetbrains.python.packaging.setupPy.SetupTaskIntrospector;
+import com.jetbrains.python.codeInsight.typing.PyTypeShed;
+import com.jetbrains.python.codeInsight.userSkeletons.PyUserSkeletonsUtil;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
-import com.jetbrains.python.psi.resolve.QualifiedResolveResult;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.remote.PyCredentialsContribution;
 import com.jetbrains.python.sdk.CredentialsTypeExChecker;
 import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -60,11 +53,15 @@ import java.util.stream.Stream;
 /**
  * @author vlan
  */
-public class PyPackageUtil {
+public final class PyPackageUtil {
   public static final String SETUPTOOLS = "setuptools";
   public static final String PIP = "pip";
   public static final String DISTRIBUTE = "distribute";
   private static final Logger LOG = Logger.getInstance(PyPackageUtil.class);
+
+  private static class InterpreterChangeEvents {
+    private static final Logger LOG = Logger.getInstance(InterpreterChangeEvents.class);
+  }
 
   @NotNull
   private static final String REQUIRES = "requires";
@@ -72,8 +69,7 @@ public class PyPackageUtil {
   @NotNull
   private static final String INSTALL_REQUIRES = "install_requires";
 
-  @NotNull
-  private static final String[] SETUP_PY_REQUIRES_KWARGS_NAMES = new String[]{
+  private static final String @NotNull [] SETUP_PY_REQUIRES_KWARGS_NAMES = new String[]{
     REQUIRES, INSTALL_REQUIRES, "setup_requires", "tests_require"
   };
 
@@ -125,30 +121,24 @@ public class PyPackageUtil {
   }
 
   @Nullable
-  private static PyListLiteralExpression findSetupPyInstallRequires(@NotNull Module module, @Nullable PyCallExpression setupCall) {
-    if (setupCall == null) {
-      return null;
-    }
+  private static PsiElement findSetupPyInstallRequires(@Nullable PyCallExpression setupCall) {
+    if (setupCall == null) return null;
 
-    return Stream
+    return StreamEx
       .of(REQUIRES, INSTALL_REQUIRES)
       .map(setupCall::getKeywordArgument)
-      .map(requires -> resolveValue(module, requires, PyListLiteralExpression.class))
-      .filter(requires -> requires != null)
-      .findFirst()
+      .map(PyPackageUtil::resolveValue)
+      .findFirst(Objects::nonNull)
       .orElse(null);
   }
 
   @Nullable
   public static List<PyRequirement> findSetupPyRequires(@NotNull Module module) {
     final PyCallExpression setupCall = findSetupCall(module);
+    if (setupCall == null) return null;
 
-    if (setupCall == null) {
-      return null;
-    }
-
-    final List<PyRequirement> requirementsFromRequires = getSetupPyRequiresFromArguments(module, setupCall, SETUP_PY_REQUIRES_KWARGS_NAMES);
-    final List<PyRequirement> requirementsFromLinks = getSetupPyRequiresFromArguments(module, setupCall, DEPENDENCY_LINKS);
+    final List<PyRequirement> requirementsFromRequires = getSetupPyRequiresFromArguments(setupCall, SETUP_PY_REQUIRES_KWARGS_NAMES);
+    final List<PyRequirement> requirementsFromLinks = getSetupPyRequiresFromArguments(setupCall, DEPENDENCY_LINKS);
 
     return mergeSetupPyRequirements(requirementsFromRequires, requirementsFromLinks);
   }
@@ -159,7 +149,7 @@ public class PyPackageUtil {
     if (setupCall == null) return null;
 
     final PyDictLiteralExpression extrasRequire =
-      resolveValue(module, setupCall.getKeywordArgument("extras_require"), PyDictLiteralExpression.class);
+      PyUtil.as(resolveValue(setupCall.getKeywordArgument("extras_require")), PyDictLiteralExpression.class);
     if (extrasRequire == null) return null;
 
     final Map<String, List<PyRequirement>> result = new HashMap<>();
@@ -177,22 +167,11 @@ public class PyPackageUtil {
   @Nullable
   private static Pair<String, List<PyRequirement>> getExtraRequires(@NotNull PyExpression extra, @Nullable PyExpression requires) {
     if (extra instanceof PyStringLiteralExpression) {
-      final String requiresValue;
-
-      if (requires instanceof PyStringLiteralExpression) {
-        requiresValue = ((PyStringLiteralExpression)requires).getStringValue();
-      }
-      else if (requires instanceof PyListLiteralExpression) {
-        final List<String> requiresListValue = PyUtil.strListValue(requires);
-        requiresValue = requiresListValue != null ? StringUtil.join(requiresListValue, "\n") : null;
-      }
-      else {
-        requiresValue = null;
-      }
+      final List<String> requiresValue = resolveRequiresValue(requires);
 
       if (requiresValue != null) {
         return Pair.createNonNull(((PyStringLiteralExpression)extra).getStringValue(),
-                                  fix(PyRequirement.fromText((requiresValue))));
+                                  PyRequirementParser.fromText(StringUtil.join(requiresValue, "\n")));
       }
     }
 
@@ -200,40 +179,15 @@ public class PyPackageUtil {
   }
 
   @NotNull
-  private static List<PyRequirement> getSetupPyRequiresFromArguments(@NotNull Module module,
-                                                                     @NotNull PyCallExpression setupCall,
-                                                                     @NotNull String... argumentNames) {
-    return fix(
-      PyRequirement.fromText(
-        Stream
-          .of(argumentNames)
-          .map(setupCall::getKeywordArgument)
-          .map(requires -> resolveValue(module, requires, PyListLiteralExpression.class))
-          .filter(requires -> requires != null)
-          .flatMap(requires -> Stream.of(requires.getElements()))
-          .filter(PyStringLiteralExpression.class::isInstance)
-          .map(requirement -> ((PyStringLiteralExpression)requirement).getStringValue())
-          .collect(Collectors.joining("\n"))
-      )
+  private static List<PyRequirement> getSetupPyRequiresFromArguments(@NotNull PyCallExpression setupCall,
+                                                                     String @NotNull ... argumentNames) {
+    return PyRequirementParser.fromText(
+      StreamEx
+        .of(argumentNames)
+        .map(setupCall::getKeywordArgument)
+        .flatCollection(PyPackageUtil::resolveRequiresValue)
+        .joining("\n")
     );
-  }
-
-  /**
-   * @deprecated This method will be removed in 2018.2.
-   */
-  @NotNull
-  @Deprecated
-  public static PyRequirement fix(@NotNull PyRequirement requirement) {
-    return requirement.withVersionComparator(PyPackageVersionComparator.getSTR_COMPARATOR());
-  }
-
-  /**
-   * @deprecated This method will be removed in 2018.2.
-   */
-  @NotNull
-  @Deprecated
-  public static List<PyRequirement> fix(@NotNull List<PyRequirement> requirements) {
-    return ContainerUtil.map(requirements, PyPackageUtil::fix);
   }
 
   @NotNull
@@ -253,20 +207,46 @@ public class PyPackageUtil {
     return requirementsFromRequires;
   }
 
+  /**
+   * @param expression expression to resolve
+   * @return {@code expression} if it is not a reference or element that is found by following assignments chain.
+   * <em>Note: if result is {@link PyExpression} then parentheses around will be flattened.</em>
+   */
   @Nullable
-  private static <T extends PyExpression> T resolveValue(@NotNull Module module, @Nullable PyExpression expression, @NotNull Class<T> cls) {
-    if (cls.isInstance(expression)) {
-      return cls.cast(expression);
+  private static PsiElement resolveValue(@Nullable PyExpression expression) {
+    final PsiElement elementToAnalyze = PyPsiUtils.flattenParens(expression);
+
+    if (elementToAnalyze instanceof PyReferenceExpression) {
+      final TypeEvalContext context = TypeEvalContext.deepCodeInsight(elementToAnalyze.getProject());
+      final PyResolveContext resolveContext = PyResolveContext.defaultContext().withTypeEvalContext(context);
+
+      return StreamEx
+        .of(((PyReferenceExpression)elementToAnalyze).multiFollowAssignmentsChain(resolveContext))
+        .map(ResolveResult::getElement)
+        .findFirst(Objects::nonNull)
+        .map(e -> e instanceof PyExpression ? PyPsiUtils.flattenParens((PyExpression)e) : e)
+        .orElse(null);
     }
-    if (expression instanceof PyReferenceExpression) {
-      final TypeEvalContext context = TypeEvalContext.deepCodeInsight(module.getProject());
-      final PyResolveContext resolveContext = PyResolveContext.noImplicits().withTypeEvalContext(context);
-      final QualifiedResolveResult result = ((PyReferenceExpression)expression).followAssignmentsChain(resolveContext);
-      final PsiElement element = result.getElement();
-      if (cls.isInstance(element)) {
-        return cls.cast(element);
-      }
+
+    return elementToAnalyze;
+  }
+
+  @Nullable
+  private static List<String> resolveRequiresValue(@Nullable PyExpression expression) {
+    final PsiElement elementToAnalyze = resolveValue(expression);
+
+    if (elementToAnalyze instanceof PyStringLiteralExpression) {
+      return Collections.singletonList(((PyStringLiteralExpression)elementToAnalyze).getStringValue());
     }
+    else if (elementToAnalyze instanceof PyListLiteralExpression || elementToAnalyze instanceof PyTupleExpression) {
+      return StreamEx
+        .of(((PySequenceExpression)elementToAnalyze).getElements())
+        .map(PyPackageUtil::resolveValue)
+        .select(PyStringLiteralExpression.class)
+        .map(PyStringLiteralExpression::getStringValue)
+        .toList();
+    }
+
     return null;
   }
 
@@ -286,16 +266,16 @@ public class PyPackageUtil {
   }
 
   @NotNull
-  public static String requirementsToString(@NotNull List<PyRequirement> requirements) {
-    return StringUtil.join(requirements, requirement -> String.format("'%s'", requirement.toString()), ", ");
+  public static String requirementsToString(@NotNull List<? extends PyRequirement> requirements) {
+    return StringUtil.join(requirements, requirement -> String.format("'%s'", requirement.getPresentableText()), ", ");
   }
 
   @Nullable
-  public static PyCallExpression findSetupCall(@NotNull PyFile file) {
+  private static PyCallExpression findSetupCall(@NotNull PyFile file) {
     final Ref<PyCallExpression> result = new Ref<>(null);
     file.acceptChildren(new PyRecursiveElementVisitor() {
       @Override
-      public void visitPyCallExpression(PyCallExpression node) {
+      public void visitPyCallExpression(@NotNull PyCallExpression node) {
         final PyExpression callee = node.getCallee();
         final String name = PyUtil.getReadableRepr(callee, true);
         if ("setup".equals(name)) {
@@ -304,7 +284,7 @@ public class PyPackageUtil {
       }
 
       @Override
-      public void visitPyElement(PyElement node) {
+      public void visitPyElement(@NotNull PyElement node) {
         if (!(node instanceof ScopeOwner)) {
           super.visitPyElement(node);
         }
@@ -325,19 +305,23 @@ public class PyPackageUtil {
                                           @NotNull final VirtualFile root,
                                           @NotNull final List<String> results) {
     final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(project).getFileIndex();
-    VfsUtilCore.visitChildrenRecursively(root, new VirtualFileVisitor() {
+    VfsUtilCore.visitChildrenRecursively(root, new VirtualFileVisitor<Void>() {
       @Override
       public boolean visitFile(@NotNull VirtualFile file) {
+        if (file.equals(root)) {
+          return true;
+        }
         if (!fileIndex.isExcluded(file) && file.isDirectory() && file.findChild(PyNames.INIT_DOT_PY) != null) {
           results.add(VfsUtilCore.getRelativePath(file, root, '.'));
+          return true;
         }
-        return true;
+        return false;
       }
     });
   }
 
   public static boolean packageManagementEnabled(@Nullable Sdk sdk) {
-    if (!PythonSdkType.isRemote(sdk)) {
+    if (!PythonSdkUtil.isRemote(sdk)) {
       return true;
     }
     return new CredentialsTypeExChecker() {
@@ -345,7 +329,7 @@ public class PyPackageUtil {
       protected boolean checkLanguageContribution(PyCredentialsContribution languageContribution) {
         return languageContribution.isPackageManagementEnabled();
       }
-    }.withSshContribution(true).withVagrantContribution(true).withWebDeploymentContribution(true).check(sdk);
+    }.check(sdk);
   }
 
   /**
@@ -367,7 +351,7 @@ public class PyPackageUtil {
 
 
     final Ref<List<PyPackage>> packagesRef = Ref.create();
-    @SuppressWarnings("ThrowableInstanceNeverThrown") final Throwable callStacktrace = new Throwable();
+    final Throwable callStacktrace = new Throwable();
     LOG.debug("Showing modal progress for collecting installed packages", new Throwable());
     PyUtil.runWithProgress(null, PyBundle.message("sdk.scanning.installed.packages"), true, false, indicator -> {
       indicator.setIndeterminate(true);
@@ -412,26 +396,16 @@ public class PyPackageUtil {
   }
 
 
-  @Nullable
-  public static PyPackage findPackage(@NotNull List<PyPackage> packages, @NotNull String name) {
-    for (PyPackage pkg : packages) {
-      if (name.equalsIgnoreCase(pkg.getName())) {
-        return pkg;
-      }
-    }
-    return null;
-  }
-
-  public static boolean hasManagement(@NotNull List<PyPackage> packages) {
-    return (findPackage(packages, SETUPTOOLS) != null || findPackage(packages, DISTRIBUTE) != null) ||
-           findPackage(packages, PIP) != null;
+  public static boolean hasManagement(@NotNull List<? extends PyPackage> packages) {
+    return (PyPsiPackageUtil.findPackage(packages, SETUPTOOLS) != null || PyPsiPackageUtil.findPackage(packages, DISTRIBUTE) != null) ||
+           PyPsiPackageUtil.findPackage(packages, PIP) != null;
   }
 
   @Nullable
   public static List<PyRequirement> getRequirementsFromTxt(@NotNull Module module) {
     final VirtualFile requirementsTxt = findRequirementsTxt(module);
     if (requirementsTxt != null) {
-      return fix(PyRequirement.fromFile(requirementsTxt));
+      return PyRequirementParser.fromFile(requirementsTxt);
     }
     return null;
   }
@@ -449,25 +423,18 @@ public class PyPackageUtil {
     }
 
     final PyFile setupPy = findSetupPy(module);
-    if (setupPy == null) {
-      return;
-    }
+    if (setupPy == null) return;
 
     final PyCallExpression setupCall = findSetupCall(setupPy);
-    final PyListLiteralExpression installRequires = findSetupPyInstallRequires(module, setupCall);
-    final PyElementGenerator generator = PyElementGenerator.getInstance(module.getProject());
+    if (setupCall == null) return;
 
-    if (installRequires != null && installRequires.isWritable()) {
-      final String text = String.format("'%s'", requirementName);
-      final PyExpression generated = generator.createExpressionFromText(languageLevel, text);
-      installRequires.add(generated);
-
-      return;
+    final PsiElement installRequires = findSetupPyInstallRequires(setupCall);
+    if (installRequires != null) {
+      addRequirementToInstallRequires(installRequires, requirementName, languageLevel);
     }
-
-    if (setupCall != null) {
+    else {
       final PyArgumentList argumentList = setupCall.getArgumentList();
-      final PyKeywordArgument requiresArg = generateRequiresKwarg(setupPy, requirementName, languageLevel, generator);
+      final PyKeywordArgument requiresArg = generateRequiresKwarg(setupPy, requirementName, languageLevel);
 
       if (argumentList != null && requiresArg != null) {
         argumentList.addArgument(requiresArg);
@@ -475,14 +442,47 @@ public class PyPackageUtil {
     }
   }
 
+  private static void addRequirementToInstallRequires(@NotNull PsiElement installRequires,
+                                                      @NotNull String requirementName,
+                                                      @NotNull LanguageLevel languageLevel) {
+    final PyElementGenerator generator = PyElementGenerator.getInstance(installRequires.getProject());
+    final PyExpression newRequirement = generator.createExpressionFromText(languageLevel, "'" + requirementName + "'");
+
+    if (installRequires instanceof PyListLiteralExpression) {
+      installRequires.add(newRequirement);
+    }
+    else if (installRequires instanceof PyTupleExpression) {
+      final String newInstallRequiresText = StreamEx
+        .of(((PyTupleExpression)installRequires).getElements())
+        .append(newRequirement)
+        .map(PyExpression::getText)
+        .joining(",", "(", ")");
+
+      final PyExpression expression = generator.createExpressionFromText(languageLevel, newInstallRequiresText);
+
+      Optional
+        .ofNullable(PyUtil.as(expression, PyParenthesizedExpression.class))
+        .map(PyParenthesizedExpression::getContainedExpression)
+        .map(e -> PyUtil.as(e, PyTupleExpression.class))
+        .ifPresent(e -> installRequires.replace(e));
+    }
+    else if (installRequires instanceof PyStringLiteralExpression) {
+      final PyListLiteralExpression newInstallRequires = generator.createListLiteral();
+
+      newInstallRequires.add(installRequires);
+      newInstallRequires.add(newRequirement);
+
+      installRequires.replace(newInstallRequires);
+    }
+  }
+
   @Nullable
   private static PyKeywordArgument generateRequiresKwarg(@NotNull PyFile setupPy,
                                                          @NotNull String requirementName,
-                                                         @NotNull LanguageLevel languageLevel,
-                                                         @NotNull PyElementGenerator generator) {
-    final String keyword = SetupTaskIntrospector.usesSetuptools(setupPy) ? INSTALL_REQUIRES : REQUIRES;
+                                                         @NotNull LanguageLevel languageLevel) {
+    final String keyword = PyPsiUtils.containsImport(setupPy, "setuptools") ? INSTALL_REQUIRES : REQUIRES;
     final String text = String.format("foo(%s=['%s'])", keyword, requirementName);
-    final PyExpression generated = generator.createExpressionFromText(languageLevel, text);
+    final PyExpression generated = PyElementGenerator.getInstance(setupPy.getProject()).createExpressionFromText(languageLevel, text);
 
     if (generated instanceof PyCallExpression) {
       final PyCallExpression callExpression = (PyCallExpression)generated;
@@ -497,5 +497,71 @@ public class PyPackageUtil {
     }
 
     return null;
+  }
+
+  /**
+   * @deprecated Use {@link #runOnChangeUnderInterpreterPaths(Sdk, Disposable, Runnable)} passing a package manager as
+   * the parent disposable.
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @Deprecated
+  public static void runOnChangeUnderInterpreterPaths(@NotNull Sdk sdk, @NotNull Runnable runnable) {
+    Application app = ApplicationManager.getApplication();
+    Disposable parentDisposable = sdk instanceof Disposable ? (Disposable)sdk : app;
+    runOnChangeUnderInterpreterPaths(sdk, parentDisposable, runnable);
+  }
+
+  /**
+   * Execute the given executable on a pooled thread whenever there is a VFS event happening under some of the roots of the SDK.
+   *
+   * @param sdk              SDK those roots need to be watched
+   * @param parentDisposable disposable for the registered event listeners
+   * @param runnable         executable that's going to be executed
+   */
+  public static void runOnChangeUnderInterpreterPaths(@NotNull Sdk sdk,
+                                                      @NotNull Disposable parentDisposable,
+                                                      @NotNull Runnable runnable) {
+    final Application app = ApplicationManager.getApplication();
+    VirtualFileManager.getInstance().addAsyncFileListener(new AsyncFileListener() {
+      @Nullable
+      @Override
+      public ChangeApplier prepareChange(@NotNull List<? extends VFileEvent> events) {
+        final Set<VirtualFile> roots = getPackagingAwareSdkRoots(sdk);
+        if (roots.isEmpty()) return null;
+        allEvents:
+        for (VFileEvent event : events) {
+          if (event instanceof VFileContentChangeEvent || event instanceof VFilePropertyChangeEvent) continue;
+          // In case of create event getFile() returns null as the file hasn't been created yet
+          VirtualFile parent = null;
+          if (event instanceof VFileCreateEvent) {
+            parent = ((VFileCreateEvent)event).getParent();
+          }
+          else {
+            VirtualFile file = event.getFile();
+            if (file != null) parent = file.getParent();
+          }
+
+          if (parent != null && roots.contains(parent)) {
+            InterpreterChangeEvents.LOG.debug("Interpreter change in " + parent + " indicated by " + event +
+                                              " (all events: " + events + ")");
+            app.executeOnPooledThread(runnable);
+            break allEvents;
+          }
+        }
+        // No continuation in write action is needed
+        return null;
+      }
+    }, parentDisposable);
+  }
+
+  @NotNull
+  private static Set<VirtualFile> getPackagingAwareSdkRoots(@NotNull Sdk sdk) {
+    final Set<VirtualFile> result = Sets.newHashSet(sdk.getRootProvider().getFiles(OrderRootType.CLASSES));
+    final String skeletonsPath = PythonSdkType.getSkeletonsPath(PathManager.getSystemPath(), sdk.getHomePath());
+    final VirtualFile skeletonsRoot = LocalFileSystem.getInstance().findFileByPath(skeletonsPath);
+    result.removeIf(vf -> vf.equals(skeletonsRoot) ||
+                          vf.equals(PyUserSkeletonsUtil.getUserSkeletonsDirectory()) ||
+                          PyTypeShed.INSTANCE.isInside(vf));
+    return result;
   }
 }

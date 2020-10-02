@@ -24,6 +24,7 @@ import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonHelper
 import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
@@ -35,13 +36,12 @@ import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
 class PyUnitTestSettingsEditor(configuration: PyAbstractTestConfiguration) :
   PyAbstractTestSettingsEditor(
     PyTestSharedForm.create(configuration,
-                            PyTestSharedForm.CustomOption(PyUnitTestConfiguration::pattern.name, PyRunTargetVariant.PATH)
-    ))
+                            PyTestCustomOption(PyUnitTestConfiguration::pattern, PyRunTargetVariant.PATH)))
 
 class PyUnitTestExecutionEnvironment(configuration: PyUnitTestConfiguration, environment: ExecutionEnvironment) :
   PyTestExecutionEnvironment<PyUnitTestConfiguration>(configuration, environment) {
 
-  override fun getRunner() =
+  override fun getRunner(): PythonHelper =
     // different runner is used for setup.py
     if (configuration.isSetupPyBased()) {
       PythonHelper.SETUPPY
@@ -55,8 +55,8 @@ class PyUnitTestExecutionEnvironment(configuration: PyUnitTestConfiguration, env
 
 class PyUnitTestConfiguration(project: Project, factory: PyUnitTestFactory) :
   PyAbstractTestConfiguration(project, factory,
-                              PythonTestConfigurationsModel.PYTHONS_UNITTEST_NAME) { // Bare functions not supported in unittest: classes only
-  @ConfigField
+                              PythonTestConfigurationsModel.getPythonsUnittestName()) { // Bare functions not supported in unittest: classes only
+  @ConfigField("runcfg.unittest.config.pattern")
   var pattern: String? = null
 
   override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? =
@@ -87,23 +87,25 @@ class PyUnitTestConfiguration(project: Project, factory: PyUnitTestFactory) :
   }
 
   // setup.py runner is not id-based
-  override fun isIdTestBased() = !isSetupPyBased()
+  override fun isIdTestBased(): Boolean = !isSetupPyBased()
 
   override fun checkConfiguration() {
     super.checkConfiguration()
     if (target.targetType == PyRunTargetVariant.PATH && target.target.endsWith(".py") && !pattern.isNullOrEmpty()) {
-      throw RuntimeConfigurationWarning("Pattern can only be used to match files in folder. Can't use pattern for file.")
+      throw RuntimeConfigurationWarning(PyBundle.message("python.testing.pattern.can.only.be.used"))
     }
   }
 
-  override fun isFrameworkInstalled() = true //Unittest is always available
+  override fun isFrameworkInstalled(): Boolean = true //Unittest is always available
 
   // Unittest does not support filesystem path. It needs qname resolvable against root or working directory
   override fun shouldSeparateTargetPath() = false
 }
 
-object PyUnitTestFactory : PyAbstractTestFactory<PyUnitTestConfiguration>() {
-  override fun createTemplateConfiguration(project: Project) = PyUnitTestConfiguration(project, this)
+class PyUnitTestFactory : PyAbstractTestFactory<PyUnitTestConfiguration>() {
+  override fun createTemplateConfiguration(project: Project): PyUnitTestConfiguration = PyUnitTestConfiguration(project, this)
 
-  override fun getName(): String = PythonTestConfigurationsModel.PYTHONS_UNITTEST_NAME
+  override fun getName(): String = PythonTestConfigurationsModel.getPythonsUnittestName()
+
+  override fun getId(): String = "Unittests"
 }

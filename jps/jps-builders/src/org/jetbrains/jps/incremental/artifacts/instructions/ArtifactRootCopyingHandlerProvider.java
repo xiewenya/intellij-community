@@ -31,8 +31,6 @@ import java.io.File;
  * external build system plugins. Implementations must be registered as Java services, by creating a file
  * META-INF/services/org.jetbrains.jps.incremental.artifacts.instructions.ArtifactRootCopyingHandlerProvider containing the qualified name
  * of the implementation class.
- *
- * @author nik
  */
 public abstract class ArtifactRootCopyingHandlerProvider {
 
@@ -57,6 +55,7 @@ public abstract class ArtifactRootCopyingHandlerProvider {
   /**
    * @deprecated override {@link #createCustomHandler(JpsArtifact, File, File, JpsPackagingElement, JpsModel, BuildDataPaths)} instead
    */
+  @Deprecated
   @Nullable
   public FileCopyingHandler createCustomHandler(@NotNull JpsArtifact artifact,
                                                 @NotNull File root,
@@ -69,6 +68,7 @@ public abstract class ArtifactRootCopyingHandlerProvider {
   /**
    * @deprecated override {@link #createCustomHandler(JpsArtifact, File, File, JpsPackagingElement, JpsModel, BuildDataPaths)} instead
    */
+  @Deprecated
   @Nullable
   public FileCopyingHandler createCustomHandler(@NotNull JpsArtifact artifact, @NotNull File root, @NotNull JpsModel model,
                                                 @NotNull BuildDataPaths buildDataPaths) {

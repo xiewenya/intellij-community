@@ -1,11 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.rollback;
 
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.rollback.RollbackProgressListener;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.svn.SvnFileSystemListener;
@@ -18,25 +17,24 @@ import org.jetbrains.idea.svn.properties.PropertyData;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+
+import static org.jetbrains.idea.svn.SvnBundle.message;
 
 public class Reverter {
 
   @NotNull private final SvnVcs myVcs;
   private final ProgressTracker myHandler;
-  private final List<VcsException> myExceptions;
+  private final @NotNull List<? super VcsException> myExceptions;
   private final List<CopiedAsideInfo> myFromToModified;
   private final Map<File, PropertiesMap> myProperties;
 
-  Reverter(@NotNull SvnVcs vcs, @NotNull RollbackProgressListener listener, @NotNull List<VcsException> exceptions) {
+  Reverter(@NotNull SvnVcs vcs, @NotNull RollbackProgressListener listener, @NotNull List<? super VcsException> exceptions) {
     myVcs = vcs;
     myHandler = createRevertHandler(exceptions, listener);
     myExceptions = exceptions;
-    myFromToModified = ContainerUtil.newArrayList();
-    myProperties = ContainerUtil.newHashMap();
+    myFromToModified = new ArrayList<>();
+    myProperties = new HashMap<>();
   }
 
   public void revert(@NotNull Collection<File> files, boolean recursive) {
@@ -94,7 +92,7 @@ public class Reverter {
   }
 
   public void moveGroup() {
-    Collections.sort(myFromToModified, (o1, o2) -> FileUtil.compareFiles(o1.getTo(), o2.getTo()));
+    myFromToModified.sort((o1, o2) -> FileUtil.compareFiles(o1.getTo(), o2.getTo()));
     for (CopiedAsideInfo info : myFromToModified) {
       if (info.getParentImmediateReverted().exists()) {
         // parent successfully renamed/moved
@@ -160,7 +158,7 @@ public class Reverter {
   }
 
   @NotNull
-  private static ProgressTracker createRevertHandler(@NotNull final List<VcsException> exceptions,
+  private static ProgressTracker createRevertHandler(final @NotNull List<? super VcsException> exceptions,
                                                      @NotNull final RollbackProgressListener listener) {
     return new ProgressTracker() {
       @Override
@@ -172,10 +170,11 @@ public class Reverter {
           }
         }
         if (event.getAction() == EventAction.FAILED_REVERT) {
-          exceptions.add(new VcsException("Revert failed"));
+          exceptions.add(new VcsException(message("error.revert.failed")));
         }
       }
 
+      @Override
       public void checkCancelled() throws ProcessCanceledException {
         listener.checkCanceled();
       }
@@ -195,14 +194,6 @@ public class Reverter {
           }
           properties.get(info.getTo()).put(property.getName(), property.getValue());
         }
-      }
-
-      @Override
-      public void handleProperty(Url url, PropertyData property) {
-      }
-
-      @Override
-      public void handleProperty(long revision, PropertyData property) {
       }
     };
   }

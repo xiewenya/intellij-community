@@ -59,6 +59,9 @@ common.attrs.aria.implicit.combobox |=
 	&	aria.prop.readonly?
 	)
 
+common.attrs.aria.implicit.definition |=
+	(	aria.state.expanded? )
+
 common.attrs.aria.implicit.dialog |=
 	(	aria.state.expanded? )
 
@@ -163,6 +166,9 @@ common.attrs.aria.implicit.table |=
 	(	aria.prop.colcount?
 	&	aria.prop.rowcount?
 	)
+
+common.attrs.aria.implicit.term |=
+	(	aria.state.expanded? )
 
 common.attrs.aria.implicit.textbox |=
 	(	aria.prop.activedescendant?
@@ -428,6 +434,11 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 		attribute aria-haspopup
 			{	string "true" #REVISIT check owns or descendant
 			|	string "false" #default
+			|	string "menu"
+			|	string "listbox"
+			|	string "tree"
+			|	string "grid"
+			|	string "dialog"
 			}	
 
 ## keyshortcuts
@@ -658,7 +669,7 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 			attribute role { string "application" }
 
 	common.attrs.aria |= aria.application
-	common.attrs.aria.landmark.application |= aria.application
+	common.attrs.aria.role.application |= aria.application
 
 ## article
 	aria.article =
@@ -782,6 +793,7 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 			attribute role { string "definition" }
 
 	common.attrs.aria |= aria.definition
+	common.attrs.aria.role.definition |= aria.definition
 
 ## dialog
 	aria.dialog =
@@ -1065,7 +1077,11 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 
 ## menuitem
 	aria.menuitem =
-		(	aria.role.menuitem )
+		(	aria.role.menuitem
+		&	aria.state.expanded?
+		&	aria.prop.posinset?
+		&	aria.prop.setsize?
+		)
 		aria.role.menuitem = 
 			attribute role { string "menuitem" }
 	
@@ -1149,6 +1165,7 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 	
 	common.attrs.aria |= aria.presentation
 	common.attrs.aria.role.presentation |= aria.presentation
+	common.attrs.aria.role.presentation |= aria.none
 
 ## progressbar
 	aria.progressbar =
@@ -1402,7 +1419,9 @@ common.attrs.aria.implicit.navigation |= common.attrs.aria.implicit.landmark
 
 ## term
 	aria.term =
-		(	aria.role.term )
+		(	aria.role.term
+		&	aria.state.expanded?
+		)
 		aria.role.term =
 			attribute role { string "term" }
 	common.attrs.aria |= aria.term

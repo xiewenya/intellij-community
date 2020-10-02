@@ -2,6 +2,7 @@
 package com.intellij.refactoring.rename.naming;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.refactoring.rename.RenameProcessor;
@@ -9,7 +10,6 @@ import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.rename.UnresolvableCollisionUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 
 import java.util.*;
@@ -18,7 +18,7 @@ import java.util.*;
  * @author dsl
  */
 public abstract class AutomaticRenamer {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.rename.naming.AutomaticRenamer");
+  private static final Logger LOG = Logger.getInstance(AutomaticRenamer.class);
 
   private final LinkedHashMap<PsiNamedElement, String> myRenames = new LinkedHashMap<>();
   protected final List<PsiNamedElement> myElements;
@@ -58,10 +58,10 @@ public abstract class AutomaticRenamer {
   }
 
   private boolean findUsagesForElement(PsiNamedElement element,
-                                       List<UsageInfo> result,
+                                       List<? super UsageInfo> result,
                                        final boolean searchInStringsAndComments,
                                        final boolean searchInNonJavaFiles,
-                                       List<UnresolvableCollisionUsageInfo> unresolvedUsages,
+                                       List<? super UnresolvableCollisionUsageInfo> unresolvedUsages,
                                        Map<PsiElement, String> allRenames) {
     final String newName = getNewName(element);
     if (newName != null) {
@@ -159,11 +159,12 @@ public abstract class AutomaticRenamer {
     return false;
   }
 
-  @Nls(capitalization = Nls.Capitalization.Title)
+  @NlsContexts.DialogTitle
   public abstract String getDialogTitle();
 
-  @Nls(capitalization = Nls.Capitalization.Sentence)
+  @NlsContexts.Button
   public abstract String getDialogDescription();
 
+  @NlsContexts.ColumnName
   public abstract String entityName();
 }

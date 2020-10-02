@@ -15,6 +15,7 @@
  */
 package org.intellij.plugins.intelliLang.inject.config.ui;
 
+import com.intellij.CommonBundle;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.openapi.actionSystem.*;
@@ -38,6 +39,7 @@ import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.tree.TreeUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
+import org.intellij.plugins.intelliLang.IntelliLangBundle;
 import org.intellij.plugins.intelliLang.inject.config.MethodParameterInjection;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
 import org.jetbrains.annotations.NotNull;
@@ -53,7 +55,6 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Enumeration;
 
 public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameterInjection> {
@@ -79,9 +80,9 @@ public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameter
       final Document document = PsiUtilEx.createDocument(s, project);
       document.addDocumentListener(new DocumentListener() {
         @Override
-        public void documentChanged(final DocumentEvent e) {
+        public void documentChanged(@NotNull final DocumentEvent e) {
           updateParamTree();
-          updateTree();
+          updateInjectionPanelTree();
         }
       });
       return document;
@@ -121,12 +122,16 @@ public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameter
       final Object userObject = ((DefaultMutableTreeNode)o.getLastPathComponent()).getUserObject();
       return userObject instanceof PsiNamedElement? ((PsiNamedElement)userObject).getName() : null;
     });
-    new AnAction("Toggle") {
+    new AnAction(CommonBundle.message("action.text.toggle")) {
       @Override
-      public void actionPerformed(final AnActionEvent e) {
+      public void actionPerformed(@NotNull final AnActionEvent e) {
         performToggleAction();
       }
     }.registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0)), myParamsTable);
+  }
+
+  private void updateInjectionPanelTree() {
+    updateTree();
   }
 
   private void performToggleAction() {
@@ -197,7 +202,7 @@ public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameter
   private void refreshTreeStructure() {
     myRootNode.removeAllChildren();
     final ArrayList<PsiMethod> methods = new ArrayList<>(myData.keySet());
-    Collections.sort(methods, (o1, o2) -> {
+    methods.sort((o1, o2) -> {
       final int names = o1.getName().compareTo(o2.getName());
       if (names != 0) return names;
       return o1.getParameterList().getParametersCount() - o2.getParameterList().getParametersCount();
@@ -274,7 +279,7 @@ public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameter
     myLanguagePanel = new LanguagePanel(myProject, myOrigInjection);
     myRootNode = new DefaultMutableTreeNode(null, true);
     myParamsTable = new MyView(new ListTreeTableModelOnColumns(myRootNode, createColumnInfos()));
-    myAdvancedPanel = new AdvancedPanel(myProject, myOrigInjection);    
+    myAdvancedPanel = new AdvancedPanel(myProject, myOrigInjection);
   }
 
   @Nullable
@@ -359,31 +364,31 @@ public class MethodParameterPanel extends AbstractInjectionPanel<MethodParameter
   private class BrowseClassListener implements ActionListener {
     private final Project myProject;
 
-    public BrowseClassListener(Project project) {
+    BrowseClassListener(Project project) {
       myProject = project;
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
       final TreeClassChooserFactory factory = TreeClassChooserFactory.getInstance(myProject);
-      final TreeClassChooser chooser = factory.createAllProjectScopeChooser("Select Class");
+      final TreeClassChooser chooser = factory.createAllProjectScopeChooser(IntelliLangBundle.message("dialog.title.select.class"));
       chooser.showDialog();
       final PsiClass psiClass = chooser.getSelected();
       if (psiClass != null) {
         setPsiClass(psiClass.getQualifiedName());
         updateParamTree();
-        updateTree();
+        updateInjectionPanelTree();
       }
     }
   }
 
   private static class MyView extends TreeTableView implements TypeSafeDataProvider {
-    public MyView(ListTreeTableModelOnColumns treeTableModel) {
+    MyView(ListTreeTableModelOnColumns treeTableModel) {
       super(treeTableModel);
     }
 
     @Override
-    public void calcData(final DataKey key, final DataSink sink) {
+    public void calcData(@NotNull final DataKey key, @NotNull final DataSink sink) {
       if (CommonDataKeys.PSI_ELEMENT.equals(key)) {
         final Collection selection = getSelection();
         if (!selection.isEmpty()) {

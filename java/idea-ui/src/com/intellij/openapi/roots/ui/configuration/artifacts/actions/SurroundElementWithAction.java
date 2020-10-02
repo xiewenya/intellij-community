@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.roots.ui.configuration.artifacts.actions;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.artifacts.ArtifactEditorEx;
@@ -38,9 +39,6 @@ import java.util.List;
 
 import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
 
-/**
- * @author nik
- */
 public class SurroundElementWithAction extends LayoutTreeActionBase {
   public SurroundElementWithAction(ArtifactEditorEx artifactEditor) {
     super("Surround With...", artifactEditor);
@@ -53,7 +51,7 @@ public class SurroundElementWithAction extends LayoutTreeActionBase {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final LayoutTreeComponent treeComponent = myArtifactEditor.getLayoutTreeComponent();
     final LayoutTreeSelection selection = treeComponent.getSelection();
     final CompositePackagingElement<?> parent = selection.getCommonParentElement();
@@ -71,7 +69,8 @@ public class SurroundElementWithAction extends LayoutTreeActionBase {
       surroundWith(types[0], parent, selected, treeComponent);
     }
     else {
-      JBPopupFactory.getInstance().createListPopup(new BaseListPopupStep<CompositePackagingElementType>("Surround With...", types) {
+      JBPopupFactory.getInstance().createListPopup(new BaseListPopupStep<CompositePackagingElementType>(
+        JavaUiBundle.message("popup.title.surround.with"), types) {
         @Override
         public Icon getIconFor(CompositePackagingElementType aValue) {
           return aValue.getCreateElementIcon();
@@ -91,7 +90,7 @@ public class SurroundElementWithAction extends LayoutTreeActionBase {
     }
   }
 
-  private void surroundWith(final CompositePackagingElementType<?> type, final CompositePackagingElement<?> parent, final List<PackagingElement<?>> selected,
+  private void surroundWith(final CompositePackagingElementType<?> type, final CompositePackagingElement<?> parent, final List<? extends PackagingElement<?>> selected,
                             LayoutTreeComponent treeComponent) {
     if (myArtifactEditor.isDisposed() || selected.isEmpty()) return;
 

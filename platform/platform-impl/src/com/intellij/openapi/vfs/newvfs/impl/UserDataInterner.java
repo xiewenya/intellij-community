@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.newvfs.impl;
 
 import com.intellij.reference.SoftReference;
@@ -26,14 +12,15 @@ import java.util.Map;
 /**
  * @author peter
  */
-class UserDataInterner {
-  private static final LinkedHashMap<MapReference, MapReference> ourCache = new LinkedHashMap<MapReference, MapReference>(20, true) {
+final class UserDataInterner {
+  private static final Map<MapReference, MapReference> ourCache = new LinkedHashMap<MapReference, MapReference>(20, true) {
     @Override
     protected boolean removeEldestEntry(Map.Entry<MapReference, MapReference> eldest) {
       return size() > 15;
     }
   };
-  
+
+  @NotNull
   static KeyFMap internUserData(@NotNull KeyFMap map) {
     if (shouldIntern(map)) {
       MapReference key = new MapReference(map);
@@ -43,7 +30,6 @@ class UserDataInterner {
 
         ourCache.put(key, key);
       }
-      return map;
     }
     return map;
   }
@@ -53,10 +39,10 @@ class UserDataInterner {
   }
 }
 
-class MapReference extends WeakReference<KeyFMap> {
-  final int myHash;
+final class MapReference extends WeakReference<KeyFMap> {
+  private final int myHash;
 
-  MapReference(KeyFMap referent) {
+  MapReference(@NotNull KeyFMap referent) {
     super(referent);
     myHash = referent.getValueIdentityHashCode();
   }

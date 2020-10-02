@@ -1,13 +1,14 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification;
 
 import com.intellij.ide.DataManager;
+import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.ui.popup.JBPopupAdapter;
+import com.intellij.openapi.ui.popup.JBPopupListener;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
@@ -23,6 +24,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.intellij.openapi.util.NlsContexts.*;
+
 /**
  * Notification bean class contains <b>title:</b>subtitle, content (plain text or HTML) and actions.
  * <br><br>
@@ -33,25 +36,41 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <br><br>
  * Warning: be careful not to use the links in HTML content, use {@link #addAction(AnAction)}
  *
+ * @see NotificationAction
+ * @see com.intellij.notification.SingletonNotificationManager
+ *
  * @author spleaner
  * @author Alexander Lobas
  */
 public class Notification {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.notification.Notification");
+  /**
+   * Which actions to keep and which to show under the "Actions" dropdown link if actions do not fit horizontally
+   * into the width of the notification.
+   */
+  public enum CollapseActionsDirection { KEEP_LEFTMOST, KEEP_RIGHTMOST }
+
+  private static final Logger LOG = Logger.getInstance(Notification.class);
   private static final DataKey<Notification> KEY = DataKey.create("Notification");
 
   public final String id;
+
+  /**
+   * Unique ID for usage statistics.
+   */
+  @Nullable
+  public final String displayId;
 
   private final String myGroupId;
   private Icon myIcon;
   private final NotificationType myType;
 
-  private String myTitle;
-  private String mySubtitle;
-  private String myContent;
+  private @NotificationTitle String myTitle;
+  private @NotificationSubtitle String mySubtitle;
+  private @NotificationContent String myContent;
   private NotificationListener myListener;
-  private String myDropDownText;
+  private @LinkLabel String myDropDownText;
   private List<AnAction> myActions;
+  private CollapseActionsDirection myCollapseActionsDirection = CollapseActionsDirection.KEEP_RIGHTMOST;
   private AnAction myContextHelpAction;
 
   private final AtomicBoolean myExpired = new AtomicBoolean(false);
@@ -60,13 +79,12 @@ public class Notification {
   private WeakReference<Balloon> myBalloonRef;
   private final long myTimestamp;
 
-  public Notification(@NotNull String groupDisplayId, @Nullable Icon icon, @NotNull NotificationType type) {
-    this(groupDisplayId, icon, null, null, null, type, null);
+  public Notification(@NotNull String groupId, @Nullable Icon icon, @NotNull NotificationType type) {
+    this(groupId, icon, null, null, null, type, null);
   }
 
   /**
-   * @param groupDisplayId this should be a human-readable, capitalized string like "Facet Detector".
-   *                       It will appear in "Notifications" configurable.
+   * @param groupId        notification group id
    * @param icon           notification icon, if <b>null</b> used icon from type
    * @param title          notification title
    * @param subtitle       notification subtitle
@@ -74,50 +92,75 @@ public class Notification {
    * @param type           notification type
    * @param listener       notification lifecycle listener
    */
-  public Notification(@NotNull String groupDisplayId,
+  public Notification(@NotNull @NonNls String groupId,
                       @Nullable Icon icon,
-                      @Nullable String title,
-                      @Nullable String subtitle,
-                      @Nullable String content,
+                      @Nullable @NotificationTitle String title,
+                      @Nullable @NotificationSubtitle String subtitle,
+                      @Nullable @NotificationContent String content,
                       @NotNull NotificationType type,
                       @Nullable NotificationListener listener) {
-    myGroupId = groupDisplayId;
-    myTitle = StringUtil.notNullize(title);
-    myContent = StringUtil.notNullize(content);
-    myType = type;
-    myListener = listener;
-    myTimestamp = System.currentTimeMillis();
-
-    myIcon = icon;
-    mySubtitle = subtitle;
-
-    id = calculateId(this);
+    this(groupId, icon, title, subtitle, content, type, listener, null, null, null, null, null, null);
   }
 
-  public Notification(@NotNull String groupDisplayId, @NotNull String title, @NotNull String content, @NotNull NotificationType type) {
-    this(groupDisplayId, title, content, type, null);
+  public Notification(@NotNull @NonNls String groupId,
+                      @NotNull @NotificationTitle String title,
+                      @NotNull @NotificationContent String content,
+                      @NotNull NotificationType type) {
+    this(groupId, null, title, content, type, null);
   }
 
   /**
-   * @param groupDisplayId this should be a human-readable, capitalized string like "Facet Detector".
-   *                       It will appear in "Notifications" configurable.
+   * @param groupId        notification group id
    * @param title          notification title
    * @param content        notification content
    * @param type           notification type
    * @param listener       notification lifecycle listener
    */
-  public Notification(@NotNull String groupDisplayId,
-                      @NotNull String title,
-                      @NotNull String content,
+  public Notification(@NotNull @NonNls String groupId,
+                      @NotNull @NotificationTitle String title,
+                      @NotNull @NotificationContent String content,
                       @NotNull NotificationType type,
                       @Nullable NotificationListener listener) {
-    myGroupId = groupDisplayId;
-    myTitle = title;
-    myContent = content;
+    this(groupId, null, title, content, type, listener);
+  }
+
+  public Notification(@NotNull @NonNls String groupId,
+                      @Nullable @NonNls String displayId,
+                      @NotNull @NotificationTitle String title,
+                      @NotNull @NotificationContent String content,
+                      @NotNull NotificationType type,
+                      @Nullable NotificationListener listener) {
+    this(groupId, null, title, null, content, type, listener, displayId, null, null, null, null, null);
+  }
+
+  Notification(@NotNull @NonNls String groupId,
+               @Nullable Icon icon,
+               @Nullable @NotificationTitle String title,
+               @Nullable @NotificationSubtitle String subtitle,
+               @Nullable @NotificationContent String content,
+               @NotNull NotificationType type,
+               @Nullable NotificationListener listener,
+               @Nullable @NonNls String notificationId,
+               @Nullable @LinkLabel String dropDownText,
+               @Nullable List<AnAction> actions,
+               @Nullable AnAction contextHelpAction,
+               @Nullable Runnable whenExpired,
+               @Nullable Boolean important) {
+    myGroupId = groupId;
+    myIcon = icon;
+    myTitle = StringUtil.notNullize(title);
+    mySubtitle = subtitle;
+    myContent = StringUtil.notNullize(content);
     myType = type;
     myListener = listener;
-    myTimestamp = System.currentTimeMillis();
+    displayId = notificationId;
+    myDropDownText = dropDownText;
+    myActions = actions;
+    myContextHelpAction = contextHelpAction;
+    myWhenExpired = whenExpired;
+    myImportant = important;
 
+    myTimestamp = System.currentTimeMillis();
     id = calculateId(this);
   }
 
@@ -149,28 +192,30 @@ public class Notification {
   }
 
   @NotNull
-  public String getTitle() {
+  public @NotificationTitle String getTitle() {
     return myTitle;
   }
 
   @NotNull
-  public Notification setTitle(@Nullable String title) {
+  public Notification setTitle(@Nullable @NotificationTitle String title) {
     myTitle = StringUtil.notNullize(title);
     return this;
   }
 
   @NotNull
-  public Notification setTitle(@Nullable String title, @Nullable String subtitle) {
+  public Notification setTitle(@Nullable @NotificationTitle String title,
+                               @Nullable @NotificationSubtitle String subtitle) {
     return setTitle(title).setSubtitle(subtitle);
   }
 
   @Nullable
+  @NotificationTitle
   public String getSubtitle() {
     return mySubtitle;
   }
 
   @NotNull
-  public Notification setSubtitle(@Nullable String subtitle) {
+  public Notification setSubtitle(@Nullable @NotificationTitle String subtitle) {
     mySubtitle = subtitle;
     return this;
   }
@@ -180,12 +225,12 @@ public class Notification {
   }
 
   @NotNull
-  public String getContent() {
+  public @NotificationContent String getContent() {
     return myContent;
   }
 
   @NotNull
-  public Notification setContent(@Nullable String content) {
+  public Notification setContent(@NotificationContent @Nullable String content) {
     myContent = StringUtil.notNullize(content);
     return this;
   }
@@ -217,35 +262,25 @@ public class Notification {
   }
 
   public static void fire(@NotNull final Notification notification, @NotNull AnAction action, @Nullable DataContext context) {
-    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, ActionPlaces.UNKNOWN, new DataContext() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        if (KEY.is(dataId)) {
-          return notification;
-        }
-        return context == null ? null : context.getData(dataId);
+    AnActionEvent event = AnActionEvent.createFromAnAction(action, null, ActionPlaces.NOTIFICATION, dataId -> {
+      if (KEY.is(dataId)) {
+        return notification;
       }
+      return context == null ? null : context.getData(dataId);
     });
     if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
-      ActionUtil.performActionDumbAware(action, event);
+      ActionUtil.performActionDumbAwareWithCallbacks(action, event, event.getDataContext());
     }
   }
 
   public static void setDataProvider(@NotNull Notification notification, @NotNull JComponent component) {
-    DataManager.registerDataProvider(component, new DataProvider() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        return KEY.getName().equals(dataId) ? notification : null;
-      }
-    });
+    DataManager.registerDataProvider(component, dataId -> KEY.getName().equals(dataId) ? notification : null);
   }
 
   @NotNull
-  public String getDropDownText() {
+  public @LinkLabel String getDropDownText() {
     if (myDropDownText == null) {
-      myDropDownText = "Actions";
+      myDropDownText = IdeBundle.message("link.label.actions");
     }
     return myDropDownText;
   }
@@ -254,18 +289,35 @@ public class Notification {
    * @param dropDownText text for popup when all actions collapsed (when all actions width more notification width)
    */
   @NotNull
-  public Notification setDropDownText(@NotNull String dropDownText) {
+  public Notification setDropDownText(@NotNull @LinkLabel String dropDownText) {
     myDropDownText = dropDownText;
     return this;
   }
 
-  @NotNull
-  public Notification addAction(@NotNull AnAction action) {
+  public CollapseActionsDirection getCollapseActionsDirection() {
+    return myCollapseActionsDirection;
+  }
+
+  public void setCollapseActionsDirection(CollapseActionsDirection collapseActionsDirection) {
+    myCollapseActionsDirection = collapseActionsDirection;
+  }
+
+  /**
+   * @see NotificationAction
+   */
+  public @NotNull Notification addAction(@NotNull AnAction action) {
     if (myActions == null) {
       myActions = new ArrayList<>();
     }
     myActions.add(action);
     return this;
+  }
+
+  public final void addActions(@NotNull List<? extends AnAction> actions) {
+    if (myActions == null) {
+      myActions = new ArrayList<>();
+    }
+    myActions.addAll(actions);
   }
 
   public Notification setContextHelpAction(AnAction action) {
@@ -289,7 +341,7 @@ public class Notification {
   public void expire() {
     if (!myExpired.compareAndSet(false, true)) return;
 
-    UIUtil.invokeLaterIfNeeded(() -> hideBalloon());
+    UIUtil.invokeLaterIfNeeded(this::hideBalloon);
     NotificationsManager.getNotificationsManager().expire(this);
 
     Runnable whenExpired = myWhenExpired;
@@ -314,9 +366,9 @@ public class Notification {
   public void setBalloon(@NotNull final Balloon balloon) {
     hideBalloon();
     myBalloonRef = new WeakReference<>(balloon);
-    balloon.addListener(new JBPopupAdapter() {
+    balloon.addListener(new JBPopupListener() {
       @Override
-      public void onClosed(LightweightWindowEvent event) {
+      public void onClosed(@NotNull LightweightWindowEvent event) {
         if (SoftReference.dereference(myBalloonRef) == balloon) {
           myBalloonRef = null;
         }
@@ -348,10 +400,16 @@ public class Notification {
 
   @NotNull
   private static String calculateId(@NotNull Object notification) {
-    return String.valueOf(System.currentTimeMillis()) + "." + String.valueOf(System.identityHashCode(notification));
+    return System.currentTimeMillis() + "." + System.identityHashCode(notification);
   }
 
   public final void assertHasTitleOrContent() {
     LOG.assertTrue(hasTitle() || hasContent(), "Notification should have title and/or content; groupId: " + myGroupId);
+  }
+
+  @Override
+  public String toString() {
+    return String.format("Notification{id='%s', myGroupId='%s', myType=%s, myTitle='%s', mySubtitle='%s', myContent='%s'}",
+                         id, myGroupId, myType, myTitle, mySubtitle, myContent);
   }
 }

@@ -1,8 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.lang.jvm.JvmPackage;
 import com.intellij.navigation.NavigationItem;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.search.GlobalSearchScope;
 import org.jetbrains.annotations.NotNull;
@@ -11,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Represents a Java package.
  */
-public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, PsiModifierListOwner,
+public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, PsiJvmModifiersOwner,
                                     PsiDirectoryContainer, PsiQualifiedNamedElement, JvmPackage {
 
   String PACKAGE_INFO_CLASS = "package-info";
@@ -27,6 +28,7 @@ public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, Psi
    */
   @Override
   @NotNull
+  @NlsSafe
   String getQualifiedName();
 
   /**
@@ -43,8 +45,7 @@ public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, Psi
    *
    * @return the array of subpackages.
    */
-  @NotNull
-  PsiPackage[] getSubPackages();
+  PsiPackage @NotNull [] getSubPackages();
 
   /**
    * Returns the list of subpackages of this package in the specified search scope.
@@ -52,16 +53,14 @@ public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, Psi
    * @param scope the scope in which packages are searched.
    * @return the array of subpackages.
    */
-  @NotNull
-  PsiPackage[] getSubPackages(@NotNull GlobalSearchScope scope);
+  PsiPackage @NotNull [] getSubPackages(@NotNull GlobalSearchScope scope);
 
   /**
    * Returns the list of classes in all directories corresponding to the package.
    *
    * @return the array of classes.
    */
-  @NotNull
-  PsiClass[] getClasses();
+  PsiClass @NotNull [] getClasses();
 
   /**
    * Returns the list of classes in directories corresponding to the package in the specified
@@ -70,24 +69,19 @@ public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, Psi
    * @param scope the scope in which directories are searched.
    * @return the array of classes.
    */
-  @NotNull
-  PsiClass[] getClasses(@NotNull GlobalSearchScope scope);
+  PsiClass @NotNull [] getClasses(@NotNull GlobalSearchScope scope);
 
   /**
    * Returns the list of all files in the package, restricted by the specified scope. (This is
    * normally the list of all files in all directories corresponding to the package, but it can
    * be modified by custom language plugins which have a different notion of packages.)
-   *
-   * @since 14.1
    */
-  @NotNull
-  PsiFile[] getFiles(@NotNull GlobalSearchScope scope);
+  PsiFile @NotNull [] getFiles(@NotNull GlobalSearchScope scope);
 
   /**
    * Returns the list of package-level annotations for the package.
    *
    * @return the list of annotations, or null if the package does not have any package-level annotations.
-   * @since 5.1
    */
   @Nullable
   PsiModifierList getAnnotationList();
@@ -105,15 +99,13 @@ public interface PsiPackage extends PsiCheckedRenameElement, NavigationItem, Psi
    *
    * @return the array of virtual files for the source roots.
    */
-  @NotNull
-  VirtualFile[] occursInPackagePrefixes();
+  VirtualFile @NotNull [] occursInPackagePrefixes();
 
   @Override
-  @Nullable("default package")
+  @Nullable("default package") @NlsSafe
   String getName();
 
   boolean containsClassNamed(@NotNull String name);
 
-  @NotNull
-  PsiClass[] findClassByShortName(@NotNull String name, @NotNull GlobalSearchScope scope);
+  PsiClass @NotNull [] findClassByShortName(@NotNull String name, @NotNull GlobalSearchScope scope);
 }

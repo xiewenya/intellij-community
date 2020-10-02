@@ -1,37 +1,24 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.update
 
 import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vcs.Executor.cd
 import com.intellij.openapi.vcs.update.UpdatedFiles
-import git4idea.config.UpdateMethod
+import com.intellij.vcs.log.impl.HashImpl
+import git4idea.config.UpdateMethod.REBASE
 import git4idea.repo.GitRepository
 import git4idea.test.*
-import java.io.File
+import java.nio.file.Path
 
 class GitSingleRepoUpdateTest : GitUpdateBaseTest() {
-
   private lateinit var repo: GitRepository
-  private lateinit var broRepo : File
+  private lateinit var broRepo : Path
 
   override fun setUp() {
     super.setUp()
 
-    repo = createRepository(project, projectPath, true)
+    repo = createRepository(project, projectNioRoot, true)
     cd(projectPath)
 
     val parent = prepareRemoteRepo(repo)
@@ -43,7 +30,7 @@ class GitSingleRepoUpdateTest : GitUpdateBaseTest() {
   override fun getDebugLogCategories() = super.getDebugLogCategories().plus("#git4idea.update")
 
   fun `test stash is called for rebase if there are local changes and local commits`() {
-    broRepo.commitAndPush()
+    commitAndPush(broRepo)
     tac("a.txt")
     val localFile = file("a.txt").append("content").add().file
     updateChangeListManager()
@@ -61,7 +48,7 @@ class GitSingleRepoUpdateTest : GitUpdateBaseTest() {
 
   // "Fast-forward merge" optimization
   fun `test stash is not called for rebase if there are local changes, but no local commits`() {
-    broRepo.commitAndPush()
+    commitAndPush(broRepo)
     val localFile = file("a.txt").append("content").add().file
     updateChangeListManager()
 
@@ -78,7 +65,7 @@ class GitSingleRepoUpdateTest : GitUpdateBaseTest() {
 
   // IDEA-167688
   fun `test stash is not called for rebase if there are no local changes`() {
-    broRepo.commitAndPush()
+    commitAndPush(broRepo)
 
     var stashCalled = false
     git.stashListener = {
@@ -89,16 +76,99 @@ class GitSingleRepoUpdateTest : GitUpdateBaseTest() {
     assertFalse("Stash shouldn't be called for clean working tree", stashCalled)
   }
 
-  private fun updateWithRebase(): GitUpdateResult {
-    return GitUpdateProcess(project, EmptyProgressIndicator(), listOf(repo), UpdatedFiles.create(), false, true).update(UpdateMethod.REBASE)
+  // IDEA-76760
+  fun `test stash is called for rebase in case of AD changes`() {
+    commitAndPush(broRepo)
+
+    var stashCalled = false
+    git.stashListener = {
+      stashCalled = true
+    }
+
+    cd(repo)
+    val file = file("a.txt").create().add().delete().file
+    updateChangeListManager()
+
+    val result = updateWithRebase()
+    assertSuccessfulUpdate(result)
+    assertTrue("Stash should be called for clean working tree", stashCalled)
+    repo.assertStatus(file, 'A')
   }
 
-  private fun File.commitAndPush() {
-    cd(this)
-    tac("f.txt")
+  fun `test update range if only incoming commits`() {
+    cd(broRepo)
+    val before = last().asHash()
+    commitSomethingToBroRepo()
+    commitSomethingToBroRepo()
+    val after = last().asHash()
+    git("push -u origin master")
+
+    val updateProcess = updateProcess()
+    updateProcess.update(REBASE)
+
+    val range = updateProcess.updatedRanges!![repo]!!
+    assertEquals("Updated range is incorrect", HashRange(before, after), range)
+  }
+
+  fun `test update range if tracked branch has been fetched before update`() {
+    cd(broRepo)
+    val before = last().asHash()
+    commitSomethingToBroRepo()
+    git("push -u origin master")
+
+    cd(repo)
+    git("fetch")
+
+    cd(broRepo)
+    commitSomethingToBroRepo()
+    val after = last().asHash()
+    git("push -u origin master")
+
+    val updateProcess = updateProcess()
+    updateProcess.update(REBASE)
+
+    val range = updateProcess.updatedRanges!![repo]!!
+    assertEquals("Updated range is incorrect", HashRange(before, after), range)
+  }
+
+  fun `test update range if there are unpushed commits`() {
+    cd(broRepo)
+    val before = last().asHash()
+    commitSomethingToBroRepo()
+    commitSomethingToBroRepo()
+    val after = last().asHash()
+    git("push -u origin master")
+
+    cd(repo)
+    file("local.txt").append("initial content\n").addCommit("created local.txt")
+
+    val updateProcess = updateProcess()
+    updateProcess.update(REBASE)
+
+    val range = updateProcess.updatedRanges!![repo]!!
+    assertEquals("Updated range is incorrect", HashRange(before, after), range)
+  }
+
+  private fun updateWithRebase() = updateProcess().update(REBASE)
+
+  private fun updateProcess() = GitUpdateProcess(project, EmptyProgressIndicator(), listOf(repo), UpdatedFiles.create(), null, false, true)
+
+  private fun commitAndPush(path: Path) {
+    cd(path)
+    commitSomethingToBroRepo()
     git("push -u origin master")
     cd(repo)
   }
+
+  private fun commitSomethingToBroRepo() {
+    cd(broRepo)
+    val file = broRepo.resolve("bro.txt")
+    val content = "content-${Math.random()}\n"
+    FileUtil.writeToFile(file.toFile(), content.toByteArray(), true)
+    addCommit("modified bro.txt")
+  }
+
+  private fun String.asHash() = HashImpl.build(this)
 
   private fun assertSuccessfulUpdate(result: GitUpdateResult) {
     assertEquals("Incorrect update result", GitUpdateResult.SUCCESS, result)

@@ -28,7 +28,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiSuperExpressionImpl extends ExpressionPsiElement implements PsiSuperExpression, Constants {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiSuperExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiSuperExpressionImpl.class);
 
   public PsiSuperExpressionImpl() {
     super(SUPER_EXPRESSION);
@@ -149,6 +149,7 @@ public class PsiSuperExpressionImpl extends ExpressionPsiElement implements PsiS
     }
   }
 
+  @Override
   public String toString() {
     return "PsiSuperExpression:" + getText();
   }

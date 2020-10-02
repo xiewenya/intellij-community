@@ -1,9 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations
 
 import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.util.SmartList
@@ -18,8 +17,6 @@ import java.util.regex.Pattern
 /**
  * The information about a single log file displayed in the console when the configuration
  * is run.
- *
- * @since 5.1
  */
 @Tag("log_file")
 class LogFileOptions : BaseState {
@@ -45,10 +42,12 @@ class LogFileOptions : BaseState {
   }
 
   @get:Attribute("alias")
-  var name by string()
+  @get:NlsSafe
+  var name: String? by string()
 
   @get:Attribute(value = "path", converter = PathConverter::class)
-  var pathPattern by string()
+  @get:NlsSafe
+  var pathPattern: String? by string()
 
   @get:Attribute("checked")
   var isEnabled by property(true)
@@ -125,13 +124,9 @@ class LogFileOptions : BaseState {
 }
 
 private class PathConverter : Converter<String>() {
-  override fun fromString(value: String): String? {
-    return FileUtilRt.toSystemDependentName(value)
-  }
+  override fun fromString(value: String) = FileUtilRt.toSystemDependentName(value)
 
-  override fun toString(value: String): String {
-    return FileUtilRt.toSystemIndependentName(value)
-  }
+  override fun toString(value: String) = FileUtilRt.toSystemIndependentName(value)
 }
 
 private class CharsetConverter : Converter<Charset>() {
@@ -142,10 +137,7 @@ private class CharsetConverter : Converter<Charset>() {
     catch (ignored: Exception) {
       Charset.defaultCharset()
     }
-
   }
 
-  override fun toString(value: Charset): String {
-    return value.name()
-  }
+  override fun toString(value: Charset) = value.name()
 }

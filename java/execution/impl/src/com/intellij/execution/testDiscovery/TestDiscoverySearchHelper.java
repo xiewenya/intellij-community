@@ -1,11 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testDiscovery;
 
 import com.intellij.codeInsight.TestFrameworks;
-import com.intellij.codeInsight.actions.FormatChangedTextUtil;
+import com.intellij.codeInsight.actions.VcsFacade;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -17,13 +18,13 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
 import java.util.*;
 
-public class TestDiscoverySearchHelper {
+public final class TestDiscoverySearchHelper {
   public static Set<String> search(final Project project,
                                    final Pair<String, String> position,
                                    final String changeList,
@@ -43,7 +44,7 @@ public class TestDiscoverySearchHelper {
             final PsiClass[] classes = ((PsiClassOwner)psiFile).getClasses();
             if (classes.length == 0 || TestFrameworks.detectFramework(classes[0]) == null) return;
           }
-          final List<TextRange> changedTextRanges = FormatChangedTextUtil.getInstance().getChangedTextRanges(project, psiFile);
+          final List<TextRange> changedTextRanges = VcsFacade.getInstance().getChangedTextRanges(project, psiFile);
           for (TextRange textRange : changedTextRanges) {
             final PsiElement start = psiFile.findElementAt(textRange.getStartOffset());
             final PsiElement end = psiFile.findElementAt(textRange.getEndOffset());
@@ -80,11 +81,15 @@ public class TestDiscoverySearchHelper {
   }
 
   private static void collectPatterns(@NotNull Project project,
-                                      @NotNull Set<String> patterns,
+                                      @NotNull Set<? super String> patterns,
                                       @NotNull String classFQName,
                                       @NotNull String methodName,
                                       byte frameworkId) {
-    TestDiscoveryProducer.consumeDiscoveredTests(project, classFQName, methodName, frameworkId, (c, m) -> patterns.add(c + "," + m));
+    List<Couple<String>> classesAndMethods = new SmartList<>(Couple.of(classFQName, methodName));
+    TestDiscoveryProducer.consumeDiscoveredTests(project, classesAndMethods, frameworkId, Collections.emptyList(), (c, m, p) -> {
+      patterns.add(c + "," + m);
+      return true;
+    });
   }
 
   @NotNull

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2020 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,40 +16,35 @@
 package com.siyeh.ig.psiutils;
 
 import com.intellij.codeInspection.concurrencyAnnotations.JCiPUtil;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.light.LightElement;
+import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.searches.DirectClassInheritorsSearch;
 import com.intellij.psi.search.searches.MethodReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.Query;
+import com.intellij.util.containers.ContainerUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class ClassUtils {
+public final class ClassUtils {
 
-  /**
-   * @noinspection StaticCollection
-   */
   private static final Set<String> immutableTypes = new HashSet<>(19);
 
-  /**
-   * @noinspection StaticCollection
-   */
   private static final Set<PsiType> primitiveNumericTypes = new HashSet<>(7);
 
-  /**
-   * @noinspection StaticCollection
-   */
   private static final Set<PsiType> integralTypes = new HashSet<>(5);
 
   static {
@@ -116,8 +111,26 @@ public class ClassUtils {
     return integralTypes.contains(type);
   }
 
+  /**
+   * Checks whether given type represents a known immutable value (which visible state cannot be changed).
+   * This call is equivalent to {@code isImmutable(type, true)}.
+   * @param type type to check
+   * @return true if type is known to be immutable; false otherwise
+   */
   @Contract("null -> false")
   public static boolean isImmutable(@Nullable PsiType type) {
+    return isImmutable(type, true);
+  }
+
+  /**
+   * Checks whether given type represents a known immutable value (which visible state cannot be changed).
+   *
+   * @param type type to check
+   * @param checkDocComment if true JavaDoc comment will be checked for {@code @Immutable} tag (which may cause AST loading).
+   * @return true if type is known to be immutable; false otherwise
+   */
+  @Contract("null,_ -> false")
+  public static boolean isImmutable(@Nullable PsiType type, boolean checkDocComment) {
     if (TypeConversionUtil.isPrimitiveAndNotNull(type)) {
       return true;
     }
@@ -125,15 +138,20 @@ public class ClassUtils {
     if (aClass == null) {
       return false;
     }
-    String qualifiedName = aClass.getQualifiedName();
-    if (immutableTypes.contains(qualifiedName) || (qualifiedName != null && qualifiedName.startsWith("com.google.common.collect.Immutable"))) {
-      return true;
-    }
-    return JCiPUtil.isImmutable(aClass);
+    if (isImmutableClass(aClass)) return true;
+    return JCiPUtil.isImmutable(aClass, checkDocComment);
   }
 
-  public static boolean inSamePackage(@Nullable PsiElement element1,
-                                      @Nullable PsiElement element2) {
+  public static boolean isImmutableClass(@NotNull PsiClass aClass) {
+    if (aClass.isRecord()) {
+      return true;
+    }
+    final String qualifiedName = aClass.getQualifiedName();
+    return qualifiedName != null &&
+           (immutableTypes.contains(qualifiedName) || qualifiedName.startsWith("com.google.common.collect.Immutable"));
+  }
+
+  public static boolean inSamePackage(@Nullable PsiElement element1, @Nullable PsiElement element2) {
     if (element1 == null || element2 == null) {
       return false;
     }
@@ -152,6 +170,12 @@ public class ClassUtils {
       (PsiClassOwner)containingFile2;
     final String packageName2 = containingJavaFile2.getPackageName();
     return packageName1.equals(packageName2);
+  }
+
+  @Contract("_, null -> false")
+  public static boolean isInsideClassBody(@NotNull PsiElement element, @Nullable PsiClass outerClass) {
+    final PsiElement brace = outerClass != null ? outerClass.getLBrace() : null;
+    return brace != null && brace.getTextOffset() < element.getTextOffset();
   }
 
   public static boolean isFieldVisible(@NotNull PsiField field, PsiClass fromClass) {
@@ -184,7 +208,16 @@ public class ClassUtils {
 
   @Nullable
   public static PsiClass getContainingClass(PsiElement element) {
-    return PsiTreeUtil.getParentOfType(element, PsiClass.class);
+    PsiClass currentClass;
+    while (true) {
+      currentClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+      if (currentClass instanceof PsiAnonymousClass &&
+          PsiTreeUtil.isAncestor(((PsiAnonymousClass)currentClass).getArgumentList(), element, true)) {
+        element = currentClass;
+      } else {
+        return currentClass;
+      }
+    }
   }
 
   public static PsiClass getOutermostContainingClass(PsiClass aClass) {
@@ -311,10 +344,18 @@ public class ClassUtils {
   }
 
   private static PsiField getIfOneStaticSelfInstance(PsiClass aClass) {
-    final Stream<PsiField> fieldStream = Stream.concat(Arrays.stream(aClass.getFields()),
-                                                       Arrays.stream(aClass.getInnerClasses())
-                                                         .filter(innerClass -> innerClass.hasModifierProperty(PsiModifier.STATIC))
-                                                         .flatMap(innerClass -> Arrays.stream(innerClass.getFields())));
+    Stream<PsiField> fieldStream = Arrays.stream(aClass.getFields());
+
+    StreamEx<PsiField> enclosingClassFields =
+      StreamEx.iterate(aClass.getContainingClass(), Objects::nonNull, c -> c.getContainingClass()).filter(Objects::nonNull)
+              .flatMap(c -> Stream.of(c.getFields()));
+    fieldStream = Stream.concat(fieldStream, enclosingClassFields);
+
+    fieldStream = Stream.concat(fieldStream,
+                                Arrays.stream(aClass.getInnerClasses())
+                                      .filter(innerClass -> innerClass.hasModifierProperty(PsiModifier.STATIC))
+                                      .flatMap(innerClass -> Arrays.stream(innerClass.getFields())));
+
     final List<PsiField> fields = fieldStream.filter(field -> resolveToSingletonField(aClass, field)).limit(2).collect(Collectors.toList());
     return fields.size() == 1 ? fields.get(0) : null;
   }
@@ -324,11 +365,12 @@ public class ClassUtils {
       return false;
     }
     final PsiClass targetClass = PsiUtil.resolveClassInClassTypeOnly(field.getType());
-    return aClass.equals(targetClass);
+    PsiElement toCmp1 = aClass.isPhysical() ? aClass : aClass.getNavigationElement();
+    PsiElement toCmp2 = targetClass == null || targetClass.isPhysical() ? targetClass : targetClass.getNavigationElement();
+    return Objects.equals(toCmp1, toCmp2);
   }
 
-  @NotNull
-  private static PsiMethod[] getIfOnlyInvisibleConstructors(PsiClass aClass) {
+  private static PsiMethod @NotNull [] getIfOnlyInvisibleConstructors(PsiClass aClass) {
     final PsiMethod[] constructors = aClass.getConstructors();
     if (constructors.length == 0) {
       return PsiMethod.EMPTY_ARRAY;
@@ -346,6 +388,7 @@ public class ClassUtils {
   }
 
   private static boolean newOnlyAssignsToStaticSelfInstance(PsiMethod method, final PsiField field) {
+    if (field instanceof LightElement) return true;
     final Query<PsiReference> search = MethodReferencesSearch.search(method, field.getUseScope(), false);
     final NewOnlyAssignedToFieldProcessor processor = new NewOnlyAssignedToFieldProcessor(field);
     search.forEach(processor);
@@ -357,7 +400,7 @@ public class ClassUtils {
     private boolean newOnlyAssignedToField = true;
     private final PsiField field;
 
-    public NewOnlyAssignedToFieldProcessor(PsiField field) {
+    NewOnlyAssignedToFieldProcessor(PsiField field) {
       this.field = field;
     }
 

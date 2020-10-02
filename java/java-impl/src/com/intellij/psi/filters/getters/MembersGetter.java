@@ -23,6 +23,7 @@ import com.intellij.codeInsight.completion.StaticMemberProcessor;
 import com.intellij.codeInsight.lookup.AutoCompletionPolicy;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
 import com.intellij.psi.filters.TrueFilter;
@@ -33,7 +34,6 @@ import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Consumer;
-import com.intellij.util.PairConsumer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,7 +52,7 @@ public abstract class MembersGetter {
 
   protected MembersGetter(StaticMemberProcessor processor, @NotNull final PsiElement place) {
     myPlace = place;
-    processor.processMembersOfRegisteredClasses(PrefixMatcher.ALWAYS_TRUE, (member, psiClass) -> myImportedStatically.add(member));
+    processor.processMembersOfRegisteredClasses(Conditions.alwaysTrue(), (member, psiClass) -> myImportedStatically.add(member));
 
     PsiClass current = PsiTreeUtil.getContextOfType(place, PsiClass.class);
     while (current != null) {
@@ -83,7 +83,7 @@ public abstract class MembersGetter {
     return true;
   }
 
-  public void processMembers(final Consumer<LookupElement> results, @Nullable final PsiClass where,
+  public void processMembers(final Consumer<? super LookupElement> results, @Nullable final PsiClass where,
                              final boolean acceptMethods, final boolean searchInheritors) {
     if (where == null || isPrimitiveClass(where)) return;
 
@@ -126,7 +126,7 @@ public abstract class MembersGetter {
   }
 
   private void doProcessMembers(boolean acceptMethods,
-                                Consumer<LookupElement> results,
+                                Consumer<? super LookupElement> results,
                                 boolean isExpectedTypeMember, Collection<? extends PsiElement> declarations) {
     for (final PsiElement result : declarations) {
       if (result instanceof PsiMember && !(result instanceof PsiClass)) {

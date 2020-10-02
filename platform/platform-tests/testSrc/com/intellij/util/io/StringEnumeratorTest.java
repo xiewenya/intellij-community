@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.intellij.util.io;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.IntObjectCache;
 import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
@@ -37,16 +38,20 @@ public class StringEnumeratorTest extends TestCase {
   protected void setUp() throws Exception {
     super.setUp();
     myFile = FileUtil.createTempFile("persistent", "trie");
-    myEnumerator = new PersistentStringEnumerator(myFile);
+    myEnumerator = new PersistentStringEnumerator(myFile.toPath());
   }
 
   @Override
   protected void tearDown() throws Exception {
-    myEnumerator.close();
-    myEnumerator = null;
-    IOUtil.deleteAllFilesStartingWith(myFile);
-    assertTrue(!myFile.exists());
-    super.tearDown();
+    try {
+      myEnumerator.close();
+      myEnumerator = null;
+      IOUtil.deleteAllFilesStartingWith(myFile);
+      assertTrue(!myFile.exists());
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   public void testAddEqualStrings() throws IOException {
@@ -61,7 +66,7 @@ public class StringEnumeratorTest extends TestCase {
     stringsAded.add("IntelliJ IDEA");
     // clear strings and nodes cache
     for (int i = 0; i < 20000; ++i) {
-      final String v = Integer.toString(i) + "Just another string";
+      final String v = i + "Just another string";
       stringsAded.add(v);
       final int idx = myEnumerator.enumerate(v);
       assertEquals(v, myEnumerator.valueOf(idx));
@@ -79,7 +84,8 @@ public class StringEnumeratorTest extends TestCase {
 
     assertEquals(COLLISION_1, myEnumerator.valueOf(id1));
     assertEquals(COLLISION_2, myEnumerator.valueOf(id2));
-    assertEquals(new HashSet<>(Arrays.asList(COLLISION_1, COLLISION_2)), new HashSet<>(myEnumerator.getAllDataObjects(null)));
+    assertEquals(ContainerUtil.set(COLLISION_1, COLLISION_2),
+                 new HashSet<>(myEnumerator.getAllDataObjects(null)));
   }
 
   public void testCollision1() throws Exception {
@@ -97,7 +103,7 @@ public class StringEnumeratorTest extends TestCase {
     
     assertEquals(COLLISION_1, myEnumerator.valueOf(id1));
     assertEquals(COLLISION_2, myEnumerator.valueOf(id2));
-    assertEquals(new HashSet<>(Arrays.asList(COLLISION_1, COLLISION_2)), new HashSet<>(myEnumerator.getAllDataObjects(null)));
+    assertEquals(ContainerUtil.set(COLLISION_1, COLLISION_2), new HashSet<>(myEnumerator.getAllDataObjects(null)));
   }
 
 
@@ -110,7 +116,7 @@ public class StringEnumeratorTest extends TestCase {
 
     assertEquals(UTF_1, myEnumerator.valueOf(id1));
     assertEquals(UTF_2, myEnumerator.valueOf(id2));
-    assertEquals(new HashSet<>(Arrays.asList(UTF_1, UTF_2)), new HashSet<>(myEnumerator.getAllDataObjects(null)));
+    assertEquals(ContainerUtil.set(UTF_1, UTF_2), new HashSet<>(myEnumerator.getAllDataObjects(null)));
   }
 
   public void testOpeningClosing() throws IOException {
@@ -121,18 +127,18 @@ public class StringEnumeratorTest extends TestCase {
     for (int i = 0; i < 2000; ++i) {
       myEnumerator.enumerate(strings.get(i));
       myEnumerator.close();
-      myEnumerator = new PersistentStringEnumerator(myFile);
+      myEnumerator = new PersistentStringEnumerator(myFile.toPath());
     }
     for (int i = 0; i < 2000; ++i) {
       myEnumerator.enumerate(strings.get(i));
       assertTrue(!myEnumerator.isDirty());
       myEnumerator.close();
-      myEnumerator = new PersistentStringEnumerator(myFile);
+      myEnumerator = new PersistentStringEnumerator(myFile.toPath());
     }
     for (int i = 0; i < 2000; ++i) {
       assertTrue(!myEnumerator.isDirty());
       myEnumerator.close();
-      myEnumerator = new PersistentStringEnumerator(myFile);
+      myEnumerator = new PersistentStringEnumerator(myFile.toPath());
     }
     final HashSet<String> allStringsSet = new HashSet<>(strings);
     assertEquals(allStringsSet, new HashSet<>(myEnumerator.getAllDataObjects(null)));
@@ -158,7 +164,7 @@ public class StringEnumeratorTest extends TestCase {
       }
     };
 
-    PlatformTestUtil.startPerformanceTest("PersistentStringEnumerator.enumerate", 600, () -> {
+    PlatformTestUtil.startPerformanceTest("PersistentStringEnumerator.enumerate", 700, () -> {
       stringCache.addDeletedPairsListener(listener);
       for (int i = 0; i < 100000; ++i) {
         final String string = createRandomString();
@@ -174,7 +180,7 @@ public class StringEnumeratorTest extends TestCase {
   private static final StringBuilder builder = new StringBuilder(100);
   private static final Random random = new Random(2_71828);
 
-  static String createRandomString() {
+  public static String createRandomString() {
     return createRandomString(random);
   }
 

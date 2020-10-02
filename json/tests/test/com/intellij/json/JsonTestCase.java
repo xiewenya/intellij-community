@@ -1,23 +1,21 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.json;
 
 import com.intellij.json.formatter.JsonCodeStyleSettings;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestDataPath;
-import com.intellij.testFramework.TestLoggerFactory;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Mikhail Golubev
  */
 @TestDataPath("$CONTENT_ROOT/testData")
-public abstract class JsonTestCase extends LightCodeInsightFixtureTestCase {
-  static {
-    Logger.setFactory(TestLoggerFactory.class);
-  }
+public abstract class JsonTestCase extends BasePlatformTestCase {
 
   @NotNull
   protected CodeStyleSettings getCodeStyleSettings() {
@@ -41,8 +39,14 @@ public abstract class JsonTestCase extends LightCodeInsightFixtureTestCase {
     return options;
   }
 
+  @Override
   @NotNull
   public String getBasePath() {
+    String communityPath = PlatformTestUtil.getCommunityPath();
+    String homePath = IdeaTestExecutionPolicy.getHomePathWithPolicy();
+    if (communityPath.startsWith(homePath)) {
+      return communityPath.substring(homePath.length()) + "/json/tests/testData";
+    }
     return "/json/tests/testData";
   }
 }

@@ -45,16 +45,19 @@ public class MavenDomElementDescriptorHolder {
 
   private enum FileKind {
     PROJECT_FILE {
+      @Override
       public String getSchemaUrl() {
         return MavenSchemaProvider.MAVEN_PROJECT_SCHEMA_URL;
       }
     },
     PROFILES_FILE {
+      @Override
       public String getSchemaUrl() {
         return MavenSchemaProvider.MAVEN_PROFILES_SCHEMA_URL;
       }
     },
     SETTINGS_FILE {
+      @Override
       public String getSchemaUrl() {
         return MavenSchemaProvider.MAVEN_SETTINGS_SCHEMA_URL;
       }
@@ -95,7 +98,7 @@ public class MavenDomElementDescriptorHolder {
     CachedValue<XmlNSDescriptorImpl> result = myDescriptorsMap.get(kind);
     if (result == null) {
       result = CachedValuesManager.getManager(myProject).createCachedValue(
-        () -> CachedValueProvider.Result.create(doCreateDescriptor(kind), PsiModificationTracker.OUT_OF_CODE_BLOCK_MODIFICATION_COUNT), false);
+        () -> CachedValueProvider.Result.create(doCreateDescriptor(kind), PsiModificationTracker.MODIFICATION_COUNT), false);
       myDescriptorsMap.put(kind, result);
     }
     return result.getValue();

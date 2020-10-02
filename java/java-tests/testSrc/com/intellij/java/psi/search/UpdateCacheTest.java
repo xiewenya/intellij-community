@@ -1,21 +1,18 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.psi.search;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.ide.highlighter.JavaFileType;
-import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.ide.todo.TodoConfiguration;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.projectRoots.impl.ProjectRootUtil;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -26,54 +23,37 @@ import com.intellij.psi.impl.cache.impl.todo.TodoIndexEntry;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
 import com.intellij.psi.search.*;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.JavaPsiTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.PsiTestCase;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
-@PlatformTestCase.WrapInCommand
-public class UpdateCacheTest extends PsiTestCase {
+public class UpdateCacheTest extends JavaPsiTestCase {
   @Override
-  protected void setUpProject() throws Exception {
-    myProjectManager = ProjectManagerEx.getInstanceEx();
-    LOG.assertTrue(myProjectManager != null, "Cannot instantiate ProjectManager component");
-
-    Path projectFile = getProjectDirOrFile();
-    loadAndSetupProject(projectFile.toString());
+  protected void setUpProject() {
+    loadAndSetupProject(getProjectDirOrFile());
   }
 
-  private void loadAndSetupProject(String path) throws Exception {
-    LocalFileSystem.getInstance().refreshIoFiles(myFilesToDelete);
-
-    myProject = ProjectManager.getInstance().loadAndOpenProject(path);
+  private void loadAndSetupProject(@NotNull Path path) {
+    myProject = PlatformTestUtil.loadAndOpenProject(path);
 
     setUpModule();
 
-    final String root = JavaTestUtil.getJavaTestDataPath() + "/psi/search/updateCache";
-    createTestProjectStructure( root);
+    String root = JavaTestUtil.getJavaTestDataPath() + "/psi/search/updateCache";
+    createTestProjectStructure(root);
 
     setUpJdk();
-
-    myProjectManager.openTestProject(myProject);
-    runStartupActivities();
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      ProjectManager.getInstance().closeProject(myProject);
-    }
-    finally {
-      super.tearDown();
-    }
   }
 
   public void testFileCreation() {
@@ -81,7 +61,7 @@ public class UpdateCacheTest extends PsiTestCase {
 
     PsiFile file = PsiFileFactory.getInstance(myProject).createFileFromText("New.java", JavaFileType.INSTANCE, "class A{ Object o;}");
     final PsiFile finalFile = file;
-    file = WriteAction.compute(()->(PsiFile)root.add(finalFile));
+    file = WriteAction.compute(() -> (PsiFile)root.add(finalFile));
     assertNotNull(file);
 
     PsiClass objectClass = myJavaFacade.findClass(CommonClassNames.JAVA_LANG_OBJECT, GlobalSearchScope.allScope(getProject()));
@@ -93,7 +73,7 @@ public class UpdateCacheTest extends PsiTestCase {
     VirtualFile root = ProjectRootManager.getInstance(myProject).getContentRoots()[0];
 
     String newFilePath = root.getPresentableUrl() + File.separatorChar + "New.java";
-    FileUtil.writeToFile(new File(newFilePath), "class A{ Object o;}".getBytes(CharsetToolkit.UTF8_CHARSET));
+    FileUtil.writeToFile(new File(newFilePath), "class A{ Object o;}".getBytes(StandardCharsets.UTF_8));
     VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(newFilePath.replace(File.separatorChar, '/'));
     assertNotNull(file);
     PsiDocumentManager.getInstance(myProject).commitAllDocuments();
@@ -112,7 +92,7 @@ public class UpdateCacheTest extends PsiTestCase {
 
     PsiClass stringClass = myJavaFacade.findClass("java.lang.String", GlobalSearchScope.allScope(getProject()));
     assertNotNull(stringClass);
-    checkUsages(stringClass, ArrayUtil.EMPTY_STRING_ARRAY);
+    checkUsages(stringClass, ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
   public void testExternalFileModification() {
@@ -133,38 +113,36 @@ public class UpdateCacheTest extends PsiTestCase {
 
     PsiClass objectClass = myJavaFacade.findClass(CommonClassNames.JAVA_LANG_OBJECT, GlobalSearchScope.allScope(getProject()));
     assertNotNull(objectClass);
-    checkUsages(objectClass, new String[]{});
+    checkUsages(objectClass, ArrayUtil.EMPTY_STRING_ARRAY);
     FileBasedIndex.getInstance().getContainingFiles(TodoIndex.NAME, new TodoIndexEntry("todo", true), GlobalSearchScope.allScope(getProject()));
 
-    final String projectLocation = myProject.getPresentableUrl();
+    String projectLocation = myProject.getPresentableUrl();
     assert projectLocation != null : myProject;
     PlatformTestUtil.saveProject(myProject);
-    final VirtualFile content = ModuleRootManager.getInstance(getModule()).getContentRoots()[0];
+    VirtualFile content = ModuleRootManager.getInstance(getModule()).getContentRoots()[0];
     Project project = myProject;
-    ProjectUtil.closeAndDispose(project);
+    ProjectManagerEx.getInstanceEx().forceCloseProject(project);
     myProject = null;
     InjectedLanguageManagerImpl.checkInjectorsAreDisposed(project);
 
     assertTrue("Project was not disposed", project.isDisposed());
     myModule = null;
-    
+
     final File file = new File(root.getPath(), "1.java");
     assertTrue(file.exists());
 
-    FileUtil.writeToFile(file, "class A{ Object o;}".getBytes(CharsetToolkit.UTF8_CHARSET));
+    FileUtil.writeToFile(file, "class A{ Object o;}".getBytes(StandardCharsets.UTF_8));
     root.refresh(false, true);
 
     LocalFileSystem.getInstance().refresh(false);
 
-    myProject = ProjectManager.getInstance().loadAndOpenProject(projectLocation);
+    myProject = PlatformTestUtil.loadAndOpenProject(Paths.get(projectLocation));
     InjectedLanguageManagerImpl.pushInjectors(getProject());
 
     setUpModule();
     setUpJdk();
-    ProjectManagerEx.getInstanceEx().openTestProject(myProject);
     UIUtil.dispatchAllInvocationEvents(); // startup activities
 
-    runStartupActivities();
     PsiTestUtil.addSourceContentToRoots(getModule(), content);
 
     assertNotNull(myProject);
@@ -181,7 +159,7 @@ public class UpdateCacheTest extends PsiTestCase {
 
     String newFilePath = root.getPresentableUrl() + File.separatorChar + "dir" + File.separatorChar + "New.java";
     LOG.assertTrue(new File(newFilePath).getParentFile().mkdir());
-    FileUtil.writeToFile(new File(newFilePath), "class A{ Object o;}".getBytes(CharsetToolkit.UTF8_CHARSET));
+    FileUtil.writeToFile(new File(newFilePath), "class A{ Object o;}".getBytes(StandardCharsets.UTF_8));
     VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(newFilePath.replace(File.separatorChar, '/'));
     assertNotNull(file);
     PsiDocumentManager.getInstance(myProject).commitAllDocuments();
@@ -200,15 +178,15 @@ public class UpdateCacheTest extends PsiTestCase {
 
     PsiClass threadClass = myJavaFacade.findClass("java.lang.Thread", GlobalSearchScope.allScope(getProject()));
     assertNotNull(threadClass);
-    checkUsages(threadClass, ArrayUtil.EMPTY_STRING_ARRAY);
+    checkUsages(threadClass, ArrayUtilRt.EMPTY_STRING_ARRAY);
   }
 
   public void testTodoConfigurationChange() {
     TodoPattern pattern = new TodoPattern("newtodo", TodoAttributesUtil.createDefault(), true);
     TodoPattern[] oldPatterns = TodoConfiguration.getInstance().getTodoPatterns();
-    
+
     checkTodos(new String[]{"2.java"});
-    
+
     TodoConfiguration.getInstance().setTodoPatterns(new TodoPattern[]{pattern});
 
     try{
@@ -240,7 +218,7 @@ public class UpdateCacheTest extends PsiTestCase {
     PsiClass exceptionClass = myJavaFacade.findClass("java.lang.Exception", GlobalSearchScope.allScope(getProject()));
     assertNotNull(exceptionClass);
     checkUsages(exceptionClass, new String[]{"1.java"});
-    checkTodos(new String[]{});
+    checkTodos(ArrayUtil.EMPTY_STRING_ARRAY);
   }
 
   public void testRemoveExcludeRoot() {
@@ -317,7 +295,7 @@ public class UpdateCacheTest extends PsiTestCase {
     PsiClass exceptionClass = myJavaFacade.findClass("java.lang.Exception", GlobalSearchScope.allScope(getProject()));
     assertNotNull(exceptionClass);
     // currently it actually finds usages by FQN due to Java PSI enabled for out-of-source java files
-    // so the following check is disabled 
+    // so the following check is disabled
     //checkUsages(exceptionClass, new String[]{});
     checkTodos(new String[]{"2.java", "New.java"});
   }
@@ -370,8 +348,8 @@ public class UpdateCacheTest extends PsiTestCase {
 
     PsiClass exceptionClass = myJavaFacade.findClass("java.lang.Exception", GlobalSearchScope.allScope(getProject()));
     assertNotNull(exceptionClass);
-    checkUsages(exceptionClass, new String[]{});
-    checkTodos(new String[]{});
+    checkUsages(exceptionClass, ArrayUtil.EMPTY_STRING_ARRAY);
+    checkTodos(ArrayUtil.EMPTY_STRING_ARRAY);
   }
 
   private void checkUsages(PsiElement element, @NonNls String[] expectedFiles){

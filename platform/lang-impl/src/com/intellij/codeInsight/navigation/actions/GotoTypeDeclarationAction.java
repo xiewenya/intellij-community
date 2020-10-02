@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.navigation.actions;
 
@@ -7,10 +7,14 @@ import com.intellij.codeInsight.CodeInsightActionHandler;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.actions.BaseCodeInsightAction;
+import com.intellij.codeInsight.navigation.CtrlMouseAction;
+import com.intellij.codeInsight.navigation.CtrlMouseInfo;
 import com.intellij.codeInsight.navigation.NavigationUtil;
+import com.intellij.codeInsight.navigation.SingleTargetElementInfo;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.DumbAware;
@@ -26,7 +30,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Set;
 
-public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements CodeInsightActionHandler, DumbAware {
+public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements CodeInsightActionHandler, DumbAware, CtrlMouseAction {
 
   @NotNull
   @Override
@@ -40,36 +44,43 @@ public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements 
   }
 
   @Override
-  public void update(final AnActionEvent event) {
-    if (Extensions.getExtensions(TypeDeclarationProvider.EP_NAME).length == 0) {
+  public void update(@NotNull final AnActionEvent event) {
+    if (TypeDeclarationProvider.EP_NAME.getExtensionList().size() == 0) {
       event.getPresentation().setVisible(false);
+      return;
     }
-    else {
-      super.update(event);
+    for (TypeDeclarationProvider provider : TypeDeclarationProvider.EP_NAME.getExtensionList()) {
+      String text = provider.getActionText(event.getDataContext());
+      if (text != null) {
+        Presentation presentation = event.getPresentation();
+        presentation.setText(text);
+        break;
+      }
     }
+    super.update(event);
   }
 
   @Override
   public void invoke(@NotNull final Project project, @NotNull Editor editor, @NotNull PsiFile file) {
-    DumbService.getInstance(project).setAlternativeResolveEnabled(true);
-    try {
-      int offset = editor.getCaretModel().getOffset();
-      PsiElement[] symbolTypes = GotoDeclarationAction.underModalProgress(project, "Resolving Reference...",
-                                                                          () -> findSymbolTypes(editor, offset));
-      if (symbolTypes == null || symbolTypes.length == 0) return;
-      if (symbolTypes.length == 1) {
-        navigate(project, symbolTypes[0]);
+    DumbService.getInstance(project).runWithAlternativeResolveEnabled(() -> {
+      try {
+        int offset = editor.getCaretModel().getOffset();
+        PsiElement[] symbolTypes = ActionUtil.underModalProgress(project, CodeInsightBundle.message("progress.title.resolving.reference"),
+                                                                 () -> findSymbolTypes(editor, offset));
+        if (symbolTypes == null || symbolTypes.length == 0) return;
+        if (symbolTypes.length == 1) {
+          navigate(project, symbolTypes[0]);
+        }
+        else {
+          NavigationUtil.getPsiElementPopup(symbolTypes, CodeInsightBundle.message("choose.type.popup.title"))
+            .showInBestPositionFor(editor);
+        }
       }
-      else {
-        NavigationUtil.getPsiElementPopup(symbolTypes, CodeInsightBundle.message("choose.type.popup.title")).showInBestPositionFor(editor);
+      catch (IndexNotReadyException e) {
+        DumbService.getInstance(project).showDumbModeNotification(
+          CodeInsightBundle.message("message.navigation.is.not.available.here.during.index.update"));
       }
-    }
-    catch (IndexNotReadyException e) {
-      DumbService.getInstance(project).showDumbModeNotification("Navigation is not available here during index update");
-    }
-    finally {
-      DumbService.getInstance(project).setAlternativeResolveEnabled(false);
-    }
+    });
   }
 
   private static void navigate(@NotNull Project project, @NotNull PsiElement symbolType) {
@@ -94,9 +105,8 @@ public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements 
     return null;
   }
 
-  @Nullable
   @VisibleForTesting
-  public static PsiElement[] findSymbolTypes(@NotNull Editor editor, int offset) {
+  public static PsiElement @Nullable [] findSymbolTypes(@NotNull Editor editor, int offset) {
     PsiElement targetElement = TargetElementUtil.getInstance().findTargetElement(editor,
                                                                                      TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED |
                                                                                      TargetElementUtil.ELEMENT_NAME_ACCEPTED |
@@ -131,9 +141,8 @@ public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements 
     return null;
   }
 
-  @Nullable
-  private static PsiElement[] getSymbolTypeDeclarations(@NotNull PsiElement targetElement, Editor editor, int offset) {
-    for(TypeDeclarationProvider provider: Extensions.getExtensions(TypeDeclarationProvider.EP_NAME)) {
+  private static PsiElement @Nullable [] getSymbolTypeDeclarations(@NotNull PsiElement targetElement, Editor editor, int offset) {
+    for(TypeDeclarationProvider provider: TypeDeclarationProvider.EP_NAME.getExtensionList()) {
       PsiElement[] result;
       if (provider instanceof TypeDeclarationPlaceAwareProvider) {
         result = ((TypeDeclarationPlaceAwareProvider)provider).getSymbolTypeDeclarations(targetElement, editor, offset);
@@ -147,4 +156,16 @@ public class GotoTypeDeclarationAction extends BaseCodeInsightAction implements 
     return null;
   }
 
+  @Override
+  public @Nullable CtrlMouseInfo getCtrlMouseInfo(@NotNull Editor editor, @NotNull PsiFile file, int offset) {
+    PsiElement targetElement = findSymbolType(editor, offset);
+    if (targetElement == null || !targetElement.isPhysical()) {
+      return null;
+    }
+    PsiElement elementAtPointer = file.findElementAt(offset);
+    if (elementAtPointer != null) {
+      return new SingleTargetElementInfo(elementAtPointer, targetElement);
+    }
+    return null;
+  }
 }

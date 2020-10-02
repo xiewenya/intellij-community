@@ -2,17 +2,17 @@
 package com.intellij.cyclicDependencies.ui;
 
 import com.intellij.CommonBundle;
-import com.intellij.analysis.AnalysisScopeBundle;
+import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.cyclicDependencies.CyclicDependenciesBuilder;
 import com.intellij.cyclicDependencies.actions.CyclicDependenciesHandler;
 import com.intellij.icons.AllIcons;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packageDependencies.DependenciesToolWindow;
 import com.intellij.packageDependencies.DependencyUISettings;
 import com.intellij.packageDependencies.ui.*;
@@ -24,21 +24,19 @@ import com.intellij.ui.*;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.EditSourceOnDoubleClickHandler;
-import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.TreeSelectionEvent;
-import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class CyclicDependenciesPanel extends JPanel implements Disposable, DataProvider {
   private static final HashSet<PsiFile> EMPTY_FILE_SET = new HashSet<>(0);
@@ -55,10 +53,8 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   private final CyclicDependenciesBuilder myBuilder;
   private Content myContent;
   private final DependenciesPanel.DependencyPanelSettings mySettings = new DependenciesPanel.DependencyPanelSettings();
-  public static final String DEFAULT_PACKAGE_ABBREVIATION = AnalysisScopeBundle.message("dependencies.tree.node.default.package.abbreviation");
 
-
-  public CyclicDependenciesPanel(Project project, final CyclicDependenciesBuilder builder) {
+  public CyclicDependenciesPanel(@NotNull Project project, @NotNull CyclicDependenciesBuilder builder) {
     super(new BorderLayout());
     myDependencies = builder.getCyclicDependencies();
     myBuilder = builder;
@@ -71,20 +67,12 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     mySettings.UI_SHOW_MODULES = false; //exist without modules - and doesn't with
 
     final Splitter treeSplitter = new Splitter();
-    Disposer.register(this, new Disposable(){
-      public void dispose() {
-        treeSplitter.dispose();
-      }
-    });
+    Disposer.register(this, () -> treeSplitter.dispose());
     treeSplitter.setFirstComponent(ScrollPaneFactory.createScrollPane(myLeftTree));
     treeSplitter.setSecondComponent(ScrollPaneFactory.createScrollPane(myRightTree));
 
     final Splitter splitter = new Splitter(true);
-    Disposer.register(this, new Disposable() {
-      public void dispose() {
-        splitter.dispose();
-      }
-    });
+    Disposer.register(this, () -> splitter.dispose());
     splitter.setFirstComponent(treeSplitter);
     splitter.setSecondComponent(myUsagesPanel);
     add(splitter, BorderLayout.CENTER);
@@ -96,39 +84,36 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     updateLeftTreeModel();
     updateRightTreeModel();
 
-    myLeftTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
-      public void valueChanged(TreeSelectionEvent e) {
-        updateRightTreeModel();
-        myUsagesPanel.setToInitialPosition();
-      }
+    myLeftTree.getSelectionModel().addTreeSelectionListener(__ -> {
+      updateRightTreeModel();
+      myUsagesPanel.setToInitialPosition();
     });
 
-    myRightTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
-      public void valueChanged(TreeSelectionEvent e) {
-        SwingUtilities.invokeLater(() -> {
-          Set<PsiFile> searchIn = getSelectedScope(myRightTree);
-          final PackageNode selectedPackageNode = getSelectedPackage(myRightTree);
-          if (selectedPackageNode == null) {
-            return;
-          }
-          final PackageDependenciesNode nextPackageNode = getNextPackageNode(selectedPackageNode);
-          Set<PsiFile> searchFor = new HashSet<>();
-          Set<PackageNode> packNodes = new HashSet<>();
-          getPackageNodesHierarchy(selectedPackageNode, packNodes);
-          for (PackageNode packageNode : packNodes) {
-            searchFor.addAll(myBuilder.getDependentFilesInPackage((PsiPackage)packageNode.getPsiElement(),
-                                                                  ((PsiPackage)nextPackageNode.getPsiElement())));
-          }
-          if (searchIn.isEmpty() || searchFor.isEmpty()) {
-            myUsagesPanel.setToInitialPosition();
-          }
-          else {
-            myBuilder.setRootNodeNameInUsageView(AnalysisScopeBundle.message("cyclic.dependencies.usage.view.root.node.text", ((PsiPackage)nextPackageNode.getPsiElement()).getQualifiedName(), ((PsiPackage)selectedPackageNode.getPsiElement()).getQualifiedName()));
-            myUsagesPanel.findUsages(searchIn, searchFor);
-          }
-        });
+    myRightTree.getSelectionModel().addTreeSelectionListener(__ -> SwingUtilities.invokeLater(() -> {
+      Set<PsiFile> searchIn = getSelectedScope(myRightTree);
+      final PackageNode selectedPackageNode = getSelectedPackage(myRightTree);
+      if (selectedPackageNode == null) {
+        return;
       }
-    });
+      final PackageDependenciesNode nextPackageNode = getNextPackageNode(selectedPackageNode);
+      Set<PackageNode> packNodes = new HashSet<>();
+      getPackageNodesHierarchy(selectedPackageNode, packNodes);
+      Set<PsiFile> searchFor = new HashSet<>();
+      for (PackageNode packageNode : packNodes) {
+        searchFor.addAll(myBuilder.getDependentFilesInPackage((PsiPackage)packageNode.getPsiElement(),
+                                                              (PsiPackage)nextPackageNode.getPsiElement()));
+      }
+      if (searchIn.isEmpty() || searchFor.isEmpty()) {
+        myUsagesPanel.setToInitialPosition();
+      }
+      else {
+        String pack1Name = ((PsiPackage)nextPackageNode.getPsiElement()).getQualifiedName();
+        String pack2Name = ((PsiPackage)selectedPackageNode.getPsiElement()).getQualifiedName();
+        myBuilder.setRootNodeNameInUsageView(JavaBundle.message("cyclic.dependencies.usage.view.root.node.text",
+                                                                         pack1Name, pack2Name));
+        myUsagesPanel.findUsages(searchIn, searchFor);
+      }
+    }));
 
     initTree(myLeftTree);
     initTree(myRightTree);
@@ -136,10 +121,10 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     mySettings.UI_FILTER_LEGALS = false;
     mySettings.UI_FLATTEN_PACKAGES = false;
 
-    TreeUtil.selectFirstNode(myLeftTree);
+    TreeUtil.promiseSelectFirst(myLeftTree);
   }
 
-  private static void getPackageNodesHierarchy(PackageNode node, Set<PackageNode> result){
+  private static void getPackageNodesHierarchy(PackageNode node, Set<? super PackageNode> result){
     result.add(node);
     for (int i = 0; i < node.getChildCount(); i++){
       final TreeNode child = node.getChildAt(i);
@@ -174,8 +159,8 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   }
 
   private static PackageDependenciesNode hideEmptyMiddlePackages(PackageDependenciesNode node, StringBuffer result){
-    if (node.getChildCount() == 0 || node.getChildCount() > 1 || (node.getChildCount() == 1 && node.getChildAt(0) instanceof FileNode)){
-      result.append(result.length() != 0 ? "." : "").append(node.toString().equals(DEFAULT_PACKAGE_ABBREVIATION) ? "" : node.toString());//toString()
+    if (node.getChildCount() == 0 || node.getChildCount() > 1 || node.getChildCount() == 1 && node.getChildAt(0) instanceof FileNode){
+      result.append(result.length() != 0 ? "." : "").append(node.toString().equals(getDefaultPackageAbbreviation()) ? "" : node.toString());//toString()
     } else {
       if (node.getChildCount() == 1){
         PackageDependenciesNode child = (PackageDependenciesNode)node.getChildAt(0);
@@ -187,7 +172,7 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
           if (child instanceof PackageNode){
             node.removeAllChildren();
             result.append(result.length() != 0 ? "." : "")
-              .append(node.toString().equals(DEFAULT_PACKAGE_ABBREVIATION) ? "" : node.toString());
+              .append(node.toString().equals(getDefaultPackageAbbreviation()) ? "" : node.toString());
             node = hideEmptyMiddlePackages(child, result);
             ((PackageNode)node).setPackageName(result.toString());//toString()
           }
@@ -219,8 +204,6 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     tree.setCellRenderer(new MyTreeCellRenderer(tree == myLeftTree));
     tree.setRootVisible(false);
     tree.setShowsRootHandles(true);
-    UIUtil.setLineStyleAngled(tree);
-
     TreeUtil.installActions(tree);
     SmartExpander.installOn(tree);
     EditSourceOnDoubleClickHandler.install(tree);
@@ -244,11 +227,7 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     mySettings.UI_FLATTEN_PACKAGES = true;
     mySettings.UI_SHOW_FILES = false;
     myLeftTreeExpansionMonitor.freeze();
-    myLeftTree.setModel(TreeModelBuilder.createTreeModel(myProject, false, psiFiles, new Marker() {
-      public boolean isMarked(VirtualFile file) {
-        return false;
-      }
-    }, mySettings));
+    myLeftTree.setModel(TreeModelBuilder.createTreeModel(myProject, false, psiFiles, __ -> false, mySettings));
     myLeftTreeExpansionMonitor.restore();
     expandFirstLevel(myLeftTree);
     mySettings.UI_SHOW_FILES = showFiles;
@@ -279,11 +258,7 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
           final Set<PsiFile> dependentFilesInPackage = myBuilder.getDependentFilesInPackage(prevPackage, psiPackage, nextPackage);
 
           final PackageDependenciesNode pack = (PackageDependenciesNode)TreeModelBuilder
-            .createTreeModel(myProject, false, dependentFilesInPackage, new Marker() {
-              public boolean isMarked(VirtualFile file) {
-                return false;
-              }
-            }, mySettings).getRoot();
+            .createTreeModel(myProject, false, dependentFilesInPackage, __ -> false, mySettings).getRoot();
           nodes[i] = hideEmptyMiddlePackages((PackageDependenciesNode)pack.getChildAt(0), new StringBuffer());
         }
 
@@ -363,13 +338,15 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
     myContent = content;
   }
 
+  @Override
   public void dispose() {
     TreeModelBuilder.clearCaches(myProject);
   }
 
+  @Override
   @Nullable
   @NonNls
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) {
       return "dependency.viewer.tool.window";
     }
@@ -379,11 +356,12 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   private class MyTreeCellRenderer extends ColoredTreeCellRenderer {
     private final boolean myLeftTree;
 
-    public MyTreeCellRenderer(boolean isLeftTree) {
+    MyTreeCellRenderer(boolean isLeftTree) {
       myLeftTree = isLeftTree;
     }
 
-    public void customizeCellRenderer(JTree tree,
+    @Override
+    public void customizeCellRenderer(@NotNull JTree tree,
                                       Object value,
                                       boolean selected,
                                       boolean expanded,
@@ -414,12 +392,13 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   }
 
   private final class CloseAction extends AnAction implements DumbAware {
-    public CloseAction() {
-      super(CommonBundle.message("action.close"), AnalysisScopeBundle.message("action.close.dependency.description"),
+    CloseAction() {
+      super(CommonBundle.messagePointer("action.close"), CodeInsightBundle.messagePointer("action.close.dependency.description"),
             AllIcons.Actions.Cancel);
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       Disposer.dispose(myUsagesPanel);
       DependenciesToolWindow.getInstance(myProject).closeContent(myContent);
       mySettings.copyToApplicationDependencySettings();
@@ -428,15 +407,17 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
 
   private final class ShowFilesAction extends ToggleAction {
     ShowFilesAction() {
-      super(AnalysisScopeBundle.message("action.show.files"), AnalysisScopeBundle.message("action.show.files.description"),
+      super(CodeInsightBundle.messagePointer("action.show.files"), CodeInsightBundle.messagePointer("action.show.files.description"),
             AllIcons.FileTypes.Java);
     }
 
-    public boolean isSelected(AnActionEvent event) {
+    @Override
+    public boolean isSelected(@NotNull AnActionEvent event) {
       return mySettings.UI_SHOW_FILES;
     }
 
-    public void setSelected(AnActionEvent event, boolean flag) {
+    @Override
+    public void setSelected(@NotNull AnActionEvent event, boolean flag) {
       DependencyUISettings.getInstance().UI_SHOW_FILES = flag;
       mySettings.UI_SHOW_FILES = flag;
       rebuild();
@@ -444,19 +425,19 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   }
 
   private final class HideOutOfCyclePackagesAction extends ToggleAction {
-    @NonNls public static final String SHOW_PACKAGES_FROM_CYCLES_ONLY = "Hide packages without cyclic dependencies";
 
     HideOutOfCyclePackagesAction() {
-      super(SHOW_PACKAGES_FROM_CYCLES_ONLY, SHOW_PACKAGES_FROM_CYCLES_ONLY, AllIcons.General.Filter);
+      super(JavaBundle.message("hide.out.of.cyclic.packages.action.text"),
+            JavaBundle.message("hide.out.of.cyclic.packages.action.description"), AllIcons.General.Filter);
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return mySettings.UI_FILTER_OUT_OF_CYCLE_PACKAGES;
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       DependencyUISettings.getInstance().UI_FILTER_OUT_OF_CYCLE_PACKAGES = state;
       mySettings.UI_FILTER_OUT_OF_CYCLE_PACKAGES = state;
       rebuild();
@@ -465,15 +446,17 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
 
   private final class GroupByScopeTypeAction extends ToggleAction {
     GroupByScopeTypeAction() {
-      super(AnalysisScopeBundle.message("action.group.by.scope.type"), AnalysisScopeBundle.message("action.group.by.scope.type.description"),
+      super(CodeInsightBundle.messagePointer("action.group.by.scope.type"), CodeInsightBundle.messagePointer("action.group.by.scope.type.description"),
             AllIcons.Actions.GroupByTestProduction);
     }
 
-    public boolean isSelected(AnActionEvent event) {
+    @Override
+    public boolean isSelected(@NotNull AnActionEvent event) {
       return mySettings.UI_GROUP_BY_SCOPE_TYPE;
     }
 
-    public void setSelected(AnActionEvent event, boolean flag) {
+    @Override
+    public void setSelected(@NotNull AnActionEvent event, boolean flag) {
       DependencyUISettings.getInstance().UI_GROUP_BY_SCOPE_TYPE = flag;
       mySettings.UI_GROUP_BY_SCOPE_TYPE = flag;
       rebuild();
@@ -481,16 +464,18 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   }
 
   private class RerunAction extends AnAction {
-    public RerunAction(JComponent comp) {
-      super(CommonBundle.message("action.rerun"), AnalysisScopeBundle.message("action.rerun.dependency"), AllIcons.Actions.Rerun);
+    RerunAction(JComponent comp) {
+      super(CommonBundle.message("action.rerun"), CodeInsightBundle.message("action.rerun.dependency"), AllIcons.Actions.Rerun);
       registerCustomShortcutSet(CommonShortcuts.getRerun(), comp);
     }
 
-    public void update(AnActionEvent e) {
+    @Override
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(myBuilder.getScope().isValid());
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       DependenciesToolWindow.getInstance(myProject).closeContent(myContent);
       mySettings.copyToApplicationDependencySettings();
       SwingUtilities.invokeLater(() -> new CyclicDependenciesHandler(myProject, myBuilder.getScope()).analyze());
@@ -498,7 +483,8 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
   }
 
   private static class MyTree extends Tree implements DataProvider {
-    public Object getData(String dataId) {
+    @Override
+    public Object getData(@NotNull String dataId) {
       PackageDependenciesNode node = getSelectedNode();
       if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
         return node;
@@ -513,9 +499,12 @@ public class CyclicDependenciesPanel extends JPanel implements Disposable, DataP
       final Object lastPathComponent = paths[0].getLastPathComponent();
       if (lastPathComponent instanceof PackageDependenciesNode) {
         return (PackageDependenciesNode)lastPathComponent;
-      } else {
-        return (PackageDependenciesNode)((DefaultMutableTreeNode)lastPathComponent).getUserObject();
       }
+      return (PackageDependenciesNode)((DefaultMutableTreeNode)lastPathComponent).getUserObject();
     }
+  }
+
+  public static String getDefaultPackageAbbreviation() {
+    return JavaBundle.message("dependencies.tree.node.default.package.abbreviation");
   }
 }

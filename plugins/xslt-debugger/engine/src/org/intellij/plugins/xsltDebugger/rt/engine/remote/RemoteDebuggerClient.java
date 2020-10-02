@@ -30,11 +30,13 @@ import java.util.List;
 
 public class RemoteDebuggerClient implements Debugger {
   private final RemoteDebugger myRemote;
+  private final String myAccessToken;
   private final BreakpointManager myBreakpointManager;
   private final OutputEventQueue myEventQueue;
 
-  public RemoteDebuggerClient(int port) throws IOException, NotBoundException {
+  public RemoteDebuggerClient(int port, String accessToken) throws IOException, NotBoundException {
     myRemote = (RemoteDebugger)Naming.lookup("rmi://127.0.0.1:" + port + "/XsltDebugger");
+    myAccessToken = accessToken;
 
     final RemoteBreakpointManager manager = myRemote.getBreakpointManager();
     myBreakpointManager = new MyBreakpointManager(manager);
@@ -144,7 +146,7 @@ public class RemoteDebuggerClient implements Debugger {
 
   public StyleFrame getCurrentFrame() {
     try {
-      return MyFrame.create(myRemote.getCurrentFrame());
+      return new MyFrame(myRemote.getCurrentFrame());
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
@@ -152,7 +154,7 @@ public class RemoteDebuggerClient implements Debugger {
 
   public SourceFrame getSourceFrame() {
     try {
-      return MySourceFrame.create(myRemote.getSourceFrame());
+      return new MySourceFrame(myRemote.getSourceFrame());
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
@@ -160,7 +162,7 @@ public class RemoteDebuggerClient implements Debugger {
 
   public Value eval(String expr) throws EvaluationException {
     try {
-      return myRemote.eval(expr);
+      return myRemote.eval(expr, myAccessToken);
     } catch (RemoteException e) {
       throw handleRemoteException(e);
     }
@@ -185,7 +187,7 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyBreakpointManager implements BreakpointManager {
     private final RemoteBreakpointManager myManager;
 
-    public MyBreakpointManager(RemoteBreakpointManager manager) {
+    MyBreakpointManager(RemoteBreakpointManager manager) {
       myManager = manager;
     }
 
@@ -246,7 +248,7 @@ public class RemoteDebuggerClient implements Debugger {
     private static class MyBreakpoint implements Breakpoint {
       private final RemoteBreakpoint myBreakpoint;
 
-      public MyBreakpoint(RemoteBreakpoint breakpoint) {
+      MyBreakpoint(RemoteBreakpoint breakpoint) {
         myBreakpoint = breakpoint;
       }
 
@@ -348,7 +350,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
-  private static abstract class MyAbstractFrame<F extends Frame> implements Frame<F> {
+  private abstract class MyAbstractFrame<F extends Frame> implements Frame<F> {
     protected final RemoteDebugger.Frame myFrame;
 
     protected MyAbstractFrame(RemoteDebugger.Frame frame) {
@@ -399,7 +401,7 @@ public class RemoteDebuggerClient implements Debugger {
 
     public Value eval(String expr) throws EvaluationException {
       try {
-        return myFrame.eval(expr);
+        return myFrame.eval(expr, myAccessToken);
       } catch (RemoteException e) {
         throw handleRemoteException(e);
       }
@@ -414,7 +416,7 @@ public class RemoteDebuggerClient implements Debugger {
     }
   }
 
-  private static class MyFrame extends MyAbstractFrame<StyleFrame> implements StyleFrame {
+  private class MyFrame extends MyAbstractFrame<StyleFrame> implements StyleFrame {
     protected MyFrame(RemoteDebugger.Frame frame) {
       super(frame);
     }
@@ -427,25 +429,27 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
+    @Override
     protected StyleFrame createImpl(RemoteDebugger.Frame frame) {
       return create(frame);
     }
 
-    public static StyleFrame create(RemoteDebugger.Frame currentFrame) {
+    public StyleFrame create(RemoteDebugger.Frame currentFrame) {
       return currentFrame != null ? new MyFrame(currentFrame) : null;
     }
   }
 
-  private static class MySourceFrame extends MyAbstractFrame<SourceFrame> implements SourceFrame {
+  private class MySourceFrame extends MyAbstractFrame<SourceFrame> implements SourceFrame {
     protected MySourceFrame(RemoteDebugger.Frame frame) {
       super(frame);
     }
 
+    @Override
     public SourceFrame createImpl(RemoteDebugger.Frame frame) {
       return create(frame);
     }
 
-    public static SourceFrame create(RemoteDebugger.Frame currentFrame) {
+    public SourceFrame create(RemoteDebugger.Frame currentFrame) {
       return currentFrame != null ? new MySourceFrame(currentFrame) : null;
     }
   }
@@ -453,7 +457,7 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyVariable implements Variable {
     private final RemoteDebugger.Variable myVariable;
 
-    public MyVariable(RemoteDebugger.Variable variable) {
+    MyVariable(RemoteDebugger.Variable variable) {
       myVariable = variable;
     }
 
@@ -505,7 +509,7 @@ public class RemoteDebuggerClient implements Debugger {
       }
     }
 
-    static List<Variable> convert(List<RemoteDebugger.Variable> list) {
+    static List<Variable> convert(List<? extends RemoteDebugger.Variable> list) {
       final ArrayList<Variable> variables = new ArrayList<Variable>(list.size());
       for (final RemoteDebugger.Variable variable : list) {
         variables.add(new MyVariable(variable));
@@ -517,7 +521,7 @@ public class RemoteDebuggerClient implements Debugger {
   private static class MyOutputEventQueue implements OutputEventQueue {
     private final RemoteDebugger.EventQueue myEventQueue;
 
-    public MyOutputEventQueue(RemoteDebugger.EventQueue eventQueue) {
+    MyOutputEventQueue(RemoteDebugger.EventQueue eventQueue) {
       myEventQueue = eventQueue;
     }
 

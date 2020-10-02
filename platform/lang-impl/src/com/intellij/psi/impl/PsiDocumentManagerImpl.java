@@ -1,41 +1,24 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.intellij.AppTopics;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.editor.ex.DocumentBulkUpdateListener;
+import com.intellij.openapi.editor.impl.event.EditorEventMulticasterImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.FileDocumentManagerAdapter;
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectLocator;
-import com.intellij.openapi.project.impl.ProjectImpl;
-import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
@@ -43,50 +26,36 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.core.impl.PomModelImpl;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.FileContentUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 import java.util.*;
 
 //todo listen & notifyListeners readonly events?
-public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
-  private final DocumentCommitProcessor myDocumentCommitThread;
+public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   private final boolean myUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
 
-  public PsiDocumentManagerImpl(@NotNull final Project project,
-                                @NotNull PsiManager psiManager,
-                                @NotNull EditorFactory editorFactory,
-                                @NotNull MessageBus bus,
-                                @NonNls @NotNull final DocumentCommitProcessor documentCommitThread) {
-    super(project, psiManager, bus, documentCommitThread);
-    myDocumentCommitThread = documentCommitThread;
-    editorFactory.getEventMulticaster().addDocumentListener(this, project);
-    MessageBusConnection connection = bus.connect();
-    connection.subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerAdapter() {
+  public PsiDocumentManagerImpl(@NotNull Project project) {
+    super(project);
+
+    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(this, this);
+    ((EditorEventMulticasterImpl)EditorFactory.getInstance().getEventMulticaster()).addPrioritizedDocumentListener(new PriorityEventCollector(), this);
+    MessageBusConnection connection = project.getMessageBus().connect(this);
+    connection.subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerListener() {
       @Override
       public void fileContentLoaded(@NotNull final VirtualFile virtualFile, @NotNull Document document) {
         PsiFile psiFile = ReadAction.compute(() -> myProject.isDisposed() || !virtualFile.isValid() ? null : getCachedPsiFile(virtualFile));
         fireDocumentCreated(document, psiFile);
       }
     });
-    connection.subscribe(DocumentBulkUpdateListener.TOPIC, new DocumentBulkUpdateListener.Adapter() {
-      @Override
-      public void updateFinished(@NotNull Document doc) {
-        documentCommitThread.commitAsynchronously(project, doc, "Bulk update finished", TransactionGuard.getInstance().getContextTransaction());
-      }
-    });
-    Disposer.register(project, () -> ((DocumentCommitThread)myDocumentCommitThread).cancelTasksOnProjectDispose(project));
   }
 
   @Nullable
@@ -108,16 +77,17 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   }
 
   @Override
-  public void documentChanged(DocumentEvent event) {
+  public void documentChanged(@NotNull DocumentEvent event) {
     super.documentChanged(event);
     // optimisation: avoid documents piling up during batch processing
     if (isUncommited(event.getDocument()) && FileDocumentManagerImpl.areTooManyDocumentsInTheQueue(myUncommittedDocuments)) {
       if (myUnitTestMode) {
         myStopTrackingDocuments = true;
         try {
+          //noinspection TestOnlyProblems
           LOG.error("Too many uncommitted documents for " + myProject + "(" +myUncommittedDocuments.size()+")"+
                     ":\n" + StringUtil.join(myUncommittedDocuments, "\n") +
-                    "\n\n Project creation trace: " + myProject.getUserData(ProjectImpl.CREATION_TRACE));
+                    (myProject instanceof ProjectEx ? "\n\n Project creation trace: " + ((ProjectEx)myProject).getCreationTrace() : ""));
         }
         finally {
           //noinspection TestOnlyProblems
@@ -139,11 +109,6 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
     }
   }
 
-  @VisibleForTesting
-  public void doCommitWithoutReparse(@NotNull Document document) {
-    finishCommitInWriteAction(document, Collections.emptyList(), Collections.emptyList(), true, true);
-  }
-
   @Override
   protected void beforeDocumentChangeOnUnlockedDocument(@NotNull final FileViewProvider viewProvider) {
     PostprocessReformattingAspect.getInstance(myProject).assertDocumentChangeIsAllowed(viewProvider);
@@ -153,14 +118,19 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
 
   @Override
   protected boolean finishCommitInWriteAction(@NotNull Document document,
-                                              @NotNull List<BooleanRunnable> finishProcessors,
-                                              @NotNull List<BooleanRunnable> reparseInjectedProcessors,
+                                              @NotNull List<? extends BooleanRunnable> finishProcessors,
+                                              @NotNull List<? extends BooleanRunnable> reparseInjectedProcessors,
                                               boolean synchronously,
                                               boolean forceNoPsiCommit) {
+    boolean success = super.finishCommitInWriteAction(document, finishProcessors, reparseInjectedProcessors, synchronously, forceNoPsiCommit);
+    PsiFile file = getCachedPsiFile(document);
+    if (file != null) {
+      InjectedLanguageManagerImpl.clearInvalidInjections(file);
+    }
     if (ApplicationManager.getApplication().isWriteAccessAllowed()) { // can be false for non-physical PSI
       InjectedLanguageManagerImpl.disposeInvalidEditors();
     }
-    return super.finishCommitInWriteAction(document, finishProcessors, reparseInjectedProcessors, synchronously, forceNoPsiCommit);
+    return success;
   }
 
   @Override
@@ -171,17 +141,14 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
 
   @Override
   public void doPostponedOperationsAndUnblockDocument(@NotNull Document doc) {
-    if (doc instanceof DocumentWindow) doc = ((DocumentWindow)doc).getDelegate();
-    final PostprocessReformattingAspect component = myProject.getComponent(PostprocessReformattingAspect.class);
-    final FileViewProvider viewProvider = getCachedViewProvider(doc);
-    if (viewProvider != null && component != null) component.doPostponedFormatting(viewProvider);
-  }
-
-  @Override
-  @TestOnly
-  public void clearUncommittedDocuments() {
-    super.clearUncommittedDocuments();
-    ((DocumentCommitThread)myDocumentCommitThread).clearQueue();
+    if (doc instanceof DocumentWindow) {
+      doc = ((DocumentWindow)doc).getDelegate();
+    }
+    PostprocessReformattingAspect component = PostprocessReformattingAspect.getInstance(myProject);
+    FileViewProvider viewProvider = getCachedViewProvider(doc);
+    if (viewProvider != null && component != null) {
+      component.doPostponedFormatting(viewProvider);
+    }
   }
 
   @NotNull
@@ -206,7 +173,7 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
         PsiFile injectedPsiFile = getCachedPsiFile(document);
         if (injectedPsiFile  == null || !injectedPsiFile.isValid()) continue;
 
-        BooleanRunnable runnable = InjectedLanguageUtil.reparse(injectedPsiFile, document, hostPsiFile, hostViewProvider, indicator, oldRoot, newRoot);
+        BooleanRunnable runnable = InjectedLanguageUtil.reparse(injectedPsiFile, document, hostPsiFile, hostDocument, hostViewProvider, indicator, oldRoot, newRoot, this);
         ContainerUtil.addIfNotNull(result, runnable);
       }
     }
@@ -221,7 +188,7 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   }
 
   @Override
-  public void reparseFiles(@NotNull Collection<VirtualFile> files, boolean includeOpenFiles) {
+  public void reparseFiles(@NotNull Collection<? extends VirtualFile> files, boolean includeOpenFiles) {
     FileContentUtil.reparseFiles(myProject, files, includeOpenFiles);
   }
 
@@ -239,8 +206,16 @@ public class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
       if (cachedDocument != null && cachedDocument != document) {
         throw new IllegalStateException("Can't replace existing document");
       }
-      
+
       FileDocumentManagerImpl.registerDocument(document, vFile);
     }
+  }
+
+  @Override
+  public boolean commitAllDocumentsUnderProgress() {
+    int eventCount = IdeEventQueue.getInstance().getEventCount();
+    boolean success = super.commitAllDocumentsUnderProgress();
+    IdeEventQueue.getInstance().setEventCount(eventCount);
+    return success;
   }
 }

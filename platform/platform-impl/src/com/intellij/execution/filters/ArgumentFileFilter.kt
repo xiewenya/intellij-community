@@ -1,24 +1,27 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.filters
 
+import com.intellij.openapi.util.NlsSafe
 import java.io.File
+import java.nio.charset.Charset
 
 /**
  * A console filter which looks for a given path in an output and creates a link for viewing a content of that file.
  */
 class ArgumentFileFilter() : Filter {
-  @Volatile private var filePath: String? = null
-  @Volatile private var fileText: String? = null
+  @Volatile @NlsSafe private var filePath: String? = null
+  @Volatile @NlsSafe private var fileText: String? = null
   private var triggered = false
 
-  constructor(filePath: String?, fileText: String?) : this() {
+  constructor(@NlsSafe filePath: String?, @NlsSafe fileText: String?) : this() {
     this.filePath = filePath
     this.fileText = fileText
   }
 
-  fun setPath(path: String) {
+  @JvmOverloads
+  fun setPath(@NlsSafe path: String, charset: Charset = Charsets.UTF_8) {
     filePath = path
-    fileText = File(path).readText()
+    fileText = File(path).readText(charset)
   }
 
   override fun applyFilter(line: String, entireLength: Int): Filter.Result? {

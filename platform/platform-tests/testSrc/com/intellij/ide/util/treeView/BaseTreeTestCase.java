@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.openapi.util.Condition;
@@ -131,17 +131,17 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
   class BaseTreeBuilder extends AbstractTreeBuilder {
     volatile boolean myWasCleanedUp;
 
-    public BaseTreeBuilder(JTree tree,
+    BaseTreeBuilder(JTree tree,
                            DefaultTreeModel treeModel,
                            AbstractTreeStructure treeStructure,
-                           @Nullable Comparator<NodeDescriptor> comparator) {
+                           @Nullable Comparator<? super NodeDescriptor> comparator) {
       super(tree, treeModel, treeStructure, comparator);
     }
 
-    public BaseTreeBuilder(JTree tree,
+    BaseTreeBuilder(JTree tree,
                            DefaultTreeModel treeModel,
                            AbstractTreeStructure treeStructure,
-                           @Nullable Comparator<NodeDescriptor> comparator,
+                           @Nullable Comparator<? super NodeDescriptor<?>> comparator,
                            boolean updateIfInactive) {
       super(tree, treeModel, treeStructure, comparator, updateIfInactive);
     }
@@ -195,7 +195,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
     }
 
     @Override
-    protected boolean validateNode(Object child) {
+    protected boolean validateNode(@NotNull Object child) {
       return myValidator != null ? myValidator.isValid(child) : super.validateNode(child);
     }
 
@@ -231,7 +231,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
   AbstractTreeUi _createUi() {
     return new AbstractTreeUi() {
       @Override
-      protected void yield(Runnable runnable) {
+      protected void yieldToEDT(@NotNull Runnable runnable) {
         SimpleTimer.getInstance().setUp(runnable, 100);
       }
 
@@ -241,19 +241,14 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
       }
 
       @Override
-      protected void runOnYieldingDone(Runnable onDone) {
+      protected void runOnYieldingDone(@NotNull Runnable onDone) {
         SwingUtilities.invokeLater(onDone);
       }
     };
   }
 
   static AbstractTreeUpdater _createUpdater(AbstractTreeBuilder builder) {
-    final AbstractTreeUpdater updater = new AbstractTreeUpdater(builder) {
-      @Override
-      protected boolean isEdt() {
-        return SwingUtilities.isEventDispatchThread();
-      }
-    };
+    final AbstractTreeUpdater updater = new AbstractTreeUpdater(builder);
     updater.setModalityStateComponent(MergingUpdateQueue.ANY_COMPONENT);
     return updater;
   }
@@ -261,7 +256,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
   abstract class BaseStructure extends AbstractTreeStructure {
 
     @Override
-    public boolean isToBuildChildrenInBackground(Object element) {
+    public boolean isToBuildChildrenInBackground(@NotNull Object element) {
       return myBgStructureBuilding && !myForegroundLoadingNodes.contains(element);
     }
 
@@ -276,7 +271,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
 
     @NotNull
     @Override
-    public final NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+    public final NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
       return doCreateDescriptor(element, parentDescriptor);
     }
 
@@ -284,7 +279,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
     public abstract NodeDescriptor doCreateDescriptor(Object element, NodeDescriptor parentDescriptor);
 
     @Override
-    public final Object[] getChildElements(Object element) {
+    public final Object @NotNull [] getChildElements(@NotNull Object element) {
       return _getChildElements(element, true);
     }
 
@@ -314,20 +309,23 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    invokeLaterIfNeeded(() -> {
-      if (getBuilder() != null) {
-        Disposer.dispose(getBuilder());
-      }
-    });
+    try {
+      invokeLaterIfNeeded(() -> {
+        if (getBuilder() != null) {
+          Disposer.dispose(getBuilder());
+        }
+      });
 
-    new WaitFor(6000) {
-      @Override
-      protected boolean condition() {
-        return getBuilder() == null || getBuilder().getUi() == null;
-      }
-    };
-
-    super.tearDown();
+      new WaitFor(6000) {
+        @Override
+        protected boolean condition() {
+          return getBuilder() == null || getBuilder().getUi() == null;
+        }
+      };
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   void assertTree(final String expected) {

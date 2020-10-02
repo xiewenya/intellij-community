@@ -1,35 +1,26 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.dom
 
+
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
+import org.jetbrains.idea.maven.indices.MavenIndicesTestFixture
 
 /**
  * @author Sergey Evdokimov
  */
-class MavenSurefirePluginTest extends MavenDomTestCase {
+class MavenSurefirePluginTest extends MavenDomWithIndicesTestCase {
 
   @Override
   protected void setUp() throws Exception {
-    super.setUp();
-    setRepositoryPath(new MavenCustomRepositoryHelper(myDir, "plugins").getTestDataPath("plugins"));
+    super.setUp()
+    setRepositoryPath(new MavenCustomRepositoryHelper(myDir, "plugins").getTestDataPath("plugins"))
+    //need to recreate fixture
+    myIndicesFixture = new MavenIndicesTestFixture(myDir.toPath(), myProject, "plugins", ['local1'] as String[])
+    myIndicesFixture.setUp();
   }
 
   void testCompletion() {
-    importProject("""
+    configureProjectPom("""
   <groupId>simpleMaven</groupId>
   <artifactId>simpleMaven</artifactId>
   <packaging>jar</packaging>
@@ -48,6 +39,7 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
     </plugins>
   </build>
 """)
+    importProject()
 
     createProjectSubFile("src/main/A.txt", "")
     createProjectSubFile("src/test/A.txt", "")
@@ -57,7 +49,7 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
   }
 
   void testCompletionSurefireProperties() {
-    importProject("""
+    configureProjectPom("""
   <groupId>simpleMaven</groupId>
   <artifactId>simpleMaven</artifactId>
   <version>1.0</version>
@@ -76,12 +68,13 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
     </plugins>
   </build>
 """)
+    importProject()
 
     assertCompletionVariants(myProjectPom, "surefire.forkNumber", "surefire.threadNumber")
   }
 
   void testCompletionSurefirePropertiesOutsideConfiguration() {
-    importProject("""
+    configureProjectPom("""
   <groupId>simpleMaven</groupId>
   <artifactId>simpleMaven</artifactId>
   <version>1.0</version>
@@ -101,6 +94,7 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
     </plugins>
   </build>
 """)
+    importProject()
 
     assertCompletionVariants(myProjectPom)
   }
@@ -148,7 +142,7 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
   <version>1.0</version>
 
     <properties>
-    <aaa>\${<error>surefire.forkNumber</error>}</aaa>
+    <aaa>\${<error descr="Cannot resolve symbol 'surefire.forkNumber'">surefire.forkNumber</error>}</aaa>
   </properties>
 
   <build>
@@ -166,7 +160,7 @@ class MavenSurefirePluginTest extends MavenDomTestCase {
           <execution>
             <goals>
               <goal>test</goal>
-              <goal>\${<error>surefire.threadNumber</error>}</goal>
+              <goal>\${<error descr="Cannot resolve symbol 'surefire.threadNumber'">surefire.threadNumber</error>}</goal>
             </goals>
             <configuration>
               <debugForkedProcess>\${surefire.threadNumber}</debugForkedProcess>

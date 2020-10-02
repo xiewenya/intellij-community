@@ -15,7 +15,7 @@
  */
 package com.intellij.openapi.vcs.changes;
 
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -24,15 +24,18 @@ public interface DiffPreviewUpdateProcessor {
   /**
    * Notify currently shown diff that it's not needed now and cached values can be reset, a.e. before hiding preview panel
    */
-  @CalledInAwt
+  @RequiresEdt
   void clear();
 
   /**
    * Get newly requested element for diff and update/create new diff request for it
    * a.e. get selection from some model and check if previously shown diff request need to be replaced or still valid for such selection
+   *
+   * @param fromModelRefresh Whether refresh was triggered without explicit change of selected item by user.
+   *                         In this case, we might want not to close active viewer while it is in focus.
    */
-  @CalledInAwt
-  void refresh();
+  @RequiresEdt
+  void refresh(boolean fromModelRefresh);
 
   @NotNull
   JComponent getComponent();

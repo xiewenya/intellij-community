@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class BreakpointManager
@@ -6,8 +6,8 @@
  */
 package com.intellij.debugger.ui.breakpoints;
 
-import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.DebuggerInvocationUtil;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.BreakpointStepMethodFilter;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
@@ -32,10 +32,12 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiField;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.XDebuggerUtil;
 import com.intellij.xdebugger.XSourcePosition;
@@ -46,12 +48,14 @@ import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl;
 import com.intellij.xdebugger.impl.breakpoints.XDependentBreakpointManager;
 import com.intellij.xdebugger.impl.breakpoints.XLineBreakpointImpl;
+import com.jetbrains.jdi.EventRequestManagerImpl;
 import com.sun.jdi.InternalException;
 import com.sun.jdi.ThreadReference;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.InvalidRequestStateException;
 import gnu.trove.THashMap;
+import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -63,10 +67,12 @@ import javax.swing.*;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 public class BreakpointManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.breakpoints.BreakpointManager");
+  private static final Logger LOG = Logger.getInstance(BreakpointManager.class);
 
   @NonNls private static final String MASTER_BREAKPOINT_TAG_NAME = "master_breakpoint";
   @NonNls private static final String SLAVE_BREAKPOINT_TAG_NAME = "slave_breakpoint";
@@ -79,11 +85,8 @@ public class BreakpointManager {
   private final Project myProject;
   private final Map<String, String> myUIProperties = new LinkedHashMap<>();
 
-  private final StartupManager myStartupManager;
-
-  public BreakpointManager(@NotNull Project project, @NotNull StartupManager startupManager, @NotNull DebuggerManagerImpl debuggerManager) {
+  public BreakpointManager(@NotNull Project project, @NotNull DebuggerManagerImpl debuggerManager) {
     myProject = project;
-    myStartupManager = startupManager;
     debuggerManager.getContextManager().addListener(new DebuggerContextListener() {
       private DebuggerSession myPreviousSession;
 
@@ -106,16 +109,15 @@ public class BreakpointManager {
     XBreakpointProperties properties = breakpoint.getProperties();
     if (breakpoint.isEnabled() && properties instanceof JavaMethodBreakpointProperties && !((JavaMethodBreakpointProperties)properties).EMULATED) {
       XDebuggerManagerImpl.NOTIFICATION_GROUP
-        .createNotification(DebuggerBundle.message("method.breakpoints.slowness.warning"), MessageType.WARNING)
+        .createNotification(JavaDebuggerBundle.message("method.breakpoints.slowness.warning"), MessageType.WARNING)
         .notify(((XBreakpointBase)breakpoint).getProject());
       return true;
     }
     return false;
   }
 
-  public void init() {
-    XBreakpointManager manager = XDebuggerManager.getInstance(myProject).getBreakpointManager();
-    manager.addBreakpointListener(new XBreakpointListener<XBreakpoint<?>>() {
+  public void addListeners(@NotNull MessageBusConnection busConnection) {
+    busConnection.subscribe(XBreakpointListener.TOPIC, new XBreakpointListener<>() {
       @Override
       public void breakpointAdded(@NotNull XBreakpoint<?> xBreakpoint) {
         Breakpoint breakpoint = getJavaBreakpoint(xBreakpoint);
@@ -156,7 +158,7 @@ public class BreakpointManager {
   }
 
   public void setBreakpointDefaults(Key<? extends Breakpoint> category, BreakpointDefaults defaults) {
-    Class typeCls = null;
+    Class<? extends XBreakpointType> typeCls = null;
     if (LineBreakpoint.CATEGORY.toString().equals(category.toString())) {
       typeCls = JavaLineBreakpointType.class;
     }
@@ -279,7 +281,7 @@ public class BreakpointManager {
     for (final Breakpoint breakpoint : getBreakpoints()) {
       if (breakpoint instanceof BreakpointWithHighlighter && ((BreakpointWithHighlighter)breakpoint).isAt(document, offset)) {
         if (category == null || category.equals(breakpoint.getCategory())) {
-          //noinspection CastConflictsWithInstanceof,unchecked
+          // noinspection unchecked
           return (T)breakpoint;
         }
       }
@@ -296,7 +298,7 @@ public class BreakpointManager {
       myOriginalBreakpointsNodes.put(element.getName(), JDOMUtil.internElement(element));
     }
     if (!myProject.isDefault()) {
-      myStartupManager.runWhenProjectIsInitialized(() -> doRead(parentNode));
+      StartupManager.getInstance(myProject).runWhenProjectIsInitialized(() -> doRead(parentNode));
     }
   }
 
@@ -342,11 +344,12 @@ public class BreakpointManager {
             if (breakpointElement != null) {
               XBreakpointManager manager = XDebuggerManager.getInstance(myProject).getBreakpointManager();
               JavaExceptionBreakpointType type = XDebuggerUtil.getInstance().findBreakpointType(JavaExceptionBreakpointType.class);
-              XBreakpoint<JavaExceptionBreakpointProperties> xBreakpoint = manager.getDefaultBreakpoint(type);
-              Breakpoint breakpoint = getJavaBreakpoint(xBreakpoint);
-              if (breakpoint != null) {
-                breakpoint.readExternal(breakpointElement);
-                addBreakpoint(breakpoint);
+              for (XBreakpoint<JavaExceptionBreakpointProperties> defaultBreakpoint : manager.getDefaultBreakpoints(type)) {
+                Breakpoint breakpoint = getJavaBreakpoint(defaultBreakpoint);
+                if (breakpoint != null) {
+                  breakpoint.readExternal(breakpointElement);
+                  addBreakpoint(breakpoint);
+                }
               }
             }
           }
@@ -440,11 +443,11 @@ public class BreakpointManager {
     final String url = breakpointNode.getAttributeValue("url");
     VirtualFile vFile = VirtualFileManager.getInstance().findFileByUrl(url);
     if (vFile == null) {
-      throw new InvalidDataException(DebuggerBundle.message("error.breakpoint.file.not.found", url));
+      throw new InvalidDataException(JavaDebuggerBundle.message("error.breakpoint.file.not.found", url));
     }
     final Document doc = FileDocumentManager.getInstance().getDocument(vFile);
     if (doc == null) {
-      throw new InvalidDataException(DebuggerBundle.message("error.cannot.load.breakpoint.file", url));
+      throw new InvalidDataException(JavaDebuggerBundle.message("error.cannot.load.breakpoint.file", url));
     }
 
     final int line;
@@ -534,7 +537,18 @@ public class BreakpointManager {
       return;
     }
     requestManager.setFilterThread(newFilterThread);
-    if (newFilterThread == null || oldFilterThread != null) {
+    EventRequestManager eventRequestManager = requestManager.getVMRequestManager();
+    if (Registry.is("debugger.async.jdi") && eventRequestManager instanceof EventRequestManagerImpl) {
+      Stream<EventRequestManagerImpl.ThreadVisibleEventRequestImpl> requests =
+        StreamEx.<EventRequest>of(eventRequestManager.breakpointRequests())
+          .append(eventRequestManager.methodEntryRequests())
+          .append(eventRequestManager.methodExitRequests())
+          .select(EventRequestManagerImpl.ThreadVisibleEventRequestImpl.class);
+      Stream<CompletableFuture> futures = requests
+        .map(r -> newFilterThread != null ? r.addThreadFilterAsync(newFilterThread) : r.removeThreadFilterAsync(oldFilterThread));
+      CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+    }
+    else if (newFilterThread == null || oldFilterThread != null) {
       final List<Breakpoint> breakpoints = getBreakpoints();
       for (Breakpoint breakpoint : breakpoints) {
         if (LineBreakpoint.CATEGORY.equals(breakpoint.getCategory()) || MethodBreakpoint.CATEGORY.equals(breakpoint.getCategory())) {
@@ -546,7 +560,6 @@ public class BreakpointManager {
     else {
       // important! need to add filter to _existing_ requests, otherwise Requestor->Request mapping will be lost
       // and debugger trees will not be restored to original state
-      EventRequestManager eventRequestManager = requestManager.getVMRequestManager();
       if (eventRequestManager != null) {
         applyFilter(eventRequestManager.breakpointRequests(), request -> request.addThreadFilter(newFilterThread));
         applyFilter(eventRequestManager.methodEntryRequests(), request -> request.addThreadFilter(newFilterThread));
@@ -555,9 +568,13 @@ public class BreakpointManager {
     }
   }
 
-  private static <T extends EventRequest> void applyFilter(@NotNull List<T> requests, Consumer<T> setter) {
+  private static <T extends EventRequest> void applyFilter(@NotNull List<T> requests, Consumer<? super T> setter) {
     for (T request : requests) {
       try {
+        // skip synthetic
+        if (RequestManagerImpl.findRequestor(request) instanceof SyntheticLineBreakpoint) {
+          continue;
+        }
         boolean wasEnabled = request.isEnabled();
         if (wasEnabled) {
           request.disable();
@@ -597,7 +614,7 @@ public class BreakpointManager {
   public String getProperty(String name) {
     return myUIProperties.get(name);
   }
-  
+
   public String setProperty(String name, String value) {
     return myUIProperties.put(name, value);
   }

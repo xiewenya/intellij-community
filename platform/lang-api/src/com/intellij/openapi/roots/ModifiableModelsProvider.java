@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots;
 
 import com.intellij.facet.ModifiableFacetModel;
@@ -5,6 +6,7 @@ import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.libraries.LibraryTable;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Returns the modifiable models from either the open Project Structure configurable (if any) or the standard module root manager.
@@ -12,7 +14,7 @@ import com.intellij.openapi.roots.libraries.LibraryTable;
  * @author Dennis.Ushakov
  */
 public interface ModifiableModelsProvider {
-  class SERVICE {
+  final class SERVICE {
     private SERVICE() {
     }
 
@@ -20,15 +22,17 @@ public interface ModifiableModelsProvider {
       return ServiceManager.getService(ModifiableModelsProvider.class);
     }
   }
-  
-  ModifiableRootModel getModuleModifiableModel(final Module module);
-  void commitModuleModifiableModel(final ModifiableRootModel model);
-  void disposeModuleModifiableModel(final ModifiableRootModel model);
 
-  ModifiableFacetModel getFacetModifiableModel(Module module);
-  void commitFacetModifiableModel(Module module, ModifiableFacetModel model);
+  ModifiableRootModel getModuleModifiableModel(@NotNull Module module);
+  void commitModuleModifiableModel(@NotNull ModifiableRootModel model);
+  void disposeModuleModifiableModel(@NotNull ModifiableRootModel model);
 
+  @NotNull
+  ModifiableFacetModel getFacetModifiableModel(@NotNull Module module);
+  void commitFacetModifiableModel(@NotNull Module module, @NotNull ModifiableFacetModel model);
+
+  @NotNull
   LibraryTable.ModifiableModel getLibraryTableModifiableModel();
-  LibraryTable.ModifiableModel getLibraryTableModifiableModel(Project project);
-  void disposeLibraryTableModifiableModel(LibraryTable.ModifiableModel model);
+  LibraryTable.ModifiableModel getLibraryTableModifiableModel(@NotNull Project project);
+  void disposeLibraryTableModifiableModel(@NotNull LibraryTable.ModifiableModel model);
 }

@@ -1,9 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.rules.guava;
 
 import com.intellij.codeInspection.java18StreamApi.PseudoLambdaReplaceTemplate;
 import com.intellij.codeInspection.java18StreamApi.StreamApiConstants;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -20,7 +21,6 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Stack;
-import com.intellij.util.containers.hash.HashMap;
 import com.siyeh.ig.controlflow.DoubleNegationInspection;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.NonNls;
@@ -34,12 +34,12 @@ import java.util.*;
  */
 public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRule {
   private static final Logger LOG = Logger.getInstance(GuavaFluentIterableConversionRule.class);
-  private static final Map<String, TypeConversionDescriptorFactory> DESCRIPTORS_MAP =
+  private static final Map<@NonNls String, TypeConversionDescriptorFactory> DESCRIPTORS_MAP =
     new HashMap<>();
 
-  public static final Set<String> CHAIN_HEAD_METHODS = ContainerUtil.newHashSet("from", "of", "fromNullable");
-  public static final String FLUENT_ITERABLE = "com.google.common.collect.FluentIterable";
-  public static final String STREAM_COLLECT_TO_LIST = "$it$.collect(java.util.stream.Collectors.toList())";
+  public static final Set<@NonNls String> CHAIN_HEAD_METHODS = ContainerUtil.newHashSet("from", "of", "fromNullable");
+  public static final @NonNls String FLUENT_ITERABLE = "com.google.common.collect.FluentIterable";
+  public static final @NonNls String STREAM_COLLECT_TO_LIST = "$it$.collect(java.util.stream.Collectors.toList())";
 
   static class TypeConversionDescriptorFactory {
     private final String myStringToReplace;
@@ -48,11 +48,11 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
     private final boolean myChainedMethod;
     private final boolean myFluentIterableReturnType;
 
-    public TypeConversionDescriptorFactory(String stringToReplace, String replaceByString, boolean withLambdaParameter) {
+    TypeConversionDescriptorFactory(@NonNls String stringToReplace, @NonNls String replaceByString, boolean withLambdaParameter) {
       this(stringToReplace, replaceByString, withLambdaParameter, false, false);
     }
 
-    public TypeConversionDescriptorFactory(@NonNls final String stringToReplace,
+    TypeConversionDescriptorFactory(@NonNls final String stringToReplace,
                                            @NonNls final String replaceByString,
                                            boolean withLambdaParameter,
                                            boolean chainedMethod,
@@ -115,7 +115,7 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
   }
 
   @Nullable
-  private static TypeConversionDescriptorBase getOneMethodDescriptor(@NotNull String methodName,
+  private static TypeConversionDescriptorBase getOneMethodDescriptor(@NotNull @NlsSafe String methodName,
                                                                      @NotNull PsiMethod method,
                                                                      @NotNull PsiType from,
                                                                      @Nullable PsiExpression context) {
@@ -286,7 +286,7 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
                                                                           TypeMigrationLabeler labeler) {
     List<TypeConversionDescriptorBase> methodDescriptors = new SmartList<>();
 
-    NotNullLazyValue<TypeConversionRule> optionalDescriptor = new NotNullLazyValue<TypeConversionRule>() {
+    NotNullLazyValue<TypeConversionRule> optionalDescriptor = new NotNullLazyValue<>() {
       @NotNull
       @Override
       protected TypeConversionRule compute() {
@@ -369,7 +369,7 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
     }
   }
 
-  private static class GuavaChainedConversionDescriptor extends TypeConversionDescriptorBase {
+  private static final class GuavaChainedConversionDescriptor extends TypeConversionDescriptorBase {
     private final List<TypeConversionDescriptorBase> myMethodDescriptors;
     private final PsiType myToType;
 

@@ -23,7 +23,7 @@ public class GrAliasedImportedElementSearcher extends QueryExecutorBase<PsiRefer
   }
 
   @Override
-  public void processQuery(@NotNull ReferencesSearch.SearchParameters parameters, @NotNull Processor<PsiReference> consumer) {
+  public void processQuery(@NotNull ReferencesSearch.SearchParameters parameters, @NotNull Processor<? super PsiReference> consumer) {
     final PsiElement target = parameters.getElementToSearch();
     if (!(target instanceof PsiMember) || !(target instanceof PsiNamedElement)) return;
 
@@ -40,10 +40,8 @@ public class GrAliasedImportedElementSearcher extends QueryExecutorBase<PsiRefer
         final PsiField field = GroovyPropertyUtils.findFieldForAccessor(method, true);
         if (field != null) {
           final String propertyName = field.getName();
-          if (propertyName != null) {
-            final MyProcessor processor = new MyProcessor(method, GroovyPropertyUtils.getAccessorPrefix(method), session);
-            collector.searchWord(propertyName, onlyGroovy, UsageSearchContext.IN_CODE, true, method, processor);
-          }
+          final MyProcessor processor = new MyProcessor(method, GroovyPropertyUtils.getAccessorPrefix(method), session);
+          collector.searchWord(propertyName, onlyGroovy, UsageSearchContext.IN_CODE, true, method, processor);
         }
       }
     }
@@ -64,7 +62,7 @@ public class GrAliasedImportedElementSearcher extends QueryExecutorBase<PsiRefer
     }
 
     @Override
-    public boolean processTextOccurrence(@NotNull final PsiElement element, int offsetInElement, @NotNull Processor<PsiReference> consumer) {
+    public boolean processTextOccurrence(@NotNull final PsiElement element, int offsetInElement, @NotNull Processor<? super PsiReference> consumer) {
       String alias = getAlias(element);
       if (alias == null) return true;
 

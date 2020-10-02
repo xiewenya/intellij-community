@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.facet;
 
 import com.intellij.facet.Facet;
@@ -26,6 +12,7 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.util.indexing.FileContent;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.module.PythonModuleType;
 import com.jetbrains.python.sdk.PythonSdkType;
@@ -50,9 +37,10 @@ public class PythonFacetType extends FacetType<PythonFacet, PythonFacetConfigura
   }
 
   public PythonFacetType() {
-    super(PythonFacet.ID, ID, "Python");
+    super(PythonFacet.ID, ID, PyBundle.message("python.facet.name"));
   }
 
+  @Override
   public PythonFacetConfiguration createDefaultConfiguration() {
     PythonFacetConfiguration result = new PythonFacetConfiguration();
     List<Sdk> sdks = ProjectJdkTable.getInstance().getSdksOfType(PythonSdkType.getInstance());
@@ -62,10 +50,12 @@ public class PythonFacetType extends FacetType<PythonFacet, PythonFacetConfigura
     return result;
   }
 
+  @Override
   public PythonFacet createFacet(@NotNull Module module, String name, @NotNull PythonFacetConfiguration configuration, @Nullable Facet underlyingFacet) {
     return new PythonFacet(this, module, name, configuration, underlyingFacet);
   }
 
+  @Override
   public boolean isSuitableModuleType(ModuleType moduleType) {
     return !(moduleType instanceof PythonModuleType);
   }

@@ -31,9 +31,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * @author nik
- */
 public class ConfigFileContainerImpl extends SimpleModificationTracker implements ConfigFileContainer {
   private final Project myProject;
   private final EventDispatcher<ConfigFileListener> myDispatcher = EventDispatcher.create(ConfigFileListener.class);
@@ -98,7 +95,7 @@ public class ConfigFileContainerImpl extends SimpleModificationTracker implement
     myDispatcher.addListener(listener, parentDisposable);
   }
 
-  public void fireDescriptorChanged(final ConfigFile descriptor) {
+  void fireDescriptorChanged(@NotNull ConfigFile descriptor) {
     incModificationCount();
     myDispatcher.getMulticaster().configFileChanged(descriptor);
   }

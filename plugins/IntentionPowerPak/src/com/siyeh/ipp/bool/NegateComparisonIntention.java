@@ -28,6 +28,7 @@ import org.jetbrains.annotations.NotNull;
 
 public class NegateComparisonIntention extends MutablyNamedIntention {
 
+  @Override
   public String getTextForElement(PsiElement element) {
     String operatorText = "";
     String negatedOperatorText = "";
@@ -49,12 +50,14 @@ public class NegateComparisonIntention extends MutablyNamedIntention {
     }
   }
 
+  @Override
   @NotNull
   public PsiElementPredicate getElementPredicate() {
     return new ComparisonPredicate();
   }
 
-  public void processIntention(PsiElement element) {
+  @Override
+  public void processIntention(@NotNull PsiElement element) {
     final PsiBinaryExpression expression = (PsiBinaryExpression)element;
     final PsiExpression lhs = expression.getLOperand();
     final PsiExpression rhs = expression.getROperand();

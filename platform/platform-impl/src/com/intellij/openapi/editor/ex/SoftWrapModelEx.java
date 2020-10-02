@@ -18,6 +18,7 @@ package com.intellij.openapi.editor.ex;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.impl.EditorTextRepresentationHelper;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
@@ -28,7 +29,6 @@ import java.util.List;
  * Extends {@link SoftWrapModel} in order to define implementation-specific contract.
  *
  * @author Denis Zhdanov
- * @since Jun 16, 2010 10:53:59 AM
  */
 public interface SoftWrapModelEx extends SoftWrapModel {
 
@@ -94,5 +94,10 @@ public interface SoftWrapModelEx extends SoftWrapModel {
    */
   void forceAdditionalColumnsUsage();
 
+  /**
+   * @deprecated To be removed in version 2021.1
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  @Deprecated
   EditorTextRepresentationHelper getEditorTextRepresentationHelper();
 }

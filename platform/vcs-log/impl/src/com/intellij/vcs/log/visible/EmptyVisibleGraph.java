@@ -28,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 
 public class EmptyVisibleGraph implements VisibleGraph<Integer> {
 
@@ -110,6 +111,11 @@ public class EmptyVisibleGraph implements VisibleGraph<Integer> {
       public boolean doJump() {
         return false;
       }
+
+      @Override
+      public boolean isRepaintRequired() {
+        return false;
+      }
     }
   }
 
@@ -139,6 +145,12 @@ public class EmptyVisibleGraph implements VisibleGraph<Integer> {
     @Override
     public RowType getRowType() {
       return RowType.NORMAL;
+    }
+
+    @NotNull
+    @Override
+    public List<Integer> getAdjacentRows(boolean parent) {
+      return Collections.emptyList();
     }
   }
 }

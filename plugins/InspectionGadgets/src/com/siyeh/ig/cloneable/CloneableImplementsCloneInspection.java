@@ -22,7 +22,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiUtil;
 import com.siyeh.HardcodedMethodConstants;
@@ -32,6 +31,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.CloneUtils;
 import com.siyeh.ig.psiutils.MethodUtils;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -47,12 +47,6 @@ public class CloneableImplementsCloneInspection extends BaseInspection {
   @NotNull
   public String getID() {
     return "CloneableClassWithoutClone";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("cloneable.class.without.clone.display.name");
   }
 
   @Override
@@ -91,7 +85,7 @@ public class CloneableImplementsCloneInspection extends BaseInspection {
 
     private final boolean myGenerateThrows;
 
-    public CreateCloneMethodFix(boolean generateThrows) {
+    CreateCloneMethodFix(boolean generateThrows) {
       myGenerateThrows = generateThrows;
     }
 
@@ -109,9 +103,9 @@ public class CloneableImplementsCloneInspection extends BaseInspection {
         return;
       }
       final PsiClass aClass = (PsiClass)parent;
-      final StringBuilder methodText = new StringBuilder();
-      if (PsiUtil.isLanguageLevel5OrHigher(aClass) && CodeStyleSettingsManager.getSettings(aClass.getProject())
-        .getCustomSettings(JavaCodeStyleSettings.class).INSERT_OVERRIDE_ANNOTATION) {
+      @NonNls final StringBuilder methodText = new StringBuilder();
+      if (PsiUtil.isLanguageLevel5OrHigher(aClass) &&
+          JavaCodeStyleSettings.getInstance(aClass.getContainingFile()).INSERT_OVERRIDE_ANNOTATION) {
         methodText.append("@java.lang.Override ");
       }
       methodText.append("public ").append(aClass.getName());
@@ -126,7 +120,7 @@ public class CloneableImplementsCloneInspection extends BaseInspection {
       methodText.append("{\nreturn (").append(element.getText()).append(") super.clone();\n").append("}");
       final PsiMethod method = JavaPsiFacade.getElementFactory(project).createMethodFromText(methodText.toString(), element);
       final PsiElement newElement = parent.add(method);
-      if (isOnTheFly()) {
+      if (isOnTheFly() && newElement.isPhysical()) {
         final Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
         if (editor != null) {
           GenerateMembersUtil.positionCaret(editor, newElement, true);

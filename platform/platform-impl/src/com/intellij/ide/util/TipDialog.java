@@ -1,64 +1,46 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util;
 
 import com.intellij.CommonBundle;
+import com.intellij.ide.GeneralSettings;
 import com.intellij.ide.IdeBundle;
-import com.intellij.internal.statistic.UsageTrigger;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.fileChooser.FileChooserFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ex.WindowManagerEx;
+import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.util.ArrayList;
 
-public class TipDialog extends DialogWrapper{
-  private TipPanel myTipPanel;
+public final class TipDialog extends DialogWrapper {
+  private static TipDialog ourInstance;
 
-  @Nullable
-  @Override
-  protected String getDimensionServiceKey() {
-    return getClass().getName();
-  }
+  @NonNls private static final String LAST_TIME_TIPS_WERE_SHOWN = "lastTimeTipsWereShown";
+  private final TipPanel myTipPanel;
 
-  public TipDialog(){
-    super(WindowManagerEx.getInstanceEx().findVisibleFrame(), true);
-    initialize();
-  }
-
-  public TipDialog(@NotNull final Window parent) {
+  TipDialog(@NotNull final Window parent) {
     super(parent, true);
-    initialize();
+    setModal(false);
+    setTitle(IdeBundle.message("title.tip.of.the.day"));
+    setCancelButtonText(CommonBundle.getCloseButtonText());
+    myTipPanel = new TipPanel();
+    setDoNotAskOption(myTipPanel);
+    setHorizontalStretch(1.33f);
+    setVerticalStretch(1.25f);
+    init();
   }
-
-  private void initialize () {
-      setModal(false);
-      setTitle(IdeBundle.message("title.tip.of.the.day"));
-      setCancelButtonText(CommonBundle.getCloseButtonText());
-      myTipPanel = new TipPanel();
-      myTipPanel.nextTip();
-      setDoNotAskOption(myTipPanel);
-      setHorizontalStretch(1.33f);
-      setVerticalStretch(1.25f);
-      init();
-    }
 
   @NotNull
   @Override
@@ -73,45 +55,93 @@ public class TipDialog extends DialogWrapper{
     return component;
   }
 
-  @NotNull
-  protected Action[] createActions(){
-    return new Action[]{new PreviousTipAction(),new NextTipAction(),getCancelAction()};
+  @Override
+  protected Action @NotNull [] createActions() {
+    if (ApplicationManager.getApplication().isInternal()) {
+      return new Action[]{new OpenTipsAction(), myTipPanel.myPreviousTipAction, myTipPanel.myNextTipAction, getCancelAction()};
+    }
+    return new Action[]{myTipPanel.myPreviousTipAction, myTipPanel.myNextTipAction, getCancelAction()};
   }
 
-  protected JComponent createCenterPanel(){
+  @Override
+  protected JComponent createCenterPanel() {
     return myTipPanel;
   }
 
-  public void dispose(){
+  @Override
+  public void show() {
+    PropertiesComponent.getInstance().setValue(LAST_TIME_TIPS_WERE_SHOWN, String.valueOf(System.currentTimeMillis()));
+    super.show();
+  }
+
+  public static boolean canBeShownAutomaticallyNow() {
+    if (!GeneralSettings.getInstance().isShowTipsOnStartup() || (ourInstance != null && ourInstance.isVisible())) {
+      return false;
+    }
+    return !wereTipsShownToday();
+  }
+
+  @Override
+  public void dispose() {
     super.dispose();
   }
 
-  public static TipDialog createForProject(final Project project) {
-    final Window w = WindowManagerEx.getInstanceEx().suggestParentWindow(project);
-    return (w == null) ? new TipDialog() : new TipDialog(w);
+  public static boolean wereTipsShownToday() {
+    return System.currentTimeMillis() - PropertiesComponent.getInstance().getLong(LAST_TIME_TIPS_WERE_SHOWN, 0) < DateFormatUtil.DAY;
   }
 
-  private class PreviousTipAction extends AbstractAction{
-    public PreviousTipAction(){
-      super(IdeBundle.message("action.previous.tip"));
-    }
+  public static void showForProject(@Nullable Project project) {
+    createForProject(project);
+    ourInstance.show();
+  }
 
-    public void actionPerformed(ActionEvent e){
-      myTipPanel.prevTip();
-      UsageTrigger.trigger("tips.of.the.day.prev");
+  /**
+   * @deprecated Use {@link #showForProject(Project)} instead
+   */
+  @Deprecated
+  public static TipDialog createForProject(@Nullable Project project) {
+    Window w = WindowManagerEx.getInstanceEx().suggestParentWindow(project);
+    if (w == null) w = WindowManagerEx.getInstanceEx().findVisibleFrame();
+    if (ourInstance != null && ourInstance.isVisible()) {
+      ourInstance.dispose();
+    }
+    return ourInstance = new TipDialog(w);
+  }
+
+  public static void hideForProject(@Nullable Project project) {
+    if (ourInstance != null) {
+      ourInstance.dispose();
+      ourInstance = null;
     }
   }
 
-  private class NextTipAction extends AbstractAction{
-    public NextTipAction(){
-      super(IdeBundle.message("action.next.tip"));
-      putValue(DialogWrapper.DEFAULT_ACTION,Boolean.TRUE);
-      putValue(DialogWrapper.FOCUSED_ACTION,Boolean.TRUE); // myPreferredFocusedComponent
+  private final class OpenTipsAction extends AbstractAction {
+    private static final String LAST_OPENED_TIP_PATH = "last.opened.tip.path";
+
+    OpenTipsAction() {
+      super(IdeBundle.message("action.open.tip"));
     }
 
-    public void actionPerformed(ActionEvent e){
-      myTipPanel.nextTip();
-      UsageTrigger.trigger("tips.of.the.day.next");
+    @Override
+    public void actionPerformed(ActionEvent e) {
+      PropertiesComponent propertiesComponent = PropertiesComponent.getInstance();
+      FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, false, true)
+        .withFileFilter(file -> Comparing.equal(file.getExtension(), "html", file.isCaseSensitive()));
+      String value = propertiesComponent.getValue(LAST_OPENED_TIP_PATH);
+      VirtualFile lastOpenedTip = value != null ? LocalFileSystem.getInstance().findFileByPath(value) : null;
+      VirtualFile[] pathToSelect = lastOpenedTip != null ? new VirtualFile[]{lastOpenedTip} : VirtualFile.EMPTY_ARRAY;
+      VirtualFile[] choose = FileChooserFactory.getInstance().createFileChooser(descriptor, null, myTipPanel).choose(null, pathToSelect);
+      if (choose.length > 0) {
+        ArrayList<TipAndTrickBean> tips = new ArrayList<>();
+        for (VirtualFile file : choose) {
+          TipAndTrickBean tip = new TipAndTrickBean();
+          tip.fileName = file.getPath();
+          tip.featureId = null;
+          tips.add(tip);
+          propertiesComponent.setValue(LAST_OPENED_TIP_PATH, file.getPath());
+        }
+        myTipPanel.setTips(tips);
+      }
     }
   }
 

@@ -7,32 +7,50 @@ import com.intellij.psi.PsiDocumentManager;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.Executor;
-
 /**
- * An executor that invokes given runnables on Swing Event Dispatch thread when all constraints of a given set are satisfied at the same time.
- * The executor is created by calling {@link #onUiThread}, the constraints are specified by chained calls. For example, to invoke
+ * An executor that invokes given runnables under Write Intent lock on Swing Event Dispatch thread or Write Thread
+ * when all constraints of a given set are satisfied at the same time.
+ * The executor is created by calling {@link #onUiThread} (for EDT) or {@link #onWriteThread} (for WT),
+ * the constraints are specified by chained calls. For example, to invoke
  * some action when all documents are committed and indices are available, one can use
- * {@code AppUIExecutor.onUiThread().withDocumentsCommitted(project).inSmartMode(project)}.
+ * {@code AppUIExecutor.onWriteThread().withDocumentsCommitted(project).inSmartMode(project)}.
  */
-public interface AppUIExecutor extends Executor {
+public interface AppUIExecutor extends BaseExpirableExecutor<AppUIExecutor> {
 
   /**
-   * Creates an executor working with the given modality state.
+   * Creates a EDT-based executor working with the given modality state.
    * @see ModalityState
    */
   @NotNull
   static AppUIExecutor onUiThread(@NotNull ModalityState modality) {
-    return ApplicationManager.getApplication().createUIExecutor(modality);
+    return AsyncExecutionService.getService().createUIExecutor(modality);
   }
 
   /**
-   * Creates an executor working with the default modality state.
-   * @see ModalityState#defaultModalityState() 
+   * Creates a Write-thread-based executor working with the given modality state.
+   * @see ModalityState
+   */
+  @NotNull
+  static AppUIExecutor onWriteThread(@NotNull ModalityState modality) {
+    return AsyncExecutionService.getService().createWriteThreadExecutor(modality);
+  }
+
+  /**
+   * Creates a EDT-based executor working with the default modality state.
+   * @see ModalityState#defaultModalityState()
    */
   @NotNull
   static AppUIExecutor onUiThread() {
     return onUiThread(ModalityState.defaultModalityState());
+  }
+
+  /**
+   * Creates a Write-thread-based executor working with the default modality state.
+   * @see ModalityState#defaultModalityState()
+   */
+  @NotNull
+  static AppUIExecutor onWriteThread() {
+    return onWriteThread(ModalityState.defaultModalityState());
   }
 
   /**
@@ -45,7 +63,7 @@ public interface AppUIExecutor extends Executor {
 
   /**
    * @return an executor that invokes runnables only when all documents are committed. Automatically expires when the project is disposed.
-   * @see PsiDocumentManager#hasUncommitedDocuments() 
+   * @see PsiDocumentManager#hasUncommitedDocuments()
    */
   @NotNull
   @Contract(pure=true)
@@ -53,25 +71,18 @@ public interface AppUIExecutor extends Executor {
 
   /**
    * @return an executor that invokes runnables only when indices have been built and are available to use. Automatically expires when the project is disposed.
-   * @see com.intellij.openapi.project.DumbService#isDumb(Project) 
+   * @see com.intellij.openapi.project.DumbService#isDumb(Project)
    */
   @NotNull
   @Contract(pure=true)
   AppUIExecutor inSmartMode(@NotNull Project project);
 
   /**
-   * @return an executor that invokes runnables only in transaction. Automatically expires when {@code parentDisposable} is disposed.
-   * @see TransactionGuard#submitTransaction(Disposable, Runnable) 
+   * @deprecated replace with {@code later()} or just remove it if you're in a write-safe context
+   * @see TransactionGuard
    */
   @NotNull
   @Contract(pure=true)
+  @Deprecated
   AppUIExecutor inTransaction(@NotNull Disposable parentDisposable);
-
-  /**
-   * @return an executor that no longer invokes the given runnable after the supplied Disposable is disposed
-   */
-  @NotNull
-  @Contract(pure=true)
-  AppUIExecutor expireWith(@NotNull Disposable parentDisposable);
-  
 }

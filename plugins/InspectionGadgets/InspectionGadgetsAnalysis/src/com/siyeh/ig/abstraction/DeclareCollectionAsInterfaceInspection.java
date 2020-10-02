@@ -24,10 +24,7 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.psiutils.CollectionUtils;
-import com.siyeh.ig.psiutils.DeclarationSearchUtils;
-import com.siyeh.ig.psiutils.LibraryUtil;
-import com.siyeh.ig.psiutils.WeakestTypeFinder;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,13 +48,6 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
   @NotNull
   public String getID() {
     return "CollectionDeclaredAsConcreteClass";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "collection.declared.by.class.display.name");
   }
 
   @Override
@@ -92,7 +82,7 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
 
     private final String typeString;
 
-    DeclareCollectionAsInterfaceFix(String typeString) {
+    DeclareCollectionAsInterfaceFix(@NotNull String typeString) {
       this.typeString = typeString;
     }
 
@@ -106,7 +96,7 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Weaken type";
+      return InspectionGadgetsBundle.message("declare.collection.as.interface.fix.family.name");
     }
 
     @Override
@@ -126,9 +116,7 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
       if (!(grandParent instanceof PsiTypeElement)) {
         return;
       }
-      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
-      final PsiTypeElement newTypeElement = factory.createTypeElementFromText(newElementText.toString(), element);
-      JavaCodeStyleManager.getInstance(project).shortenClassReferences(grandParent.replace(newTypeElement));
+      JavaCodeStyleManager.getInstance(project).shortenClassReferences(new CommentTracker().replaceAndRestoreComments(grandParent, newElementText.toString()));
     }
   }
 
@@ -215,17 +203,9 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
       final List<PsiClass> weaklingList = new ArrayList<>(weaklings);
       final PsiClass objectClass = javaLangObject.resolve();
       weaklingList.remove(objectClass);
-      if (weaklingList.isEmpty()) {
-        final String typeText = type.getCanonicalText();
-        final String interfaceText = CollectionUtils.getInterfaceForClass(typeText);
-        if (interfaceText == null) {
-          return;
-        }
-        registerError(nameElement, interfaceText);
-      }
-      else {
-        final PsiClass weakling = weaklingList.get(0);
-        final String qualifiedName = weakling.getQualifiedName();
+      String qualifiedName = weaklingList.isEmpty() ? CollectionUtils.getInterfaceForClass(type.getCanonicalText())
+                                                    : weaklingList.get(0).getQualifiedName();
+      if (qualifiedName != null) {
         registerError(nameElement, qualifiedName);
       }
     }

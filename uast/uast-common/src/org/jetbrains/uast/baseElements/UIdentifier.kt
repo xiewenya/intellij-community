@@ -20,20 +20,23 @@ import com.intellij.psi.PsiElement
 import org.jetbrains.uast.internal.log
 
 open class UIdentifier(
-  override val psi: PsiElement?,
+  override val sourcePsi: PsiElement?,
   override val uastParent: UElement?
-) : JvmDeclarationUElement {
+) : UElement {
   /**
    * Returns the identifier name.
    */
   open val name: String
-    get() = psi?.text ?: "<error>"
+    get() = sourcePsi?.text ?: "<error>"
 
-  override fun asLogString() = log("Identifier ($name)")
+  override fun asLogString(): String = log("Identifier ($name)")
 
-  override val sourcePsi: PsiElement? = psi
+  @Suppress("OverridingDeprecatedMember")
+  override val psi: PsiElement?
+    get() = sourcePsi
 
-  override val javaPsi: PsiElement? = null
+  override val javaPsi: PsiElement?
+    get() = null
 }
 
 open class LazyParentUIdentifier(psi: PsiElement?, private val givenParent: UElement?) : UIdentifier(psi, givenParent) {

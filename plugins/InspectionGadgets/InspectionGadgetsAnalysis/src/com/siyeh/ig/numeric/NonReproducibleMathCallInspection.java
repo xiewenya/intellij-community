@@ -32,7 +32,6 @@ import java.util.Set;
 
 public class NonReproducibleMathCallInspection extends BaseInspection {
 
-  @SuppressWarnings("StaticCollection")
   @NonNls private static final Set<String> nonReproducibleMethods =
     new HashSet<>(20);
 
@@ -55,14 +54,6 @@ public class NonReproducibleMathCallInspection extends BaseInspection {
     nonReproducibleMethods.add("sinh");
     nonReproducibleMethods.add("tan");
     nonReproducibleMethods.add("tanh");
-  }
-
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "non.reproducible.math.call.display.name");
   }
 
   @Override

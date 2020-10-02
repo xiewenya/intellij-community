@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.makeStatic;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.Messages;
@@ -29,7 +14,9 @@ import com.intellij.refactoring.util.ParameterTablePanel;
 import com.intellij.refactoring.util.VariableData;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.usageView.UsageViewUtil;
+import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -38,7 +25,6 @@ import java.awt.event.*;
 import java.util.ArrayList;
 
 public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
-  private final Project myProject;
   private final String[] myNameSuggestions;
 
   private final JCheckBox myMakeClassParameter = new JCheckBox();
@@ -56,11 +42,10 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
                                        String[] nameSuggestions,
                                        InternalUsageInfo[] internalUsages) {
     super(project, member);
-    myProject = project;
     myNameSuggestions = nameSuggestions;
 
     String type = UsageViewUtil.getType(myMember);
-    setTitle(RefactoringBundle.message("make.0.static", StringUtil.capitalize(type)));
+    setTitle(JavaRefactoringBundle.message("make.0.static", StringUtil.capitalize(type)));
     myAnyNonFieldMembersUsed = buildVariableData(internalUsages);
     init();
   }
@@ -73,10 +58,12 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     return nonFieldUsages;
   }
 
+  @Override
   public boolean isReplaceUsages() {
     return true;
   }
 
+  @Override
   public boolean isMakeClassParameter() {
     if (myMakeClassParameter != null)
       return myMakeClassParameter.isSelected();
@@ -84,6 +71,7 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
       return false;
   }
 
+  @Override
   public String getClassParameterName() {
     if (isMakeClassParameter()) {
       if (myClassParameterNameInputField instanceof JTextField) {
@@ -104,6 +92,7 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
    *
    * @return null if field parameters are not selected
    */
+  @Override
   public VariableData[] getVariableData() {
     if(myMakeFieldParameters != null && myMakeFieldParameters.isSelected()) {
       return myVariableData;
@@ -113,16 +102,18 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     }
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.MAKE_METHOD_STATIC);
+  @Override
+  protected String getHelpId() {
+    return HelpID.MAKE_METHOD_STATIC;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     GridBagConstraints gbConstraints = new GridBagConstraints();
 
     JPanel panel = new JPanel(new GridBagLayout());
 
-    gbConstraints.insets = JBUI.insets(4, 8);
+    gbConstraints.insets = JBInsets.create(4, 8);
     gbConstraints.weighty = 0;
     gbConstraints.weightx = 0;
     gbConstraints.gridx = 0;
@@ -137,7 +128,7 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
     gbConstraints.fill = GridBagConstraints.NONE;
     gbConstraints.anchor = GridBagConstraints.WEST;
-    String text = myMember instanceof PsiMethod ? RefactoringBundle.message("add.object.as.a.parameter.with.name") : RefactoringBundle.message("add.object.as.a.parameter.to.constructors.with.name");
+    String text = myMember instanceof PsiMethod ? RefactoringBundle.message("add.object.as.a.parameter.with.name") : JavaRefactoringBundle.message("add.object.as.a.parameter.to.constructors.with.name");
     myMakeClassParameter.setText(text);
     panel.add(myMakeClassParameter, gbConstraints);
     myMakeClassParameter.setSelected(myAnyNonFieldMembersUsed);
@@ -155,7 +146,8 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
       JTextField textField = new JTextField();
       textField.setText(myNameSuggestions[0]);
       textField.getDocument().addDocumentListener(new DocumentAdapter() {
-        public void textChanged(DocumentEvent event) {
+        @Override
+        public void textChanged(@NotNull DocumentEvent event) {
           updateControls();
         }
       });
@@ -166,25 +158,28 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
 
     if(myVariableData.length > 0) {
-      gbConstraints.insets = JBUI.insets(4, 8);
+      gbConstraints.insets = JBInsets.create(4, 8);
       gbConstraints.weighty = 0;
       gbConstraints.weightx = 0;
       gbConstraints.gridheight = 1;
       gbConstraints.fill = GridBagConstraints.NONE;
       gbConstraints.anchor = GridBagConstraints.WEST;
-      text = myMember instanceof PsiMethod ? RefactoringBundle.message("add.parameters.for.fields") : RefactoringBundle.message("add.parameters.for.fields.to.constructors");
+      text = myMember instanceof PsiMethod ? JavaRefactoringBundle.message("add.parameters.for.fields") : JavaRefactoringBundle.message("add.parameters.for.fields.to.constructors");
       myMakeFieldParameters.setText(text);
       panel.add(myMakeFieldParameters, gbConstraints);
       myMakeFieldParameters.setSelected(!myAnyNonFieldMembersUsed);
 
       myParameterPanel = new ParameterTablePanel(myProject, myVariableData, myMember) {
+        @Override
         protected void updateSignature() {
         }
 
+        @Override
         protected void doEnterAction() {
           clickDefaultButton();
         }
 
+        @Override
         protected void doCancelAction() {
         }
       };
@@ -197,6 +192,7 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     }
 
     ActionListener inputFieldValidator = new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         updateControls();
       }
@@ -221,14 +217,15 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     return myGenerateDelegateCb != null && myGenerateDelegateCb.isSelected();
   }
 
+  @Override
   protected boolean validateData() {
     int ret = Messages.YES;
     if (isMakeClassParameter()) {
       final PsiMethod methodWithParameter = checkParameterDoesNotExist();
       if (methodWithParameter != null) {
-        String who = methodWithParameter == myMember ? RefactoringBundle.message("this.method") : DescriptiveNameUtil
+        String who = methodWithParameter == myMember ? JavaRefactoringBundle.message("this.method") : DescriptiveNameUtil
           .getDescriptiveName(methodWithParameter);
-        String message = RefactoringBundle.message("0.already.has.parameter.named.1.use.this.name.anyway", who, getClassParameterName());
+        String message = JavaRefactoringBundle.message("0.already.has.parameter.named.1.use.this.name.anyway", who, getClassParameterName());
         ret = Messages.showYesNoDialog(myProject, message, RefactoringBundle.message("warning.title"), Messages.getWarningIcon());
         myClassParameterNameInputField.requestFocusInWindow();
       }
@@ -283,6 +280,7 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
 
     combobox.addItemListener(
       new ItemListener() {
+        @Override
         public void itemStateChanged(ItemEvent e) {
           updateControls();
         }
@@ -290,14 +288,17 @@ public class MakeParameterizedStaticDialog extends AbstractMakeStaticDialog {
     );
     combobox.getEditor().getEditorComponent().addKeyListener(
       new KeyAdapter() {
+        @Override
         public void keyPressed(KeyEvent e) {
           updateControls();
         }
 
+        @Override
         public void keyReleased(KeyEvent e) {
           updateControls();
         }
 
+        @Override
         public void keyTyped(KeyEvent e) {
           updateControls();
         }

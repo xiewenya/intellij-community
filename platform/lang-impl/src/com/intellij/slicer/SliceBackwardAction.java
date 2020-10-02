@@ -15,33 +15,33 @@
  */
 package com.intellij.slicer;
 
-import com.intellij.codeInsight.CodeInsightActionHandler;
 import com.intellij.codeInsight.actions.CodeInsightAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class SliceBackwardAction extends CodeInsightAction {
-
   @NotNull
   @Override
-  protected CodeInsightActionHandler getHandler() {
-    return new SliceHandler(true);
+  protected SliceHandler getHandler() {
+    return SliceHandler.create(true);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     if (LanguageSlicing.hasAnyProviders()) super.update(e);
     else e.getPresentation().setEnabledAndVisible(false);
   }
 
   @Override
   protected boolean isValidForFile(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
-    return LanguageSlicing.getProvider(file) != null;
+    if (LanguageSlicing.getProvider(file) == null) {
+      return false;
+    }
+    PsiElement expression = getHandler().getExpressionAtCaret(editor, file);
+    return expression != null;
   }
 }

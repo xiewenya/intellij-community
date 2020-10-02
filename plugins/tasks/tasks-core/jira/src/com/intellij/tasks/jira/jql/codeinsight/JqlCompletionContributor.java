@@ -1,10 +1,10 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.jira.jql.codeinsight;
 
 import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.completion.util.ParenthesesInsertHandler;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.PsiElementPattern;
 import com.intellij.psi.PsiElement;
@@ -235,7 +235,7 @@ public class JqlCompletionContributor extends CompletionContributor {
            new JqlKeywordCompletionProvider("empty", "null"));
   }
 
-  private static class JqlKeywordCompletionProvider extends CompletionProvider<CompletionParameters> {
+  private static final class JqlKeywordCompletionProvider extends CompletionProvider<CompletionParameters> {
     private final String[] myKeywords;
 
     private JqlKeywordCompletionProvider(String... keywords) {
@@ -244,7 +244,7 @@ public class JqlCompletionContributor extends CompletionContributor {
 
     @Override
     protected void addCompletions(@NotNull CompletionParameters parameters,
-                                  ProcessingContext context,
+                                  @NotNull ProcessingContext context,
                                   @NotNull CompletionResultSet result) {
       for (String keyword : myKeywords) {
         result.addElement(LookupElementBuilder.create(keyword).withBoldness(true));
@@ -256,7 +256,7 @@ public class JqlCompletionContributor extends CompletionContributor {
 
     @Override
     protected void addCompletions(@NotNull CompletionParameters parameters,
-                                  ProcessingContext context,
+                                  @NotNull ProcessingContext context,
                                   @NotNull CompletionResultSet result) {
       JqlFieldType operandType;
       boolean listFunctionExpected;
@@ -307,7 +307,7 @@ public class JqlCompletionContributor extends CompletionContributor {
     }
   }
 
-  private static class JqlFieldCompletionProvider extends CompletionProvider<CompletionParameters> {
+  private static final class JqlFieldCompletionProvider extends CompletionProvider<CompletionParameters> {
     private final JqlFieldType myFieldType;
 
     private JqlFieldCompletionProvider(JqlFieldType fieldType) {
@@ -316,7 +316,7 @@ public class JqlCompletionContributor extends CompletionContributor {
 
     @Override
     protected void addCompletions(@NotNull CompletionParameters parameters,
-                                  ProcessingContext context,
+                                  @NotNull ProcessingContext context,
                                   @NotNull CompletionResultSet result) {
       for (String field : JqlStandardField.allOfType(myFieldType)) {
         result.addElement(LookupElementBuilder.create(field));

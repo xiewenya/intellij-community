@@ -17,9 +17,12 @@ import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.ui.ThreeStateCheckBox;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.AccessibleContextDelegate;
+import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeCellRenderer;
@@ -66,11 +69,6 @@ public class CheckboxTreeBase extends Tree {
     myHelper.initTree(this, this, cellRenderer);
   }
 
-  @Deprecated
-  public void installRenderer(final CheckboxTreeCellRendererBase cellRenderer) {
-    setCellRenderer(cellRenderer);
-  }
-
   /**
    * @deprecated use {@link #setNodeState} to change node state or subscribe to {@link #addCheckboxTreeListener} to get notifications about state changes
    */
@@ -108,11 +106,12 @@ public class CheckboxTreeBase extends Tree {
    * @param <T>      the type of the node
    * @return an array of collected nodes
    */
-  public <T> T[] getCheckedNodes(final Class<T> nodeType, @Nullable final NodeFilter<T> filter) {
+  public <T> T[] getCheckedNodes(final Class<? extends T> nodeType, @Nullable final NodeFilter<? super T> filter) {
     return CheckboxTreeHelper.getCheckedNodes(nodeType, filter, getModel());
   }
 
 
+  @Override
   public int getToggleClickCount() {
     // to prevent node expanding/collapsing on checkbox toggling
     return -1;
@@ -123,10 +122,6 @@ public class CheckboxTreeBase extends Tree {
 
   protected void nodeStateWillChange(CheckedTreeNode node) {
   }
-
-  @SuppressWarnings("unused")
-  @Deprecated
-  protected void adjustParents(final CheckedTreeNode node, final boolean checked) {}
 
   public static class CheckboxTreeCellRendererBase extends JPanel implements TreeCellRenderer {
     private final ColoredTreeCellRenderer myTextRenderer;
@@ -145,6 +140,7 @@ public class CheckboxTreeBase extends Tree {
       myCheckbox.setSelected(false);
       myCheckbox.setThirdStateEnabled(false);
       myTextRenderer = new ColoredTreeCellRenderer() {
+        @Override
         public void customizeCellRenderer(@NotNull JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) { }
       };
       myTextRenderer.setOpaque(opaque);
@@ -156,6 +152,7 @@ public class CheckboxTreeBase extends Tree {
       this(true);
     }
 
+    @Override
     public final Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
       invalidate();
       if (value instanceof CheckedTreeNode) {
@@ -183,10 +180,6 @@ public class CheckboxTreeBase extends Tree {
       }
       myTextRenderer.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
 
-      if (UIUtil.isUnderGTKLookAndFeel()) {
-        final Color background = selected ? UIUtil.getTreeSelectionBackground() : UIUtil.getTreeTextBackground();
-        UIUtil.changeBackGround(this, background);
-      }
       customizeRenderer(tree, value, selected, expanded, leaf, row, hasFocus);
       revalidate();
 
@@ -216,6 +209,26 @@ public class CheckboxTreeBase extends Tree {
       return result == null ? State.NOT_SELECTED : result;
     }
 
+    @Override
+    public AccessibleContext getAccessibleContext() {
+      if (accessibleContext == null) {
+        accessibleContext = new AccessibleContextDelegate(super.getAccessibleContext()) {
+          @Override
+          protected Container getDelegateParent() {
+            return getParent();
+          }
+
+          @Override
+          public String getAccessibleName() {
+            return AccessibleContextUtil.combineAccessibleStrings(
+              myTextRenderer.getAccessibleContext().getAccessibleName(),
+              myCheckbox.isSelected() ? "checked" : "not checked");
+          }
+        };
+      }
+      return accessibleContext;
+    }
+
     /**
      * Should be implemented by concrete implementations.
      * This method is invoked only for customization of component.
@@ -235,9 +248,9 @@ public class CheckboxTreeBase extends Tree {
     }
 
     /**
-     * @see CheckboxTreeCellRendererBase#customizeRenderer(JTree, Object, boolean, boolean, boolean, int, boolean)
-     * @deprecated
+     * @deprecated use {@link CheckboxTreeCellRendererBase#customizeRenderer(JTree, Object, boolean, boolean, boolean, int, boolean)}
      */
+    @SuppressWarnings({"DeprecatedIsStillUsed", "unused"})
     @Deprecated
     public void customizeCellRenderer(JTree tree,
                                       Object value,
@@ -258,9 +271,8 @@ public class CheckboxTreeBase extends Tree {
   }
 
   /**
-   * Don't use this enum. Left for API compatibility.
-   * @see ThreeStateCheckBox.State
-   * @deprecated
+   * @see State
+   * @deprecated Don't use this enum. Left for API compatibility.
    */
   @Deprecated
   public enum NodeState {

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle.extractor.ui;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -32,6 +19,7 @@ import com.intellij.ui.treeStructure.treetable.TreeTableModel;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import com.intellij.util.ui.ColumnInfo;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
@@ -48,14 +36,11 @@ import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.Collection;
-import java.util.Enumeration;
 import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * @author Roman.Shein
- * @since 28.09.2015.
  */
 public class ExtractedSettingsDialog extends DialogWrapper {
   protected CodeStyleSettingsNameProvider myNameProvider;
@@ -70,7 +55,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
     myValues = values;
     setModal(true);
     init();
-    setTitle("Extracted Code Style Settings");
+    setTitle(LangBundle.message("dialog.title.extracted.code.style.settings"));
   }
 
   @Nullable
@@ -295,6 +280,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
         return myValueRenderer;
       }
 
+      @Override
       public TableCellEditor getEditor(Object o) {
         return myValueEditor;
       }
@@ -308,7 +294,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
 
   protected JComponent buildExtractedSettingsTree() {
 
-    Collection<Value> unusedValues = ContainerUtil.newHashSet(myValues);
+    Collection<Value> unusedValues = new HashSet<>(myValues);
     myRoot = new DefaultMutableTreeNode();
     for (Map.Entry<LanguageCodeStyleSettingsProvider.SettingsType,
       Map<CodeStyleSettingPresentation.SettingsGroup, List<CodeStyleSettingPresentation>>> typeEntry : myNameProvider.mySettings.entrySet()) {
@@ -385,10 +371,8 @@ public class ExtractedSettingsDialog extends DialogWrapper {
       @Override
       public TreeTableCellRenderer createTableRenderer(TreeTableModel treeTableModel) {
         TreeTableCellRenderer tableRenderer = super.createTableRenderer(treeTableModel);
-        UIUtil.setLineStyleAngled(tableRenderer);
         tableRenderer.setRootVisible(false);
         tableRenderer.setShowsRootHandles(true);
-
         return tableRenderer;
       }
 
@@ -436,7 +420,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
     titleColumn.setResizable(false);
 
     final Dimension valueSize = new JLabel(ApplicationBundle.message("option.table.sizing.text")).getPreferredSize();
-    treeTable.setPreferredScrollableViewportSize(new Dimension(maxWidth + valueSize.width + 10, 20));
+    treeTable.setPreferredScrollableViewportSize(JBUI.size(maxWidth + valueSize.width + 10, 20));
     treeTable.setBackground(UIUtil.getPanelBackground());
     treeTable.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 10));
 

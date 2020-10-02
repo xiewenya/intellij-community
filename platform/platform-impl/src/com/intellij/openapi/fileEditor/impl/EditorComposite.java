@@ -1,20 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl;
 
+import com.intellij.ide.IdeBundle;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
+import com.intellij.internal.statistic.service.fus.collectors.FUCounterUsageLogger;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataProvider;
@@ -29,35 +18,34 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.fileEditor.*;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager;
+import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.FocusWatcher;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.PrevNextActionsDescriptor;
-import com.intellij.ui.SideBorder;
-import com.intellij.ui.TabbedPaneWrapper;
+import com.intellij.ui.*;
 import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.components.panels.Wrapper;
-import com.intellij.ui.tabs.UiDecorator;
+import com.intellij.ui.tabs.JBTabs;
+import com.intellij.ui.tabs.impl.JBTabsImpl;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * This class hides internal structure of UI component which represent
@@ -66,8 +54,8 @@ import java.util.List;
  *
  * @author Vladimir Kondratyev
  */
-public abstract class EditorComposite implements Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileEditor.impl.EditorComposite");
+public class EditorComposite implements Disposable {
+  private static final Logger LOG = Logger.getInstance(EditorComposite.class);
 
   /**
    * File for which composite is created
@@ -80,13 +68,14 @@ public abstract class EditorComposite implements Disposable {
   /**
    * Editors which are opened in the composite
    */
-  protected FileEditor[] myEditors;
+  volatile FileEditor[] myEditors;
   /**
    * This is initial timestamp of the file. It uses to implement
    * "close non modified editors first" feature.
    */
   private final long myInitialFileTimeStamp;
-  TabbedPaneWrapper myTabbedPaneWrapper;
+  private TabbedPaneWrapper myTabbedPaneWrapper;
+  @NotNull
   private final MyComponent myComponent;
   private final FocusWatcher myFocusWatcher;
   /**
@@ -96,7 +85,9 @@ public abstract class EditorComposite implements Disposable {
   private final FileEditorManagerEx myFileEditorManager;
   private final Map<FileEditor, JComponent> myTopComponents = new HashMap<>();
   private final Map<FileEditor, JComponent> myBottomComponents = new HashMap<>();
-  private final Map<FileEditor, String> myDisplayNames = ContainerUtil.newHashMap();
+  private final Map<FileEditor, @NlsContexts.TabTitle String> myDisplayNames = new HashMap<>();
+
+  private FileEditorProvider[] myProviders;
 
   /**
    * @param file {@code file} for which composite is being constructed
@@ -107,27 +98,31 @@ public abstract class EditorComposite implements Disposable {
    * is {@code null} or {@code providers} is {@code null} or {@code myEditor} arrays is empty
    */
   EditorComposite(@NotNull final VirtualFile file,
-                  @NotNull final FileEditor[] editors,
+                  @NotNull FileEditor @NotNull [] editors,
+                  @NotNull FileEditorProvider @NotNull [] providers,
                   @NotNull final FileEditorManagerEx fileEditorManager) {
+    ApplicationManager.getApplication().assertIsDispatchThread();
     myFile = file;
     myEditors = editors;
+    myProviders = providers;
     if (ArrayUtil.contains(null, editors)) throw new IllegalArgumentException("Must not pass null editors in " + Arrays.asList(editors));
     myFileEditorManager = fileEditorManager;
-    myInitialFileTimeStamp     = myFile.getTimeStamp();
+    myInitialFileTimeStamp = myFile.getTimeStamp();
 
-    Disposer.register(fileEditorManager.getProject(), this);
+    Project project = fileEditorManager.getProject();
+    Disposer.register(project, this);
 
-    if(editors.length > 1){
+    if (editors.length > 1) {
       myTabbedPaneWrapper = createTabbedPaneWrapper(editors);
       JComponent component = myTabbedPaneWrapper.getComponent();
-      myComponent = new MyComponent(component, component);
+      myComponent = new MyComponent(component, () -> component);
     }
-    else if(editors.length==1){
-      myTabbedPaneWrapper=null;
+    else if (editors.length == 1) {
+      myTabbedPaneWrapper = null;
       FileEditor editor = editors[0];
-      myComponent = new MyComponent(createEditorComponent(editor), editor.getPreferredFocusedComponent());
+      myComponent = new MyComponent(createEditorComponent(editor), editor::getPreferredFocusedComponent);
     }
-    else{
+    else {
       throw new IllegalArgumentException("editors array cannot be empty");
     }
 
@@ -135,7 +130,8 @@ public abstract class EditorComposite implements Disposable {
     myFocusWatcher = new FocusWatcher();
     myFocusWatcher.install(myComponent);
 
-    myFileEditorManager.addFileEditorManagerListener(new FileEditorManagerListener() {
+    project.getMessageBus().connect(this).subscribe(
+          FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerListener() {
       @Override
       public void selectionChanged(@NotNull final FileEditorManagerEvent event) {
         final VirtualFile oldFile = event.getOldFile();
@@ -145,28 +141,40 @@ public abstract class EditorComposite implements Disposable {
             final FileEditor oldEditor = event.getOldEditor();
             if (oldEditor != null) oldEditor.deselectNotify();
             final FileEditor newEditor = event.getNewEditor();
-            if (newEditor != null) newEditor.selectNotify();
+            if (newEditor != null) {
+              newEditor.selectNotify();
+
+              FUCounterUsageLogger.getInstance().logEvent(
+                project,
+                "file.editor",
+                "alternative.file.editor.selected",
+                new FeatureUsageData()
+                  .addData("fileEditor", newEditor.getClass().getName())
+                  .addAnonymizedPath(newFile.getPath()));
+            }
             ((FileEditorProviderManagerImpl)FileEditorProviderManager.getInstance()).providerSelected(EditorComposite.this);
             ((IdeDocumentHistoryImpl)IdeDocumentHistory.getInstance(myFileEditorManager.getProject())).onSelectionChanged();
           };
           if (ApplicationManager.getApplication().isDispatchThread()) {
-            CommandProcessor.getInstance().executeCommand(myFileEditorManager.getProject(), runnable, "Switch Active Editor", null);
+            CommandProcessor.getInstance().executeCommand(myFileEditorManager.getProject(), runnable,
+                                                          IdeBundle.message("command.switch.active.editor"), null);
           }
           else {
             runnable.run(); // not invoked by user
           }
         }
       }
-    }, this);
+    });
+  }
+
+  public FileEditorProvider @NotNull [] getProviders() {
+    return myProviders;
   }
 
   @NotNull
   private TabbedPaneWrapper.AsJBTabs createTabbedPaneWrapper(FileEditor[] editors) {
     PrevNextActionsDescriptor descriptor = new PrevNextActionsDescriptor(IdeActions.ACTION_NEXT_EDITOR_TAB, IdeActions.ACTION_PREVIOUS_EDITOR_TAB);
     final TabbedPaneWrapper.AsJBTabs wrapper = new TabbedPaneWrapper.AsJBTabs(myFileEditorManager.getProject(), SwingConstants.BOTTOM, descriptor, this);
-    wrapper.getTabs().getPresentation().setPaintBorder(0, 0, 0, 0).setTabSidePaintBorder(1).setGhostsAlwaysVisible(true).setUiDecorator(
-      () -> new UiDecorator.UiDecoration(null, new Insets(0, 8, 0, 8)));
-    wrapper.getTabs().getComponent().setBorder(new EmptyBorder(0, 0, 1, 0));
 
     boolean firstEditor = true;
     for (FileEditor editor : editors) {
@@ -211,6 +219,8 @@ public abstract class EditorComposite implements Disposable {
    */
   void setPinned(final boolean pinned){
     myPinned = pinned;
+    ObjectUtils.consumeIfCast(getComponent().getParent(), JComponent.class,
+                              component -> component.putClientProperty(JBTabsImpl.PINNED, myPinned ? Boolean.TRUE : null));
   }
 
   private void fireSelectedEditorChanged(final FileEditor oldSelectedEditor, final FileEditor newSelectedEditor){
@@ -221,7 +231,8 @@ public abstract class EditorComposite implements Disposable {
         publisher.selectionChanged(event);
       });
       final JComponent component = newSelectedEditor.getComponent();
-      final EditorWindowHolder holder = UIUtil.getParentOfType(EditorWindowHolder.class, component);
+      final EditorWindowHolder holder =
+        ComponentUtil.getParentOfType((Class<? extends EditorWindowHolder>)EditorWindowHolder.class, (Component)component);
       if (holder != null) {
         ((FileEditorManagerImpl)myFileEditorManager).addSelectionRecord(myFile, holder.getEditorWindow());
       }
@@ -268,19 +279,13 @@ public abstract class EditorComposite implements Disposable {
    * @return editors which are opened in the composite. <b>Do not modify
    * this array</b>.
    */
-  @NotNull
-  public FileEditor[] getEditors() {
+  public FileEditor @NotNull [] getEditors() {
     return myEditors;
   }
 
   @NotNull
   List<JComponent> getTopComponents(@NotNull FileEditor editor) {
     return getTopBottomComponents(editor, true);
-  }
-
-  @NotNull
-  public List<JComponent> getBottomComponents(@NotNull FileEditor editor) {
-    return getTopBottomComponents(editor, false);
   }
 
   @NotNull
@@ -295,19 +300,24 @@ public abstract class EditorComposite implements Disposable {
     return Collections.unmodifiableList(result);
   }
 
-  public void addTopComponent(FileEditor editor, JComponent component) {
+  @Nullable
+  public JBTabs getTabs() {
+    return myTabbedPaneWrapper == null ? null : ((TabbedPaneWrapper.AsJBTabs)myTabbedPaneWrapper).getTabs();
+  }
+
+  public void addTopComponent(@NotNull FileEditor editor, @NotNull JComponent component) {
     manageTopOrBottomComponent(editor, component, true, false);
   }
 
-  public void removeTopComponent(FileEditor editor, JComponent component) {
+  public void removeTopComponent(@NotNull FileEditor editor, @NotNull JComponent component) {
     manageTopOrBottomComponent(editor, component, true, true);
   }
 
-  public void addBottomComponent(FileEditor editor, JComponent component) {
+  void addBottomComponent(@NotNull FileEditor editor, @NotNull JComponent component) {
     manageTopOrBottomComponent(editor, component, false, false);
   }
 
-  public void removeBottomComponent(FileEditor editor, JComponent component) {
+  void removeBottomComponent(@NotNull FileEditor editor, @NotNull JComponent component) {
     manageTopOrBottomComponent(editor, component, false, true);
   }
 
@@ -344,7 +354,7 @@ public abstract class EditorComposite implements Disposable {
     return -1;
   }
 
-  public void setDisplayName(@NotNull FileEditor editor, @NotNull String name) {
+  public void setDisplayName(@NotNull FileEditor editor, @NlsContexts.TabTitle @NotNull String name) {
     int index = ContainerUtil.indexOfIdentity(ContainerUtil.immutableList(myEditors), editor);
     assert index != -1;
 
@@ -355,7 +365,7 @@ public abstract class EditorComposite implements Disposable {
   }
 
   @NotNull
-  protected String getDisplayName(@NotNull FileEditor editor) {
+  protected @NlsContexts.TabTitle String getDisplayName(@NotNull FileEditor editor) {
     return ObjectUtils.notNull(myDisplayNames.get(editor), editor.getName());
   }
 
@@ -364,18 +374,40 @@ public abstract class EditorComposite implements Disposable {
    */
   @NotNull
   FileEditor getSelectedEditor() {
-    return getSelectedEditorWithProvider().getFirst ();
-  }
-
-  public boolean isDisposed() {
-    return myTabbedPaneWrapper != null && myTabbedPaneWrapper.isDisposed();
+    return getSelectedWithProvider().getFileEditor();
   }
 
   /**
    * @return currently selected myEditor with its provider.
    */
   @NotNull
-  public abstract Pair<FileEditor, FileEditorProvider> getSelectedEditorWithProvider();
+  public FileEditorWithProvider getSelectedWithProvider() {
+    LOG.assertTrue(myEditors.length > 0, myEditors.length);
+    if (myEditors.length == 1) {
+      LOG.assertTrue(myTabbedPaneWrapper == null);
+      return new FileEditorWithProvider(myEditors[0], myProviders[0]);
+    }
+    else {
+      // we have to get myEditor from tabbed pane
+      LOG.assertTrue(myTabbedPaneWrapper != null);
+      int index = myTabbedPaneWrapper.getSelectedIndex();
+      if (index == -1) {
+        index = 0;
+      }
+      LOG.assertTrue(index >= 0, index);
+      LOG.assertTrue(index < myEditors.length, index);
+      return new FileEditorWithProvider(myEditors[index], myProviders[index]);
+    }
+  }
+
+  /**
+   * @deprecated use {@link #getSelectedWithProvider()}
+   */
+  @Deprecated
+  public Pair<FileEditor, FileEditorProvider> getSelectedEditorWithProvider() {
+    FileEditorWithProvider info = getSelectedWithProvider();
+    return Pair.create(info.getFileEditor(), info.getProvider());
+  }
 
   void setSelectedEditor(final int index){
     if(myEditors.length == 1){
@@ -391,8 +423,16 @@ public abstract class EditorComposite implements Disposable {
   /**
    * @return component which represents set of file editors in the UI
    */
+  @NotNull
   public JComponent getComponent() {
     return myComponent;
+  }
+
+  /**
+   * @return component which represents the component that is supposed to be focusable
+   */
+  public JComponent getFocusComponent() {
+    return myComponent.myFocusComponent.get();
   }
 
   /**
@@ -400,8 +440,9 @@ public abstract class EditorComposite implements Disposable {
    * modified myEditor
    */
   public boolean isModified(){
-    for(int i=myEditors.length-1;i>=0;i--){
-      if(myEditors[i].isModified()){
+    final FileEditor[] editors = getEditors();
+    for (FileEditor editor : editors) {
+      if (editor.isModified()) {
         return true;
       }
     }
@@ -423,42 +464,48 @@ public abstract class EditorComposite implements Disposable {
     }
   }
 
-  private class MyComponent extends JPanel implements DataProvider{
-    @Nullable
-    private JComponent myFocusComponent;
+  public static boolean isEditorComposite(@Nullable Component component) {
+    return component instanceof MyComponent;
+  }
 
-    public MyComponent(@NotNull JComponent realComponent, @Nullable JComponent focusComponent){
+  private class MyComponent extends JPanel implements DataProvider{
+    private @NotNull Supplier<? extends JComponent> myFocusComponent;
+
+    MyComponent(@NotNull JComponent realComponent, @NotNull Supplier<? extends JComponent> focusComponent) {
       super(new BorderLayout());
+      setFocusable(false);
       myFocusComponent = focusComponent;
       add(realComponent, BorderLayout.CENTER);
     }
 
     void setComponent(JComponent newComponent) {
       add(newComponent, BorderLayout.CENTER);
-      myFocusComponent = newComponent;
+      myFocusComponent = () -> newComponent;
     }
 
     @Override
     public boolean requestFocusInWindow() {
-      return myFocusComponent != null && myFocusComponent.requestFocusInWindow();
+      JComponent focusComponent = myFocusComponent.get();
+      return focusComponent != null && focusComponent.requestFocusInWindow();
     }
 
     @Override
     public void requestFocus() {
-      if (myFocusComponent != null) {
-        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-          IdeFocusManager.getGlobalInstance().requestFocus(myFocusComponent, true);
-        });
+      JComponent focusComponent = myFocusComponent.get();
+      if (focusComponent != null) {
+        IdeFocusManager.getGlobalInstance()
+          .doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(focusComponent, true));
       }
     }
 
     @Override
     public boolean requestDefaultFocus() {
-      return myFocusComponent != null && myFocusComponent.requestDefaultFocus();
+      JComponent focusComponent = myFocusComponent.get();
+      return focusComponent != null && focusComponent.requestDefaultFocus();
     }
 
     @Override
-    public final Object getData(String dataId){
+    public final Object getData(@NotNull String dataId){
       if (PlatformDataKeys.FILE_EDITOR.is(dataId)) {
         return getSelectedEditor();
       }
@@ -488,8 +535,9 @@ public abstract class EditorComposite implements Disposable {
     myFocusWatcher.deinstall(myFocusWatcher.getTopComponent());
   }
 
-  void addEditor(@NotNull FileEditor editor) {
+  private void addEditor(@NotNull FileEditor editor) {
     ApplicationManager.getApplication().assertIsDispatchThread();
+    //noinspection NonAtomicOperationOnVolatileField : field is modified only in EDT
     myEditors = ArrayUtil.append(myEditors, editor);
     if (myTabbedPaneWrapper == null) {
       myTabbedPaneWrapper = createTabbedPaneWrapper(myEditors);
@@ -503,7 +551,7 @@ public abstract class EditorComposite implements Disposable {
     myFocusWatcher.install(myComponent);
   }
 
-  private static class TopBottomPanel extends JBPanelWithEmptyText {
+  private static final class TopBottomPanel extends JBPanelWithEmptyText {
     private TopBottomPanel() {
       setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     }
@@ -527,5 +575,23 @@ public abstract class EditorComposite implements Disposable {
         return result == null ? JBColor.BLACK : result;
       }
     };
+  }
+
+  @NotNull HistoryEntry currentStateAsHistoryEntry() {
+    final FileEditor[] editors = getEditors();
+    final FileEditorState[] states = new FileEditorState[editors.length];
+    for (int j = 0; j < states.length; j++) {
+      states[j] = editors[j].getState(FileEditorStateLevel.FULL);
+      LOG.assertTrue(states[j] != null);
+    }
+    final int selectedProviderIndex = ArrayUtil.find(editors, getSelectedEditor());
+    LOG.assertTrue(selectedProviderIndex != -1);
+    final FileEditorProvider[] providers = getProviders();
+    return HistoryEntry.createLight(getFile(), providers, states, providers[selectedProviderIndex]);
+  }
+
+  public void addEditor(@NotNull FileEditor editor, @NotNull FileEditorProvider provider) {
+    addEditor(editor);
+    myProviders = ArrayUtil.append(myProviders, provider);
   }
 }

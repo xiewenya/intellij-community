@@ -1,39 +1,25 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.move.moveMembers;
 
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.PackageUtil;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
-import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.classMembers.MemberInfoChange;
 import com.intellij.refactoring.move.MoveCallback;
@@ -48,7 +34,7 @@ import com.intellij.ui.RecentsManager;
 import com.intellij.ui.ReferenceEditorComboWithBrowseButton;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -61,28 +47,22 @@ import java.util.List;
 import java.util.Set;
 
 public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOptions {
-  @NonNls private static final String RECENTS_KEY = "MoveMembersDialog.RECENTS_KEY";
-  private MyMemberInfoModel myMemberInfoModel;
+  private static final String RECENTS_KEY = "MoveMembersDialog.RECENTS_KEY";
 
-  private final Project myProject;
   private final PsiClass mySourceClass;
   private final String mySourceClassName;
   private final List<MemberInfo> myMemberInfos;
   private final ReferenceEditorComboWithBrowseButton myTfTargetClassName;
-  private MemberSelectionTable myTable;
   private final MoveCallback myMoveCallback;
 
-  JavaVisibilityPanel myVisibilityPanel;
-  private final JCheckBox myIntroduceEnumConstants = new JCheckBox(RefactoringBundle.message("move.enum.constant.cb"), true);
+  private MyMemberInfoModel myMemberInfoModel;
+  private MemberSelectionTable myTable;
+  private JavaVisibilityPanel myVisibilityPanel;
+  private final JCheckBox myIntroduceEnumConstants = new JCheckBox(JavaRefactoringBundle.message("move.enum.constant.cb"), true);
 
   @Override
-  protected String getMovePropertySuffix() {
-    return "Member";
-  }
-
-  @Override
-  protected String getCbTitle() {
-    return "Open moved members in editor";
+  protected @NotNull String getRefactoringId() {
+    return "MoveMember";
   }
 
   public MoveMembersDialog(Project project,
@@ -90,11 +70,10 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
                            final PsiClass initialTargetClass,
                            Set<PsiMember> preselectMembers,
                            MoveCallback moveCallback) {
-    super(project, true);
-    myProject = project;
+    super(project, true, true);
     mySourceClass = sourceClass;
     myMoveCallback = moveCallback;
-    setTitle(MoveMembersImpl.REFACTORING_NAME);
+    setTitle(MoveMembersImpl.getRefactoringName());
 
     mySourceClassName = mySourceClass.getQualifiedName();
 
@@ -182,7 +161,7 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
 
     myTfTargetClassName.getChildComponent().getDocument().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         myMemberInfoModel.updateTargetClass();
         validateButtons();
       }
@@ -210,7 +189,6 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
     myVisibilityPanel = new JavaVisibilityPanel(true, true);
     myVisibilityPanel.setVisibility(null);
     panel.add(myVisibilityPanel, BorderLayout.EAST);
-    panel.add(initOpenInEditorCb(), BorderLayout.SOUTH);
 
     return panel;
   }
@@ -242,10 +220,10 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
     if (message != null) {
       if (message.length() != 0) {
         CommonRefactoringUtil.showErrorMessage(
-                MoveMembersImpl.REFACTORING_NAME,
-                message,
-                HelpID.MOVE_MEMBERS,
-                myProject);
+          MoveMembersImpl.getRefactoringName(),
+          message,
+          HelpID.MOVE_MEMBERS,
+          myProject);
       }
       return;
     }
@@ -271,9 +249,6 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
         return MoveMembersDialog.this.getTargetClassName();
       }
     }, isOpenInEditor()));
-
-    saveOpenInEditorOption();
-    JavaRefactoringSettings.getInstance().MOVE_PREVIEW_USAGES = isPreviewUsages();
   }
 
   @Override
@@ -282,7 +257,7 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
   }
 
   @Nullable
-  private String validateInputData() {
+  private @NlsContexts.DialogMessage String validateInputData() {
     final PsiManager manager = PsiManager.getInstance(myProject);
     final String fqName = getTargetClassName();
     if (fqName != null && fqName.isEmpty()) {
@@ -301,7 +276,7 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
           }
           catch (IncorrectOperationException e) {
             CommonRefactoringUtil.showErrorMessage(
-              MoveMembersImpl.REFACTORING_NAME,
+              MoveMembersImpl.getRefactoringName(),
               e.getMessage(),
               HelpID.MOVE_MEMBERS,
               myProject);
@@ -321,7 +296,7 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
           for (MemberInfo info : myMemberInfos) {
             if (!info.isChecked()) continue;
             if (PsiTreeUtil.isAncestor(info.getMember(), targetClass[0], false)) {
-              return RefactoringBundle.message("cannot.move.inner.class.0.into.itself", info.getDisplayName());
+              return JavaRefactoringBundle.message("cannot.move.inner.class.0.into.itself", info.getDisplayName());
             }
           }
 
@@ -365,10 +340,10 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
     }
 
     int answer = Messages.showYesNoDialog(
-            myProject,
-            RefactoringBundle.message("class.0.does.not.exist", fqName),
-            MoveMembersImpl.REFACTORING_NAME,
-            Messages.getQuestionIcon()
+      myProject,
+      RefactoringBundle.message("class.0.does.not.exist", fqName),
+      MoveMembersImpl.getRefactoringName(),
+      Messages.getQuestionIcon()
     );
     if (answer != Messages.YES) return null;
     final Ref<IncorrectOperationException> eRef = new Ref<>();
@@ -386,8 +361,8 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
   }
 
   @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.MOVE_MEMBERS);
+  protected String getHelpId() {
+    return HelpID.MOVE_MEMBERS;
   }
 
   private class ChooseClassAction implements ActionListener {
@@ -421,7 +396,7 @@ public class MoveMembersDialog extends MoveDialogBase implements MoveMembersOpti
 
   private class MyMemberInfoModel extends UsesAndInterfacesDependencyMemberInfoModel<PsiMember, MemberInfo> {
     PsiClass myTargetClass;
-    public MyMemberInfoModel() {
+    MyMemberInfoModel() {
       super(mySourceClass, null, false, DEFAULT_CONTAINMENT_VERIFIER);
     }
 

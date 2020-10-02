@@ -1,47 +1,31 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.templateLanguages.TemplateLanguageUtil;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlTagValue;
 import com.intellij.psi.xml.XmlToken;
 import com.intellij.psi.xml.XmlTokenType;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * @author peter
  */
 @SuppressWarnings({"HardCodedStringLiteral"})
-public class XmlTagUtil extends XmlTagUtilBase {
-  private static final Map<String, Character> ourCharacterEntities;
+public final class XmlTagUtil extends XmlTagUtilBase {
+  private static final Object2IntMap<String> ourCharacterEntities = new Object2IntOpenHashMap<>();
 
   static {
-    ourCharacterEntities = new HashMap<>();
     ourCharacterEntities.put("lt", '<');
     ourCharacterEntities.put("gt", '>');
     ourCharacterEntities.put("apos", '\'');
@@ -98,12 +82,11 @@ public class XmlTagUtil extends XmlTagUtilBase {
   }
 
   public static String[] getCharacterEntityNames() {
-    Set<String> strings = ourCharacterEntities.keySet();
-    return ArrayUtil.toStringArray(strings);
+    return ArrayUtilRt.toStringArray(ourCharacterEntities.keySet());
   }
 
-  public static Character getCharacterByEntityName(String entityName) {
-    return ourCharacterEntities.get(entityName);
+  public static char getCharacterByEntityName(String entityName) {
+    return (char)ourCharacterEntities.getInt(entityName);
   }
 
   @Nullable
@@ -137,8 +120,7 @@ public class XmlTagUtil extends XmlTagUtilBase {
       }
 
       prev = current;
-      current = current.getTreePrev();
-
+      current = TemplateLanguageUtil.getSameLanguageTreePrev(current);
     }
     return null;
   }

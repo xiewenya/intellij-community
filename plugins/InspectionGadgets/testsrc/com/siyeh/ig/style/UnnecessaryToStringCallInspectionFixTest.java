@@ -6,9 +6,8 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import org.jetbrains.annotations.NotNull;
 
 public class UnnecessaryToStringCallInspectionFixTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new UnnecessaryToStringCallInspection()};
   }
 
@@ -17,5 +16,4 @@ public class UnnecessaryToStringCallInspectionFixTest extends LightQuickFixParam
     return "/codeInsight/daemonCodeAnalyzer/unnecessaryTostring";
   }
 
-  public void test() {  doAllTests(); }
 }

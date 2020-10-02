@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import com.intellij.openapi.Disposable;
@@ -21,25 +7,53 @@ import com.intellij.util.containers.WeakList;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * @author Eugene Zhuravlev
  */
-public class LowMemoryWatcher {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.LowMemoryWatcher");
+public final class LowMemoryWatcher {
+  private static final Logger LOG = Logger.getInstance(LowMemoryWatcher.class);
 
-  private static final WeakList<Runnable> ourListeners = new WeakList<Runnable>();
+  public enum LowMemoryWatcherType {
+    ALWAYS,
+    ONLY_AFTER_GC
+  }
+
+  private static final WeakList<LowMemoryWatcher> ourListeners = new WeakList<>();
   private final Runnable myRunnable;
+  private final LowMemoryWatcherType myType;
+  private static final AtomicBoolean ourNotificationsSuppressed = new AtomicBoolean();
 
-  static void onLowMemorySignalReceived() {
-    LOG.info("Low memory signal received.");
-    for (Runnable watcher : ourListeners.toStrongList()) {
+  public static <T> T runWithNotificationsSuppressed(Computable<T> runnable) {
+    if (ourNotificationsSuppressed.getAndSet(true)) {
+      throw new IllegalStateException("runWithNotificationsSuppressed does not support reentrancy");
+    }
+    try {
+      return runnable.compute();
+    }
+    finally {
+      ourNotificationsSuppressed.set(false);
+    }
+  }
+
+  public static void onLowMemorySignalReceived(boolean afterGc) {
+    LOG.info("Low memory signal received: afterGc=" + afterGc);
+    for (LowMemoryWatcher watcher : ourListeners.toStrongList()) {
       try {
-        watcher.run();
+        if (watcher.myType == LowMemoryWatcherType.ALWAYS
+            || watcher.myType == LowMemoryWatcherType.ONLY_AFTER_GC && afterGc) {
+          watcher.myRunnable.run();
+        }
       }
       catch (Throwable e) {
         LOG.info(e);
       }
     }
+  }
+
+  static boolean notificationsSuppressed() {
+    return ourNotificationsSuppressed.get();
   }
 
   /**
@@ -50,32 +64,41 @@ public class LowMemoryWatcher {
    *                 - in arbitrary thread
    *                 - in unpredictable time
    *                 - multiple copies in parallel so please make it reentrant.
+   * @param notificationType When ONLY_AFTER_GC, then the runnable will be invoked only if the low-memory condition still exists after GC.
+   *                         When ALWAYS, then the runnable also will be invoked when the low-memory condition is detected before GC.
+   *
    */
-  @Contract(pure = true)
+  @Contract(pure = true) // to avoid ignoring the result
+  public static LowMemoryWatcher register(@NotNull Runnable runnable, @NotNull LowMemoryWatcherType notificationType) {
+    return new LowMemoryWatcher(runnable, notificationType);
+  }
+
+  @Contract(pure = true) // to avoid ignoring the result
   public static LowMemoryWatcher register(@NotNull Runnable runnable) {
-    return new LowMemoryWatcher(runnable);
+    return new LowMemoryWatcher(runnable, LowMemoryWatcherType.ALWAYS);
   }
 
   /**
    * Registers a runnable to run on low memory events. The notifications will be issued until parentDisposable is disposed.
    */
-  public static void register(@NotNull Runnable runnable, @NotNull Disposable parentDisposable) {
-    final LowMemoryWatcher watcher = new LowMemoryWatcher(runnable);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        watcher.stop();
-      }
-    });
+  public static void register(@NotNull Runnable runnable, @NotNull LowMemoryWatcherType notificationType,
+                              @NotNull Disposable parentDisposable) {
+    final LowMemoryWatcher watcher = new LowMemoryWatcher(runnable, notificationType);
+    Disposer.register(parentDisposable, () -> watcher.stop());
   }
 
-  private LowMemoryWatcher(@NotNull Runnable runnable) {
+  public static void register(@NotNull Runnable runnable, @NotNull Disposable parentDisposable) {
+    register(runnable, LowMemoryWatcherType.ALWAYS, parentDisposable);
+  }
+
+  private LowMemoryWatcher(@NotNull Runnable runnable, @NotNull LowMemoryWatcherType type) {
     myRunnable = runnable;
-    ourListeners.add(runnable);
+    myType = type;
+    ourListeners.add(this);
   }
 
   public void stop() {
-    ourListeners.remove(myRunnable);
+    ourListeners.remove(this);
   }
 
   /**

@@ -11,16 +11,12 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author Dmitry Avdeev
  */
-@State(
-  name = "TaskSettings",
-  storages = {
-    @Storage("tasks.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
+@State(name = "TaskSettings", storages = @Storage("tasks.xml"))
 public class TaskSettings implements PersistentStateComponent<TaskSettings> {
   public boolean ALWAYS_DISPLAY_COMBO = false;
   public int CONNECTION_TIMEOUT = 5000;
+  public boolean LOWER_CASE_BRANCH = false;
+  public String REPLACE_SPACES = "-";
 
   public static TaskSettings getInstance() {
     return ServiceManager.getService(TaskSettings.class);

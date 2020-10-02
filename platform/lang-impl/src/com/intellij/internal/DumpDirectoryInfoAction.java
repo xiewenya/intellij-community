@@ -15,6 +15,7 @@
  */
 package com.intellij.internal;
 
+import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -25,16 +26,17 @@ import com.intellij.openapi.roots.ContentIterator;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.impl.DirectoryIndex;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 public class DumpDirectoryInfoAction extends AnAction {
   public static final Logger LOG = Logger.getInstance(DumpDirectoryInfoAction.class);
 
   public DumpDirectoryInfoAction() {
-    super("Dump Directory Info");
+    super(ActionsBundle.messagePointer("action.DumpDirectoryInfoAction.text"));
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final DirectoryIndex index = DirectoryIndex.getInstance(project);
     if (project != null) {
@@ -56,7 +58,7 @@ public class DumpDirectoryInfoAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(e.getData(CommonDataKeys.PROJECT) != null);
   }
 }

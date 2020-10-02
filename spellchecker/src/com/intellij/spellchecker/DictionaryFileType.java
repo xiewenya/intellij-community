@@ -15,10 +15,13 @@ import javax.swing.*;
 public class DictionaryFileType implements FileType {
   public static final DictionaryFileType INSTANCE = new DictionaryFileType();
 
+  private DictionaryFileType() {
+  }
+
   @NotNull
   @Override
   public String getName() {
-    return SpellCheckerBundle.message("dictionary.filetype.name");
+    return "Dictionary";
   }
 
   @NotNull
@@ -51,7 +54,7 @@ public class DictionaryFileType implements FileType {
 
   @Nullable
   @Override
-  public String getCharset(@NotNull VirtualFile file, @NotNull byte[] content) {
+  public String getCharset(@NotNull VirtualFile file, byte @NotNull [] content) {
     return null;
   }
 }

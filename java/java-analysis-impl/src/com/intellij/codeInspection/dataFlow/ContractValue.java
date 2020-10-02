@@ -15,16 +15,22 @@
  */
 package com.intellij.codeInspection.dataFlow;
 
-import com.intellij.codeInspection.dataFlow.value.DfaRelationValue;
-import com.intellij.codeInspection.dataFlow.value.DfaUnknownValue;
-import com.intellij.codeInspection.dataFlow.value.DfaValue;
-import com.intellij.codeInspection.dataFlow.value.DfaValueFactory;
-import com.intellij.psi.PsiType;
-import com.intellij.util.Function;
+import com.intellij.codeInspection.dataFlow.types.DfPrimitiveType;
+import com.intellij.codeInspection.dataFlow.types.DfReferenceType;
+import com.intellij.codeInspection.dataFlow.types.DfType;
+import com.intellij.codeInspection.dataFlow.value.*;
+import com.intellij.psi.*;
+import com.intellij.psi.impl.compiled.ClsParameterImpl;
+import com.intellij.psi.util.JavaElementKind;
+import com.intellij.psi.util.TypeConversionUtil;
+import com.siyeh.ig.psiutils.MethodCallUtils;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * @author Tagir Valeev
- */
+import java.util.OptionalInt;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+
 public abstract class ContractValue {
   // package private to avoid uncontrolled implementations
   ContractValue() {
@@ -32,12 +38,63 @@ public abstract class ContractValue {
   }
 
   abstract DfaValue makeDfaValue(DfaValueFactory factory, DfaCallArguments arguments);
+  
+  @NotNull
+  DfaCondition makeCondition(DfaValueFactory factory, DfaCallArguments arguments) {
+    return DfaCondition.getUnknown();
+  }
+  
+  public DfaCondition fromCall(DfaValueFactory factory, PsiCallExpression call) {
+    DfaCallArguments arguments = DfaCallArguments.fromCall(factory, call);
+    if (arguments == null) return DfaCondition.getUnknown();
+    return makeCondition(factory, arguments);
+  }
 
+  /**
+   * @param other other contract condition
+   * @return true if this contract condition and other condition cannot be fulfilled at the same time
+   */
+  public boolean isExclusive(ContractValue other) {
+    return false;
+  }
+
+  public ContractValue invert() {
+    return null;
+  }
+  
   /**
    * @return true if this contract value represents a bounds-checking condition
    */
   public boolean isBoundCheckingCondition() {
     return false;
+  }
+
+  public DfaCallArguments updateArguments(DfaCallArguments arguments, boolean negated) {
+    return arguments;
+  }
+
+  public OptionalInt getNullCheckedArgument(boolean equalToNull) {
+    return getArgumentComparedTo(nullValue(), equalToNull);
+  }
+
+  public OptionalInt getArgumentComparedTo(ContractValue value, boolean equal) {
+    return OptionalInt.empty();
+  }
+
+  @NotNull DfaCallArguments fixArgument(@NotNull DfaCallArguments arguments, @NotNull UnaryOperator<DfType> converter) {
+    return arguments;
+  }
+
+  public String getPresentationText(PsiMethod method) {
+    return toString();
+  }
+
+  /**
+   * @param call call to find the place in
+   * @return the expression in the call that is the most relevant to the current value
+   */
+  public PsiExpression findPlace(PsiCallExpression call) {
+    return null;
   }
 
   public static ContractValue qualifier() {
@@ -48,20 +105,17 @@ public abstract class ContractValue {
     return new Argument(index);
   }
 
-  public ContractValue specialField(SpecialField field) {
+  public ContractValue specialField(@NotNull SpecialField field) {
     return new Spec(this, field);
   }
 
-  public static ContractValue constant(Object value, PsiType type) {
-    return new IndependentValue(factory -> factory.getConstFactory().createFromValue(value, type, null), String.valueOf(value));
+  public static ContractValue constant(Object value, @NotNull PsiType type) {
+    return new IndependentValue(String.valueOf(value), factory -> factory.getConstant(TypeConversionUtil.computeCastTo(value, type), type)
+    );
   }
 
   public static ContractValue booleanValue(boolean value) {
     return value ? IndependentValue.TRUE : IndependentValue.FALSE;
-  }
-
-  public static ContractValue optionalValue(boolean present) {
-    return present ? IndependentValue.OPTIONAL_PRESENT : IndependentValue.OPTIONAL_ABSENT;
   }
 
   public static ContractValue nullValue() {
@@ -72,7 +126,7 @@ public abstract class ContractValue {
     return IndependentValue.ZERO;
   }
 
-  public static ContractValue condition(ContractValue left, DfaRelationValue.RelationType relation, ContractValue right) {
+  public static ContractValue condition(ContractValue left, RelationType relation, ContractValue right) {
     return new Condition(left, relation, right);
   }
 
@@ -85,12 +139,32 @@ public abstract class ContractValue {
     }
 
     @Override
+    public PsiExpression findPlace(PsiCallExpression call) {
+      if (call instanceof PsiMethodCallExpression) {
+        return ((PsiMethodCallExpression)call).getMethodExpression().getQualifierExpression();
+      }
+      return null;
+    }
+
+    @Override
+    @NotNull DfaCallArguments fixArgument(@NotNull DfaCallArguments arguments, @NotNull UnaryOperator<DfType> converter) {
+      if (arguments.myQualifier instanceof DfaTypeValue) {
+        DfType type = arguments.myQualifier.getDfType();
+        DfType newType = converter.apply(type);
+        if (!type.equals(newType)) {
+          return new DfaCallArguments(arguments.myQualifier.getFactory().fromDfType(newType), arguments.myArguments, arguments.myMutation);
+        }
+      }
+      return arguments;
+    }
+
+    @Override
     public String toString() {
       return "this";
     }
   }
 
-  private static class Argument extends ContractValue {
+  private static final class Argument extends ContractValue {
     private final int myIndex;
 
     Argument(int index) {
@@ -99,36 +173,95 @@ public abstract class ContractValue {
 
     @Override
     DfaValue makeDfaValue(DfaValueFactory factory, DfaCallArguments arguments) {
-      return arguments.myArguments.length <= myIndex ? DfaUnknownValue.getInstance() : arguments.myArguments[myIndex];
+      if (arguments.myArguments.length <= myIndex) {
+        return factory.getUnknown();
+      }
+      return arguments.myArguments[myIndex];
+    }
+
+    @Override
+    public PsiExpression findPlace(PsiCallExpression call) {
+      PsiExpressionList list = call.getArgumentList();
+      if (list != null) {
+        PsiExpression[] args = list.getExpressions();
+        if (myIndex < args.length - 1 || (myIndex == args.length - 1 && !MethodCallUtils.isVarArgCall(call))) {
+          return args[myIndex];
+        }
+      }
+      return null;
+    }
+
+    @Override
+    public String getPresentationText(PsiMethod method) {
+      PsiParameter[] params = method.getParameterList().getParameters();
+      if (myIndex == 0 && params.length == 1) {
+        return JavaElementKind.PARAMETER.subject();
+      }
+      if (myIndex < params.length) {
+        PsiParameter param = params[myIndex];
+        if (param instanceof ClsParameterImpl && ((ClsParameterImpl)param).isAutoGeneratedName()) {
+          return "param" + (myIndex + 1);
+        }
+        return param.getName();
+      }
+      return toString();
+    }
+
+    @Override
+    @NotNull DfaCallArguments fixArgument(@NotNull DfaCallArguments arguments, @NotNull UnaryOperator<DfType> converter) {
+      if (arguments.myArguments != null && arguments.myArguments.length > myIndex) {
+        DfaValue value = arguments.myArguments[myIndex];
+        if (value instanceof DfaTypeValue) {
+          DfType type = value.getDfType();
+          DfType newType = converter.apply(type);
+          if (!type.equals(newType)) {
+            DfaValue[] clone = arguments.myArguments.clone();
+            clone[myIndex] = value.getFactory().fromDfType(newType);
+            return new DfaCallArguments(arguments.myQualifier, clone, arguments.myMutation);
+          }
+        }
+      }
+      return arguments;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      return obj == this || (obj instanceof Argument && myIndex == ((Argument)obj).myIndex);
     }
 
     @Override
     public String toString() {
-      return "arg#" + myIndex;
+      return "param" + (myIndex + 1);
     }
   }
 
   private static class IndependentValue extends ContractValue {
-    static final IndependentValue NULL = new IndependentValue(factory -> factory.getConstFactory().getNull(), "null");
-    static final IndependentValue TRUE = new IndependentValue(factory -> factory.getConstFactory().getTrue(), "true");
-    static final IndependentValue FALSE = new IndependentValue(factory -> factory.getConstFactory().getFalse(), "false");
-    static final IndependentValue OPTIONAL_PRESENT =
-      new IndependentValue(factory -> factory.getFactValue(DfaFactType.OPTIONAL_PRESENCE, true), "present");
-    static final IndependentValue OPTIONAL_ABSENT =
-      new IndependentValue(factory -> factory.getFactValue(DfaFactType.OPTIONAL_PRESENCE, false), "empty");
-    static final IndependentValue ZERO = new IndependentValue(factory -> factory.getInt(0), "0");
+    static final IndependentValue NULL = new IndependentValue("null", factory -> factory.getNull());
+    static final IndependentValue TRUE = new IndependentValue("true", factory -> factory.getBoolean(true)) {
+      @Override
+      public boolean isExclusive(ContractValue other) {
+        return other == FALSE;
+      }
+    };
+    static final IndependentValue FALSE = new IndependentValue("false", factory -> factory.getBoolean(false)) {
+      @Override
+      public boolean isExclusive(ContractValue other) {
+        return other == TRUE;
+      }
+    };
+    static final IndependentValue ZERO = new IndependentValue("0", factory -> factory.getInt(0));
 
-    private final Function<DfaValueFactory, DfaValue> mySupplier;
+    private final Function<? super DfaValueFactory, ? extends DfaValue> mySupplier;
     private final String myPresentation;
 
-    IndependentValue(Function<DfaValueFactory, DfaValue> supplier, String presentation) {
+    IndependentValue(String presentation, Function<? super DfaValueFactory, ? extends DfaValue> supplier) {
       mySupplier = supplier;
       myPresentation = presentation;
     }
 
     @Override
     DfaValue makeDfaValue(DfaValueFactory factory, DfaCallArguments arguments) {
-      return mySupplier.fun(factory);
+      return mySupplier.apply(factory);
     }
 
     @Override
@@ -137,11 +270,11 @@ public abstract class ContractValue {
     }
   }
 
-  private static class Spec extends ContractValue {
-    private final ContractValue myQualifier;
-    private final SpecialField myField;
+  private static final class Spec extends ContractValue {
+    private final @NotNull ContractValue myQualifier;
+    private final @NotNull SpecialField myField;
 
-    Spec(ContractValue qualifier, SpecialField field) {
+    Spec(@NotNull ContractValue qualifier, @NotNull SpecialField field) {
       myQualifier = qualifier;
       myField = field;
     }
@@ -152,16 +285,47 @@ public abstract class ContractValue {
     }
 
     @Override
+    public boolean equals(Object obj) {
+      if (obj == this) return true;
+      if (!(obj instanceof Spec)) return false;
+      Spec that = (Spec)obj;
+      return myQualifier.equals(that.myQualifier) && myField == that.myField;
+    }
+
+    @Override
+    @NotNull DfaCallArguments fixArgument(@NotNull DfaCallArguments arguments, @NotNull UnaryOperator<DfType> converter) {
+      return myQualifier.fixArgument(arguments, t -> {
+        if (!(t instanceof DfReferenceType)) return t;
+        DfType sfType = myField.getFromQualifier(t);
+        DfType newType = converter.apply(sfType);
+        return newType.equals(sfType) ? t : ((DfReferenceType)t).dropSpecialField().meet(myField.asDfType(newType));
+      });
+    }
+
+    @Override
+    public PsiExpression findPlace(PsiCallExpression call) {
+      return myQualifier.findPlace(call);
+    }
+
+    @Override
+    public String getPresentationText(PsiMethod method) {
+      return myQualifier.getPresentationText(method) + "." + myField + (myField == SpecialField.ARRAY_LENGTH ? "" : "()");
+    }
+
+    @Override
     public String toString() {
-      return myQualifier + "." + myField.getMethodName() + "()";
+      return myQualifier + "." + myField + "()";
     }
   }
 
-  private static class Condition extends ContractValue {
+  /**
+   * A contract value that represents a relation between two other values
+   */
+  public static class Condition extends ContractValue {
     private final ContractValue myLeft, myRight;
-    private final DfaRelationValue.RelationType myRelationType;
+    private final RelationType myRelationType;
 
-    Condition(ContractValue left, DfaRelationValue.RelationType type, ContractValue right) {
+    Condition(ContractValue left, RelationType type, ContractValue right) {
       myLeft = left;
       myRight = right;
       myRelationType = type;
@@ -181,8 +345,112 @@ public abstract class ContractValue {
     }
 
     @Override
+    public boolean isExclusive(ContractValue other) {
+      if (!(other instanceof Condition)) return false;
+      Condition that = (Condition)other;
+      if (that.myLeft.equals(myLeft) && that.myRight.equals(myRight) && that.myRelationType.getNegated() == myRelationType) {
+        return true;
+      }
+      if (that.myLeft.equals(myRight) && that.myRight.equals(myLeft) && that.myRelationType.getNegated() == myRelationType.getFlipped()) {
+        return true;
+      }
+      if (that.myRelationType == myRelationType) {
+        if (that.myLeft.equals(myLeft) && that.myRight.isExclusive(myRight)) return true;
+        if (that.myLeft.equals(myRight) && that.myRight.isExclusive(myLeft)) return true;
+      }
+      return false;
+    }
+
+    @Override
+    public DfaCallArguments updateArguments(DfaCallArguments arguments, boolean negated) {
+      ContractValue target = getValueComparedTo(nullValue(), negated);
+      if (target != null) {
+        return target.fixArgument(arguments, dfType -> dfType.meet(DfaNullability.NOT_NULL.asDfType()));
+      }
+      target = getValueComparedTo(nullValue(), !negated);
+      if (target != null) {
+        return target.fixArgument(arguments, dfType -> dfType.meet(DfaNullability.NULL.asDfType()));
+      }
+      return arguments;
+    }
+
+    private @Nullable ContractValue getValueComparedTo(ContractValue value, boolean equal) {
+      if (myRelationType == RelationType.equivalence(equal)) {
+        ContractValue other;
+        if (myLeft == value) {
+          other = myRight;
+        }
+        else if (myRight == value) {
+          other = myLeft;
+        }
+        else {
+          return null;
+        }
+        return other;
+      }
+      if (value == IndependentValue.FALSE) {
+        return getValueComparedTo(IndependentValue.TRUE, !equal);
+      }
+      return null;
+    }
+
+    @Override
+    public OptionalInt getArgumentComparedTo(ContractValue value, boolean equal) {
+      ContractValue other = getValueComparedTo(value, equal);
+      return other instanceof Argument ? OptionalInt.of(((Argument)other).myIndex) : OptionalInt.empty();
+    }
+
+    @Override
     DfaValue makeDfaValue(DfaValueFactory factory, DfaCallArguments arguments) {
-      return factory.createCondition(myLeft.makeDfaValue(factory, arguments), myRelationType, myRight.makeDfaValue(factory, arguments));
+      return factory.getUnknown();
+    }
+
+    @NotNull
+    @Override
+    DfaCondition makeCondition(DfaValueFactory factory, DfaCallArguments arguments) {
+      DfaValue left = myLeft.makeDfaValue(factory, arguments);
+      DfaValue right = myRight.makeDfaValue(factory, arguments);
+      if (left.getDfType() instanceof DfPrimitiveType) {
+        right = DfaUtil.boxUnbox(right, left.getType());
+      }
+      if (right.getDfType() instanceof DfPrimitiveType) {
+        left = DfaUtil.boxUnbox(left, right.getType());
+      }
+      return left.cond(myRelationType, right);
+    }
+
+    @Override
+    public String getPresentationText(PsiMethod method) {
+      if (myLeft instanceof IndependentValue) {
+        return myRight.getPresentationText(method) + " " + myRelationType.getFlipped() + " " + myLeft.getPresentationText(method);
+      }
+      return myLeft.getPresentationText(method) + " " + myRelationType + " " + myRight.getPresentationText(method);
+    }
+
+    /**
+     * @return condition relation type
+     */
+    public @NotNull RelationType getRelationType() {
+      return myRelationType;
+    }
+
+    /**
+     * @return condition left operand
+     */
+    public @NotNull ContractValue getLeft() {
+      return myLeft;
+    }
+
+    /**
+     * @return condition right operand
+     */
+    public @NotNull ContractValue getRight() {
+      return myRight;
+    }
+
+    @Override
+    public ContractValue invert() {
+      return new Condition(myLeft, myRelationType.getNegated(), myRight);
     }
 
     @Override

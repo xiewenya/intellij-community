@@ -2,6 +2,7 @@
 
 package com.intellij.refactoring.actions;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.TitledHandler;
 import com.intellij.lang.Language;
 import com.intellij.lang.refactoring.RefactoringSupportProvider;
@@ -21,7 +22,7 @@ public class ExtractIncludeAction extends BasePlatformRefactoringAction {
   }
 
   @Override
-  public boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
+  public boolean isEnabledOnElements(PsiElement @NotNull [] elements) {
     return false;
   }
 
@@ -31,14 +32,14 @@ public class ExtractIncludeAction extends BasePlatformRefactoringAction {
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     super.update(e);
     final RefactoringActionHandler handler = getHandler(e.getDataContext());
     if (handler instanceof TitledHandler) {
       e.getPresentation().setText(((TitledHandler) handler).getActionTitle());
     }
     else {
-      e.getPresentation().setText("Include File...");
+      e.getPresentation().setText(IdeBundle.messagePointer("action.presentation.ExtractIncludeAction.text"));
     }
   }
 

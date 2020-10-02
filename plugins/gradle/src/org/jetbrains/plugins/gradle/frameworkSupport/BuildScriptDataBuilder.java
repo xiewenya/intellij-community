@@ -1,46 +1,35 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.frameworkSupport;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Function;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import org.gradle.util.GradleVersion;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/24/2015
  */
 public class BuildScriptDataBuilder {
   @NotNull private final VirtualFile myBuildScriptFile;
-  protected final Set<String> imports = ContainerUtil.newTreeSet();
-  protected final Set<String> plugins = ContainerUtil.newTreeSet();
-  protected final Set<String> pluginsInGroup = ContainerUtil.newTreeSet();
-  protected final Set<String> repositories = ContainerUtil.newTreeSet();
-  protected final Set<String> dependencies = ContainerUtil.newTreeSet();
-  protected final Set<String> properties = ContainerUtil.newTreeSet();
-  protected final Set<String> buildScriptProperties = ContainerUtil.newTreeSet();
-  protected final Set<String> buildScriptRepositories = ContainerUtil.newTreeSet();
-  protected final Set<String> buildScriptDependencies = ContainerUtil.newTreeSet();
-  protected final Set<String> other = ContainerUtil.newTreeSet();
+  protected final Set<String> imports = new TreeSet<>();
+  protected final Set<String> plugins = new TreeSet<>();
+  protected final Set<String> pluginsInGroup = new TreeSet<>();
+  protected final Set<String> repositories = new TreeSet<>();
+  protected final Set<String> dependencies = new TreeSet<>();
+  protected final Set<String> properties = new TreeSet<>();
+  protected final Set<String> buildScriptProperties = new TreeSet<>();
+  protected final Set<String> buildScriptRepositories = new TreeSet<>();
+  protected final Set<String> buildScriptDependencies = new TreeSet<>();
+  protected final Set<String> other = new TreeSet<>();
   protected final GradleVersion myGradleVersion;
 
   public BuildScriptDataBuilder(@NotNull VirtualFile buildScriptFile) {
@@ -62,13 +51,6 @@ public class BuildScriptDataBuilder {
     return myGradleVersion;
   }
 
-  /**
-   * @deprecated use {@link #buildMainPart()} and {@link #buildConfigurationPart()} instead
-   */
-  public String build() {
-    return buildMainPart();
-  }
-
   public String buildImports() {
     if (!imports.isEmpty()) {
       return StringUtil.join(imports, "\n") + "\n";
@@ -78,7 +60,7 @@ public class BuildScriptDataBuilder {
   }
 
   public String buildConfigurationPart() {
-    List<String> lines = ContainerUtil.newArrayList();
+    List<String> lines = new ArrayList<>();
     addBuildscriptLines(lines, BuildScriptDataBuilder::padding);
     if (!pluginsInGroup.isEmpty()) {
       lines.add("plugins {");
@@ -90,7 +72,7 @@ public class BuildScriptDataBuilder {
   }
 
   public String buildMainPart() {
-    List<String> lines = ContainerUtil.newArrayList();
+    List<String> lines = new ArrayList<>();
     addPluginsLines(lines, BuildScriptDataBuilder::padding);
     if (!properties.isEmpty()) {
       lines.addAll(properties);
@@ -114,17 +96,17 @@ public class BuildScriptDataBuilder {
     return StringUtil.join(lines, "\n");
   }
 
-  protected void addPluginsLines(@NotNull List<String> lines, @NotNull Function<String, String> padding) {
+  protected void addPluginsLines(@NotNull List<? super String> lines, @NotNull Function<? super String, String> padding) {
     if (!plugins.isEmpty()) {
       lines.addAll(plugins);
       lines.add("");
     }
   }
 
-  private void addBuildscriptLines(@NotNull List<String> lines, @NotNull Function<String, String> padding) {
+  private void addBuildscriptLines(@NotNull List<? super String> lines, @NotNull Function<? super String, String> padding) {
     if (!buildScriptRepositories.isEmpty() || !buildScriptDependencies.isEmpty() || !buildScriptProperties.isEmpty()) {
       lines.add("buildscript {");
-      final List<String> buildScriptLines = ContainerUtil.newSmartList();
+      final List<String> buildScriptLines = new SmartList<>();
       if (!buildScriptProperties.isEmpty()) {
         buildScriptLines.addAll(buildScriptProperties);
         buildScriptLines.add("");
@@ -145,55 +127,55 @@ public class BuildScriptDataBuilder {
     }
   }
 
-  public BuildScriptDataBuilder addImport(@NotNull String importString) {
+  public BuildScriptDataBuilder addImport(@NonNls @NotNull String importString) {
     imports.add(importString);
     return this;
   }
 
-  public BuildScriptDataBuilder addBuildscriptPropertyDefinition(@NotNull String definition) {
+  public BuildScriptDataBuilder addBuildscriptPropertyDefinition(@NonNls @NotNull String definition) {
     buildScriptProperties.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addBuildscriptRepositoriesDefinition(@NotNull String definition) {
+  public BuildScriptDataBuilder addBuildscriptRepositoriesDefinition(@NonNls @NotNull String definition) {
     buildScriptRepositories.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addBuildscriptDependencyNotation(@NotNull String notation) {
+  public BuildScriptDataBuilder addBuildscriptDependencyNotation(@NonNls @NotNull String notation) {
     buildScriptDependencies.add(notation.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addPluginDefinitionInPluginsGroup(@NotNull String definition) {
+  public BuildScriptDataBuilder addPluginDefinitionInPluginsGroup(@NonNls @NotNull String definition) {
     pluginsInGroup.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addPluginDefinition(@NotNull String definition) {
+  public BuildScriptDataBuilder addPluginDefinition(@NonNls @NotNull String definition) {
     plugins.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addRepositoriesDefinition(@NotNull String definition) {
+  public BuildScriptDataBuilder addRepositoriesDefinition(@NonNls @NotNull String definition) {
     repositories.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addDependencyNotation(@NotNull String notation) {
+  public BuildScriptDataBuilder addDependencyNotation(@NonNls @NotNull String notation) {
     dependencies.add(notation.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addPropertyDefinition(@NotNull String definition) {
+  public BuildScriptDataBuilder addPropertyDefinition(@NonNls @NotNull String definition) {
     properties.add(definition.trim());
     return this;
   }
 
-  public BuildScriptDataBuilder addOther(@NotNull String definition) {
+  public BuildScriptDataBuilder addOther(@NonNls @NotNull String definition) {
     other.add(definition.trim());
     return this;
   }
 
-  private static String padding(String s) {return StringUtil.isNotEmpty(s) ? "    " + s : "";}
+  private static String padding(@NonNls String s) {return StringUtil.isNotEmpty(s) ? "    " + s : "";}
 }

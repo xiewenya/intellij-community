@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.ide.DataManager;
@@ -7,29 +7,33 @@ import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.actionholder.ActionRef;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.ui.JBPopupMenu;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.StatusBar;
+import com.intellij.ui.ComponentUtil;
 import com.intellij.ui.components.JBMenu;
+import com.intellij.ui.mac.foundation.NSDefaults;
 import com.intellij.ui.plaf.beg.IdeaMenuUI;
-import com.intellij.ui.plaf.gtk.GtkMenuUI;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.SingleAlarm;
-import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JBSwingUtilities;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
-import javax.swing.plaf.MenuItemUI;
-import javax.swing.plaf.synth.SynthMenuUI;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
 import java.awt.event.ComponentEvent;
@@ -39,6 +43,7 @@ import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
 public final class ActionMenu extends JBMenu {
+  private static final boolean KEEP_MENU_HIERARCHY = SystemInfo.isMacSystemMenu && Registry.is("keep.menu.hierarchy", false);
   private final String myPlace;
   private DataContext myContext;
   private final ActionRef<ActionGroup> myGroup;
@@ -47,7 +52,7 @@ public final class ActionMenu extends JBMenu {
   private boolean myMnemonicEnabled;
   private MenuItemSynchronizer myMenuItemSynchronizer;
   private StubItem myStubItem;  // A PATCH!!! Do not remove this code, otherwise you will lose all keyboard navigation in JMenuBar.
-  private final boolean myTopLevel;
+  private final boolean myUseDarkIcons;
   private Disposable myDisposable;
 
   public ActionMenu(final DataContext context,
@@ -55,14 +60,15 @@ public final class ActionMenu extends JBMenu {
                     final ActionGroup group,
                     final PresentationFactory presentationFactory,
                     final boolean enableMnemonics,
-                    final boolean topLevel) {
+                    final boolean useDarkIcons
+  ) {
     myContext = context;
     myPlace = place;
     myGroup = ActionRef.fromAction(group);
     myPresentationFactory = presentationFactory;
     myPresentation = myPresentationFactory.getPresentation(group);
     myMnemonicEnabled = enableMnemonics;
-    myTopLevel = topLevel;
+    myUseDarkIcons = useDarkIcons;
 
     updateUI();
 
@@ -72,17 +78,22 @@ public final class ActionMenu extends JBMenu {
     if (SystemInfo.isMacSystemMenu) {
       installSynchronizer();
     }
-    if (UIUtil.isUnderIntelliJLaF()) {
-      setOpaque(true);
-    }
 
     // Triggering initialization of private field "popupMenu" from JMenu with our own JBPopupMenu
     getPopupMenu();
   }
 
+  @Override
+  protected Graphics getComponentGraphics(Graphics graphics) {
+    if (!(getParent() instanceof JMenuBar)) return super.getComponentGraphics(graphics);
+    return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(graphics));
+  }
+
   public void updateContext(DataContext context) {
     myContext = context;
   }
+
+  public AnAction getAnAction() { return myGroup.getAction(); }
 
   @Override
   public void addNotify() {
@@ -130,47 +141,13 @@ public final class ActionMenu extends JBMenu {
 
   @Override
   public void updateUI() {
-    boolean isAmbiance = UIUtil.isUnderGTKLookAndFeel() && "Ambiance".equalsIgnoreCase(UIUtil.getGtkThemeName());
-    if (myTopLevel && !isAmbiance && UIUtil.GTK_AMBIANCE_TEXT_COLOR.equals(getForeground())) {
-      setForeground(null);
-    }
+    setUI(IdeaMenuUI.createUI(this));
+    setFont(UIUtil.getMenuFont());
 
-    if (UIUtil.isStandardMenuLAF()) {
-      super.updateUI();
+    JPopupMenu popupMenu = getPopupMenu();
+    if (popupMenu != null) {
+      popupMenu.updateUI();
     }
-    else {
-      setUI(IdeaMenuUI.createUI(this));
-      setFont(UIUtil.getMenuFont());
-
-      JPopupMenu popupMenu = getPopupMenu();
-      if (popupMenu != null) {
-        popupMenu.updateUI();
-      }
-    }
-
-    if (myTopLevel && isAmbiance) {
-      setForeground(UIUtil.GTK_AMBIANCE_TEXT_COLOR);
-    }
-
-    if (myTopLevel && UIUtil.isUnderGTKLookAndFeel()) {
-      Insets insets = getInsets();
-      @SuppressWarnings("UseDPIAwareInsets") Insets newInsets = new Insets(insets.top, insets.left, insets.bottom, insets.right);
-      if (insets.top + insets.bottom < JBUI.scale(6)) {
-        newInsets.top = newInsets.bottom = JBUI.scale(3);
-      }
-      if (insets.left + insets.right < JBUI.scale(12)) {
-        newInsets.left = newInsets.right = JBUI.scale(6);
-      }
-      if (!newInsets.equals(insets)) {
-        setBorder(BorderFactory.createEmptyBorder(newInsets.top, newInsets.left, newInsets.bottom, newInsets.right));
-      }
-    }
-  }
-
-  @Override
-  public void setUI(MenuItemUI ui) {
-    MenuItemUI newUi = !myTopLevel && UIUtil.isUnderGTKLookAndFeel() && ui instanceof SynthMenuUI ? new GtkMenuUI((SynthMenuUI)ui) : ui;
-    super.setUI(newUi);
   }
 
   private void init() {
@@ -178,8 +155,11 @@ public final class ActionMenu extends JBMenu {
 
     myStubItem = macSystemMenu ? null : new StubItem();
     addStubItem();
-    addMenuListener(new MenuListenerImpl());
     setBorderPainted(false);
+
+    MenuListenerImpl menuListener = new MenuListenerImpl();
+    addMenuListener(menuListener);
+    getModel().addChangeListener(menuListener);
 
     setVisible(myPresentation.isVisible());
     setEnabled(myPresentation.isEnabled());
@@ -197,6 +177,7 @@ public final class ActionMenu extends JBMenu {
 
   public void setMnemonicEnabled(boolean enable) {
     myMnemonicEnabled = enable;
+    setText(myPresentation.getText(enable));
     setMnemonic(myPresentation.getMnemonic());
     setDisplayedMnemonicIndex(myPresentation.getDisplayedMnemonicIndex());
   }
@@ -216,18 +197,35 @@ public final class ActionMenu extends JBMenu {
     if (settings != null && settings.getShowIconsInMenus()) {
       final Presentation presentation = myPresentation;
       Icon icon = presentation.getIcon();
-      if (SystemInfo.isMacSystemMenu && ActionPlaces.MAIN_MENU.equals(myPlace)) {
+      if (SystemInfo.isMacSystemMenu && ActionPlaces.MAIN_MENU.equals(myPlace) && icon != null) {
         // JDK can't paint correctly our HiDPI icons at the system menu bar
-        icon = IconLoader.get1xIcon(icon);
+        icon = IconLoader.getMenuBarIcon(icon, myUseDarkIcons);
       }
-      setIcon(icon);
-      if (presentation.getDisabledIcon() != null) {
-        setDisabledIcon(presentation.getDisabledIcon());
-      }
-      else {
-        setDisabledIcon(IconLoader.getDisabledIcon(icon));
+      if (isShowIcons()) {
+        setIcon(null);
+        setDisabledIcon(null);
+      } else {
+        setIcon(icon);
+        if (presentation.getDisabledIcon() != null) {
+          setDisabledIcon(presentation.getDisabledIcon());
+        }
+        else {
+          setDisabledIcon(icon == null ? null : IconLoader.getDisabledIcon(icon));
+        }
       }
     }
+  }
+
+  static boolean isShowIcons() {
+    return SystemInfo.isMac && Registry.get("ide.macos.main.menu.alignment.options").isOptionEnabled("No icons");
+  }
+
+  static boolean isAligned() {
+    return SystemInfo.isMac && Registry.get("ide.macos.main.menu.alignment.options").isOptionEnabled("Aligned");
+  }
+
+  static boolean isAlignedInGroup() {
+    return SystemInfo.isMac && Registry.get("ide.macos.main.menu.alignment.options").isOptionEnabled("Aligned in group");
   }
 
   @Override
@@ -236,7 +234,7 @@ public final class ActionMenu extends JBMenu {
     showDescriptionInStatusBar(isIncluded, this, myPresentation.getDescription());
   }
 
-  public static void showDescriptionInStatusBar(boolean isIncluded, Component component, String description) {
+  public static void showDescriptionInStatusBar(boolean isIncluded, Component component, @NlsContexts.StatusBarText String description) {
     IdeFrame frame = (IdeFrame)(component instanceof IdeFrame ? component : SwingUtilities.getAncestorOfClass(IdeFrame.class, component));
     StatusBar statusBar;
     if (frame != null && (statusBar = frame.getStatusBar()) != null) {
@@ -244,35 +242,103 @@ public final class ActionMenu extends JBMenu {
     }
   }
 
-  private class MenuListenerImpl implements MenuListener {
+  private class MenuListenerImpl implements ChangeListener, MenuListener {
+    boolean isSelected = false;
+
+    boolean myIsHidden = false;
+
+    @Override
+    public void stateChanged(ChangeEvent e) {
+      // Re-implement javax.swing.JMenu.MenuChangeListener to avoid recursive event notifications
+      // if 'menuSelected' fires unrelated 'stateChanged' event, without changing 'model.isSelected()' value.
+      ButtonModel model = (ButtonModel)e.getSource();
+      boolean modelSelected = model.isSelected();
+
+      if (modelSelected != isSelected) {
+        isSelected = modelSelected;
+
+        if (modelSelected) {
+          menuSelected();
+        }
+        else {
+          menuDeselected();
+        }
+      }
+    }
+
     @Override
     public void menuCanceled(MenuEvent e) {
-      clearItems();
-      addStubItem();
+      onMenuHidden();
     }
 
     @Override
     public void menuDeselected(MenuEvent e) {
-      if (myDisposable != null) {
-        Disposer.dispose(myDisposable);
-        myDisposable = null;
-      }
-      clearItems();
-      addStubItem();
+      // Use ChangeListener instead to guard against recursive calls
     }
 
     @Override
     public void menuSelected(MenuEvent e) {
+      // Use ChangeListener instead to guard against recursive calls
+    }
+
+    private void menuDeselected() {
+      if (myDisposable != null) {
+        Disposer.dispose(myDisposable);
+        myDisposable = null;
+      }
+      onMenuHidden();
+    }
+
+    private void onMenuHidden() {
+      if (KEEP_MENU_HIERARCHY) {
+        return;
+      }
+
+      Runnable clearSelf = () -> {
+        clearItems();
+        addStubItem();
+      };
+
+      if (SystemInfo.isMacSystemMenu && myPlace.equals(ActionPlaces.MAIN_MENU)) {
+        // Menu items may contain mnemonic and they can affect key-event dispatching (when Alt pressed)
+        // To avoid influence of mnemonic it's necessary to clear items when menu was hidden.
+        // When user selects item of system menu (under MacOs) AppKit generates such sequence: CloseParentMenu -> PerformItemAction
+        // So we can destroy menu-item before item's action performed, and because of that action will not be executed.
+        // Defer clearing to avoid this problem.
+        Disposable listenerHolder = Disposer.newDisposable();
+        Disposer.register(ApplicationManager.getApplication(), listenerHolder);
+        IdeEventQueue.getInstance().addDispatcher(e -> {
+          if (e instanceof KeyEvent) {
+            if (myIsHidden) {
+              clearSelf.run();
+            }
+            ApplicationManager.getApplication().invokeLater(() -> Disposer.dispose(listenerHolder));
+          }
+          return false;
+        }, listenerHolder);
+
+        myIsHidden = true;
+      }
+      else {
+        clearSelf.run();
+      }
+    }
+
+    private void menuSelected() {
       UsabilityHelper helper = new UsabilityHelper(ActionMenu.this);
       if (myDisposable == null) {
         myDisposable = Disposer.newDisposable();
       }
       Disposer.register(myDisposable, helper);
+      if (KEEP_MENU_HIERARCHY || myIsHidden) {
+        clearItems();
+      }
+      myIsHidden = false;
       fillMenu();
     }
   }
 
-  private void clearItems() {
+  public void clearItems() {
     if (SystemInfo.isMacSystemMenu && myPlace.equals(ActionPlaces.MAIN_MENU)) {
       for (Component menuComponent : getMenuComponents()) {
         if (menuComponent instanceof ActionMenu) {
@@ -294,25 +360,24 @@ public final class ActionMenu extends JBMenu {
     validate();
   }
 
-  private void fillMenu() {
+  public void fillMenu() {
     DataContext context;
-    boolean mayContextBeInvalid;
 
     if (myContext != null) {
       context = myContext;
-      mayContextBeInvalid = false;
     }
     else {
-      @SuppressWarnings("deprecation") DataContext contextFromFocus = DataManager.getInstance().getDataContext();
+      DataManager dataManager = DataManager.getInstance();
+      @SuppressWarnings("deprecation") DataContext contextFromFocus = dataManager.getDataContext();
       context = contextFromFocus;
       if (PlatformDataKeys.CONTEXT_COMPONENT.getData(context) == null) {
-        IdeFrame frame = UIUtil.getParentOfType(IdeFrame.class, this);
-        context = DataManager.getInstance().getDataContext(IdeFocusManager.getGlobalInstance().getLastFocusedFor(frame));
+        IdeFrame frame = ComponentUtil.getParentOfType((Class<? extends IdeFrame>)IdeFrame.class, (Component)this);
+        context = dataManager.getDataContext(IdeFocusManager.getGlobalInstance().getLastFocusedFor((Window)frame));
       }
-      mayContextBeInvalid = true;
     }
 
-    Utils.fillMenu(myGroup.getAction(), this, myMnemonicEnabled, myPresentationFactory, context, myPlace, true, mayContextBeInvalid, LaterInvocator.isInModalContext());
+    final boolean isDarkMenu = SystemInfo.isMacSystemMenu && NSDefaults.isDarkMenuBar();
+    Utils.fillMenu(myGroup.getAction(), this, myMnemonicEnabled, myPresentationFactory, context, myPlace, true, LaterInvocator.isInModalContext(), isDarkMenu);
   }
 
   private class MenuItemSynchronizer implements PropertyChangeListener {
@@ -322,7 +387,7 @@ public final class ActionMenu extends JBMenu {
       if (Presentation.PROP_VISIBLE.equals(name)) {
         setVisible(myPresentation.isVisible());
         if (SystemInfo.isMacSystemMenu && myPlace.equals(ActionPlaces.MAIN_MENU)) {
-          validateTree();
+          validate();
         }
       }
       else if (Presentation.PROP_ENABLED.equals(name)) {
@@ -335,14 +400,14 @@ public final class ActionMenu extends JBMenu {
         setDisplayedMnemonicIndex(myPresentation.getDisplayedMnemonicIndex());
       }
       else if (Presentation.PROP_TEXT.equals(name)) {
-        setText(myPresentation.getText());
+        setText(myPresentation.getText(true));
       }
       else if (Presentation.PROP_ICON.equals(name) || Presentation.PROP_DISABLED_ICON.equals(name)) {
         updateIcon();
       }
     }
   }
-  private static class UsabilityHelper implements IdeEventQueue.EventDispatcher, AWTEventListener, Disposable {
+  private static final class UsabilityHelper implements IdeEventQueue.EventDispatcher, AWTEventListener, Disposable {
 
     private Component myComponent;
     private Point myLastMousePoint;
@@ -385,7 +450,7 @@ public final class ActionMenu extends JBMenu {
       if (event instanceof ComponentEvent) {
         ComponentEvent componentEvent = (ComponentEvent)event;
         Component component = componentEvent.getComponent();
-        JPopupMenu popup = UIUtil.getParentOfType(JPopupMenu.class, component);
+        JPopupMenu popup = ComponentUtil.getParentOfType((Class<? extends JPopupMenu>)JPopupMenu.class, component);
         if (popup != null && popup.getInvoker() == myComponent && popup.isShowing()) {
           Rectangle bounds = popup.getBounds();
           if (bounds.isEmpty()) return;

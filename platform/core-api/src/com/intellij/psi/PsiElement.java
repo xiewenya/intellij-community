@@ -1,36 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.Language;
+import com.intellij.model.psi.PsiSymbolReference;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Iconable;
-import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.UserDataHolder;
+import com.intellij.openapi.util.*;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.util.ArrayFactory;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.ApiStatus.Experimental;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Collections;
 
 /**
  * The common base interface for all elements of the PSI tree.
@@ -79,9 +66,8 @@ public interface PsiElement extends UserDataHolder, Iconable {
    *
    * @return the array of child elements.
    */
-  @NotNull
   @Contract(pure=true)
-  PsiElement[] getChildren();
+  PsiElement @NotNull [] getChildren();
 
   /**
    * Returns the parent of the PSI element.
@@ -125,6 +111,8 @@ public interface PsiElement extends UserDataHolder, Iconable {
 
   /**
    * Returns the file containing the PSI element.
+   * <p></p>
+   * Note: this method might need to traverse the whole AST up, which can be slow in deep trees, so invoking this method should be avoided if possible.
    *
    * @return the file instance, or null if the PSI element is not contained in a file (for example,
    *         the element represents a package or directory).
@@ -136,11 +124,22 @@ public interface PsiElement extends UserDataHolder, Iconable {
 
   /**
    * Returns the text range in the document occupied by the PSI element.
+   * <p></p>
+   * Note: it works in <i>O(tree_depth)</i> time, which can be slow in deep trees, so invoking this method should be avoided if possible.
    *
    * @return the text range.
    */
   @Contract(pure=true)
   TextRange getTextRange();
+
+  /**
+   * @return text range of this element relative to its parent
+   */
+  @Contract(pure = true)
+  @NotNull
+  default TextRange getTextRangeInParent() {
+    return TextRange.from(getStartOffsetInParent(), getTextLength());
+  }
 
   /**
    * Returns the text offset of the PSI element relative to its parent.
@@ -191,11 +190,15 @@ public interface PsiElement extends UserDataHolder, Iconable {
 
   /**
    * Returns the text of the PSI element.
+   * <p></p>
+   * Note: This call requires traversing whole subtree, so it can be expensive for composite elements, and should be avoided if possible.
    *
    * @return the element text.
+   * @see #textMatches
+   * @see #textContains
    */
-  @NonNls
   @Contract(pure=true)
+  @NlsSafe
   String getText();
 
   /**
@@ -203,9 +206,8 @@ public interface PsiElement extends UserDataHolder, Iconable {
    *
    * @return the element text as a character array.
    */
-  @NotNull
   @Contract(pure=true)
-  char[] textToCharArray();
+  char @NotNull [] textToCharArray();
 
   /**
    * Returns the PSI element which should be used as a navigation target
@@ -321,6 +323,7 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * @throws IncorrectOperationException if the modification is not supported or not possible for some reason.
    * @deprecated not all PSI implementations implement this method correctly.
    */
+  @Deprecated
   void checkAdd(@NotNull PsiElement element) throws IncorrectOperationException;
 
   /**
@@ -370,6 +373,7 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * @throws IncorrectOperationException if the modification is not supported or not possible for some reason.
    * @deprecated not all PSI implementations implement this method correctly.
    */
+  @Deprecated
   void checkDelete() throws IncorrectOperationException;
 
   /**
@@ -396,18 +400,26 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * can be accessed for reading and writing. Valid elements can still correspond to
    * underlying documents whose text is different, when those documents have been changed
    * and not yet committed ({@link PsiDocumentManager#commitDocument(com.intellij.openapi.editor.Document)}).
-   * (In this case an attempt to change PSI will result in an exception).
+   * (In this case an attempt to change PSI will result in an exception).<br><br>
    *
-   * Any access to invalid elements results in {@link PsiInvalidElementAccessException}.
-   *
+   * Most method calls on invalid PSI result in {@link PsiInvalidElementAccessException}.
    * Once invalid, elements can't become valid again.
-   *
    * Elements become invalid in following cases:
    * <ul>
-   *   <li>They have been deleted via PSI operation ({@link #delete()})</li>
+   *   <li>They have been deleted via PSI operation (e.g. {@link #delete()})</li>
    *   <li>They have been deleted as a result of an incremental reparse (document commit)</li>
    *   <li>Their containing file has been changed externally, or renamed so that its PSI had to be rebuilt from scratch</li>
    * </ul>
+   *
+   * Note that calls to this method are expected to be rare and can even be considered a code smell. In general,
+   * when you're given some PSI, you should assume it's valid. If it turns out to be invalid, it's the responsibility
+   * of those who gave you this PSI, not yours, and they should be fixed, not your code.<br><br>
+   *
+   * The rare circumstances where {@code isValid} check makes sense
+   * are those where it's obvious from the surrounding code why the PSI could become invalid. For example, right after a PSI modification
+   * or at the start of a read action (because any write action could've invalidated the PSI between read actions,
+   * and you should never expect PSI to survive that). And even in these circumstances, please consider alternatives
+   * that support PSI restoration, e.g. {@link SmartPsiElementPointer}s.
    *
    * @return true if the element is valid, false otherwise.
    * @see com.intellij.psi.util.PsiUtilCore#ensureValid(PsiElement)
@@ -423,6 +435,25 @@ public interface PsiElement extends UserDataHolder, Iconable {
    */
   @Contract(pure=true)
   boolean isWritable();
+
+  /**
+   * The returned references are expected to be used by language support,
+   * for example in Java `foo` element in `foo = 42` expression has a reference,
+   * which is used by Java language support to compute expected type of the assignment.
+   * <p>
+   * On the other hand {@code "bar"} literal in {@code new File("bar")} is a string literal,
+   * and from Java language perspective it has no references,
+   * but the framework support "knows" that this literal contains the reference to a file.
+   * These are external references.
+   *
+   * @return collection of references from this element, or empty collection if there are no such references
+   * @see com.intellij.model.psi.PsiExternalReferenceHost
+   * @see com.intellij.model.psi.PsiSymbolReferenceService#getReferences(PsiElement)
+   */
+  @Experimental
+  default @NotNull Iterable<? extends @NotNull PsiSymbolReference> getOwnReferences() {
+    return Collections.emptyList();
+  }
 
   /**
    * Returns the reference from this PSI element to another PSI element (or elements), if one exists.
@@ -453,9 +484,8 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * @see PsiReferenceService#getReferences
    * @see com.intellij.psi.search.searches.ReferencesSearch
    */
-  @NotNull
   @Contract(pure=true)
-  PsiReference[] getReferences();
+  PsiReference @NotNull [] getReferences();
 
   /**
    * Returns a copyable user data object attached to this element.
@@ -498,7 +528,7 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * Returns the element which should be used as the parent of this element in a tree up
    * walk during a resolve operation. For most elements, this returns {@code getParent()},
    * but the context can be overridden for some elements like code fragments (see
-   * {@link PsiElementFactory#createCodeBlockCodeFragment(String, PsiElement, boolean)}).
+   * {@link JavaCodeFragmentFactory#createCodeBlockCodeFragment(String, PsiElement, boolean)}).
    *
    * @return the resolve context element.
    */
@@ -531,7 +561,7 @@ public interface PsiElement extends UserDataHolder, Iconable {
    * Returns the scope in which references to this element are searched.
    *
    * @return the search scope instance.
-   * @see {@link com.intellij.psi.search.PsiSearchHelper#getUseScope(PsiElement)}
+   * @see com.intellij.psi.search.PsiSearchHelper#getUseScope(PsiElement)
    */
   @NotNull
   @Contract(pure=true)
@@ -548,6 +578,7 @@ public interface PsiElement extends UserDataHolder, Iconable {
   /**
    * toString() should never be presented to the user.
    */
+  @Override
   @NonNls
   @Contract(pure=true)
   String toString();

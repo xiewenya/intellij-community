@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/** $Id$ */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.images.thumbnail.impl;
 
+import com.intellij.ide.CopyPasteDelegator;
 import com.intellij.ide.CopyPasteSupport;
 import com.intellij.ide.DeleteProvider;
-import com.intellij.ide.PsiActionSupportFactory;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.util.DeleteHandler;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -28,6 +13,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.ui.JBPopupMenu;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
@@ -40,6 +26,8 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBList;
+import com.intellij.util.containers.ContainerUtil;
+import org.intellij.images.ImagesBundle;
 import org.intellij.images.fileTypes.ImageFileTypeManager;
 import org.intellij.images.options.*;
 import org.intellij.images.search.ImageTagManager;
@@ -66,12 +54,10 @@ import java.awt.event.MouseMotionListener;
 import java.awt.image.BufferedImage;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
-    private final VirtualFileListener vfsListener = new VFSListener();
-    private final OptionsChangeListener optionsListener = new OptionsChangeListener();
 
     private static final Navigatable[] EMPTY_NAVIGATABLE_ARRAY = new Navigatable[]{};
 
@@ -94,19 +80,13 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     private DefaultListModel<String> listModel;
     private Splitter previewSplitter;
 
-    public ThumbnailViewUI(ThumbnailViewImpl thumbnailView) {
+    ThumbnailViewUI(ThumbnailViewImpl thumbnailView) {
         super(new BorderLayout());
 
         this.thumbnailView = thumbnailView;
 
-        final PsiActionSupportFactory factory = PsiActionSupportFactory.getInstance();
-        copyPasteSupport = factory.createPsiBasedCopyPasteSupport(thumbnailView.getProject(), this, new PsiActionSupportFactory.PsiElementSelector() {
-            public PsiElement[] getSelectedElements() {
-                return (PsiElement[]) getData(LangDataKeys.PSI_ELEMENT_ARRAY.getName());
-            }
-        });
-
-        deleteProvider = factory.createPsiBasedDeleteProvider();
+        copyPasteSupport = new CopyPasteDelegator(thumbnailView.getProject(), this);
+        deleteProvider = new DeleteHandler.DefaultDeleteProvider();
 
     }
 
@@ -115,7 +95,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             cellRenderer = new ThumbnailListCellRenderer();
             ImageComponent imageComponent = cellRenderer.getImageComponent();
 
-            VirtualFileManager.getInstance().addVirtualFileListener(vfsListener);
+            VirtualFileManager.getInstance().addVirtualFileListener(new VFSListener(), this);
 
             Options options = OptionsManager.getInstance().getOptions();
             EditorOptions editorOptions = options.getEditorOptions();
@@ -128,7 +108,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             imageComponent.setFileNameVisible(editorOptions.isFileNameVisible());
             imageComponent.setFileSizeVisible(editorOptions.isFileSizeVisible());
 
-            options.addPropertyChangeListener(optionsListener);
+            options.addPropertyChangeListener(new OptionsChangeListener(), this);
 
             list = new JBList();
             list.setModel(new DefaultListModel());
@@ -142,7 +122,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             list.addMouseListener(mouseListener);
             list.addMouseMotionListener(mouseListener);
 
-            ThumbnailComponentUI componentUI = (ThumbnailComponentUI) UIManager.getUI(cellRenderer);
+            ThumbnailComponentUI componentUI = (ThumbnailComponentUI)ThumbnailComponentUI.createUI(cellRenderer);
             Dimension preferredSize = componentUI.getPreferredSize(cellRenderer);
 
             list.setFixedCellWidth(preferredSize.width);
@@ -182,13 +162,13 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
         listModel = new DefaultListModel<>();
         updateTagsPreviewModel();
         JBList<String> tagsList = new JBList<>(listModel);
-        tagsList.setEmptyText("No tags defined");
+        tagsList.setEmptyText(ImagesBundle.message("list.empty.text.no.tags.defined"));
         ImageTagManager imageTagManager = ImageTagManager.getInstance(thumbnailView.getProject());
         return ToolbarDecorator.createDecorator(tagsList)
           .setAddAction(new AnActionButtonRunnable() {
               @Override
               public void run(AnActionButton button) {
-                  JBPopupFactory.getInstance().createActionGroupPopup("Add Tags",
+                  JBPopupFactory.getInstance().createActionGroupPopup(IdeBundle.message("popup.title.add.tags"),
                                                                       new AddTagGroup(),
                                                                       button.getDataContext(),
                                                                       JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false)
@@ -250,7 +230,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
                 commonTags.retainAll(tags);
             }
         }
-        
+
         if (commonTags != null) {
             commonTags.forEach(listModel::addElement);
         }
@@ -296,24 +276,24 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
         cellRenderer.getImageComponent().setTransparencyChessboardVisible(visible);
         list.repaint();
     }
-    
+
     public void setFileNameVisible(boolean visible) {
         createUI();
         cellRenderer.getImageComponent().setFileNameVisible(visible);
         list.repaint();
     }
-    
+
     public boolean isFileNameVisible() {
         createUI();
         return cellRenderer.getImageComponent().isFileNameVisible();
     }
-    
+
     public void setFileSizeVisible(boolean visible) {
         createUI();
         cellRenderer.getImageComponent().setFileSizeVisible(visible);
         list.repaint();
     }
-    
+
     public boolean isFileSizeVisible() {
         createUI();
         return cellRenderer.getImageComponent().isFileSizeVisible();
@@ -337,8 +317,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
         return index != -1 && list.isSelectedIndex(index);
     }
 
-    @NotNull
-    public VirtualFile[] getSelection() {
+    public VirtualFile @NotNull [] getSelection() {
         if (list != null) {
             Object[] selectedValues = list.getSelectedValues();
             if (selectedValues != null) {
@@ -356,6 +335,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             implements ListCellRenderer {
         private final ImageFileTypeManager typeManager = ImageFileTypeManager.getInstance();
 
+        @Override
         public Component getListCellRendererComponent(
                 JList list, Object value, int index, boolean isSelected, boolean cellHasFocus
         ) {
@@ -387,8 +367,8 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
                     // File rendering
                     setFileSize(file.getLength());
                     try {
-                        BufferedImage image = IfsUtil.getImage(file);
                         ImageComponent imageComponent = getImageComponent();
+                        BufferedImage image = IfsUtil.getImage(file, imageComponent);
                         imageComponent.getDocument().setValue(image);
                         setFormat(IfsUtil.getFormat(file));
                     } catch (Exception e) {
@@ -466,6 +446,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     }
 
     private final class ThumbnailsMouseAdapter extends MouseAdapter implements MouseMotionListener {
+        @Override
         public void mouseDragged(MouseEvent e) {
             Point point = e.getPoint();
             int index = list.locationToIndex(point);
@@ -479,10 +460,12 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             }
         }
 
+        @Override
         public void mouseMoved(MouseEvent e) {
         }
 
 
+        @Override
         public void mousePressed(MouseEvent e) {
             Point point = e.getPoint();
             int index = list.locationToIndex(point);
@@ -495,6 +478,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             }
         }
 
+        @Override
         public void mouseClicked(MouseEvent e) {
             Point point = e.getPoint();
             int index = list.locationToIndex(point);
@@ -535,16 +519,16 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
                     ActionPopupMenu menu = actionManager.createActionPopupMenu(ThumbnailViewActions.ACTION_PLACE, actionGroup);
                     JPopupMenu popupMenu = menu.getComponent();
                     popupMenu.pack();
-                    popupMenu.show(e.getComponent(), e.getX(), e.getY());
-
+                    JBPopupMenu.showByEvent(e, popupMenu);
                     e.consume();
                 }
             }
         }
     }
 
+    @Override
     @Nullable
-    public Object getData(String dataId) {
+    public Object getData(@NotNull String dataId) {
         if (CommonDataKeys.PROJECT.is(dataId)) {
             return thumbnailView.getProject();
         } else if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
@@ -589,8 +573,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     }
 
 
-    @NotNull
-    private PsiElement[] getSelectedElements() {
+    private PsiElement @NotNull [] getSelectedElements() {
         VirtualFile[] selectedFiles = getSelectedFiles();
         Set<PsiElement> psiElements = new HashSet<>(selectedFiles.length);
         PsiManager psiManager = PsiManager.getInstance(thumbnailView.getProject());
@@ -604,8 +587,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
       return PsiUtilCore.toPsiElementArray(psiElements);
     }
 
-    @NotNull
-    private VirtualFile[] getSelectedFiles() {
+    private VirtualFile @NotNull [] getSelectedFiles() {
         if (list != null) {
             Object[] selectedValues = list.getSelectedValues();
             if (selectedValues != null) {
@@ -619,13 +601,9 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
         return VirtualFile.EMPTY_ARRAY;
     }
 
+    @Override
     public void dispose() {
         removeAll();
-
-        Options options = OptionsManager.getInstance().getOptions();
-        options.removePropertyChangeListener(optionsListener);
-
-        VirtualFileManager.getInstance().removeVirtualFileListener(vfsListener);
 
         list = null;
         cellRenderer = null;
@@ -635,10 +613,11 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     private final class ThumbnailNavigatable implements Navigatable {
         private final VirtualFile file;
 
-        public ThumbnailNavigatable(VirtualFile file) {
+        ThumbnailNavigatable(VirtualFile file) {
             this.file = file;
         }
 
+        @Override
         public void navigate(boolean requestFocus) {
             if (file != null) {
                 FileEditorManager manager = FileEditorManager.getInstance(thumbnailView.getProject());
@@ -646,10 +625,12 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             }
         }
 
+        @Override
         public boolean canNavigate() {
             return file != null;
         }
 
+        @Override
         public boolean canNavigateToSource() {
             return file != null;
         }
@@ -672,7 +653,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
         public void fileDeleted(@NotNull VirtualFileEvent event) {
             VirtualFile file = event.getFile();
             VirtualFile root = thumbnailView.getRoot();
-            if (root != null && VfsUtil.isAncestor(file, root, false)) {
+            if (root != null && VfsUtilCore.isAncestor(file, root, false)) {
                 refresh();
             }
             if (list != null) {
@@ -697,6 +678,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     }
 
     private final class OptionsChangeListener implements PropertyChangeListener {
+        @Override
         public void propertyChange(PropertyChangeEvent evt) {
             Options options = (Options) evt.getSource();
             EditorOptions editorOptions = options.getEditorOptions();
@@ -714,10 +696,9 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
     }
 
     private class FocusRequester extends MouseAdapter {
+        @Override
         public void mouseClicked(MouseEvent e) {
-          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> {
-            IdeFocusManager.getGlobalInstance().requestFocus(ThumbnailViewUI.this, true);
-          });
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(ThumbnailViewUI.this, true));
         }
     }
 
@@ -725,10 +706,9 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
       public AddTagGroup() {
         setPopup(true);
       }
-    
-      @NotNull
+
       @Override
-      public AnAction[] getChildren(@Nullable AnActionEvent e) {
+      public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
         if (e == null) return EMPTY_ARRAY;
         Project project = e.getProject();
         ImageTagManager tagManager = ImageTagManager.getInstance(project);
@@ -739,28 +719,28 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
           String tag = tags.get(i);
           actions[i] = new AnAction(tag) {
               @Override
-              public void actionPerformed(AnActionEvent e) {
+              public void actionPerformed(@NotNull AnActionEvent e) {
                   for (VirtualFile file : thumbnailView.getSelection()) {
                       tagManager.addTag(tag, file);
                   }
 
                   updateTagsPreviewModel();
               }
-    
+
             @Override
-            public void update(AnActionEvent e) {
-              e.getPresentation().setEnabledAndVisible(Arrays.stream(thumbnailView.getSelection()).noneMatch(file -> tagManager.hasTag(tag, file)));
+            public void update(@NotNull AnActionEvent e) {
+              e.getPresentation().setEnabledAndVisible(!ContainerUtil.exists(thumbnailView.getSelection(), file -> tagManager.hasTag(tag, file)));
             }
           };
         }
-        actions[tagsNumber] = new AnAction("New Tag") {
+        actions[tagsNumber] = new AnAction(IdeBundle.messagePointer("action.Anonymous.text.new.tag")) {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             ThumbnailView view = ThumbnailViewActionUtil.getVisibleThumbnailView(e);
             if (view != null) {
               VirtualFile[] selection = view.getSelection();
               if (selection.length > 0) {
-                String tag = Messages.showInputDialog("", "New Tag Name", null);
+                String tag = Messages.showInputDialog("", IdeBundle.message("dialog.title.new.tag.name"), null);
                 if (tag != null) {
                   for (VirtualFile file : selection) {
                     tagManager.addTag(tag, file);
@@ -770,7 +750,7 @@ final class ThumbnailViewUI extends JPanel implements DataProvider, Disposable {
             }
           }
         };
-    
+
         return actions;
       }
     }

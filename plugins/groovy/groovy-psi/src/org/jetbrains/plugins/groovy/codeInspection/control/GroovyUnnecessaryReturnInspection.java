@@ -20,9 +20,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -35,21 +35,9 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 public class GroovyUnnecessaryReturnInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unnecessary 'return' statement";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "#ref is unnecessary as the last statement in a method with no return value #loc";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
+    return GroovyBundle.message("inspection.message.ref.is.unnecessary.as.last.statement.in.method.with.no.return.value");
   }
 
   @NotNull
@@ -69,7 +57,7 @@ public class GroovyUnnecessaryReturnInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Remove unnecessary return";
+      return GroovyBundle.message("intention.family.name.remove.unnecessary.return");
     }
 
     @Override

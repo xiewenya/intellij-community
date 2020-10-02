@@ -22,7 +22,10 @@ import com.intellij.openapi.vcs.AbstractVcsHelper;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.update.UpdatedFiles;
 import com.intellij.openapi.vfs.VirtualFile;
-import git4idea.*;
+import git4idea.GitLocalBranch;
+import git4idea.GitRevisionNumber;
+import git4idea.GitUtil;
+import git4idea.GitVcs;
 import git4idea.branch.GitBranchPair;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommand;
@@ -34,8 +37,6 @@ import git4idea.merge.MergeChangeCollector;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.ArrayList;
 
 import static git4idea.GitUtil.HEAD;
 import static git4idea.config.UpdateMethod.MERGE;
@@ -53,7 +54,6 @@ public abstract class GitUpdater {
   @NotNull protected final Git myGit;
   @NotNull protected final VirtualFile myRoot;
   @NotNull protected final GitRepository myRepository;
-  @NotNull protected final GitBranchPair myBranchPair;
   @NotNull protected final ProgressIndicator myProgressIndicator;
   @NotNull protected final UpdatedFiles myUpdatedFiles;
   @NotNull protected final AbstractVcsHelper myVcsHelper;
@@ -65,14 +65,12 @@ public abstract class GitUpdater {
   protected GitUpdater(@NotNull Project project,
                        @NotNull Git git,
                        @NotNull GitRepository repository,
-                       @NotNull GitBranchPair branchAndTracked,
                        @NotNull ProgressIndicator progressIndicator,
                        @NotNull UpdatedFiles updatedFiles) {
     myProject = project;
     myGit = git;
     myRoot = repository.getRoot();
     myRepository = repository;
-    myBranchPair = branchAndTracked;
     myProgressIndicator = progressIndicator;
     myUpdatedFiles = updatedFiles;
     myVcsHelper = AbstractVcsHelper.getInstance(project);
@@ -124,7 +122,7 @@ public abstract class GitUpdater {
       }
     }
 
-    if (GitVersionSpecialty.KNOWS_PULL_REBASE.existsIn(GitVcs.getInstance(project).getVersion())) {
+    if (GitVersionSpecialty.KNOWS_PULL_REBASE.existsIn(project)) {
       try {
         String pullRebaseValue = GitConfigUtil.getValue(project, repository.getRoot(), "pull.rebase");
         if (pullRebaseValue != null && isRebaseValue(pullRebaseValue)) return REBASE;
@@ -145,11 +143,14 @@ public abstract class GitUpdater {
 
   @NotNull
   public GitUpdateResult update() throws VcsException {
-    markStart(myRoot);
+    markStart(myRepository);
     try {
-      return doUpdate();
-    } finally {
-      markEnd(myRoot);
+      GitUpdateResult result = doUpdate();
+      myRepository.update();
+      return result;
+    }
+    finally {
+      markEnd(myRepository);
     }
   }
 
@@ -165,10 +166,8 @@ public abstract class GitUpdater {
    * Checks if update is needed, i.e. if there are remote changes that weren't merged into the current branch.
    * @return true if update is needed, false otherwise.
    */
-  public boolean isUpdateNeeded() throws VcsException {
-    GitBranch dest = myBranchPair.getDest();
-    assert dest != null;
-    String remoteBranch = dest.getName();
+  public boolean isUpdateNeeded(@NotNull GitBranchPair branchPair) throws VcsException {
+    String remoteBranch = branchPair.getTarget().getName();
     if (!hasRemoteChanges(remoteBranch)) {
       LOG.info("isUpdateNeeded: No remote changes, update is not needed");
       return false;
@@ -182,24 +181,14 @@ public abstract class GitUpdater {
   @NotNull
   protected abstract GitUpdateResult doUpdate();
 
-  @NotNull
-  GitBranchPair getSourceAndTarget() {
-    return myBranchPair;
-  }
-
-  protected void markStart(VirtualFile root) throws VcsException {
+  protected void markStart(GitRepository repository) throws VcsException {
     // remember the current position
-    myBefore = GitRevisionNumber.resolve(myProject, root, "HEAD");
+    myBefore = GitRevisionNumber.resolve(myProject, repository.getRoot(), "HEAD");
   }
 
-  protected void markEnd(VirtualFile root) throws VcsException {
+  protected void markEnd(GitRepository repository) throws VcsException {
     // find out what have changed, this is done even if the process was cancelled.
-    final MergeChangeCollector collector = new MergeChangeCollector(myProject, root, myBefore);
-    final ArrayList<VcsException> exceptions = new ArrayList<>();
-    collector.collect(myUpdatedFiles, exceptions);
-    if (!exceptions.isEmpty()) {
-      throw exceptions.get(0);
-    }
+    new MergeChangeCollector(myProject, repository, myBefore).collect(myUpdatedFiles);
   }
 
   protected boolean hasRemoteChanges(@NotNull String remoteBranch) throws VcsException {

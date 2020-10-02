@@ -22,9 +22,6 @@ import java.io.File;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class JpsJavaExtensionService {
   public static JpsJavaExtensionService getInstance() {
     return JpsServiceManager.getInstance().getService(JpsJavaExtensionService.class);
@@ -40,6 +37,9 @@ public abstract class JpsJavaExtensionService {
 
   @NotNull
   public abstract JpsProductionModuleOutputPackagingElement createProductionModuleOutput(@NotNull JpsModuleReference moduleReference);
+
+  @NotNull
+  public abstract JpsProductionModuleSourcePackagingElement createProductionModuleSource(@NotNull JpsModuleReference moduleReference);
 
   @NotNull
   public abstract JpsTestModuleOutputPackagingElement createTestModuleOutput(@NotNull JpsModuleReference moduleReference);
@@ -88,9 +88,13 @@ public abstract class JpsJavaExtensionService {
 
   public abstract JpsTypedLibrary<JpsSdk<JpsDummyElement>> addJavaSdk(@NotNull JpsGlobal global, @NotNull String name, @NotNull String homePath);
 
-  @Nullable
+  @NotNull
   public abstract JpsJavaCompilerConfiguration getCompilerConfiguration(@NotNull JpsProject project);
 
+  /**
+   * @deprecated use {@link JpsJavaExtensionService#getCompilerConfiguration(JpsProject)} instead
+   */
+  @Deprecated
   @NotNull
   public abstract JpsJavaCompilerConfiguration getOrCreateCompilerConfiguration(@NotNull JpsProject project);
 

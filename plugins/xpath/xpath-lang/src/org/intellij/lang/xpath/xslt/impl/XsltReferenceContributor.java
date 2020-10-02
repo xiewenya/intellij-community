@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.lang.xpath.xslt.impl;
 
 import com.intellij.codeInsight.daemon.EmptyResolveMessageProvider;
@@ -32,6 +18,7 @@ import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.context.XsltNamespaceContext;
 import org.intellij.lang.xpath.xslt.impl.references.PrefixReference;
 import org.intellij.lang.xpath.xslt.impl.references.XsltReferenceProvider;
+import org.intellij.plugins.xpathView.XPathBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,22 +27,25 @@ import java.util.regex.Pattern;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 import static com.intellij.patterns.StandardPatterns.string;
-import static com.intellij.patterns.XmlPatterns.*;
+import static com.intellij.patterns.XmlPatterns.xmlAttributeValue;
+import static com.intellij.patterns.XmlPatterns.xmlTag;
 
 /**
  * @author yole
  */
-public class XsltReferenceContributor {
+public final class XsltReferenceContributor {
   private XsltReferenceContributor() {
   }
 
   public static class XPath extends PsiReferenceContributor {
+    @Override
     public void registerReferenceProviders(@NotNull PsiReferenceRegistrar registrar) {
       registrar.registerReferenceProvider(psiElement(XPath2TypeElement.class), SchemaTypeProvider.INSTANCE);
     }
   }
 
   public static class XML extends PsiReferenceContributor {
+    @Override
     public void registerReferenceProviders(@NotNull PsiReferenceRegistrar registrar) {
       final XmlTagPattern xsltTag = xmlTag().withNamespace(XsltSupport.XSLT_NS);
       registrar.registerReferenceProvider(
@@ -72,9 +62,8 @@ public class XsltReferenceContributor {
         xmlAttributeValue("as")
           .withSuperParent(2, xsltTag)
           .withValue(string().contains(":")), new PsiReferenceProvider() {
-        @NotNull
         @Override
-        public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+        public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
           return new PsiReference[]{ new NamespacePrefixReference(element) };
         }
       });
@@ -82,19 +71,17 @@ public class XsltReferenceContributor {
   }
 
   static class NamespacePrefixReference extends PrefixReference implements LocalQuickFixProvider {
-    public NamespacePrefixReference(PsiElement element) {
+    NamespacePrefixReference(PsiElement element) {
       super((XmlAttribute)element.getParent());
     }
 
-    @NotNull
     @Override
-    public Object[] getVariants() {
+    public Object @NotNull [] getVariants() {
       return XsltNamespaceContext.getPrefixes(myAttribute).toArray();
     }
 
-    @Nullable
     @Override
-    public LocalQuickFix[] getQuickFixes() {
+    public LocalQuickFix @Nullable [] getQuickFixes() {
       final XmlAttributeValue valueElement = myAttribute.getValueElement();
       if (valueElement != null) {
         return new LocalQuickFix[] {
@@ -110,7 +97,7 @@ public class XsltReferenceContributor {
     }
   }
 
-  public static class SchemaTypeReference extends TypeOrElementOrAttributeReference implements
+  public static final class SchemaTypeReference extends TypeOrElementOrAttributeReference implements
                                                                                                              EmptyResolveMessageProvider {
     private static final Pattern NAME_PATTERN = Pattern.compile("(?:[\\w-]+:)[\\w-]+");
 
@@ -141,7 +128,7 @@ public class XsltReferenceContributor {
     @NotNull
     @Override
     public String getUnresolvedMessagePattern() {
-      return "Unknown Type";
+      return XPathBundle.message("inspection.message.unknown.type");
     }
 
     @Nullable
@@ -154,9 +141,8 @@ public class XsltReferenceContributor {
   static class SchemaTypeProvider extends PsiReferenceProvider {
     static final PsiReferenceProvider INSTANCE = new SchemaTypeProvider();
 
-    @NotNull
     @Override
-    public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
+    public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull ProcessingContext context) {
       final SchemaTypeReference reference = SchemaTypeReference.create(element);
       return reference != null ? new PsiReference[] { reference } : PsiReference.EMPTY_ARRAY;
     }

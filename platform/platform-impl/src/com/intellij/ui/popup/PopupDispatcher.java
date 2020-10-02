@@ -1,27 +1,12 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup;
 
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.ui.popup.IdePopupEventDispatcher;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.util.Disposer;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -30,7 +15,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.util.stream.Stream;
 
-public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, IdePopupEventDispatcher {
+public final class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, IdePopupEventDispatcher {
 
   private static WizardPopup ourActiveWizardRoot;
   private static WizardPopup ourShowingStep;
@@ -39,7 +24,7 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
 
   static {
     if (System.getProperty("is.popup.test") != null ||
-      (ApplicationManagerEx.getApplicationEx() != null && ApplicationManagerEx.getApplicationEx().isUnitTestMode())) {
+        ApplicationManager.getApplication() != null && ApplicationManager.getApplication().isUnitTestMode()) {
       Toolkit.getDefaultToolkit().addAWTEventListener(ourInstance, MouseEvent.MOUSE_PRESSED);
       KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(ourInstance);
     }
@@ -52,7 +37,7 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     return ourInstance;
   }
 
-  public static void setActiveRoot(WizardPopup aRootPopup) {
+  static void setActiveRoot(@NotNull WizardPopup aRootPopup) {
     disposeActiveWizard();
     ourActiveWizardRoot = aRootPopup;
     ourShowingStep = aRootPopup;
@@ -61,7 +46,7 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     }
   }
 
-  public static void clearRootIfNeeded(WizardPopup aRootPopup) {
+  static void clearRootIfNeeded(@NotNull WizardPopup aRootPopup) {
     if (ourActiveWizardRoot == aRootPopup) {
       ourActiveWizardRoot = null;
       ourShowingStep = null;
@@ -71,11 +56,12 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     }
   }
 
+  @Override
   public void eventDispatched(AWTEvent event) {
     dispatchMouseEvent(event);
   }
 
-  private boolean dispatchMouseEvent(AWTEvent event) {
+  private static boolean dispatchMouseEvent(@NotNull AWTEvent event) {
     if (event.getID() != MouseEvent.MOUSE_PRESSED) {
       return false;
     }
@@ -85,14 +71,13 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     }
 
     WizardPopup eachParent = ourShowingStep;
-    final MouseEvent mouseEvent = ((MouseEvent) event);
+    final MouseEvent mouseEvent = (MouseEvent) event;
 
     Point point = (Point) mouseEvent.getPoint().clone();
     SwingUtilities.convertPointToScreen(point, mouseEvent.getComponent());
 
     while (true) {
-      JComponent content = eachParent.getContent();
-      if (content == null || !content.isShowing()) {
+      if (eachParent.isDisposed() || !eachParent.getContent().isShowing()) {
         getActiveRoot().cancel();
         return false;
       }
@@ -109,7 +94,7 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     }
   }
 
-  public static boolean disposeActiveWizard() {
+  private static boolean disposeActiveWizard() {
     if (ourActiveWizardRoot != null) {
       ourActiveWizardRoot.disposeChildren();
       Disposer.dispose(ourActiveWizardRoot);
@@ -119,6 +104,7 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     return false;
   }
 
+  @Override
   public boolean dispatchKeyEvent(final KeyEvent e) {
     if (ourShowingStep == null) {
       return false;
@@ -126,11 +112,11 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     return ourShowingStep.dispatch(e);
   }
 
-  public static void setShowing(WizardPopup aBaseWizardPopup) {
+  static void setShowing(@NotNull WizardPopup aBaseWizardPopup) {
     ourShowingStep = aBaseWizardPopup;
   }
 
-  public static void unsetShowing(WizardPopup aBaseWizardPopup) {
+  static void unsetShowing(@NotNull WizardPopup aBaseWizardPopup) {
     if (ourActiveWizardRoot != null) {
       for (WizardPopup wp = aBaseWizardPopup; wp != null; wp = wp.getParent()) {
         if (wp == ourActiveWizardRoot) {
@@ -141,30 +127,33 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     }
    }
 
-  public static WizardPopup getActiveRoot() {
+  static WizardPopup getActiveRoot() {
     return ourActiveWizardRoot;
   }
 
+  @Override
   public Component getComponent() {
-    return ourShowingStep != null ? ourShowingStep.getContent() : null;
+    return ourShowingStep != null && !ourShowingStep.isDisposed() ? ourShowingStep.getContent() : null;
   }
 
-  @Nullable
+  @NotNull
   @Override
   public Stream<JBPopup> getPopupStream() {
     return Stream.of(ourActiveWizardRoot);
   }
 
+  @Override
   public boolean dispatch(AWTEvent event) {
-   if (event instanceof KeyEvent) {
-      return dispatchKeyEvent(((KeyEvent) event));
-   } else if (event instanceof MouseEvent) {
-     return dispatchMouseEvent(event);
-   } else {
-     return false;
-   }
+    if (event instanceof KeyEvent) {
+      return dispatchKeyEvent((KeyEvent)event);
+    }
+    if (event instanceof MouseEvent) {
+      return dispatchMouseEvent(event);
+    }
+    return false;
   }
 
+  @Override
   public boolean requestFocus() {
     if (ourShowingStep != null) {
       ourShowingStep.requestFocus();
@@ -173,10 +162,12 @@ public class PopupDispatcher implements AWTEventListener, KeyEventDispatcher, Id
     return true;
   }
 
+  @Override
   public boolean close() {
     return disposeActiveWizard();
   }
 
   @Override
-  public void setRestoreFocusSilentely() {}
+  public void setRestoreFocusSilently() {
+  }
 }

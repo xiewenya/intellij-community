@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository.git
 
 import com.intellij.openapi.application.ApplicationManager
@@ -55,7 +41,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
     }
 
   // we must recreate repository if dir changed because repository stores old state and cannot be reinitialized (so, old instance cannot be reused and we must instantiate new one)
-  var _repository: Repository? = null
+  private var _repository: Repository? = null
 
   override val credentialsProvider: CredentialsProvider by lazy {
     JGitCredentialsProvider(credentialsStore, repository)
@@ -63,7 +49,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
 
   private var ignoreRules: IgnoreNode? = null
 
-  override fun createRepositoryIfNeed(): Boolean {
+  override fun createRepositoryIfNeeded(): Boolean {
     ignoreRules = null
 
     if (isRepositoryExists()) {
@@ -113,7 +99,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
     repository.deletePath(path, isFile, false)
   }
 
-  override fun commit(indicator: ProgressIndicator?, syncType: SyncType?, fixStateIfCannotCommit: Boolean): Boolean {
+  override suspend fun commit(indicator: ProgressIndicator?, syncType: SyncType?, fixStateIfCannotCommit: Boolean): Boolean {
     lock.write {
       try {
         // will be reset if OVERWRITE_LOCAL, so, we should not fix state in this case
@@ -207,7 +193,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
       override var definitelySkipPush = false
 
       // KT-8632
-      override fun merge(): UpdateResult? = lock.write {
+      override suspend fun merge(): UpdateResult? = lock.write {
         val committed = commit(pullTask.indicator)
         if (refToMerge == null) {
           definitelySkipPush = !committed && getAheadCommitsCount() == 0
@@ -218,11 +204,11 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
     }
   }
 
-  override fun pull(indicator: ProgressIndicator?) = Pull(this, indicator).pull()
+  override suspend fun pull(indicator: ProgressIndicator?) = Pull(this, indicator).pull()
 
-  override fun resetToTheirs(indicator: ProgressIndicator) = Reset(this, indicator).reset(true)
+  override suspend fun resetToTheirs(indicator: ProgressIndicator) = Reset(this, indicator).reset(true)
 
-  override fun resetToMy(indicator: ProgressIndicator, localRepositoryInitializer: (() -> Unit)?) = Reset(this, indicator).reset(false, localRepositoryInitializer)
+  override suspend fun resetToMy(indicator: ProgressIndicator, localRepositoryInitializer: (() -> Unit)?) = Reset(this, indicator).reset(false, localRepositoryInitializer)
 
   override fun canCommit() = repository.repositoryState.canCommit()
 
@@ -273,7 +259,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
     repository.edit(toDelete)
     addCommand?.call()
 
-    repository.commit(with(IdeaCommitMessageFormatter()) { StringBuilder().appendCommitOwnerInfo(true) }.append(commitMessage).toString())
+    repository.commit(IdeaCommitMessageFormatter().appendCommitOwnerInfo().append(commitMessage).toString())
     return true
   }
 
@@ -283,7 +269,7 @@ class GitRepositoryManager(private val credentialsStore: Lazy<IcsCredentialsStor
       val file = dir.resolve(Constants.DOT_GIT_IGNORE)
       if (file.exists()) {
         node = IgnoreNode()
-        file.inputStream().use { node!!.parse(it) }
+        file.inputStream().use { node.parse(it) }
         ignoreRules = node
       }
     }

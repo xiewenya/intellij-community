@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.gotoByName;
 
 import com.intellij.ide.IdeBundle;
@@ -20,43 +6,47 @@ import com.intellij.ide.actions.GotoClassPresentationUpdater;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.lang.Language;
 import com.intellij.navigation.ChooseByNameContributor;
-import com.intellij.navigation.ChooseByNameRegistry;
 import com.intellij.navigation.GotoClassContributor;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.ArrayUtil;
+import com.intellij.ui.IdeUICustomization;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.indexing.FileBasedIndex;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
-public class GotoClassModel2 extends FilteringGotoByModel<Language> {
+public class GotoClassModel2 extends FilteringGotoByModel<LanguageRef> {
   private String[] mySeparators;
-  
+
   public GotoClassModel2(@NotNull Project project) {
-    super(project, ChooseByNameRegistry.getInstance().getClassModelContributors());
+    super(project, new ChooseByNameContributor[0]);
   }
 
   @Override
-  protected Language filterValueFor(NavigationItem item) {
-    return item instanceof PsiElement ? ((PsiElement) item).getLanguage() : null;
+  protected List<ChooseByNameContributor> getContributorList() {
+    return ChooseByNameContributor.CLASS_EP_NAME.getExtensionList();
   }
 
   @Override
-  protected synchronized Collection<Language> getFilterItems() {
-    final Collection<Language> result = super.getFilterItems();
+  protected LanguageRef filterValueFor(NavigationItem item) {
+    return LanguageRef.forNavigationitem(item);
+  }
+
+  @Override
+  protected synchronized Collection<LanguageRef> getFilterItems() {
+    final Collection<LanguageRef> result = super.getFilterItems();
     if (result == null) {
       return null;
     }
-    final Collection<Language> items = new HashSet<>(result);
-    items.add(Language.ANY);
+    final Collection<LanguageRef> items = new HashSet<>(result);
+    items.add(LanguageRef.forLanguage(Language.ANY));
     return items;
   }
 
@@ -68,25 +58,21 @@ public class GotoClassModel2 extends FilteringGotoByModel<Language> {
 
   @Override
   public String getCheckBoxName() {
-    return IdeBundle.message("checkbox.include.non.project.classes");
+    return IdeUICustomization.getInstance().projectMessage("checkbox.include.non.project.items");
   }
 
+  @NotNull
   @Override
   public String getNotInMessage() {
-    return IdeBundle.message("label.no.matches.found.in.project");
+    return IdeUICustomization.getInstance().projectMessage("label.no.matches.found.in.project");
   }
 
+  @NotNull
   @Override
   public String getNotFoundMessage() {
     return IdeBundle.message("label.no.matches.found");
   }
 
-  @Override
-  public char getCheckBoxMnemonic() {
-    // Some combination like Alt+N, Ant+O, etc are a dead symbols, therefore
-    // we have to change mnemonics for Mac users.
-    return SystemInfo.isMac?'P':'n';
-  }
 
   @Override
   public boolean loadInitialCheckBoxState() {
@@ -104,12 +90,12 @@ public class GotoClassModel2 extends FilteringGotoByModel<Language> {
   }
 
   @Override
-  public String getFullName(final Object element) {
+  public String getFullName(@NotNull final Object element) {
     if (element instanceof PsiElement && !((PsiElement)element).isValid()) {
       return null;
     }
 
-    for (ChooseByNameContributor c : getContributors()) {
+    for (ChooseByNameContributor c : getContributorList()) {
       if (c instanceof GotoClassContributor) {
         String result = ((GotoClassContributor)c).getQualifiedName((NavigationItem)element);
         if (result != null) return result;
@@ -120,8 +106,7 @@ public class GotoClassModel2 extends FilteringGotoByModel<Language> {
   }
 
   @Override
-  @NotNull
-  public String[] getSeparators() {
+  public String @NotNull [] getSeparators() {
     if (mySeparators == null) {
       mySeparators = getSeparatorsFromContributors(getContributors());
     }
@@ -136,7 +121,7 @@ public class GotoClassModel2 extends FilteringGotoByModel<Language> {
         ContainerUtil.addIfNotNull(separators, ((GotoClassContributor)c).getQualifiedNameSeparator());
       }
     }
-    return ArrayUtil.toStringArray(separators);
+    return ArrayUtilRt.toStringArray(separators);
   }
 
   @Override
@@ -158,6 +143,6 @@ public class GotoClassModel2 extends FilteringGotoByModel<Language> {
 
   @Override
   public boolean sameNamesForProjectAndLibraries() {
-    return !FileBasedIndex.ourEnableTracingOfKeyHashToVirtualFileMapping;
+    return false;
   }
 }

@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options;
 
 import com.intellij.ide.ui.search.SearchableOptionContributor;
@@ -23,10 +8,11 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.util.List;
 
 /**
  * SearchableConfigurable instances would be instantiated on buildSearchableOptions step during Installer's build to index of all available options. 
- * {@link #com.intellij.ide.ui.search.TraverseUIStarter}
+ * {@link com.intellij.ide.ui.search.TraverseUIStarter}
  * 
  * @see SearchableOptionContributor
  */
@@ -46,8 +32,25 @@ public interface SearchableConfigurable extends Configurable {
    * @return an action to perform when this configurable is opened when a search filter query is entered by the user in setting dialog.
    * This action, for example, can select something in a tree or a list embedded in this setting page that matches the query. 
    */
-  default @Nullable Runnable enableSearch(String option) {
+  @Nullable
+  default Runnable enableSearch(String option) {
     return null;
+  }
+
+  /**
+   * When building an index of searchable options, it's important to know a class which caused the creation of a configurable.
+   * It often happens that the configurable is created based on a provider from an arbitrary extension point.
+   * In such a case, the provider's class should be returned from this method.
+   * <br/>
+   * When the configurable is based on several providers consider extending {@link com.intellij.openapi.options.CompositeConfigurable}.
+   * <br/>
+   * Keep in mind that this method can be expensive as it can load previously unloaded class.
+   *
+   * @return a class which is a cause of the creation of this configurable
+   */
+  @NotNull
+  default Class<?> getOriginalClass() {
+    return this.getClass();
   }
 
   interface Parent extends SearchableConfigurable, Composite {
@@ -87,9 +90,8 @@ public interface SearchableConfigurable extends Configurable {
         myKids = null;
       }
 
-      @NotNull
       @Override
-      public final Configurable[] getConfigurables() {
+      public final Configurable @NotNull [] getConfigurables() {
         if (myKids != null) return myKids;
         myKids = buildConfigurables();
         return myKids;
@@ -99,10 +101,13 @@ public interface SearchableConfigurable extends Configurable {
     }
   }
 
+  @FunctionalInterface
+  interface Merged {
+    List<Configurable> getMergedConfigurables();
+  }
+
   /**
    * Intended to use some search utility methods with any configurable.
-   *
-   * @author Sergey.Malenkov
    */
   class Delegate implements SearchableConfigurable {
     private final Configurable myConfigurable;
@@ -114,7 +119,7 @@ public interface SearchableConfigurable extends Configurable {
     @NotNull
     @Override
     public String getId() {
-      return (myConfigurable instanceof SearchableConfigurable)
+      return myConfigurable instanceof SearchableConfigurable
              ? ((SearchableConfigurable)myConfigurable).getId()
              : myConfigurable.getClass().getName();
     }
@@ -122,7 +127,7 @@ public interface SearchableConfigurable extends Configurable {
     @Nullable
     @Override
     public Runnable enableSearch(String option) {
-      return (myConfigurable instanceof SearchableConfigurable)
+      return myConfigurable instanceof SearchableConfigurable
              ? ((SearchableConfigurable)myConfigurable).enableSearch(option)
              : null;
     }

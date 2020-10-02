@@ -1,8 +1,10 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.completion
 
 import com.intellij.codeInsight.completion.LightFixtureCompletionTestCase
+import com.intellij.testFramework.NeedsIndex
 
+@NeedsIndex.Full
 class AtomicFieldUpdaterCompletionTest : LightFixtureCompletionTestCase() {
   override fun setUp() {
     super.setUp()
@@ -51,13 +53,13 @@ class Data extends Base {
   fun testUpdateableAll() {
     doTest("updateable", 3,
            "updateableArray", "updateableIntFirst", "updateableIntSecond", "updateableLong", "updateableObject",
-           "updateableString", "nonUpdateableStringFirst", "nonUpdateableType", "nonUpdateableStringSecond")
+           "updateableString", "nonUpdateableStringFirst", "nonUpdateableStringSecond", "nonUpdateableType")
   }
 
   fun testAll() {
     doTest("", 5, "other",
            "updateableArray", "updateableIntFirst", "updateableIntSecond", "updateableLong", "updateableObject",
-           "updateableString", "nonUpdateableStringFirst", "nonUpdateableType", "nonUpdateableStringSecond")
+           "updateableString", "nonUpdateableStringFirst", "nonUpdateableStringSecond", "nonUpdateableType")
   }
 
   fun testUpdateableBase() {
@@ -102,8 +104,8 @@ class Main {
   }
 
   companion object {
-    private val INTEGER = "AtomicIntegerFieldUpdater"
-    private val LONG = "AtomicLongFieldUpdater"
-    private val REFERENCE = "AtomicReferenceFieldUpdater"
+    private const val INTEGER = "AtomicIntegerFieldUpdater"
+    private const val LONG = "AtomicLongFieldUpdater"
+    private const val REFERENCE = "AtomicReferenceFieldUpdater"
   }
 }

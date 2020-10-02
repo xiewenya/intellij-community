@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -21,13 +7,14 @@ import com.intellij.codeInsight.ExpectedTypesProvider;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
+import com.intellij.codeInspection.CommonQuickFixBundle;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Segment;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
@@ -35,9 +22,6 @@ import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author mike
- */
 public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
   private final SmartPsiElementPointer myNewExpression;
 
@@ -50,33 +34,26 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
   }
 
   @Override
-  protected void invokeImpl(PsiClass targetClass) {
-    assert ApplicationManager.getApplication().isWriteAccessAllowed();
-    final Project project = targetClass.getProject();
+  public void invoke(@NotNull Project project, Editor editor, PsiFile file) {
+    PsiNewExpression newExpression = getNewExpression();
+    if (newExpression == null) {
+      return;
+    }
 
-    TransactionGuard.getInstance().submitTransactionLater(project, () -> {
-      PsiDocumentManager.getInstance(project).commitAllDocuments();
+    IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
+    PsiJavaCodeReferenceElement referenceElement = getReferenceElement(newExpression);
+    PsiClass psiClass = CreateFromUsageUtils.createClass(referenceElement, getKind(), null);
+    WriteAction.run(() -> setupClassFromNewExpression(psiClass, newExpression));
+  }
 
-      final PsiNewExpression newExpression = getNewExpression();
-      if (newExpression == null) {
-        return;
-      }
-
-      final PsiJavaCodeReferenceElement referenceElement = getReferenceElement(newExpression);
-      final PsiClass[] psiClass = new PsiClass[1];
-      CommandProcessor.getInstance().executeCommand(newExpression.getProject(), () ->
-        psiClass[0] = CreateFromUsageUtils.createClass(referenceElement, CreateClassKind.CLASS, null), getText(), getText());
-
-      WriteCommandAction.writeCommandAction(project).withName(getText()).withGroupId(getText()).run(() -> {
-        setupClassFromNewExpression(psiClass[0], newExpression);
-      });
-    });
+  @NotNull
+  CreateClassKind getKind() {
+    return CreateClassKind.CLASS;
   }
 
   protected void setupClassFromNewExpression(final PsiClass psiClass, final PsiNewExpression newExpression) {
     assert ApplicationManager.getApplication().isWriteAccessAllowed();
 
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(newExpression.getProject()).getElementFactory();
     PsiClass aClass = psiClass;
     if (aClass == null) return;
 
@@ -89,13 +66,7 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
     PsiExpressionList argList = newExpression.getArgumentList();
     final Project project = aClass.getProject();
     if (argList != null && !argList.isEmpty()) {
-      PsiMethod constructor = elementFactory.createConstructor();
-      constructor = (PsiMethod)aClass.add(constructor);
-
-      TemplateBuilderImpl templateBuilder = new TemplateBuilderImpl(aClass);
-      CreateFromUsageUtils.setupMethodParameters(constructor, templateBuilder, argList, getTargetSubstitutor(newExpression));
-
-      setupSuperCall(aClass, constructor, templateBuilder);
+      TemplateBuilderImpl templateBuilder = createConstructorTemplate(aClass, newExpression, argList);
 
       getReferenceElement(newExpression).bindToElement(aClass);
       aClass = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(aClass);
@@ -104,34 +75,33 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
 
       final Editor editor = positionCursor(project, aClass.getContainingFile(), aClass);
       if (editor == null) return;
-      final RangeMarker textRange = editor.getDocument().createRangeMarker(aClass.getTextRange());
-      final Runnable runnable = () -> {
-        WriteCommandAction.writeCommandAction(project).withName(getText()).withGroupId(getText()).run(() -> {
-          try {
-            editor.getDocument().deleteString(textRange.getStartOffset(), textRange.getEndOffset());
-          }
-          finally {
-            textRange.dispose();
-          }
-        });
-        startTemplate(editor, template, project, null, getText());
-      };
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
-        runnable.run();
-      }
-      else {
-        ApplicationManager.getApplication().invokeLater(runnable);
-      }
+
+      Segment textRange = aClass.getTextRange();
+      editor.getDocument().deleteString(textRange.getStartOffset(), textRange.getEndOffset());
+      startTemplate(editor, template, project, null, getText());
     }
     else {
       positionCursor(project, aClass.getContainingFile(), ObjectUtils.notNull(aClass.getNameIdentifier(), aClass));
     }
   }
 
+  @NotNull
+  TemplateBuilderImpl createConstructorTemplate(PsiClass aClass, PsiNewExpression newExpression, PsiExpressionList argList) {
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(newExpression.getProject());
+    PsiMethod constructor = elementFactory.createConstructor();
+    constructor = (PsiMethod)aClass.add(constructor);
+
+    TemplateBuilderImpl templateBuilder = new TemplateBuilderImpl(aClass);
+    CreateFromUsageUtils.setupMethodParameters(constructor, templateBuilder, argList, getTargetSubstitutor(newExpression));
+
+    setupSuperCall(aClass, constructor, templateBuilder);
+    return templateBuilder;
+  }
+
   @Nullable
   public static PsiMethod setupSuperCall(PsiClass targetClass, PsiMethod constructor, TemplateBuilderImpl templateBuilder)
     throws IncorrectOperationException {
-    PsiElementFactory elementFactory = JavaPsiFacade.getInstance(targetClass.getProject()).getElementFactory();
+    PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(targetClass.getProject());
     PsiMethod supConstructor = null;
     PsiClass superClass = targetClass.getSuperClass();
     if (superClass != null && !CommonClassNames.JAVA_LANG_OBJECT.equals(superClass.getQualifiedName()) &&
@@ -178,7 +148,7 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
       PsiClass aClass = classType.resolve();
       if (aClass == null) continue;
       if (aClass.equals(targetClass) || aClass.hasModifierProperty(PsiModifier.FINAL)) continue;
-      PsiElementFactory factory = JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory();
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(aClass.getProject());
 
       if (aClass.isInterface()) {
         PsiReferenceList implementsList = targetClass.getImplementsList();
@@ -236,7 +206,7 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
   @Override
   protected boolean isAvailableImpl(int offset) {
     PsiNewExpression expression = getNewExpression();
-    if (expression.getQualifier() != null) {
+    if (rejectQualifier(expression.getQualifier())) {
       return false;
     }
 
@@ -255,8 +225,12 @@ public class CreateClassFromNewFix extends CreateFromUsageBaseFix {
     return false;
   }
 
-  protected String getText(final String varName) {
-    return QuickFixBundle.message("create.class.from.new.text", varName);
+  protected boolean rejectQualifier(PsiExpression qualifier) {
+    return qualifier != null;
+  }
+
+  protected @IntentionName String getText(final String varName) {
+    return CommonQuickFixBundle.message("fix.create.title.x", getKind().getDescriptionAccusative(), varName);
   }
 
   protected static PsiJavaCodeReferenceElement getReferenceElement(PsiNewExpression expression) {

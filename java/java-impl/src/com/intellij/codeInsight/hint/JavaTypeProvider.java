@@ -15,16 +15,30 @@
  */
 package com.intellij.codeInsight.hint;
 
+import com.intellij.codeInsight.CodeInsightBundle;
+import com.intellij.codeInsight.documentation.DocumentationComponent;
 import com.intellij.codeInspection.dataFlow.CommonDataflow;
-import com.intellij.codeInspection.dataFlow.DfaFactMap;
-import com.intellij.codeInspection.dataFlow.DfaFactType;
+import com.intellij.codeInspection.dataFlow.Mutability;
+import com.intellij.codeInspection.dataFlow.SpecialField;
+import com.intellij.codeInspection.dataFlow.types.*;
+import com.intellij.ide.nls.NlsMessages;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.lang.ExpressionTypeProvider;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.ui.ColorUtil;
+import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * @author gregsh
@@ -33,15 +47,24 @@ public class JavaTypeProvider extends ExpressionTypeProvider<PsiExpression> {
   @NotNull
   @Override
   public String getInformationHint(@NotNull PsiExpression element) {
+    return StringUtil.escapeXmlEntities(getTypePresentation(element));
+  }
+
+  private static @NotNull @NlsSafe String getTypePresentation(@NotNull PsiExpression element) {
     PsiType type = element.getType();
-    String text = type == null ? "<unknown>" : type.getPresentableText();
-    return StringUtil.escapeXml(text);
+    if (type instanceof PsiLambdaExpressionType) {
+      type = ((PsiLambdaExpressionType)type).getExpression().getFunctionalInterfaceType();
+    }
+    else if (type instanceof PsiMethodReferenceType) {
+      type = ((PsiMethodReferenceType)type).getExpression().getFunctionalInterfaceType();
+    }
+    return type == null ? "<unknown>" : type.getPresentableText();
   }
 
   @NotNull
   @Override
   public String getErrorHint() {
-    return "No expression found";
+    return JavaBundle.message("error.hint.no.expression.found");
   }
 
   @NotNull
@@ -69,30 +92,66 @@ public class JavaTypeProvider extends ExpressionTypeProvider<PsiExpression> {
 
   @NotNull
   @Override
-  public String getAdvancedInformationHint(@NotNull PsiExpression expression) {
+  public @Nls String getAdvancedInformationHint(@NotNull PsiExpression expression) {
     expression = PsiUtil.skipParenthesizedExprDown(expression);
-    if (expression == null) return "<unknown>";
+    if (expression == null) return CodeInsightBundle.message("unknown.node.text");
     CommonDataflow.DataflowResult result = CommonDataflow.getDataflowResult(expression);
-    DfaFactMap map = result == null ? null : result.getAllFacts(expression);
-    String basicTypeEscaped = getInformationHint(expression);
-    PsiType type = expression.getType();
-    String advancedTypeInfo = map == null ? "" : map.facts(new DfaFactMap.FactMapper<String>() {
-      @Override
-      public <T> String apply(DfaFactType<T> factType, T value) {
-        return formatFact(factType, value, type);
+    List<Pair<@Nls String, @Nls String>> infoLines = new ArrayList<>();
+    String basicType = getTypePresentation(expression);
+    if (result != null) {
+      DfType dfType = result.getDfType(expression);
+      PsiType type = expression.getType();
+      Set<Object> values = result.getExpressionValues(expression);
+      if (!values.isEmpty()) {
+        infoLines.add(Pair.create(
+          JavaBundle.message("type.information.value"),
+          StreamEx.of(values).map(DfConstantType::renderValue).sorted().collect(NlsMessages.joiningOr())));
+      } else {
+        if (dfType instanceof DfAntiConstantType) {
+          List<Object> nonValues = new ArrayList<>(((DfAntiConstantType<?>)dfType).getNotValues());
+          nonValues.remove(null); // Nullability: not-null will be displayed, so this just duplicates nullability info
+          if (!nonValues.isEmpty()) {
+            infoLines.add(Pair.create(
+              JavaBundle.message("type.information.not.equal.to"),
+              StreamEx.of(nonValues).map(DfConstantType::renderValue).sorted().collect(NlsMessages.joiningNarrowAnd())));
+          }
+        }
+        if (dfType instanceof DfIntegralType) {
+          String rangeText = ((DfIntegralType)dfType).getRange().getPresentationText(type);
+          if (!rangeText.equals(JavaAnalysisBundle.message("long.range.set.presentation.any"))) {
+            infoLines.add(Pair.create(JavaBundle.message("type.information.range"), rangeText));
+          }
+        }
+        else if (dfType instanceof DfReferenceType) {
+          DfReferenceType refType = (DfReferenceType)dfType;
+          infoLines.add(Pair.create(JavaBundle.message("type.information.nullability"), refType.getNullability().getPresentationName()));
+          infoLines.add(Pair.create(JavaBundle.message("type.information.constraints"), refType.getConstraint().getPresentationText(type)));
+          if (refType.getMutability() != Mutability.UNKNOWN) {
+            infoLines.add(Pair.create(JavaBundle.message("type.information.mutability"), refType.getMutability().getPresentationName()));
+          }
+          infoLines.add(Pair.create(JavaBundle.message("type.information.locality"), 
+                                    refType.isLocal() ? JavaBundle.message("type.information.local.object") : ""));
+          SpecialField field = refType.getSpecialField();
+          if (field != null) {
+            infoLines.add(Pair.create(field.getPresentationName(), field.getPresentationText(refType.getSpecialFieldType(), type)));
+          }
+        }
       }
-    }).joining();
-    return advancedTypeInfo.isEmpty()
-           ? basicTypeEscaped
-           : "<table>" + makeHtmlRow("Type", basicTypeEscaped) + advancedTypeInfo + "</table>";
+    }
+    infoLines.removeIf(pair -> pair.getSecond().isEmpty());
+    if (!infoLines.isEmpty()) {
+      infoLines.add(0, Pair.create(JavaBundle.message("type.information.type"), basicType));
+      HtmlChunk[] rows = StreamEx.of(infoLines).map(pair -> makeHtmlRow(pair.getFirst(), pair.getSecond())).toArray(HtmlChunk.class);
+      return HtmlChunk.tag("table").children(rows).toString();
+    }
+    return basicType;
   }
 
-  private static <T> String formatFact(DfaFactType<T> factType, T value, PsiType type) {
-    String presentationText = factType.getPresentationText(value, type);
-    return presentationText.isEmpty() ? "" : makeHtmlRow(factType.getName(), StringUtil.escapeXml(presentationText));
-  }
-
-  private static String makeHtmlRow(String titleText, String contentHtml) {
-    return "<tr><td align='right' valign='top'><strong>" + StringUtil.escapeXml(titleText) + ":</strong></td><td>" + contentHtml + "</td></tr>";
+  private static HtmlChunk makeHtmlRow(@NotNull @Nls String titleText, @Nls String contentText) {
+    HtmlChunk titleCell = HtmlChunk.tag("td").attr("align", "left").attr("valign", "top")
+      .style("color:" + ColorUtil.toHtmlColor(DocumentationComponent.SECTION_COLOR))
+      .addText(titleText + ":");
+    HtmlChunk contentCell = HtmlChunk.tag("td").addText(contentText);
+    return HtmlChunk.tag("tr").children(titleCell, contentCell);
   }
 }

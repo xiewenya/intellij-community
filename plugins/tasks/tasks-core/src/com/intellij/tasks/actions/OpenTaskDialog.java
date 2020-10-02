@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.actions;
 
@@ -49,7 +35,7 @@ import java.util.List;
  * @author Dmitry Avdeev
  */
 public class OpenTaskDialog extends DialogWrapper {
-  private final static Logger LOG = Logger.getInstance("#com.intellij.tasks.actions.SimpleOpenTaskDialog");
+  private final static Logger LOG = Logger.getInstance(OpenTaskDialog.class);
   private static final String UPDATE_STATE_ENABLED = "tasks.open.task.update.state.enabled";
 
   private JPanel myPanel;
@@ -71,7 +57,7 @@ public class OpenTaskDialog extends DialogWrapper {
     myTaskStateCombo.setProject(myProject);
     myTaskStateCombo.setTask(myTask);
 
-    setTitle("Open Task");
+    setTitle(TaskBundle.message("dialog.title.open.task"));
     myNameField.setText(TaskUtil.getTrimmedSummary(task));
     myNameField.setEnabled(!task.isIssue());
 
@@ -113,8 +99,9 @@ public class OpenTaskDialog extends DialogWrapper {
     }
     myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         LocalTaskImpl oldTask = new LocalTaskImpl(myTask);
+        //noinspection HardCodedStringLiteral
         myTask.setSummary(myNameField.getText());
         for (TaskDialogPanel panel : myPanels) {
           panel.taskNameChanged(oldTask, myTask);
@@ -146,18 +133,18 @@ public class OpenTaskDialog extends DialogWrapper {
           repository.setPreferredOpenTaskState(taskState);
         }
         catch (Exception ex) {
-          Messages.showErrorDialog(myProject, ex.getMessage(), "Cannot Set State For Issue");
+          Messages.showErrorDialog(myProject, ex.getMessage(), TaskBundle.message("dialog.title.cannot.set.state.for.issue"));
           LOG.warn(ex);
         }
       }
     }
-    taskManager.activateTask(myTask, isClearContext());
-    if (myTask.getType() == TaskType.EXCEPTION && AnalyzeTaskStacktraceAction.hasTexts(myTask)) {
-      AnalyzeTaskStacktraceAction.analyzeStacktrace(myTask, myProject);
-    }
 
     for (TaskDialogPanel panel : myPanels) {
       panel.commit();
+    }
+    taskManager.activateTask(myTask, isClearContext(), true);
+    if (myTask.getType() == TaskType.EXCEPTION && AnalyzeTaskStacktraceAction.hasTexts(myTask)) {
+      AnalyzeTaskStacktraceAction.analyzeStacktrace(myTask, myProject);
     }
   }
 
@@ -165,6 +152,7 @@ public class OpenTaskDialog extends DialogWrapper {
     return myClearContext.isSelected();
   }
 
+  @Override
   @NonNls
   protected String getDimensionServiceKey() {
     return "SimpleOpenTaskDialog";
@@ -172,6 +160,9 @@ public class OpenTaskDialog extends DialogWrapper {
 
   @Override
   public JComponent getPreferredFocusedComponent() {
+    if (myNameField.getText().trim().isEmpty()) {
+      return myNameField;
+    }
     for (TaskDialogPanel panel : myPanels) {
       final JComponent component = panel.getPreferredFocusedComponent();
       if (component != null) {
@@ -187,6 +178,10 @@ public class OpenTaskDialog extends DialogWrapper {
   @Nullable
   @Override
   protected ValidationInfo doValidate() {
+    String taskName = myNameField.getText().trim();
+    if (taskName.isEmpty()) {
+      return new ValidationInfo(TaskBundle.message("dialog.message.task.name.should.not.be.empty"), myNameField);
+    }
     for (TaskDialogPanel panel : myPanels) {
       ValidationInfo validate = panel.validate();
       if (validate != null) return validate;
@@ -194,6 +189,7 @@ public class OpenTaskDialog extends DialogWrapper {
     return null;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }

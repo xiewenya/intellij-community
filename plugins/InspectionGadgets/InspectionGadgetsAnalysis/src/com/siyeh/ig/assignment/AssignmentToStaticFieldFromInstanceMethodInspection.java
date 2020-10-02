@@ -28,13 +28,6 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "assignment.to.static.field.from.instance.method.display.name");
-  }
-
-  @Override
-  @NotNull
   public String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message(
       "assignment.to.static.field.from.instance.method.problem.descriptor");
@@ -82,16 +75,16 @@ public class AssignmentToStaticFieldFromInstanceMethodInspection
       if (!fieldReferenced.hasModifierProperty(PsiModifier.STATIC)) {
         return;
       }
-      if (isInStaticMethod(expression)) {
+      if (isInStaticMember(expression)) {
         return;
       }
       registerError(expression);
     }
 
-    private static boolean isInStaticMethod(PsiElement element) {
+    private static boolean isInStaticMember(PsiElement element) {
       final PsiMember member =
         PsiTreeUtil.getParentOfType(element,
-                                    PsiMethod.class, PsiClassInitializer.class);
+                                    PsiMethod.class, PsiClassInitializer.class, PsiField.class);
       if (member == null) {
         return false;
       }

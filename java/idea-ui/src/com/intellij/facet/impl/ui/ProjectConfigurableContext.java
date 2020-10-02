@@ -35,9 +35,6 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author nik
- */
 public abstract class ProjectConfigurableContext extends FacetEditorContextBase {
   private final Module myModule;
   private final boolean myNewFacet;
@@ -53,20 +50,24 @@ public abstract class ProjectConfigurableContext extends FacetEditorContextBase 
     myModule = facet.getModule();
   }
 
+  @Override
   @Nullable
   public ModuleBuilder getModuleBuilder() {
     return null;
   }
 
+  @Override
   public boolean isNewFacet() {
     return myNewFacet;
   }
 
+  @Override
   @NotNull
   public Project getProject() {
     return myModule.getProject();
   }
 
+  @Override
   @NotNull
   public Module getModule() {
     return myModule;
@@ -78,20 +79,24 @@ public abstract class ProjectConfigurableContext extends FacetEditorContextBase 
     return myModuleConfigurationState.getModulesProvider().getRootModel(myModule);
   }
 
+  @Override
   @NotNull
   public ModifiableRootModel getModifiableRootModel() {
     return myModuleConfigurationState.getRootModel();
   }
 
+  @Override
   @Nullable
   public WizardContext getWizardContext() {
     return null;
   }
 
+  @Override
   public Library createProjectLibrary(final String baseName, final VirtualFile[] roots, final VirtualFile[] sources) {
     return getContainer().createLibrary(baseName, LibrariesContainer.LibraryLevel.PROJECT, roots, sources);
   }
 
+  @Override
   public VirtualFile[] getLibraryFiles(Library library, OrderRootType rootType) {
     return getContainer().getLibraryFiles(library, rootType);
   }

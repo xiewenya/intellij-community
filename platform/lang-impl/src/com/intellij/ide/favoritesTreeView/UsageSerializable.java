@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.favoritesTreeView;
 
 import com.intellij.codeInsight.folding.impl.GenericElementSignatureProvider;
@@ -26,6 +12,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usages.UsageInfo2UsageAdapter;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -53,21 +40,20 @@ public class UsageSerializable implements WorkingSetSerializable<UsageInfo, Inva
     final String signature = provider.getSignature(element);
     append(os, virtualFile.getPath());
     os.append(separator);
-    append(os, signature);
+    append(os, StringUtil.notNullize(signature));
     os.append(separator);
     final ProperTextRange rangeInElement = info.getRangeInElement();
     if (rangeInElement == null) {
       append(os, "-1");
       os.append(separator);
       append(os, "-1");
-      os.append(separator);
     }
     else {
       append(os, String.valueOf(rangeInElement.getStartOffset()));
       os.append(separator);
       append(os, String.valueOf(rangeInElement.getEndOffset()));
-      os.append(separator);
     }
+    os.append(separator);
     append(os, String.valueOf(info.isNonCodeUsage()));
     os.append(separator);
     append(os, String.valueOf(info.isDynamicUsage()));
@@ -77,8 +63,8 @@ public class UsageSerializable implements WorkingSetSerializable<UsageInfo, Inva
     os.append(separator);
   }
 
-  private static void append(final StringBuilder sb, final String s) {
-    sb.append(StringUtil.escapeXml(s));
+  private static void append(final StringBuilder sb, @NotNull String s) {
+    sb.append(StringUtil.escapeXmlEntities(s));
   }
 
   @Override
@@ -86,7 +72,7 @@ public class UsageSerializable implements WorkingSetSerializable<UsageInfo, Inva
     return new Reader(is).execute(project);
   }
 
-  private static class Reader {
+  private static final class Reader {
     private int idx;
     private final String is;
 
@@ -99,7 +85,7 @@ public class UsageSerializable implements WorkingSetSerializable<UsageInfo, Inva
       int idxNext = is.indexOf(separator, idx);
       if (idxNext == -1) {
         if (allowEnd) {
-          return StringUtil.unescapeXml(is.substring(idx));
+          return StringUtil.unescapeXmlEntities(is.substring(idx));
         }
       }
       final String s = is.substring(idx, idxNext);

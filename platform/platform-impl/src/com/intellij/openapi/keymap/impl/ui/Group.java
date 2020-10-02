@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.QuickList;
 import com.intellij.openapi.keymap.KeymapGroup;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,8 +15,8 @@ import java.util.Set;
 
 public class Group implements KeymapGroup {
   private Group myParent;
-  private final String myName;
-  private String myId;
+  private final @NlsActions.ActionText String myName;
+  private final String myId;
   private final Icon myIcon;
   /**
    * Group or action id (String) or Separator or QuickList or Hyperlink
@@ -38,20 +25,18 @@ public class Group implements KeymapGroup {
 
   private final Set<String> myIds = new HashSet<>();
 
-  public Group(String name, String id, Icon icon) {
+  public Group(@NlsActions.ActionText String name, String id, Icon icon) {
     myName = name;
     myId = id;
     myIcon = icon;
     myChildren = new ArrayList<>();
   }
 
-  public Group(final String name, final Icon icon) {
-    myChildren = new ArrayList<>();
-    myIcon = icon;
-    myName = name;
+  public Group(final @NlsActions.ActionText String name, final Icon icon) {
+    this(name, null, icon);
   }
 
-  public String getName() {
+  public @NlsActions.ActionText String getName() {
     return myName;
   }
 
@@ -66,6 +51,7 @@ public class Group implements KeymapGroup {
 
   @Override
   public void addActionId(String id) {
+    if (myChildren.contains(id)) return;
     myChildren.add(id);
   }
 
@@ -80,6 +66,7 @@ public class Group implements KeymapGroup {
   @Override
   public void addGroup(KeymapGroup keymapGroup) {
     Group group = (Group) keymapGroup;
+    if (myChildren.contains(group)) return;
     myChildren.add(group);
     group.myParent = this;
   }
@@ -244,6 +231,7 @@ public class Group implements KeymapGroup {
   }
 
 
+  @Override
   public boolean equals(Object object) {
     if (!(object instanceof Group)) return false;
     final Group group = ((Group)object);
@@ -265,10 +253,12 @@ public class Group implements KeymapGroup {
     return false;
   }
 
+  @Override
   public int hashCode() {
     return getName() != null ? getName().hashCode() : 0;
   }
 
+  @Override
   public String toString() {
     return getName();
   }

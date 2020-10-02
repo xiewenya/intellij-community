@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
+import com.intellij.analysis.AnalysisBundle;
+import com.intellij.model.ModelBranch;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.UnloadedModuleDescription;
@@ -25,22 +13,19 @@ import com.intellij.openapi.roots.TestSourcesFilter;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiBundle;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.scope.packageSet.*;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashSet;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Objects;
-import java.util.Set;
+import javax.swing.*;
+import java.util.*;
 
-public class GlobalSearchScopesCore {
+public final class GlobalSearchScopesCore {
   @NotNull
   public static GlobalSearchScope projectProductionScope(@NotNull Project project) {
     return new ProductionScopeFilter(project);
@@ -62,7 +47,7 @@ public class GlobalSearchScopesCore {
   }
 
   @NotNull
-  public static GlobalSearchScope directoriesScope(@NotNull Project project, boolean withSubdirectories, @NotNull VirtualFile... directories) {
+  public static GlobalSearchScope directoriesScope(@NotNull Project project, boolean withSubdirectories, VirtualFile @NotNull ... directories) {
     Set<VirtualFile> dirSet = ContainerUtil.newHashSet(directories);
     if (dirSet.isEmpty()) {
       return GlobalSearchScope.EMPTY_SCOPE;
@@ -75,11 +60,11 @@ public class GlobalSearchScopesCore {
                                 withSubdirectories ? dirSet : Collections.emptySet());
   }
 
-  public static GlobalSearchScope filterScope(@NotNull Project project, @NotNull NamedScope set) {
+  public static @NotNull GlobalSearchScope filterScope(@NotNull Project project, @NotNull NamedScope set) {
     return new FilterScopeAdapter(project, set);
   }
 
-  private static class FilterScopeAdapter extends GlobalSearchScope {
+  private static final class FilterScopeAdapter extends GlobalSearchScope {
     private final NamedScope mySet;
     private final PsiManager myManager;
 
@@ -105,20 +90,13 @@ public class GlobalSearchScopesCore {
     @NotNull
     @Override
     public String getDisplayName() {
-      return mySet.getName();
+      return mySet.getPresentableName();
     }
 
     @NotNull
     @Override
-    public Project getProject() {
-      //noinspection ConstantConditions
-      return super.getProject();
-    }
-
-    @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
-
+    public Icon getIcon() {
+      return mySet.getIcon();
     }
 
     @Override
@@ -130,9 +108,33 @@ public class GlobalSearchScopesCore {
     public boolean isSearchInLibraries() {
       return true; //TODO (optimization?)
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      FilterScopeAdapter adapter = (FilterScopeAdapter)o;
+
+      if (!mySet.equals(adapter.mySet)) return false;
+      return myManager.equals(adapter.myManager);
+    }
+
+    @Override
+    public int calcHashCode() {
+      int result = super.calcHashCode();
+      result = 31 * result + mySet.hashCode();
+      result = 31 * result + myManager.hashCode();
+      return result;
+    }
+
+    @Override
+    public @NonNls String toString() {
+      return "FilterScope adapted from "+mySet;
+    }
   }
 
-  private static class ProductionScopeFilter extends GlobalSearchScope {
+  private static final class ProductionScopeFilter extends GlobalSearchScope {
     private final ProjectFileIndex myFileIndex;
 
     private ProductionScopeFilter(@NotNull Project project) {
@@ -142,12 +144,7 @@ public class GlobalSearchScopesCore {
 
     @Override
     public boolean contains(@NotNull VirtualFile file) {
-      return myFileIndex.isInSourceContent(file) && !TestSourcesFilter.isTestSources(file, ObjectUtils.assertNotNull(getProject()));
-    }
-
-    @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
+      return myFileIndex.isInSourceContent(file) && !TestSourcesFilter.isTestSources(file, Objects.requireNonNull(getProject()));
     }
 
     @Override
@@ -165,31 +162,27 @@ public class GlobalSearchScopesCore {
       return false;
     }
 
+    @NotNull
     @Override
     public Collection<UnloadedModuleDescription> getUnloadedModulesBelongingToScope() {
-      return ModuleManager.getInstance(ObjectUtils.assertNotNull(getProject())).getUnloadedModuleDescriptions();
+      return ModuleManager.getInstance(Objects.requireNonNull(getProject())).getUnloadedModuleDescriptions();
     }
 
     @NotNull
     @Override
     public String getDisplayName() {
-      return PsiBundle.message("psi.search.scope.production.files");
+      return getProjectProductionFilesScopeName();
     }
   }
 
-  private static class TestScopeFilter extends GlobalSearchScope {
+  private static final class TestScopeFilter extends GlobalSearchScope {
     private TestScopeFilter(@NotNull Project project) {
       super(project);
     }
 
     @Override
     public boolean contains(@NotNull VirtualFile file) {
-      return TestSourcesFilter.isTestSources(file, ObjectUtils.assertNotNull(getProject()));
-    }
-
-    @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
+      return TestSourcesFilter.isTestSources(file, Objects.requireNonNull(getProject()));
     }
 
     @Override
@@ -210,39 +203,44 @@ public class GlobalSearchScopesCore {
     @NotNull
     @Override
     public String getDisplayName() {
-      return PsiBundle.message("psi.search.scope.test.files");
+      return getProjectTestFilesScopeName();
     }
   }
 
-  private static class DirectoryScope extends GlobalSearchScope {
+  public static final class DirectoryScope extends GlobalSearchScope {
     private final VirtualFile myDirectory;
     private final boolean myWithSubdirectories;
 
-    private DirectoryScope(@NotNull PsiDirectory psiDirectory, final boolean withSubdirectories) {
+    private DirectoryScope(@NotNull PsiDirectory psiDirectory, boolean withSubdirectories) {
       super(psiDirectory.getProject());
       myWithSubdirectories = withSubdirectories;
       myDirectory = psiDirectory.getVirtualFile();
     }
 
-    private DirectoryScope(@NotNull Project project, @NotNull VirtualFile directory, final boolean withSubdirectories) {
+    public DirectoryScope(@NotNull Project project, @NotNull VirtualFile directory, boolean withSubdirectories) {
       super(project);
       myWithSubdirectories = withSubdirectories;
       myDirectory = directory;
     }
 
     @Override
-    public boolean contains(@NotNull VirtualFile file) {
-      VirtualFile parent = file.getParent();
-      return parent != null && in(parent);
+    public @NotNull Collection<ModelBranch> getModelBranchesAffectingScope() {
+      return ContainerUtil.createMaybeSingletonSet(ModelBranch.getFileBranch(myDirectory));
     }
 
-    private boolean in(@NotNull VirtualFile parent) {
-      return myWithSubdirectories ? VfsUtilCore.isAncestor(myDirectory, parent, false) : myDirectory.equals(parent);
+    @NotNull
+    public VirtualFile getDirectory() {
+      return myDirectory;
+    }
+
+    public boolean isWithSubdirectories() {
+      return myWithSubdirectories;
     }
 
     @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
+    public boolean contains(@NotNull VirtualFile file) {
+      return myWithSubdirectories ? VfsUtilCore.isAncestor(myDirectory, file, false)
+                                  : myDirectory.equals(file) || myDirectory.equals(file.getParent());
     }
 
     @Override
@@ -256,13 +254,12 @@ public class GlobalSearchScopesCore {
     }
 
     @Override
-    public String toString() {
-      //noinspection HardCodedStringLiteral
+    public @NonNls String toString() {
       return "directory scope: " + myDirectory + "; withSubdirs:"+myWithSubdirectories;
     }
 
     @Override
-    public int hashCode() {
+    public int calcHashCode() {
       return myDirectory.hashCode() *31 + (myWithSubdirectories?1:0);
     }
 
@@ -279,8 +276,8 @@ public class GlobalSearchScopesCore {
       if (equals(scope)) return this;
       if (scope instanceof DirectoryScope) {
         DirectoryScope other = (DirectoryScope)scope;
-        if (in(other.myDirectory)) return this;
-        if (other.in(myDirectory)) return other;
+        if (containsScope(other)) return this;
+        if (other.containsScope(this)) return other;
         return new DirectoriesScope(getProject(),
                                     union(!myWithSubdirectories, myDirectory, !other.myWithSubdirectories, other.myDirectory),
                                     union(myWithSubdirectories, myDirectory, other.myWithSubdirectories, other.myDirectory));
@@ -288,6 +285,11 @@ public class GlobalSearchScopesCore {
       return super.uniteWith(scope);
     }
 
+    private boolean containsScope(DirectoryScope other) {
+      return myWithSubdirectories ? contains(other.myDirectory) : equals(other);
+    }
+
+    @NotNull
     private static Set<VirtualFile> union(boolean addDir1, @NotNull VirtualFile dir1, boolean addDir2, @NotNull VirtualFile dir2) {
       if (addDir1 && addDir2) return ContainerUtil.newHashSet(dir1, dir2);
       if (addDir1) return Collections.singleton(dir1);
@@ -297,25 +299,18 @@ public class GlobalSearchScopesCore {
 
     @NotNull
     @Override
-    public Project getProject() {
-      //noinspection ConstantConditions
-      return super.getProject();
-    }
-
-    @NotNull
-    @Override
     public String getDisplayName() {
-      return "Directory '" + myDirectory.getName() + "'";
+      return AnalysisBundle.message("display.name.directory.0", myDirectory.getName());
     }
   }
 
-  static class DirectoriesScope extends GlobalSearchScope {
-    private final Set<VirtualFile> myDirectories;
-    private final Set<VirtualFile> myDirectoriesWithSubdirectories;
+  static final class DirectoriesScope extends GlobalSearchScope {
+    private final Set<? extends VirtualFile> myDirectories;
+    private final Set<? extends VirtualFile> myDirectoriesWithSubdirectories;
 
     private DirectoriesScope(@NotNull Project project,
-                             @NotNull Set<VirtualFile> directories,
-                             @NotNull Set<VirtualFile> directoriesWithSubdirectories) {
+                             @NotNull Set<? extends VirtualFile> directories,
+                             @NotNull Set<? extends VirtualFile> directoriesWithSubdirectories) {
       super(project);
       myDirectories = directories;
       myDirectoriesWithSubdirectories = directoriesWithSubdirectories;
@@ -327,20 +322,9 @@ public class GlobalSearchScopesCore {
 
     @Override
     public boolean contains(@NotNull VirtualFile file) {
-      VirtualFile parent = file.getParent();
-      return parent != null && in(parent);
-    }
-
-    private boolean in(@NotNull VirtualFile parent) {
-      if (myDirectories.contains(parent)) {
-        return true;
-      }
-      return VfsUtilCore.isUnder(parent, myDirectoriesWithSubdirectories);
-    }
-
-    @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
+      return myDirectories.contains(file) ||
+             myDirectories.contains(file.getParent()) ||
+             VfsUtilCore.isUnder(file, myDirectoriesWithSubdirectories);
     }
 
     @Override
@@ -354,13 +338,12 @@ public class GlobalSearchScopesCore {
     }
 
     @Override
-    public String toString() {
-      //noinspection HardCodedStringLiteral
+    public @NonNls String toString() {
       return "Directories scope: directories " + myDirectories + ", directories with subdirectories " + myDirectoriesWithSubdirectories;
     }
 
     @Override
-    public int hashCode() {
+    public int calcHashCode() {
       int result = myDirectories.hashCode();
       result = result * 31 + myDirectoriesWithSubdirectories.hashCode();
       return result;
@@ -381,32 +364,36 @@ public class GlobalSearchScopesCore {
       }
       if (scope instanceof DirectoryScope) {
         DirectoryScope other = (DirectoryScope)scope;
-        if (in(other.myDirectory)) {
+        if (myDirectories.contains(other.myDirectory) || VfsUtilCore.isUnder(other.myDirectory, myDirectoriesWithSubdirectories)) {
           return this;
         }
-        Set<VirtualFile> directories = myDirectories;
-        Set<VirtualFile> directoriesWithSubdirectories = myDirectoriesWithSubdirectories;
+        Set<? extends VirtualFile> directories = myDirectories;
+        Set<? extends VirtualFile> directoriesWithSubdirectories = myDirectoriesWithSubdirectories;
         if (other.myWithSubdirectories) {
-          directoriesWithSubdirectories = new HashSet<>(directoriesWithSubdirectories);
-          directoriesWithSubdirectories.add(other.myDirectory);
+          Set<VirtualFile> copy = new HashSet<>(directoriesWithSubdirectories);
+          copy.add(other.myDirectory);
+          directoriesWithSubdirectories = copy;
         }
         else {
-          directories = new HashSet<>(directories);
-          directories.add(other.myDirectory);
+          Set<VirtualFile> copy = new HashSet<>(directories);
+          copy.add(other.myDirectory);
+          directories = copy;
         }
         return new DirectoriesScope(getProject(), directories, directoriesWithSubdirectories);
       }
       if (scope instanceof DirectoriesScope) {
         DirectoriesScope other = (DirectoriesScope)scope;
-        Set<VirtualFile> directories = myDirectories;
-        Set<VirtualFile> directoriesWithSubdirectories = myDirectoriesWithSubdirectories;
+        Set<? extends VirtualFile> directories = myDirectories;
+        Set<? extends VirtualFile> directoriesWithSubdirectories = myDirectoriesWithSubdirectories;
         if (!other.myDirectories.isEmpty()) {
-          directories = new HashSet<>(directories);
-          directories.addAll(other.myDirectories);
+          Set<VirtualFile> copy = new HashSet<>(directories);
+          copy.addAll(other.myDirectories);
+          directories = copy;
         }
         if (!other.myDirectoriesWithSubdirectories.isEmpty()) {
-          directoriesWithSubdirectories = new HashSet<>(directoriesWithSubdirectories);
-          directoriesWithSubdirectories.addAll(other.myDirectoriesWithSubdirectories);
+          Set<VirtualFile> copy = new HashSet<>(directoriesWithSubdirectories);
+          copy.addAll(other.myDirectoriesWithSubdirectories);
+          directoriesWithSubdirectories = copy;
         }
         return new DirectoriesScope(getProject(), directories, directoriesWithSubdirectories);
       }
@@ -415,22 +402,22 @@ public class GlobalSearchScopesCore {
 
     @NotNull
     @Override
-    public Project getProject() {
-      //noinspection ConstantConditions
-      return super.getProject();
-    }
-
-    @NotNull
-    @Override
     public String getDisplayName() {
       if (myDirectories.size() + myDirectoriesWithSubdirectories.size() == 1) {
-        Set<VirtualFile> dirs = myDirectories.size() == 1 ? myDirectories : myDirectoriesWithSubdirectories;
+        Set<? extends VirtualFile> dirs = myDirectories.size() == 1 ? myDirectories : myDirectoriesWithSubdirectories;
         VirtualFile root = Objects.requireNonNull(ContainerUtil.getFirstItem(dirs));
-        return "Directory '" + root.getName() + "'";
+        return AnalysisBundle.message("display.name.directory.0", root.getName());
       }
       Iterable<VirtualFile> allDirs = ContainerUtil.concat(myDirectories, myDirectoriesWithSubdirectories);
-      return "Directories " + StringUtil.join(allDirs, file -> "'" + file.getName() + "'", ", ");
+      return AnalysisBundle.message("display.name.directories.0", StringUtil.join(allDirs, file -> "'" + file.getName() + "'", ", "));
     }
+  }
 
+  public static @NotNull @Nls(capitalization = Nls.Capitalization.Sentence) String getProjectProductionFilesScopeName() {
+    return AnalysisBundle.message("psi.search.scope.production.files");
+  }
+
+  public static @NotNull @Nls(capitalization = Nls.Capitalization.Sentence) String getProjectTestFilesScopeName() {
+    return AnalysisBundle.message("psi.search.scope.test.files");
   }
 }

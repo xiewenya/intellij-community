@@ -33,7 +33,6 @@ import static com.intellij.util.io.URLUtil.SCHEME_SEPARATOR;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/28/14
  */
 public abstract class AbstractTestEvent implements TestEvent {
   private final GradleTestsExecutionConsole myExecutionConsole;
@@ -62,11 +61,7 @@ public abstract class AbstractTestEvent implements TestEvent {
   protected String findLocationUrl(@Nullable String name, @NotNull String fqClassName) {
     return name == null
            ? JavaTestLocator.TEST_PROTOCOL + SCHEME_SEPARATOR + fqClassName
-           : JavaTestLocator.TEST_PROTOCOL + SCHEME_SEPARATOR + StringUtil.getQualifiedName(fqClassName, name);
-  }
-
-  protected void addToInvokeLater(final Runnable runnable) {
-    ExternalSystemApiUtil.addToInvokeLater(runnable);
+           : JavaTestLocator.TEST_PROTOCOL + SCHEME_SEPARATOR + StringUtil.getQualifiedName(fqClassName, StringUtil.trimEnd(name, "()"));
   }
 
   @Nullable
@@ -80,5 +75,9 @@ public abstract class AbstractTestEvent implements TestEvent {
 
   protected String decode(String s) {
     return new String(Base64.getDecoder().decode(s), StandardCharsets.UTF_8);
+  }
+
+  protected boolean showInternalTestNodes() {
+    return GradleConsoleProperties.SHOW_INTERNAL_TEST_NODES.value(getProperties());
   }
 }

@@ -1,35 +1,31 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.extensions.AbstractExtensionPointBean
 import com.intellij.openapi.options.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.project.isDirectoryBased
 import com.intellij.util.SmartList
+import com.intellij.util.io.DigestUtil
 import com.intellij.util.io.sanitizeFileName
 import com.intellij.util.isEmpty
-import com.intellij.util.lang.CompoundRuntimeException
+import com.intellij.util.throwIfNotEmpty
 import com.intellij.util.xmlb.annotations.Attribute
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Function
 
-interface SchemeNameToFileName {
-  fun schemeNameToFileName(name: String): String
-}
+typealias SchemeNameToFileName = (name: String) -> String
 
-val OLD_NAME_CONVERTER = object : SchemeNameToFileName {
-  override fun schemeNameToFileName(name: String) = FileUtil.sanitizeFileName(name, true)
-}
-val CURRENT_NAME_CONVERTER = object : SchemeNameToFileName {
-  override fun schemeNameToFileName(name: String) = FileUtil.sanitizeFileName(name, false)
-}
-val MODERN_NAME_CONVERTER = object : SchemeNameToFileName {
-  override fun schemeNameToFileName(name: String) = sanitizeFileName(name)
-}
+val OLD_NAME_CONVERTER: SchemeNameToFileName = { FileUtil.sanitizeFileName(it, true) }
+val CURRENT_NAME_CONVERTER: SchemeNameToFileName = { FileUtil.sanitizeFileName(it, false) }
+val MODERN_NAME_CONVERTER: SchemeNameToFileName = { sanitizeFileName(it) }
 
 interface SchemeDataHolder<in T> {
   /**
@@ -37,9 +33,9 @@ interface SchemeDataHolder<in T> {
    */
   fun read(): Element
 
-  fun updateDigest(scheme: T)
+  fun updateDigest(scheme: T) = Unit
 
-  fun updateDigest(data: Element)
+  fun updateDigest(data: Element?) = Unit
 }
 
 /**
@@ -58,16 +54,16 @@ interface SchemeContentChangedHandler<MUTABLE_SCHEME> {
   fun schemeContentChanged(scheme: MUTABLE_SCHEME, name: String, dataHolder: SchemeDataHolder<MUTABLE_SCHEME>)
 }
 
-abstract class LazySchemeProcessor<SCHEME, MUTABLE_SCHEME : SCHEME>(private val nameAttribute: String = "name") : SchemeProcessor<SCHEME, MUTABLE_SCHEME>() {
+abstract class LazySchemeProcessor<SCHEME : Any, MUTABLE_SCHEME : SCHEME>(private val nameAttribute: String = "name") : SchemeProcessor<SCHEME, MUTABLE_SCHEME>() {
   open fun getSchemeKey(attributeProvider: Function<String, String?>, fileNameWithoutExtension: String): String? {
     return attributeProvider.apply(nameAttribute)
   }
 
   abstract fun createScheme(dataHolder: SchemeDataHolder<MUTABLE_SCHEME>,
                             name: String,
-                            attributeProvider: Function<String, String?>,
+                            attributeProvider: Function<in String, String?>,
                             isBundled: Boolean = false): MUTABLE_SCHEME
-  override fun writeScheme(scheme: MUTABLE_SCHEME) = (scheme as SerializableScheme).writeScheme()
+  override fun writeScheme(scheme: MUTABLE_SCHEME): Element? = (scheme as SerializableScheme).writeScheme()
 
   open fun isSchemeFile(name: CharSequence) = true
 
@@ -76,7 +72,7 @@ abstract class LazySchemeProcessor<SCHEME, MUTABLE_SCHEME : SCHEME>(private val 
   open fun isSchemeEqualToBundled(scheme: MUTABLE_SCHEME) = false
 }
 
-class DigestOutputStream(val digest: MessageDigest) : OutputStream() {
+private class DigestOutputStream(private val digest: MessageDigest) : OutputStream() {
   override fun write(b: Int) {
     digest.update(b.toByte())
   }
@@ -85,14 +81,29 @@ class DigestOutputStream(val digest: MessageDigest) : OutputStream() {
     digest.update(b, off, len)
   }
 
+  override fun write(b: ByteArray) {
+    digest.update(b)
+  }
+
   override fun toString() = "[Digest Output Stream] $digest"
+
+  fun digest(): ByteArray = digest.digest()
 }
 
-fun Element.digest(): ByteArray {
-  // sha-1 is enough, sha-256 is slower, see https://www.nayuki.io/page/native-hash-functions-for-java
-  val digest = MessageDigest.getInstance("SHA-1")
-  serializeElementToBinary(this, DigestOutputStream(digest))
-  return digest.digest()
+private val sha1MessageDigestThreadLocal = ThreadLocal.withInitial { DigestUtil.sha1() }
+
+// sha-1 is enough, sha-256 is slower, see https://www.nayuki.io/page/native-hash-functions-for-java
+fun createDataDigest(): MessageDigest {
+  val digest = sha1MessageDigestThreadLocal.get()
+  digest.reset()
+  return digest
+}
+
+@JvmOverloads
+fun Element.digest(messageDigest: MessageDigest = createDataDigest()): ByteArray {
+  val digestOut = DigestOutputStream(messageDigest)
+  serializeElementToBinary(this, digestOut)
+  return digestOut.digest()
 }
 
 abstract class SchemeWrapper<out T>(name: String) : ExternalizableSchemeAdapter(), SerializableScheme {
@@ -101,7 +112,7 @@ abstract class SchemeWrapper<out T>(name: String) : ExternalizableSchemeAdapter(
   val scheme: T
     get() = lazyScheme.value
 
-  override fun getSchemeState() = if (lazyScheme.isInitialized()) SchemeState.POSSIBLY_CHANGED else SchemeState.UNCHANGED
+  override fun getSchemeState(): SchemeState = if (lazyScheme.isInitialized()) SchemeState.POSSIBLY_CHANGED else SchemeState.UNCHANGED
 
   init {
     this.name = name
@@ -109,9 +120,9 @@ abstract class SchemeWrapper<out T>(name: String) : ExternalizableSchemeAdapter(
 }
 
 abstract class LazySchemeWrapper<T>(name: String, dataHolder: SchemeDataHolder<SchemeWrapper<T>>, protected val writer: (scheme: T) -> Element) : SchemeWrapper<T>(name) {
-  protected val dataHolder = AtomicReference(dataHolder)
+  protected val dataHolder: AtomicReference<SchemeDataHolder<SchemeWrapper<T>>> = AtomicReference(dataHolder)
 
-  override final fun writeScheme(): Element {
+  final override fun writeScheme(): Element {
     val dataHolder = dataHolder.get()
     @Suppress("IfThenToElvis")
     return if (dataHolder == null) writer(scheme) else dataHolder.read()
@@ -119,7 +130,7 @@ abstract class LazySchemeWrapper<T>(name: String, dataHolder: SchemeDataHolder<S
 }
 
 class InitializedSchemeWrapper<out T : Scheme>(scheme: T, private val writer: (scheme: T) -> Element) : SchemeWrapper<T>(scheme.name) {
-  override val lazyScheme = lazyOf(scheme)
+  override val lazyScheme: Lazy<T> = lazyOf(scheme)
 
   override fun writeScheme() = writer(scheme)
 }
@@ -152,5 +163,9 @@ class BundledSchemeEP : AbstractExtensionPointBean() {
 fun SchemeManager<*>.save() {
   val errors = SmartList<Throwable>()
   save(errors)
-  CompoundRuntimeException.throwIfNotEmpty(errors)
+  throwIfNotEmpty(errors)
 }
+
+@ApiStatus.Internal
+@TestOnly
+val LISTEN_SCHEME_VFS_CHANGES_IN_TEST_MODE = Key.create<Boolean>("LISTEN_VFS_CHANGES_IN_TEST_MODE")

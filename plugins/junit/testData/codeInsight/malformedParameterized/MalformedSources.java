@@ -21,6 +21,10 @@ class ValueSourcesTest {
   void testWithStringValues(String s) { }
 
   @ParameterizedTest
+  @ValueSource(booleans = {<warning descr="No implicit conversion found to convert object of type boolean to int">false</warning>})
+  void testWithBooleanSource(int argument) { }
+
+  @ParameterizedTest
   <warning descr="Exactly one type of input must be provided">@ValueSource(ints = {1},
     strings = "str")</warning>
   void testWithMultipleValues(int i) { }
@@ -84,4 +88,14 @@ class CustomArgProviderTest {
   @ParameterizedTest
   @CustomSource
   void jsonSourceTest(String param) { }
+}
+
+class ArgSources {
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.ArgumentsSources({@org.junit.jupiter.params.provider.ArgumentsSource})
+  void args(String param) { }
+
+  <warning descr="No sources are provided, the suite would be empty">@ParameterizedTest</warning>
+  @org.junit.jupiter.params.provider.ArgumentsSources({})
+  void emptyArgs(String param) { }
 }

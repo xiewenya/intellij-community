@@ -1,13 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ex
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.InvalidDataException
 import com.intellij.openapi.util.WriteExternalException
-import com.intellij.profile.codeInspection.ProjectInspectionProfileManager
+import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiElement
+import com.intellij.psi.search.scope.packageSet.NamedScope
 import com.intellij.util.Consumer
 
 open class InspectionProfileModifiableModel(val source: InspectionProfileImpl) : InspectionProfileImpl(source.name, source.myToolSupplier, source.profileManager, source.myBaseProfile, null) {
@@ -20,10 +19,15 @@ open class InspectionProfileModifiableModel(val source: InspectionProfileImpl) :
     copyFrom(source)
   }
 
-  fun isChanged() = modified || source.myLockedProfile != myLockedProfile
+  fun isChanged(): Boolean = modified || source.myLockedProfile != myLockedProfile
 
   fun setModified(value: Boolean) {
     modified = value
+  }
+
+  override fun resetToBase(toolId: String, scope: NamedScope?, project: Project) {
+    super.resetToBase(toolId, scope, project)
+    setModified(true)
   }
 
   override fun copyToolsConfigurations(project: Project?) {
@@ -66,8 +70,17 @@ open class InspectionProfileModifiableModel(val source: InspectionProfileImpl) :
   fun isProperSetting(toolId: String): Boolean {
     if (myBaseProfile != null) {
       val tools = myBaseProfile.getToolsOrNull(toolId, null)
-      val currentTools = myTools.get(toolId)
+      val currentTools = myTools[toolId]
       return tools != currentTools
+    }
+    return false
+  }
+
+  fun isProperSetting(toolId: String, scope: NamedScope, project: Project): Boolean {
+    if (myBaseProfile != null) {
+      val baseDefaultWrapper = myBaseProfile.getToolsOrNull(toolId, null)?.defaultState?.tool
+      val actualWrapper = myTools[toolId]?.tools?.first { s -> scope == s.getScope(project) }?.tool
+      return baseDefaultWrapper != null && actualWrapper != null && ScopeToolState.areSettingsEqual(baseDefaultWrapper, actualWrapper)
     }
     return false
   }
@@ -98,8 +111,10 @@ open class InspectionProfileModifiableModel(val source: InspectionProfileImpl) :
     description = model.description
     isProjectLevel = model.isProjectLevel
     myLockedProfile = model.myLockedProfile
-    myChangedToolNames = model.myChangedToolNames
-    myTools = model.myTools
+    myChangedToolNames = null
+    if (model.wasInitialized()) {
+      myTools = model.myTools
+    }
     profileManager = model.profileManager
   }
 
@@ -107,11 +122,11 @@ open class InspectionProfileModifiableModel(val source: InspectionProfileImpl) :
     getTools(toolShortName, element.project).disableTool(element)
   }
 
-  override fun toString() = "$name (copy)"
+  override fun toString(): String = "$name (copy)"
 }
 
 fun modifyAndCommitProjectProfile(project: Project, action: Consumer<InspectionProfileModifiableModel>) {
-  ProjectInspectionProfileManager.getInstance(project).currentProfile.edit { action.consume(this) }
+  InspectionProjectProfileManager.getInstance(project).currentProfile.edit { action.consume(this) }
 }
 
 inline fun InspectionProfileImpl.edit(task: InspectionProfileModifiableModel.() -> Unit) {

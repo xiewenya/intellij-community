@@ -22,17 +22,18 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract class TestCompilerReferenceServiceAction extends AnAction {
-  public TestCompilerReferenceServiceAction(String text) {
+  public TestCompilerReferenceServiceAction(@NlsActions.ActionText String text) {
     super(text);
   }
 
   @Override
-  public final void actionPerformed(AnActionEvent e) {
+  public final void actionPerformed(@NotNull AnActionEvent e) {
     final PsiElement element = getPsiElement(e.getDataContext());
     if (element != null) startActionFor(element);
   }
@@ -42,7 +43,7 @@ public abstract class TestCompilerReferenceServiceAction extends AnAction {
   protected abstract boolean canBeAppliedFor(@NotNull PsiElement element);
 
   @Override
-  public final void update(AnActionEvent e) {
+  public final void update(@NotNull AnActionEvent e) {
     if (!CompilerReferenceService.isEnabled()) {
       e.getPresentation().setEnabled(false);
       return;

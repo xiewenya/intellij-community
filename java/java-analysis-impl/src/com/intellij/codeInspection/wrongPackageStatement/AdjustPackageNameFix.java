@@ -24,7 +24,7 @@ import com.intellij.psi.*;
 import org.jetbrains.annotations.NotNull;
 
 public class AdjustPackageNameFix implements LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.wrongPackageStatement.AdjustPackageNameFix");
+  private static final Logger LOG = Logger.getInstance(AdjustPackageNameFix.class);
   private final String myName;
 
   public AdjustPackageNameFix(String targetPackage) {
@@ -54,10 +54,10 @@ public class AdjustPackageNameFix implements LocalQuickFix {
     PsiPackage myTargetPackage = JavaDirectoryService.getInstance().getPackage(directory);
     if (myTargetPackage == null) return;
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myFile.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myFile.getProject());
     PsiPackageStatement myStatement = ((PsiJavaFile)myFile).getPackageStatement();
 
-    if (myTargetPackage.getQualifiedName().length() == 0) {
+    if (myTargetPackage.getQualifiedName().isEmpty()) {
       if (myStatement != null) {
         myStatement.delete();
       }

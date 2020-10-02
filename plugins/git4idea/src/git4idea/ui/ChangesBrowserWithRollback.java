@@ -24,14 +24,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * {@link ChangesBrowser} extension with Rollback/Revert action added to the toolbar.
+ * {@link ChangesBrowserBase} extension with Rollback/Revert action added to the toolbar.
  * After the revert completes, the changes list is automatically refreshed according to the actual changes
  * retrieved from the {@link ChangeListManager}.
  */
 public class ChangesBrowserWithRollback extends ChangesBrowserBase implements Disposable {
   private final Set<Change> myOriginalChanges;
 
-  public ChangesBrowserWithRollback(@NotNull Project project, @NotNull List<Change> changes) {
+  public ChangesBrowserWithRollback(@NotNull Project project, @NotNull List<? extends Change> changes) {
     super(project, false, true);
     myOriginalChanges = new HashSet<>(changes);
 
@@ -56,6 +56,14 @@ public class ChangesBrowserWithRollback extends ChangesBrowserBase implements Di
     );
   }
 
+  @NotNull
+  @Override
+  protected List<AnAction> createPopupMenuActions() {
+    return ContainerUtil.append(
+      super.createPopupMenuActions(),
+      new RollbackDialogAction()
+    );
+  }
 
   @NotNull
   @Override

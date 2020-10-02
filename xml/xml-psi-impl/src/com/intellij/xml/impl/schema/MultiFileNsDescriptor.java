@@ -32,9 +32,9 @@ import java.util.function.Function;
 
 public class MultiFileNsDescriptor implements XsdNsDescriptor {
 
-  private final List<XmlNSDescriptorImpl> myDescriptors;
+  private final List<? extends XmlNSDescriptorImpl> myDescriptors;
 
-  public MultiFileNsDescriptor(List<XmlNSDescriptorImpl> descriptors) {
+  public MultiFileNsDescriptor(List<? extends XmlNSDescriptorImpl> descriptors) {
     myDescriptors = descriptors;
   }
 
@@ -44,9 +44,8 @@ public class MultiFileNsDescriptor implements XsdNsDescriptor {
     return getFirst(descriptor -> descriptor.getElementDescriptor(tag));
   }
 
-  @NotNull
   @Override
-  public XmlElementDescriptor[] getRootElementsDescriptors(@Nullable XmlDocument document) {
+  public XmlElementDescriptor @NotNull [] getRootElementsDescriptors(@Nullable XmlDocument document) {
     return (XmlElementDescriptor[])myDescriptors.stream()
       .flatMap(descriptor -> Arrays.stream(descriptor.getRootElementsDescriptors(document))).toArray();
   }
@@ -77,10 +76,9 @@ public class MultiFileNsDescriptor implements XsdNsDescriptor {
     throw new UnsupportedOperationException();
   }
 
-  @NotNull
   @Override
-  public Object[] getDependences() {
-    return myDescriptors.stream().flatMap(descriptor -> Arrays.stream(descriptor.getDependences())).toArray();
+  public Object @NotNull [] getDependencies() {
+    return myDescriptors.stream().flatMap(descriptor -> Arrays.stream(descriptor.getDependencies())).toArray();
   }
 
   @Nullable
@@ -95,7 +93,7 @@ public class MultiFileNsDescriptor implements XsdNsDescriptor {
     return getFirst(descriptor -> descriptor.getTypeDescriptor(descriptorTag));
   }
 
-  private <T> T getFirst(Function<XmlNSDescriptorImpl, T> function) {
+  private <T> T getFirst(Function<? super XmlNSDescriptorImpl, ? extends T> function) {
     for (XmlNSDescriptorImpl descriptor : myDescriptors) {
       T t = function.apply(descriptor);
       if (t != null) return t;
@@ -104,7 +102,7 @@ public class MultiFileNsDescriptor implements XsdNsDescriptor {
   }
 
   @Override
-  public boolean processTagsInNamespace(String[] tagNames, PsiElementProcessor<XmlTag> processor) {
+  public boolean processTagsInNamespace(String[] tagNames, PsiElementProcessor<? super XmlTag> processor) {
     for (XmlNSDescriptorImpl descriptor : myDescriptors) {
       if (!descriptor.processTagsInNamespace(tagNames, processor)) return false;
     }
@@ -115,7 +113,7 @@ public class MultiFileNsDescriptor implements XsdNsDescriptor {
   @Override
   public XmlElementDescriptor getElementDescriptor(String localName,
                                                    String namespace,
-                                                   Set<XmlNSDescriptorImpl> visited,
+                                                   Set<? super XmlNSDescriptorImpl> visited,
                                                    boolean reference) {
     return getFirst(descriptor -> descriptor.getElementDescriptor(localName, namespace, visited, reference));
   }

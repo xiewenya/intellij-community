@@ -18,6 +18,7 @@ package org.jetbrains.plugins.groovy.codeInspection.assignment;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.utils.EquivalenceChecker;
@@ -30,12 +31,7 @@ public class GroovySillyAssignmentInspection extends BaseInspection {
   @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Silly assignment #loc";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
+    return GroovyBundle.message("inspection.message.silly.assignment");
   }
 
   @Override

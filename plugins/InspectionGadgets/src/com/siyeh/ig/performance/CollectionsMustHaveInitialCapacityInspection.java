@@ -22,6 +22,7 @@ import com.intellij.psi.PsiExpressionList;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiType;
+import com.intellij.util.JdomKt;
 import com.intellij.util.ui.CheckBox;
 import com.intellij.util.ui.FormBuilder;
 import com.siyeh.InspectionGadgetsBundle;
@@ -60,7 +61,7 @@ public class CollectionsMustHaveInitialCapacityInspection
   public void writeSettings(@NotNull Element node) throws WriteExternalException {
     mySettings.writeSettings(node);
     if (myIgnoreFields) {
-      JDOMExternalizer.write(node, "ignoreFields", true);
+      JdomKt.addOptionTag(node, "ignoreFields", Boolean.toString(true), "setting");
     }
   }
 
@@ -69,7 +70,7 @@ public class CollectionsMustHaveInitialCapacityInspection
   public JComponent createOptionsPanel() {
     return new FormBuilder()
       .addComponentFillVertically(mySettings.createOptionsPanel(), 0)
-      .addComponent(new CheckBox("Don't report field initializers", this, "myIgnoreFields"))
+      .addComponent(new CheckBox(InspectionGadgetsBundle.message("inspection.collection.must.have.initial.capacity.initializers.option"), this, "myIgnoreFields"))
       .getPanel();
   }
 
@@ -78,13 +79,6 @@ public class CollectionsMustHaveInitialCapacityInspection
   @NotNull
   public String getID() {
     return "CollectionWithoutInitialCapacity";
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "collections.must.have.initial.capacity.display.name");
   }
 
   @Override

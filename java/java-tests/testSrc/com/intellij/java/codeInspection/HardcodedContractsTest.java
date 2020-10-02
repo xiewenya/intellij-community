@@ -42,11 +42,13 @@ public class HardcodedContractsTest extends DataFlowInspectionTestCase {
   }
 
   public void testAssertThat() {
-    myFixture.addClass("package org.hamcrest; public class CoreMatchers { " +
-                       "public static <T> Matcher<T> notNullValue() {}\n" +
+    myFixture.addClass("package org.hamcrest; public class CoreMatchers { public static <T> Matcher<T> notNullValue() {}\n" +
+                       "public static <T> Matcher<T> nullValue() {}\n" +
                        "public static <T> Matcher<T> not(Matcher<T> matcher) {}\n" +
                        "public static <T> Matcher<T> is(Matcher<T> matcher) {}\n" +
+                       "public static <T> Matcher<T> is(T operand) {}\n" +
                        "public static <T> Matcher<T> equalTo(T operand) {}\n" +
+                       "public static <E> Matcher<E[]> arrayWithSize(int size) {} \n" +
                        "}");
     myFixture.addClass("package org.hamcrest; public interface Matcher<T> {}");
     myFixture.addClass("package org.junit; public class Assert { " +
@@ -55,11 +57,17 @@ public class HardcodedContractsTest extends DataFlowInspectionTestCase {
                        "}");
 
     myFixture.addClass("package org.assertj.core.api; public class Assertions { " +
-                       "public static <T> AbstractObjectAssert<?, T> assertThat(Object actual) {}\n" +
+                       "public static <T> Assert<?, T> assertThat(Object actual) {}\n" +
+                       "public static <T> Assert<?, T> assertThat(boolean actual) {}\n" +
                        "}");
-    myFixture.addClass("package org.assertj.core.api; public class AbstractObjectAssert<S extends AbstractObjectAssert<S, A>, A> {" +
+    myFixture.addClass("package org.assertj.core.api; public class Assert<S extends Assert<S, A>, A> {" +
                        "public S isNotNull() {}" +
                        "public S describedAs(String s) {}" +
+                       "public S isTrue() {}" +
+                       "public S isNotEmpty() {}" +
+                       "public S isEmpty() {}" +
+                       "public S isPresent() {}" +
+                       "public S map(java.util.function.Function<String, Object> mapper) {}" +
                        "}");
 
     checkHighlighting();
@@ -145,6 +153,14 @@ public class HardcodedContractsTest extends DataFlowInspectionTestCase {
                        "  static public void assertNotNull(Object object, String message) {}\n" +
                        "  static public void assertNotNull(Object object) {}\n" +
                        "}");
+    checkHighlighting();
+  }
+  
+  public void testAssertJAssert() {
+    checkHighlighting();
+  }
+  
+  public void testHardcodedContractNotNullOverride() {
     checkHighlighting();
   }
 

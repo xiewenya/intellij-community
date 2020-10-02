@@ -5,6 +5,7 @@ import com.intellij.analysis.AnalysisScope;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
@@ -20,7 +21,6 @@ import java.util.List;
  *
  * @author anna
  * @see com.intellij.codeInspection.GlobalInspectionContext#getRefManager()
- * @since 6.0
  */
 public abstract class RefManager {
   /**
@@ -95,7 +95,18 @@ public abstract class RefManager {
   @NotNull
   public abstract RefEntity getRefinedElement(@NotNull RefEntity ref);
 
-  public abstract Element export(@NotNull RefEntity entity, @NotNull Element element, final int actualLine);
+  @Nullable
+  public Element export(@NotNull RefEntity entity, @NotNull Element parent, final int actualLine) {
+    Element element = export(entity, actualLine);
+    if (element == null) return null;
+    parent.addContent(element);
+    return element;
+  }
+
+  @Nullable
+  public Element export(@NotNull RefEntity entity, final int actualLine) {
+    throw new UnsupportedOperationException();
+  }
 
   @Nullable
   public abstract String getGroupName(@NotNull RefElement entity);
@@ -103,7 +114,7 @@ public abstract class RefManager {
   public abstract boolean belongsToScope(@Nullable PsiElement psiElement);
 
   @Nullable
-  public abstract String getQualifiedName(@Nullable RefEntity refEntity);
+  public abstract @NlsSafe String getQualifiedName(@Nullable RefEntity refEntity);
 
   public abstract void removeRefElement(@NotNull RefElement refElement, @NotNull List<RefElement> deletedRefs);
 

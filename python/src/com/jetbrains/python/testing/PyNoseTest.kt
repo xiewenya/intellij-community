@@ -1,20 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.testing
 
 import com.intellij.execution.Executor
@@ -32,19 +16,20 @@ import com.jetbrains.python.run.targetBasedConfiguration.PyRunTargetVariant
 
 class PyNoseTestSettingsEditor(configuration: PyAbstractTestConfiguration) :
   PyAbstractTestSettingsEditor(
-    PyTestSharedForm.create(configuration, PyTestSharedForm.CustomOption(
-      PyNoseTestConfiguration::regexPattern.name, PyRunTargetVariant.PATH)))
+    PyTestSharedForm.create(configuration, PyTestCustomOption(
+      PyNoseTestConfiguration::regexPattern, PyRunTargetVariant.PATH)))
 
 class PyNoseTestExecutionEnvironment(configuration: PyNoseTestConfiguration, environment: ExecutionEnvironment) :
   PyTestExecutionEnvironment<PyNoseTestConfiguration>(configuration, environment) {
-  override fun getRunner() = PythonHelper.NOSE
+  override fun getRunner(): PythonHelper = PythonHelper.NOSE
 }
 
 
 class PyNoseTestConfiguration(project: Project, factory: PyNoseTestFactory) :
-  PyAbstractTestConfiguration(project, factory, PyTestFrameworkService.getSdkReadableNameByFramework(PyNames.NOSE_TEST)) {
-  @ConfigField
-  var regexPattern = ""
+  PyAbstractTestConfiguration(project, factory, PyTestFrameworkService.getSdkReadableNameByFramework(PyNames.NOSE_TEST)),
+  PyTestConfigurationWithCustomSymbol {
+  @ConfigField("runcfg.nosetests.config.regexPattern")
+  var regexPattern: String = ""
 
   override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState? =
     PyNoseTestExecutionEnvironment(this, environment)
@@ -58,12 +43,16 @@ class PyNoseTestConfiguration(project: Project, factory: PyNoseTestFactory) :
       else -> "-m $regexPattern"
     }
 
-  override fun isFrameworkInstalled() = VFSTestFrameworkListener.getInstance().isTestFrameworkInstalled(sdk, PyNames.NOSE_TEST)
+  override val fileSymbolSeparator get() = ":"
+  override val symbolSymbolSeparator get() = "."
 
+  override fun isFrameworkInstalled(): Boolean = VFSTestFrameworkListener.getInstance().isTestFrameworkInstalled(sdk, PyNames.NOSE_TEST)
 }
 
-object PyNoseTestFactory : PyAbstractTestFactory<PyNoseTestConfiguration>() {
+class PyNoseTestFactory : PyAbstractTestFactory<PyNoseTestConfiguration>() {
   override fun createTemplateConfiguration(project: Project) = PyNoseTestConfiguration(project, this)
+
+  override fun getId(): String = "Nosetests"
 
   override fun getName(): String = PyTestFrameworkService.getSdkReadableNameByFramework(PyNames.NOSE_TEST)
 }

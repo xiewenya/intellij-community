@@ -1,20 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
+import com.intellij.util.SystemProperties;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,14 +11,19 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.nio.charset.Charset;
 
-/**
- * @author traff
- */
 public abstract class BaseOutputReader extends BaseDataReader {
-  /** See {@link #BaseOutputReader(Reader, Options)}, {@link #readAvailable}, and {@link #processInput} for reference. */
+  /** See {@link #BaseOutputReader(Reader, Options)}, {@link #readAvailable}, {@link BaseDataReader.SleepingPolicy}
+   * and {@link #processInput} for reference.
+   * */
   public static class Options {
+    /**
+     * @see BaseDataReader.SleepingPolicy#BLOCKING
+     */
     public static final Options BLOCKING = withPolicy(SleepingPolicy.BLOCKING);
-    public static final Options NON_BLOCKING = withPolicy(SleepingPolicy.SIMPLE);
+    /**
+     * @see BaseDataReader.SleepingPolicy#NON_BLOCKING
+     */
+    public static final Options NON_BLOCKING = withPolicy(SleepingPolicy.NON_BLOCKING);
 
     public SleepingPolicy policy() { return null; }
     public boolean splitToLines() { return true; }
@@ -44,6 +37,14 @@ public abstract class BaseOutputReader extends BaseDataReader {
           return policy;
         }
       };
+    }
+
+    public static Options forMostlySilentProcess() {
+      if (SystemProperties.getBooleanProperty("output.reader.blocking.mode.for.mostly.silent.processes", true) ||
+          Boolean.getBoolean("output.reader.blocking.mode")) {
+        return BLOCKING;
+      }
+      return NON_BLOCKING;
     }
   }
 
@@ -71,10 +72,6 @@ public abstract class BaseOutputReader extends BaseDataReader {
 
     if (options.policy() == SleepingPolicy.BLOCKING && !(reader instanceof BaseInputStreamReader)) {
       throw new IllegalArgumentException("Blocking policy can be used only with BaseInputStreamReader, that doesn't lock on close");
-    }
-
-    if (options.policy() != SleepingPolicy.BLOCKING && !options.sendIncompleteLines()) {
-      throw new IllegalArgumentException("In non-blocking mode, the reader cannot produce complete lines reliably");
     }
 
     myReader = reader;
@@ -111,7 +108,7 @@ public abstract class BaseOutputReader extends BaseDataReader {
         myLineBuffer.append('\r');
         myCarry = false;
       }
-      if (myLineBuffer.length() > 0) {
+      if (myLineBuffer.length() > 0 && myOptions.sendIncompleteLines()) {
         sendText(myLineBuffer);
       }
     }
@@ -121,8 +118,8 @@ public abstract class BaseOutputReader extends BaseDataReader {
 
   /**
    * Reads data with blocking.
-   * Should be used in case when ready method always returns false for your input stream.
-   * Should be used if we want to to make our reader exit when end of stream reached.
+   * Should be used in case when {@link Reader#ready()} method always returns {@code false} for your input stream.
+   * Should be used if we want to make our reader exit when the end of a stream is reached.
    * Could be used if we prefer IO-blocking over CPU sleeping.
    *
    * @return true if non-zero amount of data has been read, false if end of the stream is reached
@@ -152,6 +149,13 @@ public abstract class BaseOutputReader extends BaseDataReader {
     }
 
     return read;
+  }
+
+  @Override
+  protected void flush() {
+    if (myLineBuffer.length() > 0) {
+      sendText(myLineBuffer);
+    }
   }
 
   @SuppressWarnings("AssignmentToForLoopParameter")
@@ -210,17 +214,11 @@ public abstract class BaseOutputReader extends BaseDataReader {
   protected abstract void onTextAvailable(@NotNull String text);
 
   //<editor-fold desc="Deprecated stuff.">
-  /** @deprecated use {@link #BaseOutputReader(InputStream, Charset, Options)} (to be removed in IDEA 2018.1) */
-  public BaseOutputReader(@NotNull InputStream inputStream, @Nullable Charset charset, @Nullable SleepingPolicy policy) {
-    this(inputStream, charset, Options.withPolicy(policy));
-  }
-
-  /** @deprecated use {@link #BaseOutputReader(Reader, Options)} (to be removed in IDEA 2018.1) */
+  /** @deprecated use {@link #BaseOutputReader(Reader, Options)} */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
   public BaseOutputReader(@NotNull Reader reader, @Nullable SleepingPolicy policy) {
     this(reader, Options.withPolicy(policy));
   }
-
-  /** @deprecated use {@link #BaseOutputReader(Reader, Options)} (to be removed in IDEA 2018.1) */
-  protected void onBufferExhaustion() { }
   //</editor-fold>
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.MultiRequestPositionManager;
@@ -32,7 +18,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
@@ -41,9 +26,7 @@ import com.intellij.psi.impl.compiled.ClsClassImpl;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.DocumentUtil;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.EmptyIterable;
+import com.intellij.xdebugger.XDebuggerUtil;
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Location;
 import com.sun.jdi.Method;
@@ -60,7 +43,7 @@ import java.util.function.Consumer;
  * @author lex
  */
 public class PositionManagerImpl implements PositionManager, MultiRequestPositionManager {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.PositionManagerImpl");
+  private static final Logger LOG = Logger.getInstance(PositionManagerImpl.class);
 
   private final DebugProcessImpl myDebugProcess;
 
@@ -72,6 +55,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     return myDebugProcess;
   }
 
+  @Override
   @NotNull
   public List<Location> locationsOfLine(@NotNull ReferenceType type, @NotNull SourcePosition position) throws NoDataException {
     try {
@@ -83,6 +67,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     return Collections.emptyList();
   }
 
+  @Override
   public ClassPrepareRequest createPrepareRequest(@NotNull final ClassPrepareRequestor requestor, @NotNull final SourcePosition position)
     throws NoDataException {
     throw new IllegalStateException("This class implements MultiRequestPositionManager, corresponding createPrepareRequests version should be used");
@@ -108,6 +93,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
           }
           classPattern = parentQName + "*";
           prepareRequestor = new ClassPrepareRequestor() {
+            @Override
             public void processClassPrepare(DebugProcess debuggerProcess, ReferenceType referenceType) {
               if (((DebugProcessImpl)debuggerProcess).getPositionManager().getAllClasses(position).contains(referenceType)) {
                 requestor.processClassPrepare(debuggerProcess, referenceType);
@@ -124,6 +110,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     });
   }
 
+  @Override
   @Nullable
   public SourcePosition getSourcePosition(final Location location) throws NoDataException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
@@ -184,14 +171,11 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
 
     int lambdaOrdinal = -1;
     if (DebuggerUtilsEx.isLambda(method)) {
-      Set<Method> lambdas =
-        ContainerUtil.map2SetNotNull(locationsOfLine(location.declaringType(), sourcePosition), location1 -> {
-          Method method1 = location1.method();
-          if (DebuggerUtilsEx.isLambda(method1)) {
-            return method1;
-          }
-          return null;
-        });
+      int line = sourcePosition.getLine() + 1;
+      Set<Method> lambdas = StreamEx.of(location.declaringType().methods())
+        .filter(DebuggerUtilsEx::isLambda)
+        .filter(m -> !DebuggerUtilsEx.locationsOfLine(m, line).isEmpty())
+        .toSet();
       if (lambdas.size() > 1) {
         ArrayList<Method> lambdasList = new ArrayList<>(lambdas);
         lambdasList.sort(DebuggerUtilsEx.LAMBDA_ORDINAL_COMPARATOR);
@@ -253,13 +237,15 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
       return ReadAction.compute(() -> {
         PsiFile file = original.getFile();
         int line = original.getLine();
+
+        Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
+        if (document == null || line >= document.getLineCount()) {
+          return original;
+        }
+
         if (DebuggerUtilsEx.isLambdaName(myExpectedMethodName) && myLambdaOrdinal > -1) {
           List<PsiLambdaExpression> lambdas = DebuggerUtilsEx.collectLambdas(original, true);
 
-          Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
-          if (document == null || line >= document.getLineCount()) {
-            return original;
-          }
           if (myLambdaOrdinal < lambdas.size()) {
             PsiElement firstElem = DebuggerUtilsEx.getFirstElementOnTheLine(lambdas.get(myLambdaOrdinal), document, line);
             if (firstElem != null) {
@@ -269,12 +255,19 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
         }
         else {
           // There may be more than one class/method code on the line, so we need to find out the correct place
-          for (PsiElement elem : getLineElements(file, line)) {
+          Ref<SourcePosition> res = Ref.create();
+          XDebuggerUtil.getInstance().iterateLine(file.getProject(), document, line, elem -> {
             PsiElement remappedElement = remapElement(elem);
             if (remappedElement != null) {
-              if (remappedElement.getTextOffset() <= original.getOffset()) break;
-              return SourcePosition.createFromElement(remappedElement);
+              if (remappedElement.getTextOffset() > original.getOffset()) {
+                res.set(SourcePosition.createFromElement(remappedElement));
+              }
+              return false;
             }
+            return true;
+          });
+          if (!res.isNull()) {
+            return res.get();
           }
         }
         return original;
@@ -282,52 +275,18 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     }
   }
 
-  private static Iterable<PsiElement> getLineElements(final PsiFile file, int lineNumber) {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
-    Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
-    if (document == null || lineNumber < 0 || lineNumber >= document.getLineCount()) {
-      return EmptyIterable.getInstance();
-    }
-    final TextRange lineRange = DocumentUtil.getLineTextRange(document, lineNumber);
-    return new Iterable<PsiElement>() {
-      @Override
-      public Iterator<PsiElement> iterator() {
-        return new Iterator<PsiElement>() {
-          PsiElement myElement = DebuggerUtilsEx.findElementAt(file, lineRange.getStartOffset());
-
-          @Override
-          public boolean hasNext() {
-            return myElement != null;
-          }
-
-          @Override
-          public PsiElement next() {
-            PsiElement res = myElement;
-            do {
-              myElement = PsiTreeUtil.nextLeaf(myElement);
-              if (myElement == null || myElement.getTextOffset() > lineRange.getEndOffset()) {
-                myElement = null;
-                break;
-              }
-            } while (myElement.getTextLength() == 0);
-            return res;
-          }
-
-          @Override
-          public void remove() {}
-        };
-      }
-    };
-  }
-
   private static Set<PsiClass> getLineClasses(final PsiFile file, int lineNumber) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
+    Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
     Set<PsiClass> res = new HashSet<>();
-    for (PsiElement element : getLineElements(file, lineNumber)) {
-      PsiClass aClass = getEnclosingClass(element);
-      if (aClass != null) {
-        res.add(aClass);
-      }
+    if (document != null) {
+      XDebuggerUtil.getInstance().iterateLine(file.getProject(), document, lineNumber, element -> {
+        PsiClass aClass = getEnclosingClass(element);
+        if (aClass != null) {
+          res.add(aClass);
+        }
+        return true;
+      });
     }
     return res;
   }
@@ -374,8 +333,8 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
         PsiFile[] files = FilenameIndex.getFilesByName(project, refType.sourceName(), GlobalSearchScope.allScope(project));
         for (PsiFile file : files) {
           if (file instanceof PsiJavaFile) {
-            for (PsiClass cls : ((PsiJavaFile)file).getClasses()) {
-              if (StringUtil.equals(originalQName, cls.getQualifiedName())) {
+            for (PsiClass cls : PsiTreeUtil.findChildrenOfAnyType(file, PsiClass.class)) {
+              if (StringUtil.equals(originalQName, JVMNameUtil.getClassVMName(cls))) {
                 return file;
               }
             }
@@ -389,30 +348,31 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     return null;
   }
 
-  private PsiClass findPsiClassByName(String originalQName, @Nullable Consumer<ClsClassImpl> altClsProcessor) {
+  private PsiClass findPsiClassByName(String originalQName, @Nullable Consumer<? super ClsClassImpl> altClsProcessor) {
     PsiClass psiClass = null;
     // first check alternative jre if any
     Sdk alternativeJre = myDebugProcess.getSession().getAlternativeJre();
     if (alternativeJre != null) {
-      psiClass = findClass(myDebugProcess.getProject(), originalQName, AlternativeJreClassFinder.getSearchScope(alternativeJre));
+      GlobalSearchScope scope = AlternativeJreClassFinder.getSearchScope(alternativeJre);
+      psiClass = findClass(myDebugProcess.getProject(), originalQName, scope, false);
       if (psiClass instanceof ClsClassImpl && altClsProcessor != null) { //try to find sources
         altClsProcessor.accept((ClsClassImpl)psiClass);
       }
     }
 
     if (psiClass == null) {
-      psiClass = findClass(myDebugProcess.getProject(), originalQName, myDebugProcess.getSearchScope());
+      psiClass = findClass(myDebugProcess.getProject(), originalQName, myDebugProcess.getSearchScope(), true);
     }
     return psiClass;
   }
 
   @Nullable
-  public static PsiClass findClass(Project project, String originalQName, GlobalSearchScope searchScope) {
-    PsiClass psiClass = DebuggerUtils.findClass(originalQName, project, searchScope); // try to lookup original name first
+  public static PsiClass findClass(Project project, String originalQName, GlobalSearchScope searchScope, boolean fallbackToAllScope) {
+    PsiClass psiClass = DebuggerUtils.findClass(originalQName, project, searchScope, fallbackToAllScope); // try to lookup original name first
     if (psiClass == null) {
       int dollar = originalQName.indexOf('$');
       if (dollar > 0) {
-        psiClass = DebuggerUtils.findClass(originalQName.substring(0, dollar), project, searchScope);
+        psiClass = DebuggerUtils.findClass(originalQName.substring(0, dollar), project, searchScope, fallbackToAllScope);
       }
     }
     return psiClass;
@@ -439,6 +399,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     return null;
   }
 
+  @Override
   @NotNull
   public List<ReferenceType> getAllClasses(@NotNull final SourcePosition position) throws NoDataException {
     return ReadAction.compute(() -> StreamEx.of(getLineClasses(position.getFile(), position.getLine()))
@@ -521,8 +482,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     PsiElement previous = null;
 
     while (element != null) {
-      if (PsiClass.class.isInstance(element) && !(previous instanceof PsiExpressionList)) {
-        //noinspection unchecked
+      if (element instanceof PsiClass && !(previous instanceof PsiExpressionList)) {
         return (PsiClass)element;
       }
       if (element instanceof PsiFile) {
@@ -624,7 +584,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     private final String myMethodSignature;
     private PsiMethod myCompiledMethod;
 
-    public MethodFinder(final String className, final String methodName, final String methodSignature) {
+    MethodFinder(final String className, final String methodName, final String methodSignature) {
       myClassName = className;
       myMethodName = methodName;
       myMethodSignature = methodSignature;
@@ -660,7 +620,7 @@ public class PositionManagerImpl implements PositionManager, MultiRequestPositio
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (myCompiledMethod == null) {
         super.visitElement(element);
       }

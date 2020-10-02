@@ -28,11 +28,12 @@ public class InlineSuperClassUsageViewDescriptor extends UsageViewDescriptorAdap
     myClass = aClass;
   }
 
-  @NotNull
-  public PsiElement[] getElements() {
+  @Override
+  public PsiElement @NotNull [] getElements() {
     return new PsiElement[] {myClass};
   }
 
+  @Override
   public String getProcessedElementsHeader() {
     return null;
   }

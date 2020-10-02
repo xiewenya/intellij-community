@@ -19,6 +19,8 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiLiteralUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -31,13 +33,6 @@ import org.jetbrains.annotations.NotNull;
 
 public class LengthOneStringsInConcatenationInspection
   extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "length.one.strings.in.concatenation.display.name");
-  }
 
   @Override
   @NotNull
@@ -74,18 +69,7 @@ public class LengthOneStringsInConcatenationInspection
     public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiExpression expression = (PsiExpression)descriptor.getPsiElement();
       final String text = expression.getText();
-      final int length = text.length();
-      final String character = text.substring(1, length - 1);
-      final String charLiteral;
-      if ("\'".equals(character)) {
-        charLiteral = "'\\''";
-      }
-      else if ("\\\"".equals(character)) {
-        charLiteral = "'\"'";
-      }
-      else {
-        charLiteral = '\'' + character + '\'';
-      }
+      final String charLiteral = PsiLiteralUtil.charLiteralForCharString(text);
       PsiReplacementUtil.replaceExpression(expression, charLiteral);
     }
   }
@@ -118,7 +102,7 @@ public class LengthOneStringsInConcatenationInspection
     }
 
     static boolean isArgumentOfStringAppend(PsiExpression expression) {
-      final PsiElement parent = expression.getParent();
+      final PsiElement parent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
       if (parent == null) {
         return false;
       }

@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamToLoop;
 
-import com.intellij.codeInspection.streamToLoop.StreamToLoopInspection.StreamToLoopReplacementContext;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.psiutils.BoolUtils;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.StreamApiUtil;
@@ -29,9 +15,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
-/**
- * @author Tagir Valeev
- */
 abstract class Operation {
   boolean changesVariable() {
     return false;
@@ -43,8 +26,8 @@ abstract class Operation {
 
   void rename(String oldName, String newName, StreamToLoopReplacementContext context) {}
 
-  abstract String wrap(StreamVariable inVar,
-                       StreamVariable outVar,
+  abstract String wrap(ChainVariable inVar,
+                       ChainVariable outVar,
                        String code,
                        StreamToLoopReplacementContext context);
 
@@ -52,13 +35,13 @@ abstract class Operation {
     return null;
   }
 
-  public void registerReusedElements(Consumer<PsiElement> consumer) {}
+  public void registerReusedElements(Consumer<? super PsiElement> consumer) {}
 
-  public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {}
+  public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {}
 
   @Nullable
-  static Operation createIntermediate(@NotNull String name, @NotNull PsiExpression[] args,
-                                      @NotNull StreamVariable outVar, @NotNull PsiType inType, boolean supportUnknownSources) {
+  static Operation createIntermediate(@NotNull String name, PsiExpression @NotNull [] args,
+                                      @NotNull ChainVariable outVar, @NotNull PsiType inType, boolean supportUnknownSources) {
     if(name.equals("distinct") && args.length == 0) {
       return new DistinctOperation();
     }
@@ -116,17 +99,17 @@ abstract class Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myFn.registerReusedElements(consumer);
     }
 
     @Override
-    final String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    final String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       myFn.transform(context, inVar.getName());
       return wrap(outVar, code, context);
     }
 
-    abstract String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context);
+    abstract String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context);
 
     @Override
     void rename(String oldName, String newName, StreamToLoopReplacementContext context) {
@@ -134,41 +117,41 @@ abstract class Operation {
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       myFn.preprocessVariable(context, inVar, 0);
     }
   }
 
   static class FilterOperation extends LambdaIntermediateOperation {
-    public FilterOperation(FunctionHelper fn) {
+    FilterOperation(FunctionHelper fn) {
       super(fn);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       return "if(" + myFn.getText() + ") {\n" + code + "}\n";
     }
   }
 
   static class TakeWhileOperation extends LambdaIntermediateOperation {
-    public TakeWhileOperation(FunctionHelper fn) {
+    TakeWhileOperation(FunctionHelper fn) {
       super(fn);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       return "if(" + BoolUtils.getNegatedExpressionText(myFn.getExpression()) + ") {\n" +
              context.getBreakStatement() + "}\n" + code;
     }
   }
 
   static class DropWhileOperation extends LambdaIntermediateOperation {
-    public DropWhileOperation(FunctionHelper fn) {
+    DropWhileOperation(FunctionHelper fn) {
       super(fn);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String dropping = context.declare("dropping", "boolean", "true");
       return "if(" + dropping + ") {\n" +
              "if(" + myFn.getText() + ") {\ncontinue;\n}\n" +
@@ -178,29 +161,29 @@ abstract class Operation {
   }
 
   static class PeekOperation extends LambdaIntermediateOperation {
-    public PeekOperation(FunctionHelper fn) {
+    PeekOperation(FunctionHelper fn) {
       super(fn);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       return myFn.getStatementText() + code;
     }
   }
 
   static class MapOperation extends LambdaIntermediateOperation {
-    public MapOperation(FunctionHelper fn) {
+    MapOperation(FunctionHelper fn) {
       super(fn);
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       super.preprocessVariables(context, inVar, outVar);
       myFn.suggestOutputNames(context, outVar);
     }
 
     @Override
-    String wrap(StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       return outVar.getDeclaration(myFn.getText()) + code;
     }
 
@@ -212,8 +195,8 @@ abstract class Operation {
 
   static class WideningOperation extends Operation {
     @Override
-    String wrap(StreamVariable inVar,
-                StreamVariable outVar,
+    String wrap(ChainVariable inVar,
+                ChainVariable outVar,
                 String code,
                 StreamToLoopReplacementContext context) {
       return outVar.getDeclaration(inVar.getName()) + code;
@@ -225,7 +208,7 @@ abstract class Operation {
     }
   }
 
-  static class FlatMapOperation extends Operation {
+  static final class FlatMapOperation extends Operation {
     private final String myVarName;
     private final FunctionHelper myFn;
     private final List<StreamToLoopInspection.OperationRecord> myRecords;
@@ -254,7 +237,7 @@ abstract class Operation {
     }
 
     @Override
-    public void preprocessVariables(StreamToLoopReplacementContext context, StreamVariable inVar, StreamVariable outVar) {
+    public void preprocessVariables(StreamToLoopReplacementContext context, ChainVariable inVar, ChainVariable outVar) {
       String name = myFn.getParameterName(0);
       if (name != null) {
         inVar.addBestNameCandidate(name);
@@ -262,7 +245,7 @@ abstract class Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       myRecords.forEach(or -> or.myOperation.registerReusedElements(consumer));
       if(myCondition != null) {
         consumer.accept(myCondition);
@@ -278,7 +261,7 @@ abstract class Operation {
     }
 
     @Override
-    String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       if(!myVarName.equals(inVar.getName())) {
         rename(myVarName, inVar.getName(), context);
       }
@@ -298,19 +281,19 @@ abstract class Operation {
     }
 
     @Nullable
-    public static FlatMapOperation from(StreamVariable outVar, PsiExpression arg, boolean supportUnknownSources) {
+    public static FlatMapOperation from(ChainVariable outVar, PsiExpression arg, boolean supportUnknownSources) {
       FunctionHelper fn = FunctionHelper.create(arg, 1);
       if(fn == null) return null;
       String varName = fn.tryLightTransform();
       if(varName == null) return null;
-      PsiExpression body = fn.getExpression();
+      PsiExpression body = PsiUtil.skipParenthesizedExprDown(fn.getExpression());
       PsiExpression condition = null;
       boolean inverted = false;
       if(body instanceof PsiConditionalExpression) {
         PsiConditionalExpression ternary = (PsiConditionalExpression)body;
         condition = ternary.getCondition();
-        PsiExpression thenExpression = ternary.getThenExpression();
-        PsiExpression elseExpression = ternary.getElseExpression();
+        PsiExpression thenExpression = PsiUtil.skipParenthesizedExprDown(ternary.getThenExpression());
+        PsiExpression elseExpression = PsiUtil.skipParenthesizedExprDown(ternary.getElseExpression());
         if(StreamApiUtil.isNullOrEmptyStream(thenExpression)) {
           body = elseExpression;
           inverted = true;
@@ -322,8 +305,8 @@ abstract class Operation {
       }
       if(!(body instanceof PsiMethodCallExpression)) return null;
       PsiMethodCallExpression terminalCall = (PsiMethodCallExpression)body;
-      List<StreamToLoopInspection.OperationRecord> records = StreamToLoopInspection.extractOperations(outVar, terminalCall,
-                                                                                                      supportUnknownSources);
+      List<StreamToLoopInspection.OperationRecord> records =
+        StreamToLoopInspection.extractOperations(outVar, terminalCall, supportUnknownSources);
       if(records == null || StreamToLoopInspection.getTerminal(records) != null) return null;
       return new FlatMapOperation(varName, fn, records, condition, inverted);
     }
@@ -331,7 +314,7 @@ abstract class Operation {
 
   static class DistinctOperation extends Operation {
     @Override
-    String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String set =
         context.declare("uniqueValues", "java.util.Set<" + PsiTypesUtil.boxIfPossible(inVar.getType().getCanonicalText()) + ">",
                         "new java.util.HashSet<>()");
@@ -352,12 +335,12 @@ abstract class Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myExpression);
     }
 
     @Override
-    String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       if (ExpressionUtils.isLiteral(myExpression, 1)) {
         String first = context.declare("first", "boolean", "true");
         return "if(" + first + ") {\n" + first + "=false;\ncontinue;\n}\n" + code;
@@ -380,12 +363,12 @@ abstract class Operation {
     }
 
     @Override
-    public void registerReusedElements(Consumer<PsiElement> consumer) {
+    public void registerReusedElements(Consumer<? super PsiElement> consumer) {
       consumer.accept(myLimit);
     }
 
     @Override
-    String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String limit = context.declare("limit", "long", myLimit.getText());
       return "if(" + limit + "--==0) " + context.getBreakStatement() + code;
     }
@@ -409,7 +392,7 @@ abstract class Operation {
     }
 
     @Override
-    String wrap(StreamVariable inVar, StreamVariable outVar, String code, StreamToLoopReplacementContext context) {
+    String wrap(ChainVariable inVar, ChainVariable outVar, String code, StreamToLoopReplacementContext context) {
       String list = context.registerVarName(Arrays.asList("toSort", "listToSort"));
       context.addAfterStep(new SourceOperation.ForEachSource(context.createExpression(list)).wrap(null, outVar, code, context));
       context.addAfterStep(list + ".sort(" + (myComparator == null ? "null" : myComparator.getText()) + ");\n");

@@ -15,7 +15,7 @@
  */
 package com.intellij.util.graph;
 
-import com.intellij.util.containers.EmptyIterator;
+import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
 import java.util.*;
@@ -30,14 +30,16 @@ public class GraphGeneratorTest {
   public void testEmptyGraph() {
     TestNode node = new TestNode("A");
     Graph<TestNode> graph = GraphGenerator.generate(new InboundSemiGraph<TestNode>() {
+      @NotNull
       @Override
       public Collection<TestNode> getNodes() {
         return Collections.singletonList(node);
       }
 
+      @NotNull
       @Override
       public Iterator<TestNode> getIn(TestNode n) {
-        return EmptyIterator.getInstance();
+        return Collections.emptyIterator();
       }
     });
 
@@ -53,11 +55,13 @@ public class GraphGeneratorTest {
     TestNode[] inB = {nodeA};
 
     Graph<TestNode> graph = GraphGenerator.generate(new InboundSemiGraph<TestNode>() {
+      @NotNull
       @Override
       public Collection<TestNode> getNodes() {
         return Arrays.asList(nodes);
       }
 
+      @NotNull
       @Override
       public Iterator<TestNode> getIn(TestNode n) {
         if (n == nodeA) return Arrays.asList(inA).iterator();

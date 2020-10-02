@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.dupLocator.iterators.NodeIterator;
@@ -7,25 +7,30 @@ import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiRecursiveElementWalkingVisitor;
 import com.intellij.structuralsearch.MatchResult;
-import com.intellij.structuralsearch.StructuralSearchUtil;
 import com.intellij.structuralsearch.impl.matcher.CompiledPattern;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.structuralsearch.impl.matcher.MatchResultImpl;
 import com.intellij.structuralsearch.impl.matcher.filters.DefaultFilter;
 import com.intellij.structuralsearch.impl.matcher.strategies.MatchingStrategy;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
- * Root of handlers for pattern node matching. Handles simplest type of the match.
+ * Root of handlers for pattern node matching. Matching handlers know how to match a specific pattern node
+ * to a node in the source code.
  */
 public abstract class MatchingHandler {
   protected NodeFilter filter;
   private PsiElement pinnedElement;
 
-  public void setFilter(NodeFilter filter) {
+  /**
+   * Node filters determine which kind of PsiElements can match the pattern element.
+   * Filters are applied to MatchingHandlers in the CompilingVisitor.
+   */
+  public void setFilter(@Nullable NodeFilter filter) {
     this.filter = filter;
   }
 
@@ -35,21 +40,20 @@ public abstract class MatchingHandler {
    * @param context of the matching
    * @return true if matching was successful and false otherwise
    */
-  public boolean match(PsiElement patternNode, PsiElement matchedNode, MatchContext context) {
+  public boolean match(PsiElement patternNode, PsiElement matchedNode, @NotNull MatchContext context) {
     return (patternNode == null) ? matchedNode == null : canMatch(patternNode, matchedNode, context);
   }
 
-  public boolean canMatch(final PsiElement patternNode, final PsiElement matchedNode, MatchContext context) {
+  public boolean canMatch(@NotNull PsiElement patternNode, final PsiElement matchedNode, @NotNull MatchContext context) {
     return (filter != null) ? filter.accepts(matchedNode) : DefaultFilter.accepts(patternNode, matchedNode);
   }
 
-  public boolean matchSequentially(NodeIterator patternNodes, NodeIterator matchNodes, MatchContext context) {
+  public boolean matchSequentially(@NotNull NodeIterator patternNodes, @NotNull NodeIterator matchNodes, @NotNull MatchContext context) {
     final MatchingStrategy strategy = context.getPattern().getStrategy();
     final PsiElement currentPatternNode = patternNodes.current();
     final PsiElement currentMatchNode = matchNodes.current();
 
     skipIfNecessary(matchNodes, currentPatternNode, strategy);
-    skipComments(matchNodes, currentPatternNode);
     skipIfNecessary(patternNodes, matchNodes.current(), strategy);
 
     if (!patternNodes.hasNext()) {
@@ -58,6 +62,7 @@ public abstract class MatchingHandler {
 
     final PsiElement patternElement = patternNodes.current();
     final MatchingHandler handler = context.getPattern().getHandler(patternElement);
+    if (!(handler instanceof TopLevelMatchingHandler)) skipComments(matchNodes, currentPatternNode);
     if (matchNodes.hasNext() && handler.match(patternElement, matchNodes.current(), context)) {
 
       patternNodes.advance();
@@ -84,18 +89,18 @@ public abstract class MatchingHandler {
     return false;
   }
 
-  private static void skipComments(NodeIterator matchNodes, PsiElement patternNode) {
-    final boolean skipComment = !(patternNode instanceof PsiComment);
-    while (skipComment && matchNodes.current() instanceof PsiComment) matchNodes.advance();
+  private static void skipComments(@NotNull NodeIterator matchNodes, PsiElement patternNode) {
+    if (patternNode instanceof PsiComment) return;
+    while (matchNodes.current() instanceof PsiComment) matchNodes.advance();
   }
 
-  private static void skipIfNecessary(NodeIterator nodes, PsiElement elementToMatchWith, MatchingStrategy strategy) {
-    while (strategy.shouldSkip(nodes.current(), elementToMatchWith)) {
+  private static void skipIfNecessary(@NotNull NodeIterator nodes, PsiElement elementToMatchWith, @NotNull MatchingStrategy strategy) {
+    while (nodes.hasNext() && strategy.shouldSkip(nodes.current(), elementToMatchWith)) {
       nodes.advance();
     }
   }
 
-  protected boolean isMatchSequentiallySucceeded(final NodeIterator matchNodes) {
+  protected boolean isMatchSequentiallySucceeded(@NotNull NodeIterator matchNodes) {
     skipComments(matchNodes, null);
     return !matchNodes.hasNext();
   }
@@ -107,7 +112,8 @@ public abstract class MatchingHandler {
       super(true);
     }
 
-    @Override public void visitElement(PsiElement element) {
+    @Override
+    public void visitElement(@NotNull PsiElement element) {
       // We do not reset certain handlers because they are also bound to higher level nodes
       // e.g. Identifier handler in name is also bound to PsiMethod
       if (pattern.isToResetHandler(element)) {
@@ -119,7 +125,7 @@ public abstract class MatchingHandler {
       super.visitElement(element);
     }
 
-    synchronized void clearState(CompiledPattern _pattern, PsiElement el) {
+    synchronized void clearState(@NotNull CompiledPattern _pattern, @NotNull PsiElement el) {
       pattern = _pattern;
       el.acceptChildren(this);
       pattern = null;
@@ -128,40 +134,40 @@ public abstract class MatchingHandler {
 
   protected static ClearStateVisitor clearingVisitor = new ClearStateVisitor();
 
-  public boolean matchInAnyOrder(NodeIterator patternNodes, NodeIterator matchedNodes, final MatchContext context) {
+  public static boolean matchInAnyOrder(@NotNull NodeIterator patternNodes, @NotNull NodeIterator matchedNodes, @NotNull MatchContext context) {
     final MatchResultImpl saveResult = context.hasResult() ? context.getResult() : null;
     context.setResult(null);
 
     try {
-
       if (patternNodes.hasNext() && !matchedNodes.hasNext()) {
         return validateSatisfactionOfHandlers(patternNodes, context);
       }
 
       Set<PsiElement> matchedElements = null;
-
-      for(; patternNodes.hasNext(); patternNodes.advance()) {
+      while (patternNodes.hasNext()) {
         final PsiElement patternNode = patternNodes.current();
+        patternNodes.advance();
         final CompiledPattern pattern = context.getPattern();
         final MatchingHandler handler = pattern.getHandler(patternNode);
 
-        final PsiElement startMatching = matchedNodes.current();
+        matchedNodes.reset();
+        boolean allElementsMatched = true;
+        int matchedOccurs = 0;
         do {
-          final PsiElement element = handler.getPinnedNode();
-          final PsiElement matchedNode = element != null ? element : matchedNodes.current();
-
-          if (element == null) matchedNodes.advance();
-          if (!matchedNodes.hasNext()) matchedNodes.reset();
+          final PsiElement pinnedNode = handler.getPinnedNode();
+          final PsiElement matchedNode = (pinnedNode != null) ? pinnedNode : matchedNodes.current();
+          if (pinnedNode == null) matchedNodes.advance();
 
           if (matchedElements == null || !matchedElements.contains(matchedNode)) {
-
+            allElementsMatched = false;
             if (handler.match(patternNode, matchedNode, context)) {
+              matchedOccurs++;
               if (matchedElements == null) matchedElements = new HashSet<>();
               matchedElements.add(matchedNode);
               if (handler.shouldAdvanceThePatternFor(patternNode, matchedNode)) {
                 break;
               }
-            } else if (element != null) {
+            } else if (pinnedNode != null) {
               return false;
             }
 
@@ -169,19 +175,20 @@ public abstract class MatchingHandler {
             clearingVisitor.clearState(pattern, patternNode);
           }
 
-          // passed of elements and does not found the match
-          if (startMatching == matchedNodes.current()) {
-            final boolean result = validateSatisfactionOfHandlers(patternNodes,context);
-            if (result && matchedElements != null) {
-              context.notifyMatchedElements(matchedElements);
+          if (!matchedNodes.hasNext() || pinnedNode != null) {
+            if (!handler.validate(context, matchedOccurs)) return false;
+            if (allElementsMatched || !patternNodes.hasNext()) {
+              final boolean result = validateSatisfactionOfHandlers(patternNodes, context);
+              if (result && matchedElements != null) {
+                context.notifyMatchedElements(matchedElements);
+              }
+              return result;
             }
-            return result;
+            break;
           }
         } while(true);
 
-        if (!handler.shouldAdvanceThePatternFor(patternNode, null)) {
-          patternNodes.rewind();
-        }
+        if (!handler.validate(context, matchedOccurs)) return false;
       }
 
       final boolean result = validateSatisfactionOfHandlers(patternNodes, context);
@@ -192,8 +199,7 @@ public abstract class MatchingHandler {
     } finally {
       if (saveResult != null) {
         if (context.hasResult()) {
-          final List<MatchResult> children = context.getResult().getChildren();
-          for (MatchResult child : children) {
+          for (MatchResult child : context.getResult().getChildren()) {
             saveResult.addChild(child);
           }
         }
@@ -202,28 +208,24 @@ public abstract class MatchingHandler {
     }
   }
 
-  protected static boolean validateSatisfactionOfHandlers(NodeIterator patternNodes, MatchContext context) {
-    while(patternNodes.hasNext()) {
-      final PsiElement element = patternNodes.current();
-      final MatchingHandler handler = context.getPattern().getHandler( element );
-
-      if (handler instanceof SubstitutionHandler) {
-        if (!((SubstitutionHandler)handler).validate(context, StructuralSearchUtil.getElementContextByPsi(element))) {
-          return false;
-        }
-      } else {
+  protected static boolean validateSatisfactionOfHandlers(@NotNull NodeIterator patternNodes, @NotNull MatchContext context) {
+    for (; patternNodes.hasNext(); patternNodes.advance()) {
+      if (!context.getPattern().getHandler(patternNodes.current()).validate(context, 0)) {
         return false;
       }
-      patternNodes.advance();
     }
     return true;
+  }
+
+  public boolean validate(@NotNull MatchContext context, int matchedOccurs) {
+    return matchedOccurs == 1;
   }
 
   public NodeFilter getFilter() {
     return filter;
   }
 
-  public boolean shouldAdvanceThePatternFor(PsiElement patternElement, PsiElement matchedElement) {
+  public boolean shouldAdvanceThePatternFor(@NotNull PsiElement patternElement, @NotNull PsiElement matchedElement) {
     return true;
   }
 
@@ -239,7 +241,7 @@ public abstract class MatchingHandler {
     return pinnedElement;
   }
 
-  public void setPinnedElement(final PsiElement pinnedElement) {
+  public void setPinnedElement(@NotNull PsiElement pinnedElement) {
     this.pinnedElement = pinnedElement;
   }
 }

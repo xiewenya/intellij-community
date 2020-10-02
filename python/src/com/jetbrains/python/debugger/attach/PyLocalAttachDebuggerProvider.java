@@ -24,15 +24,17 @@ import com.intellij.execution.process.ProcessInfo;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.UserDataHolder;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.xdebugger.attach.XLocalAttachDebugger;
 import com.intellij.xdebugger.attach.XLocalAttachDebuggerProvider;
 import com.intellij.xdebugger.attach.XLocalAttachGroup;
+import com.jetbrains.python.debugger.PyDebuggerOptionsProvider;
 import com.jetbrains.python.run.AbstractPythonRunConfiguration;
 import com.jetbrains.python.sdk.PreferredSdkComparator;
 import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -69,10 +71,10 @@ public class PyLocalAttachDebuggerProvider implements XLocalAttachDebuggerProvid
 
     final Sdk selectedSdk = selected;
     // most recent python version goes first
-    final List<XLocalAttachDebugger> result = PythonSdkType.getAllLocalCPythons()
+    final List<XLocalAttachDebugger> result = PythonSdkUtil.getAllLocalCPythons()
                                                            .stream()
                                                            .filter(sdk -> sdk != selectedSdk)
-                                                           .filter(sdk -> !PythonSdkType.isInvalid(sdk))
+                                                           .filter(sdk -> !PythonSdkUtil.isInvalid(sdk))
                                                            .sorted(PreferredSdkComparator.INSTANCE)
                                                            .map(PyLocalAttachDebugger::new)
                                                            .collect(Collectors.toList());
@@ -87,8 +89,8 @@ public class PyLocalAttachDebuggerProvider implements XLocalAttachDebuggerProvid
   public List<XLocalAttachDebugger> getAvailableDebuggers(@NotNull Project project,
                                                           @NotNull ProcessInfo processInfo,
                                                           @NotNull UserDataHolder contextHolder) {
-    String executableSubstring = Registry.get("python.attach.to.process.executable.substring").asString();
-    if (StringUtil.containsIgnoreCase(processInfo.getExecutableName(), executableSubstring)) {
+    final String filter = PyDebuggerOptionsProvider.getInstance(project).getAttachProcessFilter();
+    if (StringUtil.containsIgnoreCase(processInfo.getCommandLine(), filter)) {
       List<XLocalAttachDebugger> result;
 
       if (processInfo.getExecutableCannonicalPath().isPresent() &&
@@ -110,14 +112,14 @@ public class PyLocalAttachDebuggerProvider implements XLocalAttachDebuggerProvid
   
   private static class PyLocalAttachDebugger implements XLocalAttachDebugger {
     private final String mySdkHome;
-    @NotNull private final String myName;
+    @NotNull @NlsSafe private final String myName;
 
-    public PyLocalAttachDebugger(@NotNull Sdk sdk) {
+    PyLocalAttachDebugger(@NotNull Sdk sdk) {
       mySdkHome = sdk.getHomePath();
       myName = PythonSdkType.getInstance().getVersionString(sdk) + " (" + mySdkHome + ")";
     }
 
-    public PyLocalAttachDebugger(@NotNull String sdkHome) {
+    PyLocalAttachDebugger(@NotNull String sdkHome) {
       mySdkHome = sdkHome;
       myName = "Python Debugger";
     }

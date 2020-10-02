@@ -15,18 +15,18 @@
  */
 package com.intellij.codeInsight.daemon.impl.analysis;
 
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
-import com.intellij.codeInspection.*;
-import com.intellij.openapi.project.Project;
+import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.XmlSuppressableInspectionTool;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.XmlElementVisitor;
 import com.intellij.psi.html.HtmlTag;
-import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.xml.XmlAttributeDescriptor;
-import org.jetbrains.annotations.Nls;
+import com.intellij.xml.analysis.XmlAnalysisBundle;
+import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -44,35 +44,15 @@ public class XmlDefaultAttributeValueInspection extends XmlSuppressableInspectio
         if (!(parent instanceof XmlAttribute)) {
           return;
         }
-        if (parent.getParent() instanceof HtmlTag) return;
+        if (parent.getParent() instanceof HtmlTag || HtmlUtil.isHtmlFile(parent.getParent())) return;
         XmlAttributeDescriptor descriptor = ((XmlAttribute)parent).getDescriptor();
         if (descriptor == null || descriptor.isRequired()) {
           return;
         }
         String defaultValue = descriptor.getDefaultValue();
-        if (defaultValue != null && defaultValue.equals(value.getValue())) {
-          holder.registerProblem(value, "Redundant default attribute value assignment", ProblemHighlightType.LIKE_UNUSED_SYMBOL,
-                                 createDeleteFix());
-        }
-      }
-    };
-  }
-
-  @NotNull
-  private static LocalQuickFix createDeleteFix() {
-    return new LocalQuickFix() {
-      @Nls
-      @NotNull
-      @Override
-      public String getFamilyName() {
-        return XmlErrorMessages.message("remove.attribute.quickfix.family");
-      }
-
-      @Override
-      public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-        XmlAttribute attribute = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), XmlAttribute.class);
-        if (attribute != null) {
-          attribute.delete();
+        if (defaultValue != null && defaultValue.equals(value.getValue()) && !value.getTextRange().isEmpty()) {
+          holder.registerProblem(value, XmlAnalysisBundle.message("xml.inspections.redundant.default.attribute.value.assignment"), ProblemHighlightType.LIKE_UNUSED_SYMBOL,
+                                 new RemoveAttributeIntentionFix(((XmlAttribute)parent).getLocalName()));
         }
       }
     };

@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.util;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.DumbService;
@@ -25,6 +10,7 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
@@ -47,13 +33,15 @@ import java.util.regex.Pattern;
 /**
  * @author ilyas
  */
-public class LibrariesUtil {
+public final class LibrariesUtil {
   public static final String SOME_GROOVY_CLASS = "org.codehaus.groovy.control.CompilationUnit";
+  @NlsSafe private static final String LIB = "lib";
+  @NlsSafe private static final String EMBEDDABLE = "embeddable";
 
   private LibrariesUtil() {
   }
 
-  public static Library[] getLibrariesByCondition(final Module module, final Condition<Library> condition) {
+  public static Library[] getLibrariesByCondition(final Module module, final Condition<? super Library> condition) {
     if (module == null) return Library.EMPTY_ARRAY;
     final ArrayList<Library> libraries = new ArrayList<>();
 
@@ -62,7 +50,7 @@ public class LibrariesUtil {
     return libraries.toArray(Library.EMPTY_ARRAY);
   }
 
-  private static void populateOrderEntries(@NotNull Module module, Condition<Library> condition, ArrayList<Library> libraries, boolean exportedOnly, Set<Module> visited) {
+  private static void populateOrderEntries(@NotNull Module module, Condition<? super Library> condition, ArrayList<? super Library> libraries, boolean exportedOnly, Set<? super Module> visited) {
     if (!visited.add(module)) {
       return;
     }
@@ -88,7 +76,7 @@ public class LibrariesUtil {
     }
   }
 
-  public static Library[] getGlobalLibraries(Condition<Library> condition) {
+  public static Library[] getGlobalLibraries(Condition<? super Library> condition) {
     LibraryTable table = LibraryTablesRegistrar.getInstance().getLibraryTable();
     List<Library> libs = ContainerUtil.findAll(table.getLibraries(), condition);
     return libs.toArray(Library.EMPTY_ARRAY);
@@ -136,7 +124,7 @@ public class LibrariesUtil {
       if (local != null) {
         final VirtualFile parent = local.getParent();
         if (parent != null) {
-          if (("lib".equals(parent.getName()) || "embeddable".equals(parent.getName())) && parent.getParent() != null) {
+          if ((LIB.equals(parent.getName()) || EMBEDDABLE.equals(parent.getName())) && parent.getParent() != null) {
             return parent.getParent().getPath();
           }
           return parent.getPath();
@@ -158,7 +146,7 @@ public class LibrariesUtil {
         if (realFile.exists()) {
           File parentFile = realFile.getParentFile();
           if (parentFile != null) {
-            if ("lib".equals(parentFile.getName())) {
+            if (LIB.equals(parentFile.getName())) {
               return parentFile.getParent();
             }
             return parentFile.getPath();
@@ -196,7 +184,7 @@ public class LibrariesUtil {
       final File emb = new File(embeddable);
       if (emb.exists()) {
         final File parent = emb.getParentFile();
-        if ("embeddable".equals(parent.getName()) || "lib".equals(parent.getName())) {
+        if (EMBEDDABLE.equals(parent.getName()) || LIB.equals(parent.getName())) {
           return parent.getParent();
         }
         return parent.getPath();

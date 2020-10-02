@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.moduleDependencies;
 
 import com.intellij.icons.AllIcons;
@@ -16,7 +16,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author anna
- * @since Feb 10, 2005
  */
 @State(name = "DependenciesAnalyzeManager", storages = {@Storage(StoragePathMacros.WORKSPACE_FILE)})
 public class DependenciesAnalyzeManager implements PersistentStateComponent<DependenciesAnalyzeManager.State> {
@@ -37,7 +36,7 @@ public class DependenciesAnalyzeManager implements PersistentStateComponent<Depe
       ToolWindow toolWindow = manager.registerToolWindow(ToolWindowId.MODULES_DEPENDENCIES, true, ToolWindowAnchor.RIGHT, project);
       myContentManager = toolWindow.getContentManager();
       toolWindow.setIcon(AllIcons.Toolwindows.ToolWindowModuleDependencies);
-      new ContentManagerWatcher(toolWindow, myContentManager);
+      ContentManagerWatcher.watchContentManager(toolWindow, myContentManager);
     });
   }
 

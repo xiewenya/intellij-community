@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamMigration;
 
 
@@ -42,7 +28,7 @@ class SpecialFirstIterationLoop {
   private final @NotNull List<PsiStatement> myOtherIterationStatements;
   private final @Nullable PsiLocalVariable myVariable;
 
-  public SpecialFirstIterationLoop(@NotNull List<PsiStatement> firstIterationStatements,
+  SpecialFirstIterationLoop(@NotNull List<PsiStatement> firstIterationStatements,
                                    @NotNull List<PsiStatement> otherIterationStatements,
                                    @Nullable PsiLocalVariable variable) {
     myFirstIterationStatements = firstIterationStatements;
@@ -140,7 +126,7 @@ class SpecialFirstIterationLoop {
   }
 
 
-  static class BoolFlagLoop {
+  static final class BoolFlagLoop {
     private BoolFlagLoop(){}
     /*
     Cases:
@@ -202,7 +188,7 @@ class SpecialFirstIterationLoop {
     }
 
 
-    private static class ConditionData {
+    private static final class ConditionData {
       private final @NotNull List<PsiStatement> myThenStatements;
       private final @NotNull List<PsiStatement> myElseStatements;
       private final @NotNull PsiAssignmentExpression myAssignment;
@@ -251,7 +237,7 @@ class SpecialFirstIterationLoop {
     }
   }
 
-  static class IndexBasedLoop{
+  static final class IndexBasedLoop{
     private IndexBasedLoop(){}
 
     /*
@@ -272,10 +258,8 @@ class SpecialFirstIterationLoop {
   sb.append(mainPart)
  */
     @Nullable
-    static SpecialFirstIterationLoop extract(@NotNull TerminalBlock terminalBlock) {
-      StreamApiMigrationInspection.CountingLoopSource countingLoopSource =
-        terminalBlock.getLastOperation(StreamApiMigrationInspection.CountingLoopSource.class);
-      if (countingLoopSource == null) return null;
+    static SpecialFirstIterationLoop extract(@NotNull TerminalBlock terminalBlock,
+                                             StreamApiMigrationInspection.CountingLoopSource countingLoopSource) {
       PsiVariable loopVar = countingLoopSource.getVariable();
       PsiLocalVariable loopLocalVar = tryCast(loopVar, PsiLocalVariable.class);
       if (loopLocalVar == null) return null;

@@ -29,7 +29,6 @@ import com.intellij.psi.stubs.IndexSink;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -55,8 +54,9 @@ public class JavaRequiresStatementElementType extends JavaStubElementType<PsiReq
     return new PsiRequiresStatementImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiRequiresStatementStub createStub(LighterAST tree, LighterASTNode node, StubElement parentStub) {
+  public PsiRequiresStatementStub createStub(@NotNull LighterAST tree, @NotNull LighterASTNode node, @NotNull StubElement parentStub) {
     LighterASTNode ref = LightTreeUtil.firstChildOfType(tree, node, JavaElementType.MODULE_REFERENCE);
     String refText = ref != null ? JavaSourceUtil.getReferenceText(tree, ref) : null;
     return new PsiRequiresStatementStubImpl(parentStub, refText);

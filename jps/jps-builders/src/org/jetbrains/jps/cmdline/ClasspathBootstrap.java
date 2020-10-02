@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.cmdline;
 
-import com.google.common.base.Predicate;
+import com.google.gson.Gson;
 import com.google.protobuf.Message;
 import com.intellij.compiler.notNullVerification.NotNullVerifyingInstrumenter;
 import com.intellij.openapi.application.PathManager;
@@ -26,45 +12,60 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import com.jgoodies.forms.layout.CellConstraints;
+import com.thoughtworks.qdox.JavaProjectBuilder;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.EventLoopGroup;
+import io.netty.handler.codec.protobuf.ProtobufDecoder;
+import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.NetUtil;
 import net.n3.nanoxml.IXMLBuilder;
-import org.apache.http.HttpConnection;
-import org.apache.http.client.HttpClient;
-import org.eclipse.aether.artifact.Artifact;
 import org.jetbrains.idea.maven.aether.ArtifactRepositoryManager;
 import org.jetbrains.jps.builders.impl.java.EclipseCompilerTool;
 import org.jetbrains.jps.builders.java.JavaCompilingTool;
 import org.jetbrains.jps.builders.java.JavaSourceTransformer;
 import org.jetbrains.jps.javac.ExternalJavacProcess;
-import org.jetbrains.jps.javac.OptimizedFileManagerUtil;
+import org.jetbrains.jps.javac.ast.JavacReferenceCollector;
 import org.jetbrains.jps.model.JpsModel;
 import org.jetbrains.jps.model.impl.JpsModelImpl;
 import org.jetbrains.jps.model.serialization.JpsProjectLoader;
 import org.jetbrains.org.objectweb.asm.ClassVisitor;
 import org.jetbrains.org.objectweb.asm.ClassWriter;
 
-import javax.tools.*;
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
 import java.io.File;
 import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
  */
-public class ClasspathBootstrap {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.cmdline.ClasspathBootstrap");
+public final class ClasspathBootstrap {
+  private static final Logger LOG = Logger.getInstance(ClasspathBootstrap.class);
 
-  private ClasspathBootstrap() {
-  }
+  private ClasspathBootstrap() { }
+
+  private static final Class<?>[] COMMON_REQUIRED_CLASSES = {
+    Message.class, // protobuf
+    NetUtil.class, // netty common
+    EventLoopGroup.class, // netty transport
+    AddressResolverGroup.class, // netty resolver
+    ByteBufAllocator.class, // netty buffer
+    ProtobufDecoder.class,  // netty codec
+  };
 
   public static List<String> getBuildProcessApplicationClasspath() {
-    final Set<String> cp = ContainerUtil.newHashSet();
+    final Set<String> cp = new HashSet<>();
 
     cp.add(getResourcePath(BuildMain.class));
     cp.add(getResourcePath(ExternalJavacProcess.class));  // intellij.platform.jps.build.javac.rt part
+    cp.add(getResourcePath(JavacReferenceCollector.class));  // jps-javac-extension library
 
     cp.addAll(PathManager.getUtilClassPath()); // intellij.platform.util
-    cp.add(getResourcePath(Message.class)); // protobuf
-    cp.add(getResourcePath(NetUtil.class)); // netty
+
+    for (Class<?> aClass : COMMON_REQUIRED_CLASSES) {
+      cp.add(getResourcePath(aClass));
+    }
+
     cp.add(getResourcePath(ClassWriter.class));  // asm
     cp.add(getResourcePath(ClassVisitor.class));  // asm-commons
     cp.add(getResourcePath(JpsModel.class));  // intellij.platform.jps.model
@@ -75,41 +76,21 @@ public class ClasspathBootstrap {
     cp.add(getResourcePath(CellConstraints.class));  // jGoodies-forms
     cp.addAll(getInstrumentationUtilRoots());
     cp.add(getResourcePath(IXMLBuilder.class));  // nano-xml
+    cp.add(getResourcePath(JavaProjectBuilder.class));  // QDox lightweight java parser
+    cp.add(getResourcePath(Gson.class));  // gson
 
-    // aether-based repository libraries support
-    cp.add(getResourcePath(ArtifactRepositoryManager.class));  // intellij.java.aetherDependencyResolver
-    final String aetherPath = getResourcePath(Artifact.class); // aether-1.1.0-all.jar
-    cp.add(aetherPath);
-    cp.add(FileUtil.toSystemIndependentName(new File(new File(aetherPath).getParentFile(), "maven-aether-provider-3.3.9-all.jar").getAbsolutePath()));
-    cp.add(getResourcePath(Predicate.class));  // guava
-    cp.add(getResourcePath(HttpClient.class));  // httpclient
-    cp.add(getResourcePath(HttpConnection.class));  // httpcore
-    //noinspection UnnecessaryFullyQualifiedName
-    cp.add(getResourcePath(org.apache.commons.codec.binary.Base64.class));  // commons-codec
-    //noinspection UnnecessaryFullyQualifiedName
-    cp.add(getResourcePath(org.apache.commons.logging.LogFactory.class));  // commons-logging
-    //noinspection UnnecessaryFullyQualifiedName
-    cp.add(getResourcePath(org.slf4j.Marker.class));  // slf4j
-
-    cp.addAll(getJavac8RefScannerClasspath());
-    //don't forget to update CommunityStandaloneJpsBuilder.layoutJps accordingly
+    cp.addAll(ContainerUtil.map(ArtifactRepositoryManager.getClassesFromDependencies(), ClasspathBootstrap::getResourcePath));
 
     try {
       final Class<?> cmdLineWrapper = Class.forName("com.intellij.rt.execution.CommandLineWrapper");
       cp.add(getResourcePath(cmdLineWrapper));  // idea_rt.jar
     }
-    catch (Throwable ignored) {
-    }
+    catch (Throwable ignored) { }
 
-    return ContainerUtil.newArrayList(cp);
+    return new ArrayList<>(cp);
   }
 
-  public static void appendJavaCompilerClasspath(Collection<String> cp, boolean includeEcj) {
-    final Class<StandardJavaFileManager> optimizedFileManagerClass = OptimizedFileManagerUtil.getManagerClass();
-    if (optimizedFileManagerClass != null) {
-      cp.add(getResourcePath(optimizedFileManagerClass));  // optimizedFileManager
-    }
-
+  public static void appendJavaCompilerClasspath(Collection<? super String> cp, boolean includeEcj) {
     if (includeEcj) {
       File file = EclipseCompilerTool.findEcjJarFile();
       if (file != null) {
@@ -121,23 +102,15 @@ public class ClasspathBootstrap {
   public static List<File> getExternalJavacProcessClasspath(String sdkHome, JavaCompilingTool compilingTool) {
     final Set<File> cp = new LinkedHashSet<>();
     cp.add(getResourceFile(ExternalJavacProcess.class)); // self
+    cp.add(getResourceFile(JavacReferenceCollector.class));  // jps-javac-extension library
+
     // util
     for (String path : PathManager.getUtilClassPath()) {
       cp.add(new File(path));
     }
-    cp.add(getResourceFile(Message.class)); // protobuf
-    cp.add(getResourceFile(NetUtil.class)); // netty
 
-    final Class<StandardJavaFileManager> optimizedFileManagerClass = OptimizedFileManagerUtil.getManagerClass();
-    if (optimizedFileManagerClass != null) {
-      cp.add(getResourceFile(optimizedFileManagerClass));  // optimizedFileManager, if applicable
-    }
-    else {
-      // last resort
-      final File f = new File(PathManager.getLibPath(), "optimizedFileManager.jar");
-      if (f.exists()) {
-        cp.add(f);
-      }
+    for (Class<?> aClass : COMMON_REQUIRED_CLASSES) {
+      cp.add(getResourceFile(aClass));
     }
 
     try {
@@ -158,7 +131,7 @@ public class ClasspathBootstrap {
       else {
         // last resort
         final JavaCompiler systemCompiler = ToolProvider.getSystemJavaCompiler();
-        Class compilerClass;
+        Class<?> compilerClass;
         if (systemCompiler != null) {
           compilerClass = systemCompiler.getClass();
         }
@@ -191,11 +164,11 @@ public class ClasspathBootstrap {
     return new ArrayList<>(cp);
   }
 
-  public static String getResourcePath(Class aClass) {
+  public static String getResourcePath(Class<?> aClass) {
     return PathManager.getResourceRoot(aClass, "/" + aClass.getName().replace('.', '/') + ".class");
   }
 
-  public static File getResourceFile(Class aClass) {
+  public static File getResourceFile(Class<?> aClass) {
     return new File(getResourcePath(aClass));
   }
 
@@ -212,15 +185,4 @@ public class ClasspathBootstrap {
     }
   }
 
-  private static List<String> getJavac8RefScannerClasspath() {
-    String instrumentationPath = getResourcePath(NotNullVerifyingInstrumenter.class);
-    File instrumentationUtil = new File(instrumentationPath);
-    if (instrumentationUtil.isDirectory()) {
-      //running from sources: load classes from .../out/production/intellij.java.jps.javacRefScanner8
-      return Collections.singletonList(new File(instrumentationUtil.getParentFile(), "intellij.java.jps.javacRefScanner8").getAbsolutePath());
-    }
-    else {
-      return Collections.singletonList(instrumentationPath);
-    }
-  }
 }

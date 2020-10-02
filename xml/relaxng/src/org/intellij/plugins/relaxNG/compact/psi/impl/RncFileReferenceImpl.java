@@ -35,14 +35,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 abstract class RncFileReferenceImpl extends RncElementImpl implements RncFileReference {
-  public RncFileReferenceImpl(ASTNode node) {
+  RncFileReferenceImpl(ASTNode node) {
     super(node);
   }
 
-  @NotNull
   @Override
-  @SuppressWarnings({ "SSBasedInspection" })
-  public PsiReference[] getReferences() {
+  public PsiReference @NotNull [] getReferences() {
     final ASTNode literal = getNode().findChildByType(RncTokenTypes.LITERAL);
     if (literal == null) return PsiReference.EMPTY_ARRAY;
 

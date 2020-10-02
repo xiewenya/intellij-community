@@ -25,15 +25,14 @@ import com.intellij.util.CharTable;
 import org.jetbrains.annotations.NotNull;
 
 public class PsiArrayInitializerExpressionImpl extends ExpressionPsiElement implements PsiArrayInitializerExpression {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.java.PsiArrayInitializerExpressionImpl");
+  private static final Logger LOG = Logger.getInstance(PsiArrayInitializerExpressionImpl.class);
 
   public PsiArrayInitializerExpressionImpl() {
     super(JavaElementType.ARRAY_INITIALIZER_EXPRESSION);
   }
 
   @Override
-  @NotNull
-  public PsiExpression[] getInitializers(){
+  public PsiExpression @NotNull [] getInitializers(){
     return getChildrenAsPsiElements(ElementType.EXPRESSION_BIT_SET, PsiExpression.ARRAY_FACTORY);
   }
 
@@ -106,6 +105,7 @@ public class PsiArrayInitializerExpressionImpl extends ExpressionPsiElement impl
     }
   }
 
+  @Override
   public String toString(){
     return "PsiArrayInitializerExpression:" + getText();
   }

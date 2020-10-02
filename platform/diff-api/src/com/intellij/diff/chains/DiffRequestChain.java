@@ -16,15 +16,24 @@
 package com.intellij.diff.chains;
 
 import com.intellij.openapi.util.UserDataHolder;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
 public interface DiffRequestChain extends UserDataHolder {
   @NotNull
+  @RequiresEdt
   List<? extends DiffRequestProducer> getRequests();
 
+  @RequiresEdt
   int getIndex();
 
+  /**
+   * @see com.intellij.diff.impl.CacheDiffRequestChainProcessor#setCurrentRequest
+   * @deprecated This method will not change selected position if chain was already shown.
+   */
+  @Deprecated
+  @RequiresEdt
   void setIndex(int index);
 }

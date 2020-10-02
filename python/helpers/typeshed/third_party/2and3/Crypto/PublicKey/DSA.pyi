@@ -1,10 +1,11 @@
 from typing import Any, Optional
+
 from .pubkey import pubkey
 
 class _DSAobj(pubkey):
-    keydata = ...  # type: Any
-    implementation = ...  # type: Any
-    key = ...  # type: Any
+    keydata: Any
+    implementation: Any
+    key: Any
     def __init__(self, implementation, key) -> None: ...
     def __getattr__(self, attrname): ...
     def sign(self, M, K): ...
@@ -17,11 +18,11 @@ class _DSAobj(pubkey):
     def publickey(self): ...
 
 class DSAImplementation:
-    error = ...  # type: Any
+    error: Any
     def __init__(self, **kwargs) -> None: ...
     def generate(self, bits, randfunc: Optional[Any] = ..., progress_func: Optional[Any] = ...): ...
     def construct(self, tup): ...
 
-generate = ...  # type: Any
-construct = ...  # type: Any
-error = ...  # type: Any
+generate: Any
+construct: Any
+error: Any

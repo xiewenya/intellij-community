@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.buildout;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -28,6 +14,7 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -61,12 +48,17 @@ import java.util.regex.Pattern;
  * Knows which script in bin/ contains paths we want to add.
  * User: dcheryasov
  */
+@Deprecated
 public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfiguration> implements PythonPathContributingFacet {
 
-  private static final Logger LOG = Logger.getInstance("#com.jetbrains.python.buildout.BuildoutFacet");
+  private static final Logger LOG = Logger.getInstance(BuildoutFacet.class);
   @NonNls public static final String BUILDOUT_CFG = "buildout.cfg";
   @NonNls public static final String SCRIPT_SUFFIX = "-script";
-  private static final String BUILDOUT_LIB_NAME = "Buildout Eggs";
+  @NonNls private static final String PYCHARM_ENGULF_SCRIPT_KEY = "PYCHARM_ENGULF_SCRIPT";
+  @NlsSafe private static final String BUILDOUT_LIB_NAME = "Buildout Eggs";
+  @NonNls private static final String BAIT_STRING = "sys.path[0:0]";
+  @NonNls private static final String BUILDOUT_PATHS = "buildout_paths = [";
+  @NonNls private static final String DEF_ADDSITEPACKAGES = "def addsitepackages(";
 
   public BuildoutFacet(@NotNull final FacetType facetType,
                        @NotNull final Module module,
@@ -139,13 +131,11 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
   /**
    * Generates a {@code sys.path[0:0] = [...]} with paths that buildout script wants.
    *
-   * @param additionalPythonPath
-   * @param module to get a buildout facet from
    * @return the statement, or null if there's no buildout facet.
    */
   @Nullable
   public String getPathPrependStatement(List<String> additionalPythonPath) {
-    StringBuilder sb = new StringBuilder("sys.path[0:0]=[");
+    StringBuilder sb = new StringBuilder(BAIT_STRING).append("=[");
     for (String s : additionalPythonPath) {
       sb.append("'").append(s).append("',");
       // NOTE: we assume that quotes and spaces are escaped in paths back in the buildout script we extracted them from.
@@ -189,7 +179,7 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
       List<String> paths = extractFromScript(script);
       if (paths == null) {
         VirtualFile root = script.getParent().getParent();
-        String partName = FileUtil.getNameWithoutExtension(script.getName());
+        String partName = FileUtilRt.getNameWithoutExtension(script.getName());
         if (SystemInfo.isWindows && partName.endsWith(SCRIPT_SUFFIX)) {
           partName = partName.substring(0, partName.length() - SCRIPT_SUFFIX.length());
         }
@@ -214,9 +204,9 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
    */
   @Nullable
   public static List<String> extractFromScript(@NotNull VirtualFile script) throws IOException {
-    String text = VfsUtil.loadText(script);
+    String text = VfsUtilCore.loadText(script);
     Pattern pat = Pattern.compile("(?:^\\s*(['\"])(.*)(\\1),\\s*$)|(\\])", Pattern.MULTILINE);
-    final String bait_string = "sys.path[0:0]";
+    final String bait_string = BAIT_STRING;
     int pos = text.indexOf(bait_string);
     List<String> ret = null;
     if (pos >= 0) {
@@ -247,13 +237,13 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
    */
   public static List<String> extractFromSitePy(VirtualFile vFile) throws IOException {
     List<String> result = new ArrayList<>();
-    String text = VfsUtil.loadText(vFile);
+    String text = VfsUtilCore.loadText(vFile);
     String[] lines = LineTokenizer.tokenize(text, false);
     int index = 0;
-    while (index < lines.length && !lines[index].startsWith("def addsitepackages(")) {
+    while (index < lines.length && !lines[index].startsWith(DEF_ADDSITEPACKAGES)) {
       index++;
     }
-    while (index < lines.length && !lines[index].trim().startsWith("buildout_paths = [")) {
+    while (index < lines.length && !lines[index].trim().startsWith(BUILDOUT_PATHS)) {
       index++;
     }
     index++;
@@ -293,7 +283,7 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
     if (scriptParams.getParameters().size() > 0) {
       String normalScript = scriptParams.getParameters().get(0); // expect DjangoUtil.MANAGE_FILE
       HelperPackage engulfer = PythonHelper.BUILDOUT_ENGULFER;
-      env.put("PYCHARM_ENGULF_SCRIPT", getConfiguration().getScriptName());
+      env.put(PYCHARM_ENGULF_SCRIPT_KEY, getConfiguration().getScriptName());
       scriptParams.getParametersList().replaceOrPrepend(normalScript, engulfer.asParamString());
     }
     // add pycharm helpers to pythonpath so that fixGetpass is importable
@@ -372,7 +362,7 @@ public class BuildoutFacet extends LibraryContributingFacet<BuildoutFacetConfigu
     String scriptName = SystemInfo.isWindows ? name + SCRIPT_SUFFIX : name;
     final List<File> scripts = getScripts(buildoutFacet, baseDir);
     for (File script : scripts) {
-      if (FileUtil.getNameWithoutExtension(script.getName()).equals(scriptName)) {
+      if (FileUtilRt.getNameWithoutExtension(script.getName()).equals(scriptName)) {
         return script;
       }
     }

@@ -3,7 +3,6 @@
 package com.theoryinpractice.testng.inspection;
 
 import com.intellij.codeInspection.*;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooser;
@@ -20,6 +19,7 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.configuration.browser.SuiteBrowser;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.Nls;
@@ -34,28 +34,24 @@ import java.util.List;
 public class UndeclaredTestInspection extends AbstractBaseJavaLocalInspectionTool {
   private static final Logger LOG = Logger.getInstance(UndeclaredTestInspection.class);
 
+  @Override
   @Nls
   @NotNull
   public String getGroupDisplayName() {
     return TestNGUtil.TESTNG_GROUP_NAME;
   }
 
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Undeclared test";
-  }
-
+  @Override
   @NonNls
   @NotNull
   public String getShortName() {
     return "UndeclaredTests";
   }
 
-  @Nullable
-  public ProblemDescriptor[] checkClass(@NotNull final PsiClass aClass,
-                                        @NotNull final InspectionManager manager,
-                                        final boolean isOnTheFly) {
+  @Override
+  public ProblemDescriptor @Nullable [] checkClass(@NotNull final PsiClass aClass,
+                                                   @NotNull final InspectionManager manager,
+                                                   final boolean isOnTheFly) {
     if (TestNGUtil.hasTest(aClass) && PsiClassUtil.isRunnableClass(aClass, true)) {
       final Project project = aClass.getProject();
       final String qName = aClass.getQualifiedName();
@@ -96,7 +92,7 @@ public class UndeclaredTestInspection extends AbstractBaseJavaLocalInspectionToo
       }
       final PsiIdentifier nameIdentifier = aClass.getNameIdentifier();
       LOG.assertTrue(nameIdentifier != null);
-      return new ProblemDescriptor[]{manager.createProblemDescriptor(nameIdentifier, "Undeclared test \'" + aClass.getName() + "\'",
+      return new ProblemDescriptor[]{manager.createProblemDescriptor(nameIdentifier, TestngBundle.message("inspection.undeclared.test.problem.descriptor", aClass.getName()),
                                                                      isOnTheFly, new LocalQuickFix[]{new RegisterClassFix(aClass),
                                                                        new CreateTestngFix()},
                                                                      ProblemHighlightType.GENERIC_ERROR_OR_WARNING)};
@@ -107,20 +103,23 @@ public class UndeclaredTestInspection extends AbstractBaseJavaLocalInspectionToo
   private static class RegisterClassFix implements LocalQuickFix {
     private final String myClassName;
 
-    public RegisterClassFix(final PsiClass aClass) {
+    RegisterClassFix(final PsiClass aClass) {
       myClassName = aClass.getName();
     }
 
+    @Override
     @NotNull
     public String getName() {
-      return "Register \'" + myClassName + "\'";
+      return TestngBundle.message("inspection.undeclared.test.register", myClassName);
     }
 
+    @Override
     @NotNull
     public String getFamilyName() {
-      return "Register test";
+      return TestngBundle.message("inspection.undeclared.test.register.test");
     }
 
+    @Override
     public void applyFix(@NotNull final Project project, @NotNull ProblemDescriptor descriptor) {
       final PsiClass psiClass = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiClass.class);
       LOG.assertTrue(psiClass != null);
@@ -131,9 +130,7 @@ public class UndeclaredTestInspection extends AbstractBaseJavaLocalInspectionToo
       final PsiFile psiFile = PsiManager.getInstance(project).findFile(virtualFile);
       LOG.assertTrue(psiFile instanceof XmlFile);
       final XmlFile testngXML = (XmlFile)psiFile;
-      WriteCommandAction.writeCommandAction(project, testngXML).withName(getName()).run(() -> {
-        patchTestngXml(testngXML, psiClass);
-      });
+      WriteCommandAction.writeCommandAction(project, testngXML).withName(getName()).run(() -> patchTestngXml(testngXML, psiClass));
     }
 
     @Override
@@ -168,11 +165,13 @@ public class UndeclaredTestInspection extends AbstractBaseJavaLocalInspectionToo
   }
 
   private static class CreateTestngFix implements LocalQuickFix {
+    @Override
     @NotNull
     public String getFamilyName() {
-      return "Create suite";
+      return TestngBundle.message("inspection.undeclared.test.create.suite.fix");
     }
 
+    @Override
     public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
       final PsiClass psiClass = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiClass.class);
       final VirtualFile file = FileChooser.chooseFile(FileChooserDescriptorFactory.createSingleFolderDescriptor(), project, null);

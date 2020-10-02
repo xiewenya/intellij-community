@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.MultiRequestPositionManager;
@@ -24,7 +10,9 @@ import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.requests.ClassPrepareRequestor;
+import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl;
 import com.intellij.execution.filters.LineNumbersMapping;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.ProgressManager;
@@ -63,6 +51,7 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
   }
 
   public void clearCache() {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
     mySourcePositionCache.clear();
   }
 
@@ -72,15 +61,16 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
     T process(PositionManager positionManager) throws NoDataException;
   }
 
-  private <T> T iterate(Processor<T> processor, T defaultValue, SourcePosition position) {
+  private <T> T iterate(Processor<? extends T> processor, T defaultValue, SourcePosition position) {
     return iterate(processor, defaultValue, position, true);
   }
 
-  private <T> T iterate(Processor<T> processor, T defaultValue, SourcePosition position, boolean ignorePCE) {
+  private <T> T iterate(Processor<? extends T> processor, T defaultValue, SourcePosition position, boolean ignorePCE) {
+    FileType fileType = position != null ? position.getFile().getFileType() : null;
     for (PositionManager positionManager : myPositionManagers) {
-      if (position != null) {
+      if (fileType != null) {
         Set<? extends FileType> types = positionManager.getAcceptedFileTypes();
-        if (types != null && !types.contains(position.getFile().getFileType())) {
+        if (types != null && !types.contains(fileType)) {
           continue;
         }
       }
@@ -100,19 +90,25 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
   @Override
   public SourcePosition getSourcePosition(final Location location) {
     if (location == null) return null;
-    SourcePosition res = null;
-    try {
-      res = mySourcePositionCache.get(location);
-    } catch (IllegalArgumentException ignored) { // Invalid method id
-    }
-    if (checkCacheEntry(res, location)) return res;
+    return ReadAction.nonBlocking(() -> {
+      SourcePosition res = null;
+      try {
+        res = mySourcePositionCache.get(location);
+      }
+      catch (IllegalArgumentException ignored) { // Invalid method id
+      }
+      if (checkCacheEntry(res, location)) return res;
 
-    return DebuggerUtilsImpl.runInReadActionWithWriteActionPriorityWithRetries(
-      () -> iterate(positionManager -> {
+      return iterate(positionManager -> {
         SourcePosition res1 = positionManager.getSourcePosition(location);
-        mySourcePositionCache.put(location, res1);
+        try {
+          mySourcePositionCache.put(location, res1);
+        }
+        catch (IllegalArgumentException ignored) { // Invalid method id
+        }
         return res1;
-      }, null, null, false));
+      }, null, null, false);
+    }).executeSynchronously();
   }
 
   private static boolean checkCacheEntry(@Nullable SourcePosition position, @NotNull Location location) {
@@ -173,11 +169,11 @@ public class CompoundPositionManager extends PositionManagerEx implements MultiR
 
   @Nullable
   @Override
-  public XStackFrame createStackFrame(@NotNull StackFrameProxyImpl frame, @NotNull DebugProcessImpl debugProcess, @NotNull Location location) {
+  public XStackFrame createStackFrame(@NotNull StackFrameDescriptorImpl descriptor) {
     for (PositionManager positionManager : myPositionManagers) {
       if (positionManager instanceof PositionManagerEx) {
         try {
-          XStackFrame xStackFrame = ((PositionManagerEx)positionManager).createStackFrame(frame, debugProcess, location);
+          XStackFrame xStackFrame = ((PositionManagerEx)positionManager).createStackFrame(descriptor);
           if (xStackFrame != null) {
             return xStackFrame;
           }

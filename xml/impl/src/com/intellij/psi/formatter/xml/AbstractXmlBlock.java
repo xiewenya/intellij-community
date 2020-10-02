@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.formatter.xml;
 
 import com.intellij.formatting.*;
@@ -31,15 +17,15 @@ import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.psi.impl.source.tree.TreeUtil;
-import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.xml.*;
+import com.intellij.util.containers.JBIterable;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.List;
 
 
@@ -78,7 +64,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
    *
    * @return True if the space must be preserved (xml:space='preserve'), false if the attribute
    *         contains 'default'. If the attribute is not defined, return the current value.
-   */ 
+   */
   private static boolean shouldPreserveSpace(ASTNode node, boolean defaultValue) {
     if (node.getPsi() instanceof XmlTag) {
       XmlTag tag = (XmlTag)node.getPsi();
@@ -97,7 +83,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     }
     return defaultValue;
   }
-  
+
   public boolean isPreserveSpace() {
     return myPreserveSpace;
   }
@@ -113,7 +99,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   protected Alignment chooseAlignment(final ASTNode child, final Alignment attrAlignment, final Alignment textAlignment) {
     if (myNode.getElementType() == XmlElementType.XML_TEXT) return getAlignment();
     final IElementType elementType = child.getElementType();
-    if (elementType == XmlElementType.XML_ATTRIBUTE && myXmlFormattingPolicy.getShouldAlignAttributes()) return attrAlignment;
+    if (isAttributeElementType(elementType) && myXmlFormattingPolicy.getShouldAlignAttributes()) return attrAlignment;
     if (elementType == XmlElementType.XML_TEXT && myXmlFormattingPolicy.getShouldAlignText()) return textAlignment;
     return null;
   }
@@ -125,7 +111,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   protected Wrap chooseWrap(final ASTNode child, final Wrap tagBeginWrap, final Wrap attrWrap, final Wrap textWrap) {
     if (myNode.getElementType() == XmlElementType.XML_TEXT) return textWrap;
     final IElementType elementType = child.getElementType();
-    if (elementType == XmlElementType.XML_ATTRIBUTE) return attrWrap;
+    if (isAttributeElementType(elementType)) return attrWrap;
     if (elementType == XmlTokenType.XML_START_TAG_START) return tagBeginWrap;
     if (elementType == XmlTokenType.XML_END_TAG_START) {
       final PsiElement parent = SourceTreeToPsiMap.treeElementToPsi(child.getTreeParent());
@@ -148,7 +134,18 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   }
 
   protected boolean canWrapTagEnd(final XmlTag tag) {
-    return tag.getSubTags().length > 0;
+    return hasSubTags(tag);
+  }
+
+  static boolean hasSubTags(XmlTag tag) {
+    PsiElement child = tag.getFirstChild();
+    while (child != null) {
+      if (child instanceof XmlTag) {
+        return true;
+      }
+      child = child.getNextSibling();
+    }
+    return false;
   }
 
   protected XmlTag getTag() {
@@ -211,14 +208,13 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     else if (!isBuildIndentsOnly()) {
       myInjectedBlockBuilder.addInjectedLanguageBlockWrapper(result, child, indent, 0, null);
     }
-    
+
     return child;
   }
 
   protected boolean doesNotIntersectSubTagsWith(final PsiElement tag) {
     final TextRange tagRange = tag.getTextRange();
-    final XmlTag[] subTags = getSubTags();
-    for (XmlTag subTag : subTags) {
+    for (XmlTag subTag : JBIterable.of(myNode.getPsi().getChildren()).filter(XmlTag.class)) {
       final TextRange subTagRange = subTag.getTextRange();
       if (subTagRange.getEndOffset() < tagRange.getStartOffset()) continue;
       if (subTagRange.getStartOffset() > tagRange.getEndOffset()) return true;
@@ -228,34 +224,6 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
     }
     return true;
-  }
-
-  private XmlTag[] getSubTags() {
-
-    if (myNode instanceof XmlTag) {
-      return ((XmlTag)myNode.getPsi()).getSubTags();
-    }
-    else if (myNode.getPsi() instanceof XmlElement) {
-      return collectSubTags((XmlElement)myNode.getPsi());
-    }
-    else {
-      return XmlTag.EMPTY;
-    }
-
-  }
-
-  private static XmlTag[] collectSubTags(final XmlElement node) {
-    final List<XmlTag> result = new ArrayList<>();
-    node.processElements(new PsiElementProcessor() {
-      @Override
-      public boolean execute(@NotNull final PsiElement element) {
-        if (element instanceof XmlTag) {
-          result.add((XmlTag)element);
-        }
-        return true;
-      }
-    }, node);
-    return result.toArray(XmlTag.EMPTY);
   }
 
   protected boolean containsTag(final PsiElement tag) {
@@ -294,7 +262,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   protected void processSimpleChild(final ASTNode child,
                                   final Indent indent,
-                                  final List<Block> result,
+                                  final List<? super Block> result,
                                   final Wrap wrap,
                                   final Alignment alignment) {
     if (isXmlTag(child)) {
@@ -312,13 +280,25 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
       );
     }
     else {
-      result.add(createSimpleChild(child, indent, wrap, alignment));
+      result.add(createSimpleChild(child, indent, wrap, alignment, null));
     }
   }
 
-
+  /** @deprecated use and override {@code createSimpleChild } overload with {@code range } provided */
+  @SuppressWarnings("DeprecatedIsStillUsed")
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.3")
   protected XmlBlock createSimpleChild(final ASTNode child, final Indent indent, final Wrap wrap, final Alignment alignment) {
-    return new XmlBlock(child, wrap, alignment, myXmlFormattingPolicy, indent, null, isPreserveSpace());
+    return null;
+  }
+
+  protected @NotNull XmlBlock createSimpleChild(@NotNull ASTNode child, @Nullable Indent indent,
+                                                @Nullable Wrap wrap, @Nullable Alignment alignment, @Nullable TextRange range) {
+    XmlBlock blockFromDeprecatedCall = createSimpleChild(child, indent, wrap, alignment);
+    if (blockFromDeprecatedCall != null) {
+      return blockFromDeprecatedCall;
+    }
+    return new XmlBlock(child, wrap, alignment, myXmlFormattingPolicy, indent, range, isPreserveSpace());
   }
 
   protected XmlTagBlock createTagBlock(final ASTNode child, final Indent indent, final Wrap wrap, final Alignment alignment) {
@@ -327,11 +307,11 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   @Nullable
   protected XmlTag findXmlTagAt(final ASTNode child, final int startOffset) {
-    return null; 
+    return null;
   }
 
   @Nullable
-  protected ASTNode createAnotherTreeNode(final List<Block> result,
+  protected ASTNode createAnotherTreeNode(final List<? super Block> result,
                                             final ASTNode child,
                                             PsiElement tag,
                                             final Indent indent,
@@ -353,6 +333,11 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     return null;
 
   }
+
+  protected boolean isAttributeElementType(final IElementType elementType) {
+    return elementType instanceof IXmlAttributeElementType;
+  }
+
   protected boolean isXmlTag(final ASTNode child) {
     return isXmlTag(child.getPsi());
   }
@@ -371,7 +356,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     final FormattingModelBuilder childFormatter = LanguageFormatting.INSTANCE.forLanguage(childLanguage);
     return childFormatter == null ||
            childFormatter instanceof DelegatingFormattingModelBuilder &&
-           ((DelegatingFormattingModelBuilder)childFormatter).dontFormatMyModel();
+           ((DelegatingFormattingModelBuilder)childFormatter).dontFormatMyModel(childPsi);
   }
 
   protected boolean isJspxJavaContainingNode(final ASTNode child) {
@@ -379,7 +364,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   }
 
   public abstract boolean insertLineBreakBeforeTag();
-  
+
   public int getBlankLinesBeforeTag() {
     return insertLineBreakBeforeTag() ? 1 : 0;
   }
@@ -406,9 +391,9 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   public abstract boolean isTextElement();
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.formatter.xml.AbstractXmlBlock");
+  private static final Logger LOG = Logger.getInstance(AbstractXmlBlock.class);
 
-  protected void createJspTextNode(final List<Block> localResult, final ASTNode child, final Indent indent) {
+  protected void createJspTextNode(final List<? super Block> localResult, final ASTNode child, final Indent indent) {
   }
 
   @Nullable
@@ -444,7 +429,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   protected boolean buildInjectedPsiBlocks(List<Block> result, final ASTNode child, Wrap wrap, Alignment alignment, Indent indent) {
     if (isBuildIndentsOnly()) return false;
-    
+
     if (myInjectedBlockBuilder.addInjectedBlocks(result, child, wrap, alignment, indent)) {
       return true;
     }

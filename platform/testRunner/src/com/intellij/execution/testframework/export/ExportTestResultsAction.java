@@ -1,26 +1,16 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.export;
 
-import com.intellij.diagnostic.LogMessageEx;
+import com.intellij.CommonBundle;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.testframework.TestFrameworkRunningModel;
+import com.intellij.execution.testframework.TestRunnerBundle;
 import com.intellij.ide.BrowserUtil;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
@@ -31,6 +21,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -38,7 +29,6 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindowManager;
-import com.intellij.util.ExceptionUtil;
 import com.intellij.util.PathUtil;
 import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NotNull;
@@ -71,11 +61,10 @@ public class ExportTestResultsAction extends DumbAwareAction {
 
   public static ExportTestResultsAction create(String toolWindowId, RunConfiguration runtimeConfiguration, JComponent component) {
     ExportTestResultsAction action = new ExportTestResultsAction();
-    AnAction sourceAction = ActionManager.getInstance().getAction(ID);
-    action.copyFrom(sourceAction);
+    ActionUtil.copyFrom(action, ID);
     action.myToolWindowId = toolWindowId;
     action.myRunConfiguration = runtimeConfiguration;
-    action.registerCustomShortcutSet(sourceAction.getShortcutSet(), component);
+    action.registerCustomShortcutSet(action.getShortcutSet(), component);
     return action;
   }
 
@@ -84,7 +73,7 @@ public class ExportTestResultsAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(isEnabled(e.getDataContext()));
   }
 
@@ -101,7 +90,7 @@ public class ExportTestResultsAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     LOG.assertTrue(project != null);
     final ExportTestResultsConfiguration config = ExportTestResultsConfiguration.getInstance(project);
@@ -119,7 +108,8 @@ public class ExportTestResultsAction extends DumbAwareAction {
                    && Messages.showOkCancelDialog(project,
                                                   ExecutionBundle.message("export.test.results.file.exists.message", filename),
                                                   ExecutionBundle.message("export.test.results.file.exists.title"),
-                                                  "Overwrite", "Cancel",
+                                                  TestRunnerBundle.message("export.test.results.overwrite.button.text"),
+                                                  CommonBundle.getCancelButtonText(),
                                                   Messages.getQuestionIcon()
       ) != Messages.OK;
     }
@@ -150,15 +140,18 @@ public class ExportTestResultsAction extends DumbAwareAction {
             return;
           }
           catch (RuntimeException ex) {
-            ExportTestResultsConfiguration c = new ExportTestResultsConfiguration();
-            c.setExportFormat(ExportTestResultsConfiguration.ExportFormat.Xml);
-            c.setOpenResults(false);
+            String xml = null;
             try {
-              String xml = getOutputText(c);
-              LOG.error(LogMessageEx.createEvent("Failed to export test results", ExceptionUtil.getThrowableText(ex), null, null,
-                                                 new Attachment("dump.xml", xml)));
+              ExportTestResultsConfiguration c = new ExportTestResultsConfiguration();
+              c.setExportFormat(ExportTestResultsConfiguration.ExportFormat.Xml);
+              c.setOpenResults(false);
+              xml = getOutputText(c);
             }
-            catch (Throwable ignored) {
+            catch (Throwable ignored) { }
+            if (xml != null) {
+              LOG.error("Failed to export test results", ex, new Attachment("dump.xml", xml));
+            }
+            else {
               LOG.error("Failed to export test results", ex);
             }
             return;
@@ -264,7 +257,7 @@ public class ExportTestResultsAction extends DumbAwareAction {
     if (exportFormat == ExportTestResultsConfiguration.ExportFormat.Xml) {
       handler = transformerFactory.newTransformerHandler();
       handler.getTransformer().setOutputProperty(OutputKeys.INDENT, "yes");
-      handler.getTransformer().setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
+      handler.getTransformer().setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");  // NON-NLS
     }
     else {
       Source xslSource;
@@ -297,7 +290,10 @@ public class ExportTestResultsAction extends DumbAwareAction {
     return w.toString();
   }
 
-  private void showBalloon(final Project project, final MessageType type, final String text, @Nullable final HyperlinkListener listener) {
+  private void showBalloon(final Project project,
+                           final MessageType type,
+                           final @NlsContexts.PopupContent String text,
+                           final @Nullable HyperlinkListener listener) {
     ApplicationManager.getApplication().invokeLater(() -> {
       if (project.isDisposed()) return;
       if (ToolWindowManager.getInstance(project).getToolWindow(myToolWindowId) != null) {

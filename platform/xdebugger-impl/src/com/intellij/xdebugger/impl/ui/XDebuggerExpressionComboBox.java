@@ -5,9 +5,9 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.event.MarkupModelListener;
 import com.intellij.openapi.project.Project;
@@ -33,16 +33,13 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.function.Function;
 
-/**
- * @author nik
- */
 public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
   private final JComponent myComponent;
   private final ComboBox<XExpression> myComboBox;
   private final CollectionComboBoxModel<XExpression> myModel = new CollectionComboBoxModel<>();
   private XDebuggerComboBoxEditor myEditor;
   private XExpression myExpression;
-  private Function<Document, Document> myDocumentProcessor = Function.identity();
+  private Function<? super Document, ? extends Document> myDocumentProcessor = Function.identity();
 
   public XDebuggerExpressionComboBox(@NotNull Project project, @NotNull XDebuggerEditorsProvider debuggerEditorsProvider, @Nullable @NonNls String historyId,
                                      @Nullable XSourcePosition sourcePosition, boolean showEditor, boolean languageInside) {
@@ -68,15 +65,18 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
     return myComponent;
   }
 
+  @Override
   @Nullable
   public Editor getEditor() {
     return myEditor.getEditorTextField().getEditor();
   }
 
+  @Override
   public JComponent getEditorComponent() {
     return myEditor.getEditorTextField();
   }
 
+  @Override
   public void setEnabled(boolean enable) {
     if (enable == myComboBox.isEnabled()) return;
 
@@ -127,7 +127,7 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
     return myDocumentProcessor.apply(super.createDocument(text));
   }
 
-  public void setDocumentProcessor(Function<Document, Document> documentProcessor) {
+  public void setDocumentProcessor(Function<? super Document, ? extends Document> documentProcessor) {
     myDocumentProcessor = documentProcessor;
   }
 
@@ -141,17 +141,17 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
     myComboBox.getEditor().selectAll();
   }
 
+  @Override
   protected void prepareEditor(Editor editor) {
     super.prepareEditor(editor);
-    editor.getColorsScheme().setEditorFontSize(
-      Math.min(myComboBox.getFont().getSize(), EditorColorsManager.getInstance().getGlobalScheme().getEditorFontSize()));
+    editor.getColorsScheme().setEditorFontSize(Math.min(myComboBox.getFont().getSize(), EditorUtil.getEditorFont().getSize()));
   }
 
   private class XDebuggerComboBoxEditor implements ComboBoxEditor {
     private final JComponent myPanel;
     private final EditorComboBoxEditor myDelegate;
 
-    public XDebuggerComboBoxEditor(boolean showMultiline, boolean languageInside) {
+    XDebuggerComboBoxEditor(boolean showMultiline, boolean languageInside) {
       myDelegate = new EditorComboBoxEditor(getProject(), getEditorsProvider().getFileType()) {
         @Override
         protected void onEditorCreate(EditorEx editor) {
@@ -161,7 +161,7 @@ public class XDebuggerExpressionComboBox extends XDebuggerEditorBase {
             setExpandable(editor);
           }
           foldNewLines(editor);
-          editor.getFilteredDocumentMarkupModel().addMarkupModelListener(((EditorImpl)editor).getDisposable(), new MarkupModelListener.Adapter() {
+          editor.getFilteredDocumentMarkupModel().addMarkupModelListener(((EditorImpl)editor).getDisposable(), new MarkupModelListener() {
             int errors = 0;
             @Override
             public void afterAdded(@NotNull RangeHighlighterEx highlighter) {

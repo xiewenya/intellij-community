@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.actions;
 
+import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -22,19 +9,22 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import git4idea.GitUtil;
 import git4idea.GitVcs;
 import git4idea.branch.GitBranchUtil;
 import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
-import org.jetbrains.annotations.CalledInAwt;
+import git4idea.repo.GitRepositoryManager;
+import java.util.Collection;
+import java.util.List;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
 
 /**
  * Base class for actions that affect the entire git repository.
@@ -42,6 +32,7 @@ import java.util.List;
  */
 public abstract class GitRepositoryAction extends DumbAwareAction {
 
+  @Override
   public void actionPerformed(@NotNull final AnActionEvent e) {
     FileDocumentManager.getInstance().saveAllDocuments();
     final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
@@ -55,22 +46,18 @@ public abstract class GitRepositoryAction extends DumbAwareAction {
   }
 
   @NotNull
-  @CalledInAwt
-  private static VirtualFile getDefaultRoot(@NotNull Project project, @NotNull List<VirtualFile> roots, @Nullable VirtualFile[] vFiles) {
+  @RequiresEdt
+  private static VirtualFile getDefaultRoot(@NotNull Project project, @NotNull List<? extends VirtualFile> roots, VirtualFile @Nullable [] vFiles) {
     if (vFiles != null) {
       for (VirtualFile file : vFiles) {
-        VirtualFile root = GitUtil.gitRootOrNull(file);
-        if (root != null) {
-          return root;
+        GitRepository repository = GitRepositoryManager.getInstance(project).getRepositoryForFileQuick(file);
+        if (repository != null) {
+          return repository.getRoot();
         }
       }
     }
     GitRepository currentRepository = GitBranchUtil.getCurrentRepository(project);
     return currentRepository != null ? currentRepository.getRoot() : roots.get(0);
-  }
-
-  protected static void showErrors(@NotNull Project project, @NotNull String actionName, @NotNull List<VcsException> exceptions) {
-    GitVcs.getInstance(project).showErrors(exceptions, actionName);
   }
 
   /**
@@ -86,22 +73,27 @@ public abstract class GitRepositoryAction extends DumbAwareAction {
    * Get git roots for the project. The method shows dialogs in the case when roots cannot be retrieved, so it should be called
    * from the event dispatch thread.
    *
-   * @param project the project
-   * @param vcs     the git Vcs
    * @return the list of the roots, or null
    */
   @Nullable
   public static List<VirtualFile> getGitRoots(Project project, GitVcs vcs) {
-    List<VirtualFile> roots;
     try {
-      roots = GitUtil.getGitRoots(project, vcs);
+      VirtualFile[] contentRoots = ProjectLevelVcsManager.getInstance(project).getRootsUnderVcs(vcs);
+      if (ArrayUtil.isEmpty(contentRoots)) {
+        throw new VcsException(GitBundle.message("repository.action.missing.roots.unconfigured.message"));
+      }
+
+      Collection<GitRepository> repositories = GitUtil.getRepositories(project);
+      if (repositories.isEmpty()) {
+        throw new VcsException(GitBundle.message("repository.action.missing.roots.misconfigured"));
+      }
+
+      return DvcsUtil.sortVirtualFilesByPresentation(GitUtil.getRootsFromRepositories(repositories));
     }
     catch (VcsException e) {
-      Messages.showErrorDialog(project, e.getMessage(),
-                               GitBundle.getString("repository.action.missing.roots.title"));
+      Messages.showErrorDialog(project, e.getMessage(), GitBundle.message("repository.action.missing.roots.title"));
       return null;
     }
-    return roots;
   }
 
   /**
@@ -109,6 +101,7 @@ public abstract class GitRepositoryAction extends DumbAwareAction {
    *
    * @return the name of action
    */
+  @NlsActions.ActionText
   @NotNull
   protected abstract String getActionName();
 
@@ -126,7 +119,7 @@ public abstract class GitRepositoryAction extends DumbAwareAction {
                                   @NotNull VirtualFile defaultRoot);
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     super.update(e);
     boolean enabled = isEnabled(e);
     e.getPresentation().setEnabled(enabled);

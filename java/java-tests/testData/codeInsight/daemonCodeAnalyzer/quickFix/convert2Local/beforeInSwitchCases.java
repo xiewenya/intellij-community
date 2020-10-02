@@ -1,6 +1,9 @@
-// "Convert to local" "true"
+// "Convert field to local variable in method 'someMethod'" "true"
 class TestFieldConversion
 {
+  /**
+   * doc1
+   */
   private int som<caret>eInt = 0;
 
   public void someMethod(int s) {

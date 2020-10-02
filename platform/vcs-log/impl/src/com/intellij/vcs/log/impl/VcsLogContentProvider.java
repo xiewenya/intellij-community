@@ -1,40 +1,29 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.impl;
 
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentEP;
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentProvider;
 import com.intellij.ui.components.JBPanel;
+import com.intellij.ui.content.Content;
 import com.intellij.util.Consumer;
 import com.intellij.util.NotNullFunction;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.messages.MessageBusConnection;
+import com.intellij.vcs.log.VcsLogBundle;
+import com.intellij.vcs.log.ui.MainVcsLogUi;
 import com.intellij.vcs.log.ui.VcsLogPanel;
-import com.intellij.vcs.log.ui.VcsLogUiImpl;
-import org.jetbrains.annotations.CalledInAwt;
+
+import java.awt.*;
+import java.util.function.Supplier;
+import javax.swing.*;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import java.awt.*;
-import java.util.Arrays;
 
 /**
  * Provides the Content tab to the ChangesView log toolwindow.
@@ -43,13 +32,14 @@ import java.util.Arrays;
  */
 public class VcsLogContentProvider implements ChangesViewContentProvider {
   private static final Logger LOG = Logger.getInstance(VcsLogContentProvider.class);
-  public static final String TAB_NAME = "Log";
+  @NonNls public static final String TAB_NAME = "Log"; // used as tab id, not user-visible
 
   @NotNull private final VcsProjectLog myProjectLog;
   @NotNull private final JPanel myContainer = new JBPanel(new BorderLayout());
-  @Nullable private Consumer<VcsLogUiImpl> myOnCreatedListener;
+  @Nullable private Consumer<? super MainVcsLogUi> myOnCreatedListener;
 
-  @Nullable private volatile VcsLogUiImpl myUi;
+  @Nullable private MainVcsLogUi myUi;
+  @Nullable private Content myContent;
 
   public VcsLogContentProvider(@NotNull Project project, @NotNull VcsProjectLog projectLog) {
     myProjectLog = projectLog;
@@ -74,39 +64,62 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
   }
 
   @Nullable
-  public VcsLogUiImpl getUi() {
+  public MainVcsLogUi getUi() {
     return myUi;
   }
 
-  @CalledInAwt
+  @Override
+  public void initTabContent(@NotNull Content content) {
+    myContent = content;
+    // Display name is always used for presentation, tab name is used as an id.
+    // See com.intellij.vcs.log.impl.VcsLogContentUtil.selectMainLog.
+    myContent.setTabName(TAB_NAME); //NON-NLS
+    updateDisplayName();
+
+    myProjectLog.createLogInBackground(true);
+
+    content.setComponent(myContainer);
+    content.setDisposer(() -> {
+      disposeContent();
+      myContent = null;
+    });
+  }
+
+  @RequiresEdt
   private void addMainUi(@NotNull VcsLogManager logManager) {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
     if (myUi == null) {
-      myUi = logManager.createLogUi(VcsLogTabsProperties.MAIN_LOG_ID, TAB_NAME);
-      myContainer.add(new VcsLogPanel(logManager, myUi), BorderLayout.CENTER);
+      myUi = logManager.createLogUi(VcsLogProjectTabsProperties.MAIN_LOG_ID, VcsLogManager.LogWindowKind.TOOL_WINDOW, false);
+      VcsLogPanel panel = new VcsLogPanel(logManager, myUi);
+      myContainer.add(panel, BorderLayout.CENTER);
+      DataManager.registerDataProvider(myContainer, panel);
+
+      updateDisplayName();
+      myUi.getFilterUi().addFilterListener(this::updateDisplayName);
 
       if (myOnCreatedListener != null) myOnCreatedListener.consume(myUi);
       myOnCreatedListener = null;
     }
   }
 
-  @CalledInAwt
+  private void updateDisplayName() {
+    if (myContent != null && myUi != null) {
+      myContent.setDisplayName(VcsLogTabsManager.generateDisplayName(myUi));
+    }
+  }
+
+  @RequiresEdt
   private void disposeMainUi() {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
 
     myContainer.removeAll();
+    DataManager.removeDataProvider(myContainer);
     myOnCreatedListener = null;
     if (myUi != null) {
-      VcsLogUiImpl ui = myUi;
+      MainVcsLogUi ui = myUi;
       myUi = null;
       Disposer.dispose(ui);
     }
-  }
-
-  @Override
-  public JComponent initContent() {
-    ApplicationManager.getApplication().executeOnPooledThread(() -> myProjectLog.createLog(true));
-    return myContainer;
   }
 
   /**
@@ -115,8 +128,8 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
    *
    * @param consumer consumer to execute.
    */
-  @CalledInAwt
-  public void executeOnMainUiCreated(@NotNull Consumer<VcsLogUiImpl> consumer) {
+  @RequiresEdt
+  public void executeOnMainUiCreated(@NotNull Consumer<? super MainVcsLogUi> consumer) {
     LOG.assertTrue(ApplicationManager.getApplication().isDispatchThread());
 
     if (myUi == null) {
@@ -134,8 +147,7 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
 
   @Nullable
   public static VcsLogContentProvider getInstance(@NotNull Project project) {
-    ChangesViewContentEP[] extensions = project.getExtensions(ChangesViewContentEP.EP_NAME);
-    for (ChangesViewContentEP ep : extensions) {
+    for (ChangesViewContentEP ep : ChangesViewContentEP.EP_NAME.getExtensions(project)) {
       if (ep.getClassName().equals(VcsLogContentProvider.class.getName())) {
         return (VcsLogContentProvider)ep.getCachedInstance();
       }
@@ -146,9 +158,15 @@ public class VcsLogContentProvider implements ChangesViewContentProvider {
   public static class VcsLogVisibilityPredicate implements NotNullFunction<Project, Boolean> {
     @NotNull
     @Override
-    public Boolean fun(Project project) {
-      return !VcsLogManager.findLogProviders(Arrays.asList(ProjectLevelVcsManager.getInstance(project).getAllVcsRoots()), project)
-        .isEmpty();
+    public Boolean fun(@NotNull Project project) {
+      return !VcsProjectLog.getLogProviders(project).isEmpty();
+    }
+  }
+
+  public static class DisplayNameSupplier implements Supplier<String> {
+    @Override
+    public String get() {
+      return VcsLogBundle.message("vcs.log.tab.name");
     }
   }
 }

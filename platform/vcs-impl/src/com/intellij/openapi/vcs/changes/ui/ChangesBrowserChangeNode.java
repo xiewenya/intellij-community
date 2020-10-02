@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.ui;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
@@ -34,10 +21,10 @@ import static com.intellij.util.FontUtil.spaceAndThinSpace;
 
 public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> implements TreeLinkMouseListener.HaveTooltip {
 
-  @NotNull private final Project myProject;
+  @Nullable private final Project myProject;
   @Nullable private final ChangeNodeDecorator myDecorator;
 
-  protected ChangesBrowserChangeNode(@NotNull Project project, @NotNull Change userObject, @Nullable ChangeNodeDecorator decorator) {
+  protected ChangesBrowserChangeNode(@Nullable Project project, @NotNull Change userObject, @Nullable ChangeNodeDecorator decorator) {
     super(userObject);
     myProject = project;
     myDecorator = decorator;
@@ -71,10 +58,7 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
     }
 
     if (renderer.isShowFlatten()) {
-      FilePath parentPath = filePath.getParentPath();
-      if (parentPath != null) {
-        appendParentPath(renderer, parentPath);
-      }
+      appendParentPath(renderer, filePath.getParentPath());
     }
 
     appendSwitched(renderer, file);
@@ -83,28 +67,33 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
       appendCount(renderer);
     }
 
-    Icon additionalIcon = change.getAdditionalIcon();
-    if (additionalIcon != null) {
-      renderer.setIcon(additionalIcon);
-    }
-    else {
-      renderer.setIcon(filePath.getFileType(), filePath.isDirectory() || !isLeaf());
-    }
+    setIcon(change, filePath, renderer);
 
     if (myDecorator != null) {
       myDecorator.decorate(change, renderer, renderer.isShowFlatten());
     }
   }
 
+  private void setIcon(@NotNull Change change, @NotNull FilePath filePath, @NotNull ChangesBrowserNodeRenderer renderer) {
+    Icon additionalIcon = change.getAdditionalIcon();
+    if (additionalIcon != null) {
+      renderer.setIcon(additionalIcon);
+      return;
+    }
+    renderer.setIcon(filePath, filePath.isDirectory() || !isLeaf());
+  }
+
   private void appendSwitched(@NotNull ChangesBrowserNodeRenderer renderer, @Nullable VirtualFile file) {
-    if (file != null && !myProject.isDefault()) {
+    if (file != null && myProject != null && !myProject.isDefault() && !myProject.isDisposed()) {
       String branch = ChangeListManager.getInstance(myProject).getSwitchedBranch(file);
       if (branch != null) {
-        renderer.append(spaceAndThinSpace() + "[switched to " + branch + "]", SimpleTextAttributes.REGULAR_ATTRIBUTES);
+        String switchedToBranch = "[" + VcsBundle.message("changes.switched.to.branch.name", branch) + "]";
+        renderer.append(spaceAndThinSpace() + switchedToBranch, SimpleTextAttributes.REGULAR_ATTRIBUTES);
       }
     }
   }
 
+  @Override
   public String getTooltip() {
     return getUserObject().getDescription();
   }
@@ -119,10 +108,12 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
     return FileUtil.toSystemDependentName(ChangesUtil.getFilePath(getUserObject()).getPath());
   }
 
+  @Override
   public int getSortWeight() {
     return CHANGE_SORT_WEIGHT;
   }
 
+  @Override
   public int compareUserObjects(final Change o2) {
     return ChangesComparator.getInstance(true).compare(getUserObject(), o2);
   }

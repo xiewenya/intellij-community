@@ -21,13 +21,12 @@ import org.jetbrains.annotations.NotNull;
 class CompositeInstructionClientVisitor extends InstructionClientVisitor<Object[]> {
   private final InstructionClientVisitor[] myVisitors;
 
-  public CompositeInstructionClientVisitor(InstructionClientVisitor[] visitors) {
+  CompositeInstructionClientVisitor(InstructionClientVisitor[] visitors) {
     myVisitors = visitors;
   }
 
   @Override
-  @NotNull
-  public Object[] getResult() {
+  public Object @NotNull [] getResult() {
     Object[] result = new Object[myVisitors.length];
     for (int i = 0; i < myVisitors.length; i++) {
       final InstructionClientVisitor visitor = myVisitors[i];

@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.theoryinpractice.testng.inspection;
 
 import com.intellij.codeInspection.*;
@@ -10,8 +10,9 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.psi.*;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -35,13 +36,7 @@ public class DependsOnGroupsInspection extends AbstractBaseJavaLocalInspectionTo
   @NotNull
   @Override
   public String getGroupDisplayName() {
-    return "TestNG";
-  }
-
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return "Groups problem";
+    return TestNGUtil.TESTNG_GROUP_NAME;
   }
 
   @NotNull
@@ -59,11 +54,11 @@ public class DependsOnGroupsInspection extends AbstractBaseJavaLocalInspectionTo
   @Nullable
   public JComponent createOptionsPanel() {
     final LabeledComponent<JTextField> definedGroups = new LabeledComponent<>();
-    definedGroups.setText("&Defined Groups");
-    final JTextField textField = new JTextField(StringUtil.join(ArrayUtil.toStringArray(groups), ","));
+    definedGroups.setText(TestngBundle.message("inspection.depends.on.groups.defined.groups.panel.title"));
+    final JTextField textField = new JTextField(StringUtil.join(ArrayUtilRt.toStringArray(groups), ","));
     textField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(final DocumentEvent e) {
+      protected void textChanged(@NotNull final DocumentEvent e) {
         groups.clear();
         String text = textField.getText();
         if (!StringUtil.isEmptyOrSpaces(text)) {
@@ -78,8 +73,7 @@ public class DependsOnGroupsInspection extends AbstractBaseJavaLocalInspectionTo
   }
 
   @Override
-  @Nullable
-  public ProblemDescriptor[] checkClass(@NotNull PsiClass psiClass, @NotNull InspectionManager manager, boolean isOnTheFly) {
+  public ProblemDescriptor @Nullable [] checkClass(@NotNull PsiClass psiClass, @NotNull InspectionManager manager, boolean isOnTheFly) {
 
     if (!psiClass.getContainingFile().isWritable()) return null;
 
@@ -119,7 +113,7 @@ public class DependsOnGroupsInspection extends AbstractBaseJavaLocalInspectionTo
             String methodName = matcher.group(1);
             if (!groups.contains(methodName)) {
               LOGGER.debug("group doesn't exist:" + methodName);
-              ProblemDescriptor descriptor = manager.createProblemDescriptor(annotation, "Group '" + methodName + "' is undefined.",
+              ProblemDescriptor descriptor = manager.createProblemDescriptor(annotation, TestngBundle.message("inspection.depends.on.groups.undefined.group.problem", methodName),
                                                                              new GroupNameQuickFix(methodName),
                                                                              ProblemHighlightType.GENERIC_ERROR_OR_WARNING, isOnTheFly);
               problemDescriptors.add(descriptor);
@@ -136,20 +130,20 @@ public class DependsOnGroupsInspection extends AbstractBaseJavaLocalInspectionTo
 
     String myGroupName;
 
-    public GroupNameQuickFix(@NotNull String groupName) {
+    GroupNameQuickFix(@NotNull String groupName) {
       myGroupName = groupName;
     }
 
     @Override
     @NotNull
     public String getName() {
-      return "Add '" + myGroupName + "' as a defined test group.";
+      return TestngBundle.message("inspection.depends.on.groups.add.as.defined.test.group.fix", myGroupName);
     }
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return "TestNG";
+      return TestngBundle.message("inspection.depends.on.groups.family.name");
     }
 
     @Override

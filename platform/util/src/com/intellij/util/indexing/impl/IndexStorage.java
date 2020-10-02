@@ -18,7 +18,6 @@ package com.intellij.util.indexing.impl;
 
 import com.intellij.util.indexing.StorageException;
 import com.intellij.util.indexing.ValueContainer;
-import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Flushable;
@@ -27,12 +26,16 @@ import java.io.IOException;
 /**
  * @author Eugene Zhuravlev
  */
-@ApiStatus.Experimental
 public interface IndexStorage<Key, Value> extends Flushable {
   
   void addValue(Key key, int inputId, Value value) throws StorageException;
 
   void removeAllValues(@NotNull Key key, int inputId) throws StorageException;
+
+  default void updateValue(Key key, int inputId, Value newValue) throws StorageException {
+    removeAllValues(key, inputId);
+    addValue(key, inputId, newValue);
+  }
 
   void clear() throws StorageException;
   

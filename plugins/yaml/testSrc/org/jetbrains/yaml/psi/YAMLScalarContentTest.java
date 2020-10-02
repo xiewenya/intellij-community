@@ -1,12 +1,13 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.yaml.YAMLParserDefinition;
 
-public class YAMLScalarContentTest extends LightPlatformCodeInsightFixtureTestCase {
+public class YAMLScalarContentTest extends BasePlatformTestCase {
   @Override
   protected String getTestDataPath() {
     return PathManagerEx.getCommunityHomePath() + "/plugins/yaml/testSrc/org/jetbrains/yaml/psi/data/";
@@ -34,6 +35,14 @@ public class YAMLScalarContentTest extends LightPlatformCodeInsightFixtureTestCa
     doTest();
   }
 
+  public void testPlainScalarBigFirstLineIndent1() {
+    doTest();
+  }
+
+  public void testPlainScalarBigFirstLineIndent2() {
+    doTest();
+  }
+
   public void testLiteralStyle1() {
     doTest();
   }
@@ -43,6 +52,37 @@ public class YAMLScalarContentTest extends LightPlatformCodeInsightFixtureTestCa
   }
 
   public void testLiteralStyle3() {
+    doTest();
+  }
+
+  // Test presence of comment in literal style block scalar header
+  public void testLiteralStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test scalar value in case of invalid symbols in literal style block scalar header
+  // Now invalid symbols will be ignored in scalar value calculation
+  public void testLiteralStyleHeaderError() {
+    doTest();
+  }
+
+  // Test indentation indicator in literal style block scalar header
+  public void testLiteralStyleExplicitIndent() {
+    doTest();
+  }
+
+  // Test strip literal block scalar chomping indicator
+  public void testLiteralStyleStrip() {
+    doTest();
+  }
+
+  // Test keep literal block scalar chomping indicator
+  public void testLiteralStyleKeep() {
+    doTest();
+  }
+
+  // Test empty literal style scalar
+  public void testLiteralStyleEmpty() {
     doTest();
   }
 
@@ -71,6 +111,37 @@ public class YAMLScalarContentTest extends LightPlatformCodeInsightFixtureTestCa
   }
 
   public void testFoldedStyle6() {
+    doTest();
+  }
+
+  // Test presence of comment in folded style block scalar header
+  public void testFoldedStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test scalar value in case of invalid symbols in literal style block scalar header
+  // Now invalid symbols will be ignored in scalar value calculation
+  public void testFoldedStyleHeaderError() {
+    doTest();
+  }
+
+  // Test indentation indicator in folded style block scalar header
+  public void testFoldedStyleExplicitIndent() {
+    doTest();
+  }
+
+  // Test strip folded block scalar chomping indicator
+  public void testFoldedStyleStrip() {
+    doTest();
+  }
+
+  // Test keep folded block scalar chomping indicator
+  public void testFoldedStyleKeep() {
+    doTest();
+  }
+
+  // Test empty folded style scalar
+  public void testFoldedStyleEmpty() {
     doTest();
   }
 

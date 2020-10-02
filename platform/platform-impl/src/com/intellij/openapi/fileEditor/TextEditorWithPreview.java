@@ -1,53 +1,66 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.pom.Navigatable;
 import com.intellij.ui.JBSplitter;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
+
+import static com.intellij.openapi.actionSystem.ActionPlaces.TEXT_EDITOR_WITH_PREVIEW;
 
 /**
+ * Two panel editor with three states: Editor, Preview and Editor with Preview.
+ * Based on SplitFileEditor by Valentin Fondaratov
+ *
  * @author Konstantin Bulenkov
  */
-public class TextEditorWithPreview extends UserDataHolderBase implements FileEditor {
+public class TextEditorWithPreview extends UserDataHolderBase implements TextEditor {
   protected final TextEditor myEditor;
   protected final FileEditor myPreview;
   @NotNull
   private final MyListenersMultimap myListenersGenerator = new MyListenersMultimap();
+  private final Layout myDefaultLayout;
   private Layout myLayout;
   private JComponent myComponent;
   private SplitEditorToolbar myToolbarWrapper;
-  private final String myName;
+  private final @Nls String myName;
+  public static final Key<Layout> DEFAULT_LAYOUT_FOR_FILE = Key.create("TextEditorWithPreview.DefaultLayout");
 
-  public TextEditorWithPreview(@NotNull TextEditor editor, @NotNull FileEditor preview, @NotNull String editorName) {
+  public TextEditorWithPreview(@NotNull TextEditor editor,
+                               @NotNull FileEditor preview,
+                               @NotNull @Nls String editorName,
+                               @NotNull Layout defaultLayout) {
     myEditor = editor;
     myPreview = preview;
     myName = editorName;
+    myDefaultLayout = defaultLayout;
+  }
+
+  public TextEditorWithPreview(@NotNull TextEditor editor, @NotNull FileEditor preview, @NotNull @Nls String editorName) {
+    this(editor, preview, editorName, Layout.SHOW_EDITOR_AND_PREVIEW);
   }
 
   public TextEditorWithPreview(@NotNull TextEditor editor, @NotNull FileEditor preview) {
@@ -98,24 +111,34 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
       splitter.setSplitterProportionKey(getSplitterProportionKey());
       splitter.setFirstComponent(myEditor.getComponent());
       splitter.setSecondComponent(myPreview.getComponent());
+      splitter.setDividerWidth(3);
 
-
-      myToolbarWrapper = new SplitEditorToolbar(splitter);
-      myToolbarWrapper.addGutterToTrack(((EditorGutterComponentEx)(myEditor).getEditor().getGutter()));
-
-      if (myPreview instanceof TextEditor) {
-        myToolbarWrapper.addGutterToTrack(((EditorGutterComponentEx)((TextEditor)myPreview).getEditor().getGutter()));
-      }
+      myToolbarWrapper = createMarkdownToolbarWrapper(splitter);
 
       if (myLayout == null) {
         String lastUsed = PropertiesComponent.getInstance().getValue(getLayoutPropertyName());
-        myLayout = Layout.fromName(lastUsed, Layout.SHOW_EDITOR_AND_PREVIEW);
+        myLayout = Layout.fromId(lastUsed, myDefaultLayout);
       }
       adjustEditorsVisibility();
 
       myComponent = JBUI.Panels.simplePanel(splitter).addToTop(myToolbarWrapper);
     }
     return myComponent;
+  }
+
+  @NotNull
+  private SplitEditorToolbar createMarkdownToolbarWrapper(@NotNull JComponent targetComponentForActions) {
+    final ActionToolbar leftToolbar = createToolbar();
+    if (leftToolbar != null) {
+      leftToolbar.setTargetComponent(targetComponentForActions);
+      leftToolbar.setReservePlaceAutoPopupIcon(false);
+    }
+
+    final ActionToolbar rightToolbar = createRightToolbar();
+    rightToolbar.setTargetComponent(targetComponentForActions);
+    rightToolbar.setReservePlaceAutoPopupIcon(false);
+
+    return new SplitEditorToolbar(leftToolbar, rightToolbar);
   }
 
   @Override
@@ -159,7 +182,15 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   @Nullable
   @Override
   public JComponent getPreferredFocusedComponent() {
-    return myEditor.getPreferredFocusedComponent();
+    switch (myLayout) {
+      case SHOW_EDITOR_AND_PREVIEW:
+      case SHOW_EDITOR:
+        return myEditor.getPreferredFocusedComponent();
+      case SHOW_PREVIEW:
+        return myPreview.getPreferredFocusedComponent();
+      default:
+        throw new IllegalStateException(myLayout.myId);
+    }
   }
 
   @NotNull
@@ -173,7 +204,6 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   public FileEditorState getState(@NotNull FileEditorStateLevel level) {
     return new MyFileEditorState(myLayout, myEditor.getState(level), myPreview.getState(level));
   }
-
 
   @Override
   public void addPropertyChangeListener(@NotNull PropertyChangeListener listener) {
@@ -197,7 +227,16 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
     }
   }
 
-  static class MyFileEditorState implements FileEditorState {
+  @NotNull
+  public TextEditor getTextEditor() {
+    return myEditor;
+  }
+
+  public Layout getLayout() {
+    return myLayout;
+  }
+
+  public static class MyFileEditorState implements FileEditorState {
     private final Layout mySplitLayout;
     private final FileEditorState myFirstState;
     private final FileEditorState mySecondState;
@@ -241,7 +280,7 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
     return myEditor.isValid() && myPreview.isValid();
   }
 
-  private class DoublingEventListenerDelegate implements PropertyChangeListener {
+  private final class DoublingEventListenerDelegate implements PropertyChangeListener {
     @NotNull
     private final PropertyChangeListener myDelegate;
 
@@ -251,7 +290,8 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
 
     @Override
     public void propertyChange(PropertyChangeEvent evt) {
-      myDelegate.propertyChange(new PropertyChangeEvent(TextEditorWithPreview.this, evt.getPropertyName(), evt.getOldValue(), evt.getNewValue()));
+      myDelegate.propertyChange(
+        new PropertyChangeEvent(TextEditorWithPreview.this, evt.getPropertyName(), evt.getOldValue(), evt.getNewValue()));
     }
   }
 
@@ -288,113 +328,87 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
     }
   }
 
-  public class SplitEditorToolbar extends JPanel implements Disposable {
-    private final ActionToolbar myRightToolbar;
-
-    private final List<EditorGutterComponentEx> myGutters = new ArrayList<>();
-
-    private final ComponentAdapter myAdjustToGutterListener = new ComponentAdapter() {
-      @Override
-      public void componentResized(ComponentEvent e) {
-        adjustSpacing();
-      }
-
-      @Override
-      public void componentShown(ComponentEvent e) {
-        adjustSpacing();
-      }
-
-      @Override
-      public void componentHidden(ComponentEvent e) {
-        adjustSpacing();
-      }
-    };
-
-    public SplitEditorToolbar(@NotNull final JComponent targetComponentForActions) {
-      super(new BorderLayout());
-
-      final ActionToolbar leftToolbar = createToolbar();
-      if (leftToolbar != null) {
-        leftToolbar.setTargetComponent(targetComponentForActions);
-        add(leftToolbar.getComponent(), BorderLayout.WEST);
-      }
-
-      ActionGroup group = new DefaultActionGroup(
-        new ChangeViewModeAction(Layout.SHOW_EDITOR),
-        new ChangeViewModeAction(Layout.SHOW_EDITOR_AND_PREVIEW),
-        new ChangeViewModeAction(Layout.SHOW_PREVIEW)
-      );
-      myRightToolbar = ActionManager.getInstance().createActionToolbar("TextEditorWithPreview", group, true);
-      myRightToolbar.setTargetComponent(targetComponentForActions);
-      add(myRightToolbar.getComponent(), BorderLayout.EAST);
-
-      addComponentListener(myAdjustToGutterListener);
+  @Nullable
+  protected ActionToolbar createToolbar() {
+    ActionGroup actionGroup = createLeftToolbarActionGroup();
+    if (actionGroup != null) {
+      return ActionManager.getInstance().createActionToolbar(TEXT_EDITOR_WITH_PREVIEW, actionGroup, true);
     }
-
-    public void addGutterToTrack(@NotNull EditorGutterComponentEx gutterComponentEx) {
-      myGutters.add(gutterComponentEx);
-
-      gutterComponentEx.addComponentListener(myAdjustToGutterListener);
-    }
-
-    public void refresh() {
-      adjustSpacing();
-      myRightToolbar.updateActionsImmediately();
-    }
-
-    private void adjustSpacing() {
-      EditorGutterComponentEx leftMostGutter = null;
-      for (EditorGutterComponentEx gutter : myGutters) {
-        if (!gutter.isShowing()) {
-          continue;
-        }
-        if (leftMostGutter == null || leftMostGutter.getX() > gutter.getX()) {
-          leftMostGutter = gutter;
-        }
-      }
-
-      revalidate();
-      repaint();
-    }
-
-    @Override
-    public void dispose() {
-      removeComponentListener(myAdjustToGutterListener);
-      for (EditorGutterComponentEx gutter : myGutters) {
-        gutter.removeComponentListener(myAdjustToGutterListener);
-      }
+    else {
+      return null;
     }
   }
 
   @Nullable
-  protected ActionToolbar createToolbar() {
+  protected ActionGroup createLeftToolbarActionGroup() {
     return null;
   }
 
+  @NotNull
+  private ActionToolbar createRightToolbar() {
+    final ActionGroup viewActions = createViewActionGroup();
+    final ActionGroup group = createRightToolbarActionGroup();
+    final ActionGroup rightToolbarActions = group == null
+                                            ? viewActions
+                                            : new DefaultActionGroup(group, Separator.create(), viewActions);
+    return ActionManager.getInstance().createActionToolbar(TEXT_EDITOR_WITH_PREVIEW, rightToolbarActions, true);
+  }
+
+  @NotNull
+  protected ActionGroup createViewActionGroup() {
+    return new DefaultActionGroup(
+        getShowEditorAction(),
+        getShowEditorAndPreviewAction(),
+        getShowPreviewAction()
+      );
+  }
+
+  @Nullable
+  protected ActionGroup createRightToolbarActionGroup() {
+    return null;
+  }
+
+  @NotNull
+  protected ToggleAction getShowEditorAction() {
+    return new ChangeViewModeAction(Layout.SHOW_EDITOR);
+  }
+
+  @NotNull
+  protected ToggleAction getShowPreviewAction() {
+    return new ChangeViewModeAction(Layout.SHOW_PREVIEW);
+  }
+
+  @NotNull
+  protected ToggleAction getShowEditorAndPreviewAction() {
+    return new ChangeViewModeAction(Layout.SHOW_EDITOR_AND_PREVIEW);
+  }
+
   public enum Layout {
-    SHOW_EDITOR("Editor only", AllIcons.General.LayoutEditorOnly),
-    SHOW_PREVIEW("Preview only", AllIcons.General.LayoutPreviewOnly),
-    SHOW_EDITOR_AND_PREVIEW("Editor and Preview", AllIcons.General.LayoutEditorPreview);
+    SHOW_EDITOR("Editor only", IdeBundle.messagePointer("tab.title.editor.only"), AllIcons.General.LayoutEditorOnly),
+    SHOW_PREVIEW("Preview only", IdeBundle.messagePointer("tab.title.preview.only"), AllIcons.General.LayoutPreviewOnly),
+    SHOW_EDITOR_AND_PREVIEW("Editor and Preview", IdeBundle.messagePointer("tab.title.editor.and.preview"), AllIcons.General.LayoutEditorPreview);
 
-    private final String myName;
+    private final @NotNull Supplier<@Nls String> myName;
     private final Icon myIcon;
+    private final String myId;
 
-    Layout(String name, Icon icon) {
+    Layout(String id, @NotNull Supplier<String> name, Icon icon) {
+      myId = id;
       myName = name;
       myIcon = icon;
     }
 
-    public static Layout fromName(String name, Layout defaultValue) {
+    public static Layout fromId(String id, Layout defaultValue) {
       for (Layout layout : Layout.values()) {
-        if (layout.myName.equals(name)) {
+        if (layout.myId.equals(id)) {
           return layout;
         }
       }
       return defaultValue;
     }
 
-    public String getName() {
-      return myName;
+    public @Nls String getName() {
+      return myName.get();
     }
 
     public Icon getIcon() {
@@ -405,21 +419,21 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   private class ChangeViewModeAction extends ToggleAction implements DumbAware {
     private final Layout myActionLayout;
 
-    public ChangeViewModeAction(Layout layout) {
+    ChangeViewModeAction(Layout layout) {
       super(layout.getName(), layout.getName(), layout.getIcon());
       myActionLayout = layout;
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myLayout == myActionLayout;
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       if (state) {
         myLayout = myActionLayout;
-        PropertiesComponent.getInstance().setValue(getLayoutPropertyName(), myLayout.myName, Layout.SHOW_EDITOR_AND_PREVIEW.myName);
+        PropertiesComponent.getInstance().setValue(getLayoutPropertyName(), myLayout.myId, myDefaultLayout.myId);
         adjustEditorsVisibility();
       }
     }
@@ -428,5 +442,25 @@ public class TextEditorWithPreview extends UserDataHolderBase implements FileEdi
   @NotNull
   private String getLayoutPropertyName() {
     return myName + "Layout";
+  }
+
+  @Override
+  public @Nullable VirtualFile getFile() {
+    return getTextEditor().getFile();
+  }
+
+  @Override
+  public @NotNull Editor getEditor() {
+    return getTextEditor().getEditor();
+  }
+
+  @Override
+  public boolean canNavigateTo(@NotNull Navigatable navigatable) {
+    return getTextEditor().canNavigateTo(navigatable);
+  }
+
+  @Override
+  public void navigateTo(@NotNull Navigatable navigatable) {
+    getTextEditor().navigateTo(navigatable);
   }
 }

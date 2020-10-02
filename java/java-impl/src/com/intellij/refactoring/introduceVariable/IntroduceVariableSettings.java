@@ -16,18 +16,31 @@
 
 package com.intellij.refactoring.introduceVariable;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.PsiType;
 
 public interface IntroduceVariableSettings {
+  @NlsSafe
   String getEnteredName();
 
   boolean isReplaceAllOccurrences();
 
   boolean isDeclareFinal();
+  
+  default boolean isDeclareVarType() {
+    return false;
+  }
 
   boolean isReplaceLValues();
 
   PsiType getSelectedType();
 
   boolean isOK();
+  
+  default IntroduceVariableBase.JavaReplaceChoice getReplaceChoice() {
+    if (isReplaceAllOccurrences()) {
+      return isReplaceLValues() ? IntroduceVariableBase.JavaReplaceChoice.ALL : IntroduceVariableBase.JavaReplaceChoice.NO_WRITE;
+    }
+    return IntroduceVariableBase.JavaReplaceChoice.NO;
+  }
 }

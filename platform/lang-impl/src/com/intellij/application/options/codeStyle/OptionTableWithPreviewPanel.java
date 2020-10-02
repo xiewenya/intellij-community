@@ -1,31 +1,24 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle;
 
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
+import com.intellij.ui.ColoredTreeCellRenderer;
+import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.SpeedSearchComparator;
 import com.intellij.ui.TreeTableSpeedSearch;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.editors.JBComboBoxTableCellEditorComponent;
 import com.intellij.ui.components.fields.IntegerField;
+import com.intellij.ui.render.RenderingUtil;
 import com.intellij.ui.treeStructure.treetable.ListTreeTableModel;
 import com.intellij.ui.treeStructure.treetable.TreeTable;
 import com.intellij.ui.treeStructure.treetable.TreeTableCellRenderer;
@@ -38,6 +31,8 @@ import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -54,14 +49,10 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.lang.reflect.Field;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.function.Function;
 
-/**
- * @author max
- */
-@SuppressWarnings("Duplicates")
 public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCodeStylePanel {
   private static final Logger LOG = Logger.getInstance(OptionTableWithPreviewPanel.class);
 
@@ -73,9 +64,11 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   private final List<Option> myOptions = new ArrayList<>();
   private final List<Option> myCustomOptions = new ArrayList<>();
   private final Set<String> myAllowedOptions = new THashSet<>();
-  private final Map<String, String> myRenamedFields = new THashMap<>();
+  private final Map<String, @NlsContexts.Label String> myRenamedFields = new THashMap<>();
   private boolean myShowAllStandardOptions;
   protected boolean isFirstUpdate = true;
+
+  private SpeedSearchHelper mySearchHelper;
 
   public OptionTableWithPreviewPanel(CodeStyleSettings settings) {
     super(settings);
@@ -89,7 +82,6 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     initTables();
 
     myTreeTable = createOptionsTree(getSettings());
-    myTreeTable.setBackground(UIUtil.getPanelBackground());
     myTreeTable.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 10));
     JBScrollPane scrollPane = new JBScrollPane(myTreeTable) {
       @Override
@@ -146,21 +138,21 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   }
 
   @Override
-  public void showCustomOption(Class<? extends CustomCodeStyleSettings> settingsClass,
-                               String fieldName,
-                               String title,
-                               String groupName, Object... options) {
+  public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                               @NonNls @NotNull String fieldName,
+                               @NlsContexts.Label @NotNull String title,
+                               @Nls @Nullable String groupName,
+                               Object... options) {
     showCustomOption(settingsClass, fieldName, title, groupName, null, null, options);
   }
 
-
   @Override
-  public void showCustomOption(Class<? extends CustomCodeStyleSettings> settingsClass,
-                               String fieldName,
-                               String title,
-                               String groupName,
+  public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                               @NonNls @NotNull String fieldName,
+                               @NlsContexts.Label @NotNull String title,
+                               @Nls @Nullable String groupName,
                                @Nullable OptionAnchor anchor,
-                               @Nullable String anchorFieldName,
+                               @NonNls @Nullable String anchorFieldName,
                                Object... options) {
     if (isFirstUpdate) {
       Option option;
@@ -184,7 +176,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   }
 
   @Override
-  public void renameStandardOption(String fieldName, String newTitle) {
+  public void renameStandardOption(@NonNls @NotNull String fieldName, @NlsContexts.Label @NotNull String newTitle) {
     myRenamedFields.put(fieldName, newTitle);
   }
 
@@ -229,10 +221,8 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
       @Override
       public TreeTableCellRenderer createTableRenderer(TreeTableModel treeTableModel) {
         TreeTableCellRenderer tableRenderer = super.createTableRenderer(treeTableModel);
-        UIUtil.setLineStyleAngled(tableRenderer);
         tableRenderer.setRootVisible(false);
         tableRenderer.setShowsRootHandles(true);
-
         return tableRenderer;
       }
 
@@ -259,12 +249,15 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
         return editor == null ? super.getCellEditor(row, column) : editor;
       }
     };
-    new TreeTableSpeedSearch(treeTable).setComparator(new SpeedSearchComparator(false));
+    TreeTableSpeedSearch speedSearch = new TreeTableSpeedSearch(treeTable);
+    speedSearch.setComparator(new SpeedSearchComparator(false));
+    mySearchHelper = new SpeedSearchHelper(speedSearch);
 
     treeTable.setRootVisible(false);
 
     final JTree tree = treeTable.getTree();
-    tree.setCellRenderer(myTitleRenderer);
+    TreeCellRenderer titleRenderer = new MyTitleRenderer(mySearchHelper);
+    tree.setCellRenderer(titleRenderer);
     tree.setShowsRootHandles(true);
     //myTreeTable.setRowHeight(new JComboBox(new String[]{"Sample Text"}).getPreferredSize().height);
     treeTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -291,7 +284,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     //levelColumn.setResizable(false);
 
     final Dimension valueSize = new JLabel(ApplicationBundle.message("option.table.sizing.text")).getPreferredSize();
-    treeTable.setPreferredScrollableViewportSize(new Dimension(maxWidth + valueSize.width + 10, 20));
+    treeTable.setPreferredScrollableViewportSize(JBUI.size(maxWidth + valueSize.width + 10, 20));
 
     return treeTable;
   }
@@ -340,7 +333,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     addOption(fieldName, title, null);
   }
 
-  protected void addOption(@NotNull String fieldName, @NotNull String title, @NotNull String[] options, @NotNull int[] values) {
+  protected void addOption(@NotNull String fieldName, @NotNull String title, String @NotNull [] options, int @NotNull [] values) {
     addOption(fieldName, title, null, options, values);
   }
 
@@ -350,7 +343,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
                            int minValue,
                            int maxValue,
                            int defaultValue,
-                           @Nullable Function<Integer,String> defaultValueRenderer) {
+                           @Nullable Function<? super Integer, String> defaultValueRenderer) {
     myOptions.add(new IntOption(null, fieldName, title, groupName, null, null, minValue, maxValue, defaultValue, defaultValueRenderer));
   }
 
@@ -359,7 +352,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   }
 
   protected void addOption(@NotNull String fieldName, @NotNull String title, @Nullable String groupName,
-                           @NotNull String[] options, @NotNull int[] values) {
+                           String @NotNull [] options, int @NotNull [] values) {
     myOptions.add(new SelectionOption(null, fieldName, title, groupName, null, null, options, values));
   }
 
@@ -399,7 +392,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     @Nullable final Class<? extends CustomCodeStyleSettings> clazz;
     @NotNull final Field field;
 
-    public FieldOption(@Nullable Class<? extends CustomCodeStyleSettings> clazz,
+    FieldOption(@Nullable Class<? extends CustomCodeStyleSettings> clazz,
                   @NotNull String fieldName,
                   @NotNull String title,
                   @Nullable String groupName,
@@ -424,7 +417,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
 
   }
 
-  private class BooleanOption extends FieldOption {
+  private final class BooleanOption extends FieldOption {
     private BooleanOption(Class<? extends CustomCodeStyleSettings> clazz,
                           @NotNull String fieldName,
                           @NotNull String title,
@@ -455,17 +448,17 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   }
 
   private class SelectionOption extends FieldOption {
-    @NotNull final String[] options;
-    @NotNull final int[] values;
+    final String @NotNull [] options;
+    final int @NotNull [] values;
 
-    public SelectionOption(Class<? extends CustomCodeStyleSettings> clazz,
+    SelectionOption(Class<? extends CustomCodeStyleSettings> clazz,
                            @NotNull String fieldName,
                            @NotNull String title,
                            @Nullable String groupName,
                            @Nullable OptionAnchor anchor,
                            @Nullable String anchorFiledName,
-                           @NotNull String[] options,
-                           @NotNull int[] values) {
+                           String @NotNull [] options,
+                           int @NotNull [] values) {
       super(clazz, fieldName, title, groupName, anchor, anchorFiledName);
       this.options = options;
       this.values = values;
@@ -506,18 +499,18 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     private final int myMinValue;
     private final int myMaxValue;
     private final int myDefaultValue;
-    @Nullable private final Function<Integer,String> myDefaultValueRenderer;
+    @Nullable private final Function<? super Integer, @Nls String> myDefaultValueRenderer;
 
-    public IntOption(Class<? extends CustomCodeStyleSettings> clazz,
+    IntOption(Class<? extends CustomCodeStyleSettings> clazz,
                      @NotNull String fieldName,
                      @NotNull String title,
-                     @Nullable String groupName, 
-                     @Nullable OptionAnchor anchor, 
+                     @Nullable String groupName,
+                     @Nullable OptionAnchor anchor,
                      @Nullable String anchorFiledName,
                      int minValue,
                      int maxValue,
                      int defaultValue,
-                     @Nullable Function<Integer,String> defaultValueRenderer) {
+                     @Nullable Function<? super Integer, @Nls String> defaultValueRenderer) {
       super(clazz, fieldName, title, groupName, anchor, anchorFiledName);
       myMinValue = minValue;
       myMaxValue = maxValue;
@@ -532,7 +525,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
       }
       catch (IllegalAccessException e) {
         return null;
-      }      
+      }
     }
 
     @Override
@@ -567,6 +560,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     }
 
     @Nullable
+    @Nls
     public String getDefaultValueText() {
       return myDefaultValueRenderer != null ? myDefaultValueRenderer.apply(myDefaultValue) : null;
     }
@@ -628,37 +622,6 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
 
   public final ColumnInfo[] COLUMNS = new ColumnInfo[]{TITLE, VALUE};
 
-  private final TreeCellRenderer myTitleRenderer = new TreeCellRenderer() {
-    private final JLabel myLabel = new JLabel();
-
-    @NotNull
-    @Override
-    public Component getTreeCellRendererComponent(@NotNull JTree tree,
-                                                  Object value,
-                                                  boolean selected,
-                                                  boolean expanded,
-                                                  boolean leaf,
-                                                  int row,
-                                                  boolean hasFocus) {
-      if (value instanceof MyTreeNode) {
-        MyTreeNode node = (MyTreeNode)value;
-        myLabel.setText(getRenamedTitle(node.getKey().getOptionName(), node.getText()));
-        myLabel.setFont(myLabel.getFont().deriveFont(node.getKey().groupName == null ? Font.BOLD : Font.PLAIN));
-        myLabel.setEnabled(node.isEnabled());
-      }
-      else {
-        myLabel.setText(getRenamedTitle(value.toString(), value.toString()));
-        myLabel.setFont(myLabel.getFont().deriveFont(Font.BOLD));
-        myLabel.setEnabled(true);
-      }
-
-      Color foreground = selected ? UIUtil.getTableSelectionForeground() : UIUtil.getTableForeground();
-      myLabel.setForeground(foreground);
-
-      return myLabel;
-    }
-  };
-
   protected static class MyTreeNode extends DefaultMutableTreeNode {
     private final Option myKey;
     private final String myText;
@@ -713,7 +676,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     private final JPanel myEmptyLabel = new JPanel();
     private final JLabel myIntLabel = new JLabel();
 
-    public MyValueRenderer() {
+    MyValueRenderer() {
       UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, myComboBox);
       UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, myCheckBox);
       UIUtil.applyStyle(UIUtil.ComponentStyle.SMALL, myIntLabel);
@@ -741,24 +704,23 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
       if (!table.isEnabled()) {
         isEnabled = false;
       }
-
-      Color background = table.getBackground();
       if (key != null && value != null) {
         JComponent customRenderer = getCustomValueRenderer(key.getOptionName(), value);
         if (customRenderer != null) {
+          updateColors(customRenderer, table, isSelected);
           return customRenderer;
         }
       }
       if (value instanceof Boolean) {
         myCheckBox.setSelected(((Boolean)value).booleanValue());
-        myCheckBox.setBackground(background);
         myCheckBox.setEnabled(isEnabled);
+        updateColors(myCheckBox, table, isSelected);
         return myCheckBox;
       }
       else if (value instanceof String) {
         myComboBox.setText((String)value);
-        myComboBox.setBackground(background);
         myComboBox.setEnabled(isEnabled);
+        updateColors(myComboBox, table, isSelected);
         return myComboBox;
       }
       else if (value instanceof Integer) {
@@ -766,12 +728,13 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
           myIntLabel.setText(((IntOption)key).getDefaultValueText());
         }
         else {
-          myIntLabel.setText(value.toString());
+          @NlsSafe String text = value.toString();
+          myIntLabel.setText(text);
         }
+        updateColors(myIntLabel, table, isSelected);
         return myIntLabel;
       }
-
-      myEmptyLabel.setBackground(background);
+      updateColors(myEmptyLabel, table, isSelected);
       return myEmptyLabel;
     }
 
@@ -845,7 +808,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
       }
     };
 
-    public MyValueEditor() {
+    MyValueEditor() {
       final ActionListener itemChoosen = new ActionListener() {
         @Override
         public void actionPerformed(@NotNull ActionEvent e) {
@@ -939,7 +902,11 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
   }
 
   @Override
-  public void apply(CodeStyleSettings settings) {
+  public void apply(CodeStyleSettings settings) throws ConfigurationException {
+    TableCellEditor editor = myTreeTable.getCellEditor();
+    if (editor != null && !editor.stopCellEditing()) {
+      throw new ConfigurationException(LangBundle.message("dialog.message.editing.cannot.be.stopped"));
+    }
     TreeModel treeModel = myTreeTable.getTree().getModel();
     TreeNode root = (TreeNode)treeModel.getRoot();
     applyNode(root, settings);
@@ -947,6 +914,10 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
 
   @Override
   public boolean isModified(CodeStyleSettings settings) {
+    TableCellEditor editor = myTreeTable.getCellEditor();
+    if (editor != null) {
+      return true; // to allow stop editing in #apply
+    }
     TreeModel treeModel = myTreeTable.getTree().getModel();
     TreeNode root = (TreeNode)treeModel.getRoot();
     if (isModified(root, settings)) {
@@ -968,6 +939,7 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     ((DefaultTreeModel)treeModel).nodeChanged(root);
   }
 
+  @NotNull
   @Override
   public Set<String> processListOptions() {
     Set<String> options = new HashSet<>();
@@ -976,12 +948,60 @@ public abstract class OptionTableWithPreviewPanel extends CustomizableLanguageCo
     return options;
   }
 
-  private static void collectOptions(Set<String> optionNames, final List<Option> optionList) {
+  private static void collectOptions(Set<? super String> optionNames, final List<? extends Option> optionList) {
     for (Option option : optionList) {
       if (option.groupName != null) {
         optionNames.add(option.groupName);
       }
       optionNames.add(option.title);
     }
+  }
+
+  private final class MyTitleRenderer extends ColoredTreeCellRenderer {
+
+    private final SpeedSearchHelper mySearchHelper;
+
+    private MyTitleRenderer(SpeedSearchHelper helper) {
+      mySearchHelper = helper;
+    }
+
+    @Override
+    public void customizeCellRenderer(@NotNull JTree tree,
+                                      Object value,
+                                      boolean selected,
+                                      boolean expanded,
+                                      boolean leaf,
+                                      int row,
+                                      boolean hasFocus) {
+      SimpleTextAttributes attributes = SimpleTextAttributes.REGULAR_ATTRIBUTES;
+      String text;
+      if (value instanceof MyTreeNode) {
+        MyTreeNode node = (MyTreeNode)value;
+        if (node.getKey().groupName == null) {
+          attributes = SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES;
+        }
+        text = getRenamedTitle(node.getKey().getOptionName(), node.getText());
+        setEnabled(node.isEnabled());
+      }
+      else {
+        attributes = SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES;
+        text = getRenamedTitle(value.toString(), value.toString());
+        setEnabled(true);
+      }
+      mySearchHelper.setLabelText(this, text, attributes.getStyle(), attributes.getFgColor(), attributes.getBgColor());
+      setBackground(RenderingUtil.getBackground(tree, selected));
+      setForeground(RenderingUtil.getForeground(tree, selected));
+    }
+  }
+
+  @Override
+  public void highlightOptions(@NotNull String searchString) {
+    mySearchHelper.find(searchString);
+  }
+
+  private static void updateColors(@NotNull JComponent component, @NotNull JTable table, boolean isSelected) {
+    component.setOpaque(isSelected);
+    component.setBackground(RenderingUtil.getBackground(table, isSelected));
+    component.setForeground(RenderingUtil.getForeground(table, isSelected));
   }
 }

@@ -22,7 +22,6 @@ import com.intellij.openapi.editor.colors.EditorColorPalette;
 import com.intellij.openapi.editor.colors.EditorColorPaletteFactory;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.options.colors.pages.DefaultLanguageColorsPage;
 import com.intellij.openapi.options.colors.pages.GeneralColorsPage;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -44,7 +43,7 @@ public class EditorColorPaletteFactoryImpl extends EditorColorPaletteFactory {
 
     @Nullable private final Language myLanguage;
 
-    public ColorPagesPalette(@NotNull EditorColorsScheme colorsScheme, @Nullable Language language) {
+    ColorPagesPalette(@NotNull EditorColorsScheme colorsScheme, @Nullable Language language) {
       super(colorsScheme);
       myLanguage = language;
     }
@@ -100,8 +99,7 @@ public class EditorColorPaletteFactoryImpl extends EditorColorPaletteFactory {
   private static boolean pageIsGoodForAnyLanguage(boolean filterOutRainbowNonConflictingAttrKeys,
                                                   @NotNull ColorSettingsPage page) {
     return !filterOutRainbowNonConflictingAttrKeys
-        || page instanceof DefaultLanguageColorsPage
-        || page instanceof GeneralColorsPage
-        || page instanceof RainbowColorSettingsPage;
+           || page instanceof GeneralColorsPage
+           || page instanceof RainbowColorSettingsPage;
   }
 }

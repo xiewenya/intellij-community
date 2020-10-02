@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.crlf;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -50,7 +36,7 @@ import java.util.*;
  *
  * @author Kirill Likhodedov
  */
-public class GitCrlfProblemsDetector {
+public final class GitCrlfProblemsDetector {
 
   private static final Logger LOG = Logger.getInstance(GitCrlfProblemsDetector.class);
   private static final String CRLF = "\r\n";
@@ -70,7 +56,7 @@ public class GitCrlfProblemsDetector {
     myRepositoryManager = GitUtil.getRepositoryManager(project);
     myGit = git;
 
-    Map<VirtualFile, List<VirtualFile>> filesByRoots = sortFilesByRoots(files);
+    Map<VirtualFile, List<VirtualFile>> filesByRoots = GitUtil.sortFilesByGitRootIgnoringMissing(project, files);
 
     boolean shouldWarn = false;
     Collection<VirtualFile> rootsWithIncorrectAutoCrlf = getRootsWithIncorrectAutoCrlf(filesByRoots);
@@ -98,7 +84,7 @@ public class GitCrlfProblemsDetector {
   }
 
   @NotNull
-  private Collection<VirtualFile> findFilesWithoutAttrs(@NotNull VirtualFile root, @NotNull Collection<VirtualFile> files) {
+  private Collection<VirtualFile> findFilesWithoutAttrs(@NotNull VirtualFile root, @NotNull Collection<? extends VirtualFile> files) {
     GitRepository repository = myRepositoryManager.getRepositoryForRoot(root);
     if (repository == null) {
       LOG.warn("Repository is null for " + root);
@@ -142,7 +128,7 @@ public class GitCrlfProblemsDetector {
   }
 
   @NotNull
-  private static Collection<VirtualFile> findFilesWithCrlf(@NotNull Collection<VirtualFile> files) {
+  private static Collection<VirtualFile> findFilesWithCrlf(@NotNull Collection<? extends VirtualFile> files) {
     Collection<VirtualFile> filesWithCrlf = new ArrayList<>();
     for (VirtualFile file : files) {
       ProgressIndicatorProvider.checkCanceled();
@@ -176,11 +162,6 @@ public class GitCrlfProblemsDetector {
     GitCommandResult result = myGit.config(repository, GitConfigUtil.CORE_AUTOCRLF);
     String value = result.getOutputAsJoinedString();
     return value.equalsIgnoreCase("true") || value.equalsIgnoreCase("input");
-  }
-
-  @NotNull
-  private static Map<VirtualFile, List<VirtualFile>> sortFilesByRoots(@NotNull Collection<VirtualFile> files) {
-    return GitUtil.sortFilesByGitRootsIgnoringOthers(files);
   }
 
   public boolean shouldWarn() {

@@ -17,7 +17,7 @@ package com.intellij.xml
 
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.xml.actions.xmlbeans.GenerateInstanceDocumentFromSchemaAction
 import com.intellij.xml.actions.xmlbeans.GenerateInstanceDocumentFromSchemaDialog
 import junit.framework.TestCase
@@ -25,7 +25,7 @@ import junit.framework.TestCase
 /**
  * @author Dmitry Avdeev
  */
-class GenerateXmlFromXsdTest: LightCodeInsightFixtureTestCase() {
+class GenerateXmlFromXsdTest: LightJavaCodeInsightFixtureTestCase() {
   fun testErrorMessage() {
     val file = LocalFileSystem.getInstance().findFileByPath(testDataPath + "/vast4.xsd")
     val dialog = GenerateInstanceDocumentFromSchemaDialog(project, file)
@@ -39,6 +39,12 @@ class GenerateXmlFromXsdTest: LightCodeInsightFixtureTestCase() {
     Disposer.dispose(dialog.disposable)
   }
 
+  fun testRelativePath() {
+    val file = LocalFileSystem.getInstance().findFileByPath("$testDataPath/top/top.xsd")
+    val dialog = GenerateInstanceDocumentFromSchemaDialog(project, file)
+    GenerateInstanceDocumentFromSchemaAction.doAction(project, dialog)
+    Disposer.dispose(dialog.disposable)
+  }
 
   override fun getBasePath(): String = "/xml/tests/testData/generate"
 }

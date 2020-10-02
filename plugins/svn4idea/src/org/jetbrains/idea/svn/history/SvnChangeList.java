@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.idea.svn.history;
 
@@ -65,7 +65,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
   private final CommonPathSearcher myCommonPathSearcher;
   private final Set<String> myKnownAsDirectories;
 
-  public SvnChangeList(@NotNull final List<CommittedChangeList> lists, @NotNull final SvnRepositoryLocation location) {
+  public SvnChangeList(@NotNull final List<? extends CommittedChangeList> lists, @NotNull final SvnRepositoryLocation location) {
 
     final SvnChangeList sample = (SvnChangeList) lists.get(0);
     myVcs = sample.myVcs;
@@ -156,10 +156,12 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
     return myListsHolder.getByPath(path);
   }
 
+  @Override
   public String getCommitterName() {
     return myAuthor;
   }
 
+  @Override
   @Nullable
   public Date getCommitDate() {
     return myDate;
@@ -176,6 +178,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
     myRevisionNumber = new SvnRevisionNumber(Revision.of(revision));
   }
 
+  @Override
   public Collection<Change> getChanges() {
     if (myListsHolder == null) {
       createLists();
@@ -185,7 +188,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
 
   private void createLists() {
     myListsHolder = new ChangesListCreationHelper();
-    
+
     // key: copied-from
     final Map<String, ExternallyRenamedChange> copiedAddedChanges = new HashMap<>();
 
@@ -219,9 +222,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
         final FilePath source = addedChange.getAfterRevision().getFile();
         deletedChange = new ExternallyRenamedChange(myListsHolder.createDeletedItemRevision(path, true), null, path);
         ((ExternallyRenamedChange) deletedChange).setCopied(false);
-        //noinspection ConstantConditions
         //addedChange.setRenamedOrMovedTarget(deletedChange.getBeforeRevision().getFile());
-        //noinspection ConstantConditions
         ((ExternallyRenamedChange) deletedChange).setRenamedOrMovedTarget(source);
       } else {
         deletedChange = new Change(myListsHolder.createDeletedItemRevision(path, true), null);
@@ -318,7 +319,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
   /**
    * needed to track in which changes non-local files live
    */
-  private class ChangesListCreationHelper {
+  private final class ChangesListCreationHelper {
     private final List<Change> myList;
     private final Map<String, Change> myPathToChangeMapping;
     private List<Change> myDetailedList;
@@ -406,7 +407,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
         // TODO: Logic with detecting "isDirectory" status is not clear enough. Why we can't just collect this info from logEntry and
         // TODO: if loading from disk - use cached values? Not to invoke separate call here.
         Revision beforeRevision = Revision.of(getRevision(idxData.second.booleanValue()));
-        Info info = myVcs.getInfo(createUrl(revision.getFullPath()), beforeRevision, beforeRevision);
+        Info info = myVcs.getInfo(revision.getUrl(), beforeRevision, beforeRevision);
         boolean isDirectory = info != null && info.isDirectory();
         Change replacingChange = new Change(createRevision((SvnRepositoryContentRevision)sourceChange.getBeforeRevision(), isDirectory),
                                             createRevision((SvnRepositoryContentRevision)sourceChange.getAfterRevision(), isDirectory));
@@ -434,7 +435,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
 
     private List<Change> collectDetails(@NotNull List<Change> changes, @NotNull Set<Pair<Boolean, String>> duplicates)
       throws VcsException {
-      List<Change> result = ContainerUtil.newArrayList();
+      List<Change> result = new ArrayList<>();
 
       for (Change change : changes) {
         // directory statuses are already uploaded
@@ -455,7 +456,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
     }
 
     private Set<Pair<Boolean, String>> collectDuplicates() {
-      Set<Pair<Boolean, String>> result = ContainerUtil.newHashSet();
+      Set<Pair<Boolean, String>> result = new HashSet<>();
 
       for (Change change : myDetailedList) {
         addDuplicate(result, true, change.getBeforeRevision());
@@ -486,7 +487,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
       final List<Change> result = new ArrayList<>();
 
       final String path = getRelativePath(contentRevision);
-      Url fullPath = createUrl(((SvnRepositoryContentRevision)contentRevision).getFullPath());
+      Url fullPath = ((SvnRepositoryContentRevision)contentRevision).getUrl();
       Revision revisionNumber = Revision.of(getRevision(isBefore));
       Target target = Target.on(fullPath, revisionNumber);
 
@@ -527,7 +528,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
     final Url becameUrl;
     Url wasUrl;
     try {
-      becameUrl = createUrl(Url.append(myRepositoryRoot, path));
+      becameUrl = createUrl(Url.append(myRepositoryRoot, path), false);
       wasUrl = becameUrl;
 
       if (change instanceof ExternallyRenamedChange && change.getBeforeRevision() != null) {
@@ -535,7 +536,7 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
 
         if (originUrl != null) {
           // use another url for origin
-          wasUrl = createUrl(Url.append(myRepositoryRoot, originUrl));
+          wasUrl = createUrl(Url.append(myRepositoryRoot, originUrl), false);
         }
       }
     }
@@ -554,18 +555,25 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
   private SvnLazyPropertyContentRevision createPropertyRevision(@NotNull FilePath filePath,
                                                                 @Nullable ContentRevision revision,
                                                                 @NotNull Url url) {
-    return revision == null ? null : new SvnLazyPropertyContentRevision(myVcs, filePath, revision.getRevisionNumber(), url);
+    if (revision == null) return null;
+
+    SvnRevisionNumber number = (SvnRevisionNumber)revision.getRevisionNumber();
+    Target target = Target.on(url, number.getRevision());
+    return new SvnLazyPropertyContentRevision(myVcs, filePath, number, target);
   }
 
+  @Override
   @NotNull
   public String getName() {
     return myMessage;
   }
 
+  @Override
   public String getComment() {
     return myMessage;
   }
 
+  @Override
   public long getNumber() {
     return myRevision;
   }
@@ -575,10 +583,12 @@ public class SvnChangeList implements CommittedChangeList, VcsRevisionNumberAwar
     return null;
   }
 
+  @Override
   public AbstractVcs getVcs() {
     return myVcs;
   }
 
+  @Override
   public Collection<Change> getChangesWithMovedTrees() {
     if (myListsHolder == null) {
       createLists();

@@ -1,23 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testGuiFramework.fixtures;
 
 import com.intellij.openapi.actionSystem.impl.ActionMenu;
 import com.intellij.openapi.actionSystem.impl.ActionMenuItem;
 import com.intellij.openapi.ui.JBPopupMenu;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.testGuiFramework.framework.GuiTestUtil;
+import com.intellij.testGuiFramework.framework.Timeouts;
 import com.intellij.util.ArrayUtil;
 import org.fest.swing.core.GenericTypeMatcher;
 import org.fest.swing.core.MouseButton;
@@ -30,12 +19,10 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 
-import static com.intellij.testGuiFramework.framework.GuiTestUtil.SHORT_TIMEOUT;
-import static com.intellij.testGuiFramework.framework.GuiTestUtil.waitUntilFound;
 import static junit.framework.Assert.assertNotNull;
 import static org.fest.swing.timing.Pause.pause;
 
-public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JBPopupMenu> {
+public final class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JBPopupMenu> {
   private final JBPopupMenu myContextMenu;
   private final Robot myRobot;
 
@@ -55,7 +42,7 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
           final JBPopupMenu contextMenu = robot.finder().findByType(JBPopupMenu.class);
           return contextMenu != null;
         }
-      }, SHORT_TIMEOUT);
+      }, Timeouts.INSTANCE.getMinutes02());
     } catch (WaitTimedOutError e) {
       throw new ComponentLookupException("Unable to find context menu for JBPopupFixture");
     }
@@ -72,7 +59,7 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
 
     for (MenuElement element : elements) {
       if (element instanceof ActionMenuItem) {
-        if (((ActionMenuItem)element).getText().toLowerCase().contains(actionName.toLowerCase())) assertion = true;
+        if (StringUtil.toLowerCase(((ActionMenuItem)element).getText()).contains(StringUtil.toLowerCase(actionName))) assertion = true;
       }
     }
     if (!assertion) System.err.println("Unable to find action \"" + actionName + "\" in popupMenu");
@@ -87,7 +74,7 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
       for (MenuElement element : elements) {
         if (element instanceof ActionMenu) {
           final ActionMenu actionMenu = (ActionMenu)element;
-          if (actionMenu.getText().toLowerCase().contains(actionPath[0].toLowerCase())) {
+          if (StringUtil.toLowerCase(actionMenu.getText()).contains(StringUtil.toLowerCase(actionPath[0]))) {
             final Point locationOnScreen = myContextMenu.getLocationOnScreen();
             final Rectangle bounds = actionMenu.getBounds();
             final Point point =
@@ -107,7 +94,7 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
       for (MenuElement element : elements) {
         if (element instanceof ActionMenuItem) {
           final ActionMenuItem actionMenuItem = (ActionMenuItem)element;
-          if (actionMenuItem.getText().toLowerCase().contains(actionPath[0].toLowerCase())) {
+          if (StringUtil.toLowerCase(actionMenuItem.getText()).contains(StringUtil.toLowerCase(actionPath[0]))) {
             pause(new Condition("Waiting to showing JBPopupMenu on screen") {
               @Override
               public boolean test() {
@@ -118,7 +105,7 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
                   return false;
                 }
               }
-            }, SHORT_TIMEOUT);
+            }, Timeouts.INSTANCE.getMinutes02());
             final Point locationOnScreen = myContextMenu.getLocationOnScreen();
             final Rectangle bounds = actionMenuItem.getBounds();
             final Point point =
@@ -132,18 +119,18 @@ public class JBPopupMenuFixture extends JComponentFixture<JBPopupMenuFixture, JB
   }
 
   private JBPopupMenu waitUntilFoundMenu(final String actionName) {
-    return waitUntilFound(robot(), new GenericTypeMatcher<JBPopupMenu>(JBPopupMenu.class) {
+    return GuiTestUtil.INSTANCE.waitUntilFound(robot(), new GenericTypeMatcher<JBPopupMenu>(JBPopupMenu.class) {
       @Override
       protected boolean isMatching(@NotNull JBPopupMenu menu) {
         boolean found = false;
         for (MenuElement menuElement : menu.getSubElements()) {
           if (menuElement instanceof ActionMenu) {
-            if (((ActionMenu)menuElement).getText().toLowerCase().equals(actionName.toLowerCase())) {
+            if (StringUtil.toLowerCase(((ActionMenu)menuElement).getText()).equals(StringUtil.toLowerCase(actionName))) {
               found = true;
             }
           }
           else if (menuElement instanceof ActionMenuItem) {
-            if (((ActionMenuItem)menuElement).getText().toLowerCase().equals(actionName.toLowerCase())) {
+            if (StringUtil.toLowerCase(((ActionMenuItem)menuElement).getText()).equals(StringUtil.toLowerCase(actionName))) {
               found = true;
             }
           }

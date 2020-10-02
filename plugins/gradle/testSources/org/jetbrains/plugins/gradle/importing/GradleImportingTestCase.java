@@ -1,41 +1,42 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.importing;
 
+import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
+import com.intellij.execution.RunManagerEx;
+import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.externalSystem.importing.ImportSpec;
+import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutionSettings;
+import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver;
 import com.intellij.openapi.externalSystem.settings.ExternalSystemSettingsListenerAdapter;
 import com.intellij.openapi.externalSystem.test.ExternalSystemImportingTestCase;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
-import com.intellij.openapi.projectRoots.JavaSdk;
-import com.intellij.openapi.projectRoots.ProjectJdkTable;
-import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.externalSystem.util.environment.Environment;
+import com.intellij.openapi.projectRoots.*;
+import com.intellij.openapi.projectRoots.impl.JavaHomeFinder;
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.roots.DependencyScope;
-import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.roots.ui.configuration.UnknownSdkResolver;
 import com.intellij.openapi.ui.TestDialog;
+import com.intellij.openapi.ui.TestDialogManager;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.testFramework.IdeaTestUtil;
+import com.intellij.testFramework.RunAll;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.PathUtil;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.lang.JavaVersion;
 import org.gradle.StartParameter;
+import org.gradle.initialization.BuildLayoutParameters;
 import org.gradle.util.GradleVersion;
 import org.gradle.wrapper.GradleWrapperMain;
 import org.gradle.wrapper.PathAssembler;
@@ -43,13 +44,18 @@ import org.gradle.wrapper.WrapperConfiguration;
 import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.jps.model.java.JdkVersionDetector;
+import org.jetbrains.plugins.gradle.service.execution.GradleExternalTaskConfigurationType;
+import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration;
 import org.jetbrains.plugins.gradle.settings.DistributionType;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
+import org.jetbrains.plugins.gradle.settings.GradleSystemSettings;
 import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule;
 import org.jetbrains.plugins.gradle.tooling.builder.AbstractModelBuilderTest;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.jetbrains.plugins.gradle.util.GradleUtil;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 import org.junit.runner.RunWith;
@@ -60,10 +66,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
@@ -71,7 +74,7 @@ import static org.jetbrains.plugins.gradle.tooling.builder.AbstractModelBuilderT
 import static org.jetbrains.plugins.gradle.tooling.builder.AbstractModelBuilderTest.SUPPORTED_GRADLE_VERSIONS;
 import static org.junit.Assume.assumeThat;
 
-@RunWith(value = Parameterized.class)
+@RunWith(Parameterized.class)
 public abstract class GradleImportingTestCase extends ExternalSystemImportingTestCase {
   public static final String BASE_GRADLE_VERSION = AbstractModelBuilderTest.BASE_GRADLE_VERSION;
   protected static final String GRADLE_JDK_NAME = "Gradle JDK";
@@ -79,32 +82,128 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
 
   @Rule public TestName name = new TestName();
 
-  @Rule public VersionMatcherRule versionMatcherRule = new VersionMatcherRule();
-  @NotNull
-  @org.junit.runners.Parameterized.Parameter(0)
-  public String gradleVersion;
+  public VersionMatcherRule versionMatcherRule = asOuterRule(new VersionMatcherRule());
+  @Parameterized.Parameter
+  public @NotNull String gradleVersion;
   private GradleProjectSettings myProjectSettings;
   private String myJdkHome;
 
+  private final List<Sdk> removedSdks = new SmartList<>();
+
   @Override
   public void setUp() throws Exception {
-    myJdkHome = IdeaTestUtil.requireRealJdkHome();
-    super.setUp();
     assumeThat(gradleVersion, versionMatcherRule.getMatcher());
+    myJdkHome = requireRealJdkHome();
+    super.setUp();
+    removedSdks.clear();
     WriteAction.runAndWait(() -> {
-      Sdk oldJdk = ProjectJdkTable.getInstance().findJdk(GRADLE_JDK_NAME);
-      if (oldJdk != null) {
-        ProjectJdkTable.getInstance().removeJdk(oldJdk);
+      for (Sdk sdk : ProjectJdkTable.getInstance().getAllJdks()) {
+        ProjectJdkTable.getInstance().removeJdk(sdk);
+        if (GRADLE_JDK_NAME.equals(sdk.getName())) continue;
+        removedSdks.add(sdk);
       }
       VirtualFile jdkHomeDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myJdkHome));
-      Sdk jdk = SdkConfigurationUtil.setupSdk(new Sdk[0], jdkHomeDir, JavaSdk.getInstance(), true, null, GRADLE_JDK_NAME);
+      JavaSdk javaSdk = JavaSdk.getInstance();
+      SdkType javaSdkType = javaSdk == null ? SimpleJavaSdkType.getInstance() : javaSdk;
+      Sdk jdk = SdkConfigurationUtil.setupSdk(new Sdk[0], jdkHomeDir, javaSdkType, true, null, GRADLE_JDK_NAME);
       assertNotNull("Cannot create JDK for " + myJdkHome, jdk);
       ProjectJdkTable.getInstance().addJdk(jdk);
     });
-    myProjectSettings = new GradleProjectSettings();
-    GradleSettings.getInstance(myProject).setGradleVmOptions("-Xmx128m -XX:MaxPermSize=64m");
+    myProjectSettings = new GradleProjectSettings().withQualifiedModuleNames();
     System.setProperty(ExternalSystemExecutionSettings.REMOTE_PROCESS_IDLE_TTL_IN_MS_KEY, String.valueOf(GRADLE_DAEMON_TTL_MS));
-    configureWrapper();
+    PathAssembler.LocalDistribution distribution = WriteAction.computeAndWait(() -> configureWrapper());
+
+    List<String> allowedRoots = new ArrayList<>();
+    collectAllowedRoots(allowedRoots, distribution);
+    if (!allowedRoots.isEmpty()) {
+      VfsRootAccess.allowRootAccess(myTestFixture.getTestRootDisposable(), ArrayUtilRt.toStringArray(allowedRoots));
+    }
+
+    Registry.get("unknown.sdk").setValue(false);
+    UnknownSdkResolver.EP_NAME.getPoint().registerExtension(TestUnknownSdkResolver.INSTANCE, getTestRootDisposable());
+
+    TestUnknownSdkResolver.INSTANCE.setUnknownSdkFixMode(TestUnknownSdkResolver.TestUnknownSdkFixMode.REAL_LOCAL_FIX);
+
+    cleanScriptsCacheIfNeeded();
+  }
+
+  /**
+   * This is a workaround for the following issue on windows:
+   * "C:\Users\builduser\.gradle\caches\jars-1\cache.properties (The system cannot find the file specified)"
+   */
+  private void cleanScriptsCacheIfNeeded() {
+    if (SystemInfo.isWindows && isGradleOlderThan("3.5")) {
+      String serviceDirectory = GradleSettings.getInstance(myProject).getServiceDirectoryPath();
+      File gradleUserHome = serviceDirectory != null ? new File(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir();
+      File scriptsCacheFolder = new File(gradleUserHome, "caches\\" + gradleVersion + "\\scripts");
+      if (FileUtil.delete(scriptsCacheFolder)) {
+        LOG.debug("Gradle scripts cache folder has been successfully removed at " + scriptsCacheFolder.getPath());
+      }
+      else {
+        LOG.debug("Gradle scripts cache folder has not been removed at " + scriptsCacheFolder.getPath());
+      }
+      File scriptsRemappedCacheFolder = new File(gradleUserHome, "caches\\" + gradleVersion + "\\scripts-remapped");
+      if (FileUtil.delete(scriptsRemappedCacheFolder)) {
+        LOG.debug("Gradle scripts-remapped cache folder has been successfully removed at " + scriptsRemappedCacheFolder.getPath());
+      }
+      else {
+        LOG.debug("Gradle scripts-remapped cache folder has not been removed at " + scriptsRemappedCacheFolder.getPath());
+      }
+    }
+  }
+
+  @Override
+  protected boolean runInDispatchThread() {
+    return false;
+  }
+
+  @NotNull
+  protected GradleVersion getCurrentGradleVersion() {
+    return GradleVersion.version(gradleVersion);
+  }
+
+  @NotNull
+  protected GradleVersion getCurrentGradleBaseVersion() {
+    return GradleVersion.version(gradleVersion).getBaseVersion();
+  }
+
+  protected void assumeTestJavaRuntime(@NotNull JavaVersion javaRuntimeVersion) {
+    int javaVer = javaRuntimeVersion.feature;
+    GradleVersion gradleBaseVersion = getCurrentGradleBaseVersion();
+    Assume.assumeFalse("Skip integration tests running on JDK " + javaVer + "(>9) for " + gradleBaseVersion + "(<3.0)",
+                       javaVer > 9 && gradleBaseVersion.compareTo(GradleVersion.version("3.0")) < 0);
+  }
+
+  @NotNull
+  private String requireRealJdkHome() {
+    JavaVersion javaRuntimeVersion = JavaVersion.current();
+    assumeTestJavaRuntime(javaRuntimeVersion);
+    GradleVersion baseVersion = getCurrentGradleBaseVersion();
+    if (javaRuntimeVersion.feature > 9 && baseVersion.compareTo(GradleVersion.version("4.8")) < 0) {
+      // fix exception of FJP at JavaHomeFinder.suggestHomePaths => ... => EnvironmentUtil.getEnvironmentMap => CompletableFuture.<clinit>
+      IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(true);
+      List<String> paths = JavaHomeFinder.suggestHomePaths(true);
+      for (String path : paths) {
+        if (JdkUtil.checkForJdk(path)) {
+          JdkVersionDetector.JdkVersionInfo jdkVersionInfo = JdkVersionDetector.getInstance().detectJdkVersionInfo(path);
+          if (jdkVersionInfo == null) continue;
+          int feature = jdkVersionInfo.version.feature;
+          if (feature > 6 && feature < 9) {
+            return path;
+          }
+        }
+      }
+      Assume.assumeTrue("Cannot find JDK for Gradle, checked paths: " + paths, false);
+      return null;
+    }
+    else {
+      return IdeaTestUtil.requireRealJdkHome();
+    }
+  }
+
+  protected void collectAllowedRoots(final List<String> roots, PathAssembler.LocalDistribution distribution) {
+    String javaHome = Environment.getVariable("JAVA_HOME");
+    if (javaHome != null) roots.add(javaHome);
   }
 
   @Override
@@ -113,30 +212,30 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
       //super.setUp() wasn't called
       return;
     }
-    Sdk jdk = ProjectJdkTable.getInstance().findJdk(GRADLE_JDK_NAME);
-    if(jdk != null) {
-      WriteAction.runAndWait(() -> ProjectJdkTable.getInstance().removeJdk(jdk));
-    }
-
-    try {
-      Messages.setTestDialog(TestDialog.DEFAULT);
-      deleteBuildSystemDirectory();
-    }
-    finally {
-      super.tearDown();
-    }
+    new RunAll(
+      () -> {
+        WriteAction.runAndWait(() -> {
+          Arrays.stream(ProjectJdkTable.getInstance().getAllJdks()).forEach(ProjectJdkTable.getInstance()::removeJdk);
+          for (Sdk sdk : removedSdks) {
+            SdkConfigurationUtil.addSdk(sdk);
+          }
+          removedSdks.clear();
+        });
+      },
+      () -> {
+        TestDialogManager.setTestDialog(TestDialog.DEFAULT);
+        deleteBuildSystemDirectory();
+      },
+      super::tearDown
+    ).run();
   }
 
   @Override
   protected void collectAllowedRoots(final List<String> roots) {
+    super.collectAllowedRoots(roots);
     roots.add(myJdkHome);
     roots.addAll(collectRootsInside(myJdkHome));
     roots.add(PathManager.getConfigPath());
-  }
-
-  @Override
-  public String getName() {
-    return name.getMethodName() == null ? super.getName() : FileUtil.sanitizeFileName(name.getMethodName());
   }
 
   @Parameterized.Parameters(name = "{index}: with Gradle-{0}")
@@ -146,7 +245,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
 
   @Override
   protected String getTestsTempDir() {
-    return "gradleImportTests";
+    return "tmp";
   }
 
   @Override
@@ -164,6 +263,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
     ExternalSystemApiUtil.subscribe(myProject, GradleConstants.SYSTEM_ID, new ExternalSystemSettingsListenerAdapter() {
       @Override
       public void onProjectsLinked(@NotNull Collection settings) {
+        super.onProjectsLinked(settings);
         final Object item = ContainerUtil.getFirstItem(settings);
         if (item instanceof GradleProjectSettings) {
           ((GradleProjectSettings)item).setGradleJvm(GRADLE_JDK_NAME);
@@ -184,16 +284,30 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
     super.importProject(config);
   }
 
+  @Override
+  protected ImportSpec createImportSpec() {
+    ImportSpecBuilder importSpecBuilder = new ImportSpecBuilder(super.createImportSpec());
+    importSpecBuilder.withArguments("--stacktrace");
+    return importSpecBuilder.build();
+  }
+
   @NotNull
   protected String injectRepo(@NonNls @Language("Groovy") String config) {
     config = "allprojects {\n" +
-              "  repositories {\n" +
-              "    maven {\n" +
-              "        url 'http://maven.labs.intellij.net/repo1'\n" +
-              "    }\n" +
-              "  }" +
-              "}\n" + config;
+             "  repositories {\n" +
+             "    maven {\n" +
+             "        url 'https://repo.labs.intellij.net/repo1'\n" +
+             "    }\n" +
+             "  }" +
+             "}\n" + config;
     return config;
+  }
+
+  @NotNull
+  protected GradleRunConfiguration createEmptyGradleRunConfiguration(@NotNull String name) {
+    final RunManagerEx runManager = RunManagerEx.getInstanceEx(myProject);
+    final RunnerAndConfigurationSettings settings = runManager.createConfiguration(name, GradleExternalTaskConfigurationType.class);
+    return (GradleRunConfiguration)settings.getConfiguration();
   }
 
   @Override
@@ -210,11 +324,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
     return createProjectSubFile("settings.gradle", content);
   }
 
-  protected boolean isGradle40orNewer() {
-    return GradleVersion.version(gradleVersion).compareTo(GradleVersion.version("4.0")) >= 0;
-  }
-
-  private void configureWrapper() throws IOException, URISyntaxException {
+  private PathAssembler.LocalDistribution configureWrapper() throws IOException, URISyntaxException {
 
     final URI distributionUri = new DistributionLocator().getDistributionFor(GradleVersion.version(gradleVersion));
 
@@ -257,6 +367,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
     catch (IOException e) {
       e.printStackTrace();
     }
+    return localDistribution;
   }
 
   @NotNull
@@ -265,7 +376,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
   }
 
   protected void assertMergedModuleCompileLibDepScope(String moduleName, String depName) {
-    if (isGradleOlderThen_3_4() || isGradleNewerThen_4_5()) {
+    if (isGradleOlderThan("3.4") || isGradleNewerThan("4.5")) {
       assertModuleLibDepScope(moduleName, depName, DependencyScope.COMPILE);
     }
     else {
@@ -274,7 +385,7 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
   }
 
   protected void assertMergedModuleCompileModuleDepScope(String moduleName, String depName) {
-    if (isGradleOlderThen_3_4() || isGradleNewerThen_4_5()) {
+    if (isGradleOlderThan("3.4") || isGradleNewerThan("4.5")) {
       assertModuleModuleDepScope(moduleName, depName, DependencyScope.COMPILE);
     }
     else {
@@ -282,11 +393,32 @@ public abstract class GradleImportingTestCase extends ExternalSystemImportingTes
     }
   }
 
-  protected boolean isGradleOlderThen_3_4() {
-    return GradleVersion.version(gradleVersion).getBaseVersion().compareTo(GradleVersion.version("3.4")) < 0;
+  protected boolean isGradleOlderThan(@NotNull String ver) {
+    return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) < 0;
   }
 
-  protected boolean isGradleNewerThen_4_5() {
-    return GradleVersion.version(gradleVersion).compareTo(GradleVersion.version("4.5")) > 0;
+  protected boolean isGradleOlderOrSameAs(@NotNull String ver) {
+    return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) <= 0;
+  }
+
+  protected boolean isGradleNewerOrSameAs(@NotNull String ver) {
+    return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) >= 0;
+  }
+
+  protected boolean isGradleNewerThan(@NotNull String ver) {
+    return getCurrentGradleBaseVersion().compareTo(GradleVersion.version(ver)) > 0;
+  }
+
+  protected boolean isNewDependencyResolutionApplicable() {
+    return isGradleNewerOrSameAs("4.5") && getCurrentExternalProjectSettings().isResolveModulePerSourceSet();
+  }
+
+  protected String getExtraPropertiesExtensionFqn() {
+    return isGradleOlderThan("5.2") ? "org.gradle.api.internal.plugins.DefaultExtraPropertiesExtension"
+                                    : "org.gradle.internal.extensibility.DefaultExtraPropertiesExtension";
+  }
+
+  protected void enableGradleDebugWithSuspend() {
+    GradleSystemSettings.getInstance().setGradleVmOptions("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005");
   }
 }

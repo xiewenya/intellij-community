@@ -27,6 +27,7 @@ from IPython.core.usage import default_banner_parts
 from IPython.utils.strdispatch import StrDispatch
 import IPython.core.release as IPythonRelease
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
+from IPython.terminal.ipapp import load_default_config
 try:
     from traitlets import CBool, Unicode
 except ImportError:
@@ -34,7 +35,7 @@ except ImportError:
 from IPython.core import release
 
 from _pydev_bundle.pydev_imports import xmlrpclib
-from _pydevd_bundle.pydevd_constants import dict_keys
+from _pydevd_bundle.pydevd_constants import dict_keys, dict_iter_items
 
 default_pydev_banner_parts = default_banner_parts
 
@@ -50,7 +51,7 @@ def show_in_pager(self, strng, *args, **kwargs):
         strng = strng['text/plain']
     print(strng)
 
-def create_editor_hook(pydev_host, pydev_client_port):
+def create_editor_hook(rpc_client):
 
     def call_editor(filename, line=0, wait=True):
         """ Open an editor in PyDev """
@@ -65,8 +66,7 @@ def create_editor_hook(pydev_host, pydev_client_port):
         # sys.__stderr__.write('Calling editor at: %s:%s\n' % (pydev_host, pydev_client_port))
 
         # Tell PyDev to open the editor
-        server = xmlrpclib.Server('http://%s:%s' % (pydev_host, pydev_client_port))
-        server.IPythonEditor(filename, str(line))
+        rpc_client.IPythonEditor(filename, str(line))
 
         if wait:
             try:
@@ -76,7 +76,6 @@ def create_editor_hook(pydev_host, pydev_client_port):
     return call_editor
 
 
-
 class PyDevIPCompleter(IPCompleter):
 
     def __init__(self, *args, **kwargs):
@@ -84,7 +83,36 @@ class PyDevIPCompleter(IPCompleter):
             in addition to the completion support provided by IPython """
         IPCompleter.__init__(self, *args, **kwargs)
         # Use PyDev for python matches, see getCompletions below
-        self.matchers.remove(self.python_matches)
+        if self.python_matches in self.matchers:
+            # `self.python_matches` matches attributes or global python names
+            self.matchers.remove(self.python_matches)
+            
+class PyDevIPCompleter6(IPCompleter):
+    _pydev_matchers = None
+
+    def __init__(self, *args, **kwargs):
+        """ Create a Completer that reuses the advanced completion support of PyDev
+            in addition to the completion support provided by IPython """
+        IPCompleter.__init__(self, *args, **kwargs)
+
+    @property
+    def matchers(self):
+        # To remove python_matches we now have to override it as it's now a property in the superclass.
+        if self._pydev_matchers is None:
+            self._pydev_matchers = self._remove_python_matches(IPCompleter.matchers.fget(self))
+        return self._pydev_matchers
+
+    @matchers.setter
+    def matchers(self, value):
+        # Provide a setter for an overridden property
+        self._pydev_matchers = self._remove_python_matches(value)
+
+    def _remove_python_matches(self, original_matchers):
+        # `self.python_matches` matches attributes or global python names
+        if self.python_matches in original_matchers:
+            original_matchers.remove(self.python_matches)
+        return original_matchers
+
 
 class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
     banner1 = Unicode(default_pydev_banner, config=True,
@@ -158,8 +186,7 @@ class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
 
         if tb is not None:
             traceback.print_exception(etype, value, tb)
-
-
+            sys.last_type, sys.last_value, sys.last_traceback = etype, value, tb
 
     #-------------------------------------------------------------------------
     # Things related to text completion
@@ -190,6 +217,15 @@ class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
 
     def _new_completer_500(self):
         completer = PyDevIPCompleter(shell=self,
+                                     namespace=self.user_ns,
+                                     global_namespace=self.user_global_ns,
+                                     use_readline=False,
+                                     parent=self
+                                     )
+        return completer
+
+    def _new_completer_600(self):
+        completer = PyDevIPCompleter6(shell=self,
                                      namespace=self.user_ns,
                                      global_namespace=self.user_global_ns,
                                      use_readline=False,
@@ -230,7 +266,9 @@ class PyDevTerminalInteractiveShell(TerminalInteractiveShell):
         # extra information.
         # See getCompletions for where the two sets of results are merged
 
-        if IPythonRelease._version_major >= 5:
+        if IPythonRelease._version_major >= 6:
+            self.Completer = self._new_completer_600()
+        elif IPythonRelease._version_major >= 5:
             self.Completer = self._new_completer_500()
         elif IPythonRelease._version_major >= 2:
             self.Completer = self._new_completer_234()
@@ -307,7 +345,7 @@ class _PyDevFrontEnd:
         if hasattr(PyDevTerminalInteractiveShell, '_instance') and PyDevTerminalInteractiveShell._instance is not None:
             self.ipython = PyDevTerminalInteractiveShell._instance
         else:
-            self.ipython = PyDevTerminalInteractiveShell.instance()
+            self.ipython = PyDevTerminalInteractiveShell.instance(config=load_default_config())
 
         self._curr_exec_line = 0
         self._curr_exec_lines = []
@@ -324,10 +362,14 @@ class _PyDevFrontEnd:
 
         self.ipython.user_global_ns.clear()
         self.ipython.user_global_ns.update(globals)
-        self.ipython.user_ns = locals
+
+        # If `globals` and `locals` passed to the method are the same objects, we have to ensure that they are also
+        # the same in the IPython evaluation context to avoid troubles with some corner-cases such as generator expressions.
+        # See: `pydevd_console_integration.console_exec()`.
+        self.ipython.user_ns = self.ipython.user_global_ns if globals is locals else locals
 
         if hasattr(self.ipython, 'history_manager') and hasattr(self.ipython.history_manager, 'save_thread'):
-            self.ipython.history_manager.save_thread.pydev_do_not_trace = True #don't trace ipython history saving thread
+            self.ipython.history_manager.save_thread.pydev_do_not_trace = True  # don't trace ipython history saving thread
 
     def complete(self, string):
         try:
@@ -453,20 +495,20 @@ class _PyDevFrontEnd:
 
 class _PyDevFrontEndContainer:
     _instance = None
-    _last_host_port = None
+    _last_rpc_client = None
 
 
-def get_pydev_frontend(pydev_host, pydev_client_port):
+def get_pydev_frontend(rpc_client):
     if _PyDevFrontEndContainer._instance is None:
         _PyDevFrontEndContainer._instance = _PyDevFrontEnd()
 
-    if _PyDevFrontEndContainer._last_host_port != (pydev_host, pydev_client_port):
-        _PyDevFrontEndContainer._last_host_port = pydev_host, pydev_client_port
+    if _PyDevFrontEndContainer._last_rpc_client != rpc_client:
+        _PyDevFrontEndContainer._last_rpc_client = rpc_client
 
         # Back channel to PyDev to open editors (in the future other
         # info may go back this way. This is the same channel that is
         # used to get stdin, see StdIn in pydev_console_utils)
-        _PyDevFrontEndContainer._instance.ipython.hooks['editor'] = create_editor_hook(pydev_host, pydev_client_port)
+        _PyDevFrontEndContainer._instance.ipython.hooks['editor'] = create_editor_hook(rpc_client)
 
         # Note: setting the callback directly because setting it with set_hook would actually create a chain instead
         # of ovewriting at each new call).
@@ -474,4 +516,25 @@ def get_pydev_frontend(pydev_host, pydev_client_port):
 
     return _PyDevFrontEndContainer._instance
 
-    
+
+def get_ipython_hidden_vars(ipython_shell):
+    try:
+        if hasattr(ipython_shell, 'user_ns_hidden'):
+            user_ns_hidden = ipython_shell.user_ns_hidden
+            if isinstance(user_ns_hidden, dict):
+                # Since IPython 2 dict `user_ns_hidden` contains hidden variables and values
+                user_hidden_dict = user_ns_hidden.copy()
+            else:
+                # In IPython 1.x `user_ns_hidden` used to be a set with names of hidden variables
+                user_hidden_dict = dict([(key, val) for key, val in dict_iter_items(ipython_shell.user_ns)
+                                         if key in user_ns_hidden])
+
+            # while `_`, `__` and `___` were not initialized, they are not presented in `user_ns_hidden`
+            user_hidden_dict.setdefault('_', '')
+            user_hidden_dict.setdefault('__', '')
+            user_hidden_dict.setdefault('___', '')
+
+            return user_hidden_dict
+    except:
+        # Getting IPython variables shouldn't break loading frame variables
+        traceback.print_exc()

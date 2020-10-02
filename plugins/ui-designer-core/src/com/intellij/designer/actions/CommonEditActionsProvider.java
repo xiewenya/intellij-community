@@ -33,7 +33,6 @@ import com.intellij.ide.dnd.FileCopyPasteUtil;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.uiDesigner.SerializedComponentData;
-import com.intellij.util.ThrowableRunnable;
 import org.jdom.Element;
 import org.jdom.output.XMLOutputter;
 import org.jetbrains.annotations.NotNull;
@@ -233,7 +232,7 @@ public class CommonEditActionsProvider implements DeleteProvider, CopyProvider, 
       return true;
     }
     catch (Throwable e) {
-      myDesigner.showError("Copy error", e);
+      myDesigner.showError(DesignerBundle.message("designer.copy.error"), e);
       return false;
     }
   }

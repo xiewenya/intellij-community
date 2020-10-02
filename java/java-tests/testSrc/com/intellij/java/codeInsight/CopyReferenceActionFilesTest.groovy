@@ -15,21 +15,24 @@
  */
 package com.intellij.java.codeInsight
 
-import com.intellij.codeInsight.CodeInsightTestCase
+import com.intellij.codeInsight.JavaCodeInsightTestCase
 import com.intellij.ide.actions.CopyReferenceAction
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.module.JavaModuleType
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.PsiTestUtil
+import groovy.transform.CompileStatic
 
-class CopyReferenceActionFilesTest extends CodeInsightTestCase {
+@CompileStatic
+class CopyReferenceActionFilesTest extends JavaCodeInsightTestCase {
   VirtualFile additionalRoot
 
   @Override
   protected void setUp() throws Exception {
     super.setUp()
-
+    getModule().setModuleType(JavaModuleType.getModuleType().getId())
     ApplicationManager.application.runWriteAction(new Runnable() {
       @Override
       void run() {

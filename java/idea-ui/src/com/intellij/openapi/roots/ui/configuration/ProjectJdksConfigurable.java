@@ -16,11 +16,11 @@
 
 package com.intellij.openapi.roots.ui.configuration;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.JavaSdk;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -31,26 +31,30 @@ import com.intellij.openapi.ui.MasterDetailsComponent;
 import com.intellij.openapi.ui.MasterDetailsStateService;
 import com.intellij.openapi.ui.NamedConfigurable;
 import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Ref;
 import com.intellij.ui.JBSplitter;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.util.IconUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
 import java.util.*;
 
+import static com.intellij.openapi.projectRoots.SimpleJavaSdkType.notSimpleJavaSdkType;
+
 public class ProjectJdksConfigurable extends MasterDetailsComponent {
   private final ProjectSdksModel myProjectJdksModel;
   private final Project myProject;
 
-  public ProjectJdksConfigurable(Project project) {
+  public ProjectJdksConfigurable(@NotNull Project project) {
     this(project, ProjectStructureConfigurable.getInstance(project).getProjectJdksModel());
   }
 
-  public ProjectJdksConfigurable(Project project, ProjectSdksModel sdksModel) {
+  public ProjectJdksConfigurable(@NotNull Project project, @NotNull ProjectSdksModel sdksModel) {
     myProject = project;
     myProjectJdksModel = sdksModel;
     initTree();
@@ -85,6 +89,8 @@ public class ProjectJdksConfigurable extends MasterDetailsComponent {
     myRoot.removeAllChildren();
     final Map<Sdk, Sdk> sdks = myProjectJdksModel.getProjectSdks();
     for (Sdk sdk : sdks.keySet()) {
+      if (!(sdk instanceof ProjectJdkImpl)) continue;
+
       final JdkConfigurable configurable = new JdkConfigurable((ProjectJdkImpl)sdks.get(sdk), myProjectJdksModel, TREE_UPDATER, myHistory, myProject);
       addNode(new MyNode(configurable), myRoot);
     }
@@ -149,12 +155,12 @@ public class ProjectJdksConfigurable extends MasterDetailsComponent {
       return null;
     }
     final ArrayList<AnAction> actions = new ArrayList<>();
-    DefaultActionGroup group = new DefaultActionGroup(ProjectBundle.message("add.new.jdk.text"), true);
+    DefaultActionGroup group = DefaultActionGroup.createPopupGroup(JavaUiBundle.messagePointer("add.new.jdk.text"));
     group.getTemplatePresentation().setIcon(IconUtil.getAddIcon());
     myProjectJdksModel.createAddActions(group, myTree, projectJdk -> {
       addNode(new MyNode(new JdkConfigurable(((ProjectJdkImpl)projectJdk), myProjectJdksModel, TREE_UPDATER, myHistory, myProject), false), myRoot);
       selectNodeInTree(findNodeByObject(myRoot, projectJdk));
-    });
+    }, notSimpleJavaSdkType());
     actions.add(new MyActionGroupWrapper(group));
     actions.add(new MyDeleteAction(Conditions.alwaysTrue()));
     return actions;
@@ -178,7 +184,6 @@ public class ProjectJdksConfigurable extends MasterDetailsComponent {
 
   @Override
   protected boolean wasObjectStored(Object editableObject) {
-    //noinspection RedundantCast
     return myProjectJdksModel.getProjectSdks().containsKey((Sdk)editableObject);
   }
 
@@ -205,10 +210,8 @@ public class ProjectJdksConfigurable extends MasterDetailsComponent {
   }
 
   @Override
-  protected
-  @Nullable
-  String getEmptySelectionString() {
-    return "Select an SDK to view or edit its details here";
+  protected @NlsContexts.StatusText @Nullable String getEmptySelectionString() {
+    return JavaUiBundle.message("project.jdks.configurable.empty.selection.string");
   }
 
   public void selectJdkVersion(JavaSdkVersion requiredJdkVersion) {

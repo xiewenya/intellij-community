@@ -1,40 +1,38 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.streams.psi.impl;
 
+import com.intellij.debugger.streams.psi.ChainDetector;
 import com.intellij.debugger.streams.psi.ChainTransformer;
 import com.intellij.debugger.streams.psi.PsiUtil;
-import com.intellij.debugger.streams.psi.StreamApiUtil;
 import com.intellij.debugger.streams.wrapper.StreamChain;
 import com.intellij.debugger.streams.wrapper.StreamChainBuilder;
 import com.intellij.psi.*;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * @author Vitaliy.Bibaev
  */
 public class JavaStreamChainBuilder implements StreamChainBuilder {
-  private final MyStreamChainExistenceChecker myExistenceChecker = new MyStreamChainExistenceChecker();
-
   private final ChainTransformer.Java myChainTransformer;
-  @NotNull private final String mySupportedPackage;
+  private final ChainDetector myDetector;
 
-  public JavaStreamChainBuilder(@NotNull ChainTransformer.Java transformer, @NotNull String supportedPackage) {
+  public JavaStreamChainBuilder(@NotNull ChainTransformer.Java transformer, @NotNull ChainDetector detector) {
     myChainTransformer = transformer;
-    mySupportedPackage = supportedPackage;
+    myDetector = detector;
   }
 
   @Override
   public boolean isChainExists(@NotNull PsiElement startElement) {
     PsiElement current = getLatestElementInCurrentScope(PsiUtil.ignoreWhiteSpaces(startElement));
+    MyStreamChainExistenceChecker existenceChecker = new MyStreamChainExistenceChecker();
     while (current != null) {
-      myExistenceChecker.reset();
-      current.accept(myExistenceChecker);
-      if (myExistenceChecker.found()) {
+      current.accept(existenceChecker);
+      if (existenceChecker.found()) {
         return true;
       }
       current = toUpperLevel(current);
@@ -87,11 +85,7 @@ public class JavaStreamChainBuilder implements StreamChainBuilder {
 
   @NotNull
   private List<StreamChain> buildChains(@NotNull List<List<PsiMethodCallExpression>> chains, @NotNull PsiElement context) {
-    return chains.stream().map(x -> myChainTransformer.transform(x, context)).collect(Collectors.toList());
-  }
-
-  private boolean isPackageSupported(@NotNull String packageName) {
-    return packageName.startsWith(mySupportedPackage);
+    return ContainerUtil.map(chains, x -> myChainTransformer.transform(x, context));
   }
 
   private class MyStreamChainExistenceChecker extends MyVisitorBase {
@@ -101,13 +95,9 @@ public class JavaStreamChainBuilder implements StreamChainBuilder {
     public void visitMethodCallExpression(PsiMethodCallExpression expression) {
       if (myFound) return;
       super.visitMethodCallExpression(expression);
-      if (!myFound && StreamApiUtil.isTerminationStreamCall(expression) && isPackageSupported(getPackageName(expression))) {
+      if (!myFound && myDetector.isTerminationCall(expression)) {
         myFound = true;
       }
-    }
-
-    void reset() {
-      myFound = false;
     }
 
     boolean found() {
@@ -115,42 +105,27 @@ public class JavaStreamChainBuilder implements StreamChainBuilder {
     }
   }
 
-  @NotNull
-  private static String getPackageName(@NotNull PsiMethodCallExpression expression) {
-    final PsiMethod psiMethod = expression.resolveMethod();
-    if (psiMethod != null) {
-      final PsiClass topClass = com.intellij.psi.util.PsiUtil.getTopLevelClass(psiMethod);
-      if (topClass != null) {
-        final String packageName = com.intellij.psi.util.PsiUtil.getPackageName(topClass);
-        if (packageName != null) {
-          return packageName;
-        }
-      }
-    }
-    return "";
-  }
-
-  private static class MyChainCollectorVisitor extends MyVisitorBase {
+  private class MyChainCollectorVisitor extends MyVisitorBase {
     private final Set<PsiMethodCallExpression> myTerminationCalls = new HashSet<>();
     private final Map<PsiMethodCallExpression, PsiMethodCallExpression> myPreviousCalls = new HashMap<>();
 
     @Override
     public void visitMethodCallExpression(PsiMethodCallExpression expression) {
       super.visitMethodCallExpression(expression);
-      if (!myPreviousCalls.containsKey(expression) && StreamApiUtil.isStreamCall(expression)) {
+      if (!myPreviousCalls.containsKey(expression) && myDetector.isStreamCall(expression)) {
         updateCallTree(expression);
       }
     }
 
     private void updateCallTree(@NotNull PsiMethodCallExpression expression) {
-      if (StreamApiUtil.isTerminationStreamCall(expression)) {
+      if (myDetector.isTerminationCall(expression)) {
         myTerminationCalls.add(expression);
       }
 
       final PsiElement parent = expression.getParent();
       if (!(parent instanceof PsiReferenceExpression)) return;
       final PsiElement parentCall = parent.getParent();
-      if (parentCall instanceof PsiMethodCallExpression && StreamApiUtil.isStreamCall((PsiMethodCallExpression)parentCall)) {
+      if (parentCall instanceof PsiMethodCallExpression && myDetector.isStreamCall((PsiMethodCallExpression)parentCall)) {
         final PsiMethodCallExpression parentCallExpression = (PsiMethodCallExpression)parentCall;
         myPreviousCalls.put(parentCallExpression, expression);
         updateCallTree(parentCallExpression);
@@ -161,12 +136,10 @@ public class JavaStreamChainBuilder implements StreamChainBuilder {
     List<List<PsiMethodCallExpression>> getPsiChains() {
       final List<List<PsiMethodCallExpression>> chains = new ArrayList<>();
       for (final PsiMethodCallExpression terminationCall : myTerminationCalls) {
-        final List<PsiMethodCallExpression> chain = new ArrayList<>();
+        List<PsiMethodCallExpression> chain = new ArrayList<>();
         PsiMethodCallExpression current = terminationCall;
         while (current != null) {
-          if (StreamApiUtil.isProducerStreamCall(current)) {
-            break;
-          }
+          if (!myDetector.isIntermediateCall(current) && !myDetector.isTerminationCall(current)) break;
           chain.add(current);
           current = myPreviousCalls.get(current);
         }

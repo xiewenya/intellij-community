@@ -20,6 +20,7 @@ import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.filters.FilterUtil;
 import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ExceptionUtil;
 import org.jetbrains.annotations.Nullable;
 
 
@@ -86,7 +87,16 @@ public class AssignableFromFilter implements ElementFilter{
       return false;
     }
 
-    return expectedType.isAssignableFrom(typeByElement);
+    try {
+      return expectedType.isAssignableFrom(typeByElement);
+    }
+    catch (Throwable e) {
+      if (ExceptionUtil.getRootCause(e) instanceof PsiInvalidElementAccessException) {
+        PsiUtil.ensureValidType(expectedType);
+        throw new RuntimeException("Invalid type of " + element.getClass(), e);
+      }
+      throw e;
+    }
   }
 
   private static boolean allowBoxing(PsiElement place) {
@@ -112,12 +122,28 @@ public class AssignableFromFilter implements ElementFilter{
                                                                                       expectedType,
                                                                                       false,
                                                                                       PsiUtil.getLanguageLevel(place));
-      if (substitutionForParameter != PsiType.NULL && !(substitutionForParameter instanceof PsiIntersectionType) &&
-        PsiUtil.resolveClassInClassTypeOnly(substitutionForParameter) != parameter) {
+      if (substitutionForParameter != PsiType.NULL &&
+          !isImpossibleIntersection(substitutionForParameter) &&
+          !extendsImpossibleIntersection(PsiUtil.resolveClassInClassTypeOnly(substitutionForParameter)) &&
+          PsiUtil.resolveClassInClassTypeOnly(substitutionForParameter) != parameter) {
         return true;
       }
     }
     return false;
+  }
+
+  private static boolean extendsImpossibleIntersection(@Nullable PsiClass psiClass) {
+    if (psiClass instanceof PsiTypeParameter) {
+      PsiClassType[] supers = psiClass.getExtendsListTypes();
+      if (supers.length > 1) {
+        return isImpossibleIntersection(PsiIntersectionType.createIntersection(supers));
+      }
+    }
+    return false;
+  }
+
+  private static boolean isImpossibleIntersection(PsiType intersection) {
+    return intersection instanceof PsiIntersectionType && ((PsiIntersectionType)intersection).getConflictingConjunctsMessage() != null;
   }
 
   public String toString(){

@@ -23,6 +23,7 @@ import com.intellij.framework.detection.FrameworkDetector;
 import com.intellij.framework.detection.impl.FrameworkDetectionProcessor;
 import com.intellij.framework.detection.impl.FrameworkDetectionUtil;
 import com.intellij.framework.detection.impl.ui.DetectedFrameworksComponent;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.projectWizard.AbstractStepWithProgress;
 import com.intellij.ide.util.projectWizard.importSources.ProjectFromSourcesBuilder;
 import com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSourcesBuilderImpl;
@@ -30,7 +31,6 @@ import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.ModifiableModelsProvider;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
 import com.intellij.openapi.util.Comparing;
@@ -43,21 +43,18 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author nik
- */
 public abstract class FrameworkDetectionStep extends AbstractStepWithProgress<List<? extends DetectedFrameworkDescription>>
   implements ProjectFromSourcesBuilderImpl.ProjectConfigurationUpdater {
   private final Icon myIcon;
-  private List<File> myLastRoots = null;
+  private List<File> myLastRoots;
   private final DetectedFrameworksComponent myDetectedFrameworksComponent;
   private JPanel myMainPanel;
   private JPanel myFrameworksPanel;
   private JLabel myFrameworksDetectedLabel;
   private final FrameworkDetectionContext myContext;
 
-  public FrameworkDetectionStep(final Icon icon, final ProjectFromSourcesBuilder builder) {
-    super(ProjectBundle.message("message.text.stop.searching.for.frameworks", ApplicationNamesInfo.getInstance().getProductName()));
+  protected FrameworkDetectionStep(final Icon icon, final ProjectFromSourcesBuilder builder) {
+    super(JavaUiBundle.message("message.text.stop.searching.for.frameworks", ApplicationNamesInfo.getInstance().getProductName()));
     myIcon = icon;
     myContext = new FrameworkDetectionInWizardContext() {
       @Override
@@ -73,23 +70,28 @@ public abstract class FrameworkDetectionStep extends AbstractStepWithProgress<Li
     myDetectedFrameworksComponent = new DetectedFrameworksComponent(myContext);
   }
 
+  @Override
   public void updateDataModel() {
   }
 
+  @Override
   protected boolean shouldRunProgress() {
     return myLastRoots == null || !Comparing.haveEqualElements(myLastRoots, getRoots());
   }
 
+  @Override
   protected String getProgressText() {
-    return ProjectBundle.message("progress.text.searching.frameworks");
+    return JavaUiBundle.message("progress.text.searching.frameworks");
   }
 
+  @Override
   protected JComponent createResultsPanel() {
     JComponent mainPanel = myDetectedFrameworksComponent.getMainPanel();
     myFrameworksPanel.add(mainPanel, BorderLayout.CENTER);
     return myMainPanel;
   }
 
+  @Override
   protected List<? extends DetectedFrameworkDescription> calculate() {
     myLastRoots = getRoots();
 
@@ -114,17 +116,19 @@ public abstract class FrameworkDetectionStep extends AbstractStepWithProgress<Li
     return roots;
   }
 
+  @Override
   protected void onFinished(final List<? extends DetectedFrameworkDescription> result, final boolean canceled) {
     myDetectedFrameworksComponent.getTree().rebuildTree(result);
     if (result.isEmpty()) {
-      myFrameworksDetectedLabel.setText(ProjectBundle.message("label.text.no.frameworks.detected"));
+      myFrameworksDetectedLabel.setText(JavaUiBundle.message("label.text.no.frameworks.detected"));
     }
     else {
-      myFrameworksDetectedLabel.setText(ProjectBundle.message("label.text.the.following.frameworks.are.detected"));
+      myFrameworksDetectedLabel.setText(JavaUiBundle.message("label.text.the.following.frameworks.are.detected"));
     }
     myFrameworksPanel.setVisible(!result.isEmpty());
   }
 
+  @Override
   public Icon getIcon() {
     return myIcon;
   }
@@ -133,11 +137,13 @@ public abstract class FrameworkDetectionStep extends AbstractStepWithProgress<Li
     return FrameworkDetector.EP_NAME.getExtensions().length > 0;
   }
 
+  @Override
   @NonNls
   public String getHelpId() {
     return "reference.dialogs.new.project.fromCode.facets";
   }
 
+  @Override
   public void updateProject(@NotNull Project project, @NotNull ModifiableModelsProvider modelsProvider, @NotNull ModulesProvider modulesProvider) {
     FrameworkDetectionUtil.setupFrameworks(myDetectedFrameworksComponent.getSelectedFrameworks(), modelsProvider, modulesProvider);
     myDetectedFrameworksComponent.processUncheckedNodes(DetectionExcludesConfiguration.getInstance(project));

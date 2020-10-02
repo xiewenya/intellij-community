@@ -58,3 +58,39 @@ class Y {
         private static String s = "";
     }
 }
+class AnonymousArgTest {
+    private int m() {return 0;}
+
+    void test() {
+        new Inner(m());
+        new Inner(m()) {};
+        new Inner(m()) {
+            int x = <warning descr="Access to private member of class 'AnonymousArgTest' requires synthetic accessor">m</warning>();
+        };
+    }
+
+    static class Inner {
+        Inner(int x) {}
+    }
+}
+final class InheritTest {
+    Object createInnerClass() {
+        return new <warning descr="Access to private member of class 'InnerClass' requires synthetic accessor">InnerClass</warning>();
+    }
+    private final class InnerClass {
+        // default private constructor
+    }
+}
+class Sample {
+    private interface I {
+        void start();
+    }
+
+    public static void main(String[] args) {
+        new I() {
+            @Override
+            public void start() {
+            }
+        };
+    }
+}

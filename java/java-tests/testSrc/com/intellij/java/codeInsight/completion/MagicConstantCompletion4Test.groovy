@@ -19,15 +19,20 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.LightProjectDescriptor
+import com.intellij.testFramework.NeedsIndex
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import com.intellij.util.indexing.DumbModeAccessType
+import com.intellij.util.indexing.FileBasedIndex
+import groovy.transform.CompileStatic
 import org.intellij.lang.annotations.MagicConstant
 
 /**
  * @author peter
  */
-class MagicConstantCompletion4Test extends LightCodeInsightFixtureTestCase {
+@CompileStatic
+class MagicConstantCompletion4Test extends LightJavaCodeInsightFixtureTestCase {
   LightProjectDescriptor projectDescriptor = new DefaultLightProjectDescriptor() {
     @Override
     Sdk getSdk() {
@@ -35,8 +40,11 @@ class MagicConstantCompletion4Test extends LightCodeInsightFixtureTestCase {
     }
   }
 
+  @NeedsIndex.ForStandardLibrary
   void "test suppress class constants in MagicConstant presence"() {
-    assert !myFixture.javaFacade.findClass(MagicConstant.name, GlobalSearchScope.allScope(myFixture.project))
+    FileBasedIndex.getInstance().ignoreDumbMode(DumbModeAccessType.RELIABLE_DATA_ONLY, { ->
+      assert !myFixture.javaFacade.findClass(MagicConstant.name, GlobalSearchScope.allScope(myFixture.project))
+    })
 
     myFixture.configureByText "a.java", """import java.util.*;
 class Bar {

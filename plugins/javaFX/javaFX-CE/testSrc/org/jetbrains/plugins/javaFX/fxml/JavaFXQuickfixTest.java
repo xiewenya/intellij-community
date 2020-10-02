@@ -23,7 +23,7 @@ import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import com.intellij.util.VisibilityUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,12 +32,12 @@ import org.jetbrains.plugins.javaFX.fxml.codeInsight.intentions.JavaFxInjectPage
 
 import java.util.Set;
 
-public class JavaFXQuickfixTest extends LightCodeInsightFixtureTestCase {
+public class JavaFXQuickfixTest extends LightJavaCodeInsightFixtureTestCase {
   public static final DefaultLightProjectDescriptor JAVA_FX_WITH_GROOVY_DESCRIPTOR = new DefaultLightProjectDescriptor() {
     @Override
     public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      AbstractJavaFXTestCase.addJavaFxJarAsLibrary(module, model);
-      PsiTestUtil.addLibrary(module, model, "javafx", PluginPathManager.getPluginHomePath("javaFX") + "/testData", "groovy-1.8.0.jar");
+      AbstractJavaFXTestCase.addJavaFxJarAsLibrary(model);
+      PsiTestUtil.addLibrary(model, "javafx", PluginPathManager.getPluginHomePath("javaFX") + "/testData", "groovy-1.8.0.jar");
       super.configureModule(module, model, contentEntry);
     }
   };
@@ -141,8 +141,7 @@ public class JavaFXQuickfixTest extends LightCodeInsightFixtureTestCase {
     assertNotNull(intention);
     Set<String> languages = JavaFxInjectPageLanguageIntention.getAvailableLanguages(getProject());
     assertContainsElements(languages, "groovy");
-    JavaFxInjectPageLanguageIntention languageIntention =
-      (JavaFxInjectPageLanguageIntention)((IntentionActionDelegate)intention).getDelegate();
+    JavaFxInjectPageLanguageIntention languageIntention = (JavaFxInjectPageLanguageIntention)IntentionActionDelegate.unwrap(intention);
     languageIntention.registerPageLanguage(getProject(), (XmlFile)myFixture.getFile(), "groovy");
     myFixture.checkResultByFile(getTestName(true) + ".fxml", getTestName(true) + "_after.fxml", true);
   }
@@ -159,15 +158,8 @@ public class JavaFXQuickfixTest extends LightCodeInsightFixtureTestCase {
                                            final String inputName,
                                            final String defaultVisibility,
                                            final String extension) {
-    JavaCodeStyleSettings settings = JavaCodeStyleSettings.getInstance(getProject());
-    String savedVisibility = settings.VISIBILITY;
-    try {
-      settings.VISIBILITY = defaultVisibility;
-      doTest(actionName, inputName, getTestName(false), extension);
-    }
-    finally {
-      settings.VISIBILITY = savedVisibility;
-    }
+    JavaCodeStyleSettings.getInstance(getProject()).VISIBILITY = defaultVisibility;
+    doTest(actionName, inputName, getTestName(false), extension);
   }
 
   private void doTest(final String actionName, final String extension) {

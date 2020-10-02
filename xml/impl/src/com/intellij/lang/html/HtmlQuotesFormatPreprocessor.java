@@ -27,7 +27,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.XmlRecursiveElementVisitor;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.formatter.xml.HtmlCodeStyleSettings;
 import com.intellij.psi.impl.source.codeStyle.PostFormatProcessorHelper;
 import com.intellij.psi.impl.source.codeStyle.PreFormatProcessor;
@@ -44,11 +43,16 @@ public class HtmlQuotesFormatPreprocessor implements PreFormatProcessor {
     PsiElement psiElement = node.getPsi();
     if (psiElement != null &&
         psiElement.isValid() &&
-        psiElement.getLanguage().is(HTMLLanguage.INSTANCE)) {
-      CodeStyleSettings rootSettings = CodeStyleSettingsManager.getSettings(psiElement.getProject());
+        psiElement.getLanguage().isKindOf(HTMLLanguage.INSTANCE)) {
+      PsiFile file = psiElement.getContainingFile();
+      PsiElement fileContext = file.getContext();
+      String contextQuote = fileContext != null ? Character.toString(fileContext.getText().charAt(0)) : null;
+      CodeStyleSettings rootSettings = CodeStyle.getSettings(file);
       HtmlCodeStyleSettings htmlSettings = rootSettings.getCustomSettings(HtmlCodeStyleSettings.class);
       CodeStyleSettings.QuoteStyle quoteStyle = htmlSettings.HTML_QUOTE_STYLE;
-      if (quoteStyle != CodeStyleSettings.QuoteStyle.None && htmlSettings.HTML_ENFORCE_QUOTES) {
+      if (quoteStyle != CodeStyleSettings.QuoteStyle.None
+          && htmlSettings.HTML_ENFORCE_QUOTES
+          && !StringUtil.equals(quoteStyle.quote, contextQuote)) {
         PostFormatProcessorHelper postFormatProcessorHelper =
           new PostFormatProcessorHelper(rootSettings.getCommonSettings(HTMLLanguage.INSTANCE));
         postFormatProcessorHelper.setResultTextRange(range);
@@ -84,7 +88,7 @@ public class HtmlQuotesFormatPreprocessor implements PreFormatProcessor {
       myDocument = file.getViewProvider().getDocument();
       switch (style) {
         case Single:
-          myNewQuote = "\'";
+          myNewQuote = "'";
           break;
         case Double:
           myNewQuote = "\"";

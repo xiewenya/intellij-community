@@ -21,9 +21,9 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -34,22 +34,10 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 public class GroovyNonShortCircuitBooleanInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Non short-circuit boolean";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Non short-circuit boolean expression #loc";
+    return GroovyBundle.message("inspection.message.non.short.circuit.boolean.expression");
 
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return false;
   }
 
   @Override
@@ -63,7 +51,7 @@ public class GroovyNonShortCircuitBooleanInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Replace with short-circuit expression";
+      return GroovyBundle.message("intention.family.name.replace.with.short.circuit.expression");
     }
 
     @Override

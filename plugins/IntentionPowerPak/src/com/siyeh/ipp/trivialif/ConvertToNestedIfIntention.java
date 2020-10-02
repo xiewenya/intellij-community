@@ -8,9 +8,9 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.CommentTracker;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ipp.base.Intention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import com.siyeh.ipp.psiutils.ErrorUtil;
@@ -27,12 +27,13 @@ public class ConvertToNestedIfIntention extends Intention {
   public PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
 
+      @Override
       public boolean satisfiedBy(PsiElement element) {
         if (!(element instanceof PsiReturnStatement)) {
           return false;
         }
         final PsiReturnStatement returnStatement = (PsiReturnStatement)element;
-        final PsiExpression returnValue = ParenthesesUtils.stripParentheses(returnStatement.getReturnValue());
+        final PsiExpression returnValue = PsiUtil.skipParenthesizedExprDown(returnStatement.getReturnValue());
         if (!(returnValue instanceof PsiPolyadicExpression)) {
           return false;
         }
@@ -56,10 +57,16 @@ public class ConvertToNestedIfIntention extends Intention {
     final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
     final PsiBlockStatement blockStatement = (PsiBlockStatement)elementFactory.createStatementFromText("{" + newStatementText + "}", returnStatement);
     final PsiElement parent = returnStatement.getParent();
-    for (PsiStatement st : blockStatement.getCodeBlock().getStatements()) {
-      CodeStyleManager.getInstance(project).reformat(parent.addBefore(st, returnStatement));
+    if (parent instanceof PsiCodeBlock) {
+      for (PsiStatement st : blockStatement.getCodeBlock().getStatements()) {
+        CodeStyleManager.getInstance(project).reformat(parent.addBefore(st, returnStatement));
+      }
+      PsiReplacementUtil.replaceStatement(returnStatement, "return false;", tracker);
     }
-    PsiReplacementUtil.replaceStatement(returnStatement, "return false;", tracker);
+    else {
+      blockStatement.getCodeBlock().add(elementFactory.createStatementFromText("return false;", returnStatement));
+      tracker.replaceAndRestoreComments(returnStatement, blockStatement);
+    }
   }
 
   private static StringBuilder buildIf(@Nullable PsiExpression expression,

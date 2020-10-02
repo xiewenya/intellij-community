@@ -19,17 +19,14 @@ import com.intellij.openapi.module.LoadedModuleDescription
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.roots.ModuleRootManager
 
-/**
- * @author nik
- */
 class LoadedModuleDescriptionImpl(private val module: Module): LoadedModuleDescription {
-  override fun getModule() = module
+  override fun getModule(): Module = module
 
-  override fun getName() = module.name
+  override fun getName(): String = module.name
 
-  override fun getDependencyModuleNames() = ModuleRootManager.getInstance(module).dependencyModuleNames.asList()
+  override fun getDependencyModuleNames(): List<String> = ModuleRootManager.getInstance(module).dependencyModuleNames.asList()
 
-  override fun equals(other: Any?) = other is LoadedModuleDescriptionImpl && module == other.module
+  override fun equals(other: Any?): Boolean = other is LoadedModuleDescriptionImpl && module == other.module
 
-  override fun hashCode() = module.hashCode()
+  override fun hashCode(): Int = module.hashCode()
 }

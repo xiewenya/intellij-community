@@ -23,9 +23,6 @@ import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.module.JpsModule;
 
-/**
- * @author nik
- */
 public class LayoutElementTestUtil {
   public static LayoutElementCreator root() {
     return new LayoutElementCreator(JpsPackagingElementFactory.getInstance().createArtifactRoot(), null);
@@ -80,6 +77,10 @@ public class LayoutElementTestUtil {
 
     public LayoutElementCreator module(JpsModule module) {
       return element(JpsJavaExtensionService.getInstance().createProductionModuleOutput(module.createReference()));
+    }
+
+    public LayoutElementCreator moduleSource(JpsModule module) {
+      return element(JpsJavaExtensionService.getInstance().createProductionModuleSource(module.createReference()));
     }
 
     public LayoutElementCreator element(JpsPackagingElement element) {

@@ -28,6 +28,7 @@ import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.util.MathUtil;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Locale;
@@ -43,34 +44,24 @@ public class ToggleCaseAction extends TextComponentEditorAction {
     @Override
     public void executeWriteAction(final Editor editor, @Nullable Caret caret, DataContext dataContext) {
       final Ref<Boolean> toLowerCase = new Ref<>(Boolean.FALSE);
-      runForCaret(editor, caret, new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          if (!caret.hasSelection()) {
-            caret.selectWordAtCaret(true);
-          }
-          int selectionStartOffset = caret.getSelectionStart();
-          int selectionEndOffset = caret.getSelectionEnd();
-          String originalText = editor.getDocument().getText(new TextRange(selectionStartOffset, selectionEndOffset));
-          if (!originalText.equals(toCase(editor, selectionStartOffset, selectionEndOffset, true))) {
-            toLowerCase.set(Boolean.TRUE);
-          }
+      runForCaret(editor, caret, c -> {
+        if (!c.hasSelection()) {
+          c.selectWordAtCaret(true);
+        }
+        int selectionStartOffset = c.getSelectionStart();
+        int selectionEndOffset = c.getSelectionEnd();
+        String originalText = editor.getDocument().getText(new TextRange(selectionStartOffset, selectionEndOffset));
+        if (!originalText.equals(toCase(editor, selectionStartOffset, selectionEndOffset, true))) {
+          toLowerCase.set(Boolean.TRUE);
         }
       });
-      runForCaret(editor, caret, new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          VisualPosition caretPosition = caret.getVisualPosition();
-          int selectionStartOffset = caret.getSelectionStart();
-          int selectionEndOffset = caret.getSelectionEnd();
-          VisualPosition selectionStartPosition = caret.getSelectionStartPosition();
-          VisualPosition selectionEndPosition = caret.getSelectionEndPosition();
-          caret.removeSelection();
-          editor.getDocument().replaceString(selectionStartOffset, selectionEndOffset,
-                                             toCase(editor, selectionStartOffset, selectionEndOffset, toLowerCase.get()));
-          caret.moveToVisualPosition(caretPosition);
-          caret.setSelection(selectionStartPosition, selectionStartOffset, selectionEndPosition, selectionEndOffset);
-        }
+      runForCaret(editor, caret, c -> {
+        VisualPosition caretPosition = c.getVisualPosition();
+        int selectionStartOffset = c.getSelectionStart();
+        int selectionEndOffset = c.getSelectionEnd();
+        editor.getDocument().replaceString(selectionStartOffset, selectionEndOffset,
+                                           toCase(editor, selectionStartOffset, selectionEndOffset, toLowerCase.get()));
+        c.moveToVisualPosition(caretPosition);
       });
     }
 
@@ -96,8 +87,8 @@ public class ToggleCaseAction extends TextComponentEditorAction {
       HighlighterIterator iterator = highlighter.createIterator(startOffset);
       StringBuilder builder = new StringBuilder(endOffset - startOffset);
       while (!iterator.atEnd()) {
-        int start = trim(iterator.getStart(), startOffset, endOffset);
-        int end = trim(iterator.getEnd(), startOffset, endOffset);
+        int start = MathUtil.clamp(iterator.getStart(), startOffset, endOffset);
+        int end = MathUtil.clamp(iterator.getEnd(), startOffset, endOffset);
         CharSequence fragment = text.subSequence(start, end);
 
         builder.append(iterator.getTokenType() == VALID_STRING_ESCAPE_TOKEN ? fragment :
@@ -108,10 +99,6 @@ public class ToggleCaseAction extends TextComponentEditorAction {
         iterator.advance();
       }
       return builder.toString();
-    }
-
-    private static int trim(int value, int lowerLimit, int upperLimit) {
-      return Math.min(upperLimit, Math.max(lowerLimit, value));
     }
   }
 }

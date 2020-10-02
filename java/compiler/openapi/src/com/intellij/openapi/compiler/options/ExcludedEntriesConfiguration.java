@@ -16,9 +16,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 
-/**
- * @author nik
- */
 public class ExcludedEntriesConfiguration implements PersistentStateComponent<ExcludedEntriesConfiguration>, JDOMExternalizable, Disposable,
                                                      ExcludesConfiguration {
   @NonNls private static final String FILE = "file";
@@ -79,6 +76,7 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     return myExcludeEntryDescriptions.contains(description);
   }
 
+  @Override
   public void readExternal(final Element node) {
     removeAllExcludeEntryDescriptions();
     for (final Element element : node.getChildren()) {
@@ -96,6 +94,7 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     }
   }
 
+  @Override
   public void writeExternal(final Element element) {
     for (final ExcludeEntryDescription description : getExcludeEntryDescriptions()) {
       if (description.isFile()) {
@@ -141,16 +140,19 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     return false;
   }
 
+  @Override
   public void dispose() {
     for (ExcludeEntryDescription description : myExcludeEntryDescriptions) {
       Disposer.dispose(description);
     }
   }
 
+  @Override
   public ExcludedEntriesConfiguration getState() {
     return this;
   }
 
+  @Override
   public void loadState(@NotNull final ExcludedEntriesConfiguration state) {
     for (ExcludeEntryDescription description : state.getExcludeEntryDescriptions()) {
       addExcludeEntryDescription(description.copy(this));

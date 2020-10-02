@@ -30,7 +30,7 @@ import java.util.Collection;
  * @author peter
 */
 public abstract class PatternCondition<T> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.patterns.PatternCondition");
+  private static final Logger LOG = Logger.getInstance(PatternCondition.class);
   @NonNls private static final String PARAMETER_FIELD_PREFIX = "val$";
   private final String myDebugMethodName;
 
@@ -108,7 +108,7 @@ public abstract class PatternCondition<T> {
   }
 
   // this code eats CPU, for debug purposes ONLY
-  public boolean processParameters(final PairProcessor<String, Object> processor) {
+  public boolean processParameters(final PairProcessor<? super String, Object> processor) {
     for (Class aClass = getClass(); aClass != null; aClass = aClass.getSuperclass()) {
       for (final Field field : aClass.getDeclaredFields()) {
         if (!Modifier.isStatic(field.getModifiers()) &&

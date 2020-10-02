@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.PsiBuilderFactory;
@@ -21,22 +6,25 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
+import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase;
+import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.vfs.NonPhysicalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
+import com.intellij.openapi.wm.ex.ProgressIndicatorEx;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.file.impl.FileManager;
 import com.intellij.psi.impl.file.impl.FileManagerImpl;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.messages.MessageBus;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -44,13 +32,13 @@ import org.jetbrains.annotations.TestOnly;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class PsiManagerImpl extends PsiManagerEx {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.PsiManagerImpl");
+public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
+  private static final Logger LOG = Logger.getInstance(PsiManagerImpl.class);
 
   private final Project myProject;
-  private final FileIndexFacade myFileIndex;
-  private final MessageBus myMessageBus;
+  private final NotNullLazyValue<? extends FileIndexFacade> myFileIndex;
   private final PsiModificationTracker myModificationTracker;
 
   private final FileManagerImpl myFileManager;
@@ -59,51 +47,39 @@ public class PsiManagerImpl extends PsiManagerEx {
   private final List<PsiTreeChangeListener> myTreeChangeListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private boolean myTreeChangeEventIsFiring;
 
-  private boolean myIsDisposed;
-
   private VirtualFileFilter myAssertOnFileLoadingFilter = VirtualFileFilter.NONE;
 
   private final AtomicInteger myBatchFilesProcessingModeCount = new AtomicInteger(0);
 
-  public static final Topic<AnyPsiChangeListener> ANY_PSI_CHANGE_TOPIC =
-    Topic.create("ANY_PSI_CHANGE_TOPIC", AnyPsiChangeListener.class, Topic.BroadcastDirection.TO_PARENT);
+  public static final Topic<AnyPsiChangeListener> ANY_PSI_CHANGE_TOPIC = new Topic<>(AnyPsiChangeListener.class, Topic.BroadcastDirection.TO_PARENT);
 
-  public PsiManagerImpl(Project project,
-                        FileDocumentManager fileDocumentManager,
-                        PsiBuilderFactory psiBuilderFactory,
-                        FileIndexFacade fileIndex,
-                        MessageBus messageBus,
-                        PsiModificationTracker modificationTracker) {
+  public PsiManagerImpl(@NotNull Project project) {
+    // we need to initialize PsiBuilderFactory service so it won't initialize under PsiLock from ChameleonTransform
+    PsiBuilderFactory.getInstance();
+
     myProject = project;
-    myFileIndex = fileIndex;
-    myMessageBus = messageBus;
-    myModificationTracker = modificationTracker;
+    myFileIndex = NotNullLazyValue.createValue(() -> FileIndexFacade.getInstance(project));
+    myModificationTracker = PsiModificationTracker.SERVICE.getInstance(project);
 
-    //We need to initialize PsiBuilderFactory service so it won't initialize under PsiLock from ChameleonTransform
-    @SuppressWarnings({"UnusedDeclaration", "UnnecessaryLocalVariable"}) Object used = psiBuilderFactory;
+    myFileManager = new FileManagerImpl(this, myFileIndex);
 
-    myFileManager = new FileManagerImpl(this, fileDocumentManager, fileIndex);
+    myTreeChangePreprocessors.add((PsiTreeChangePreprocessor)myModificationTracker);
+  }
 
-    myTreeChangePreprocessors.add((PsiTreeChangePreprocessor)modificationTracker);
-
-    Disposer.register(project, new Disposable() {
-      @Override
-      public void dispose() {
-        myIsDisposed = true;
-      }
-    });
+  @Override
+  public void dispose() {
+    myFileManager.dispose();
   }
 
   @Override
   public boolean isDisposed() {
-    return myIsDisposed;
+    return myProject.isDisposed();
   }
 
   @Override
   public void dropResolveCaches() {
     myFileManager.processQueue();
     beforeChange(true);
-    beforeChange(false);
   }
 
   @Override
@@ -132,7 +108,7 @@ public class PsiManagerImpl extends PsiManagerEx {
     }
     if (file != null && file.isPhysical() && virtualFile.getFileSystem() instanceof NonPhysicalFileSystem) return true;
 
-    return virtualFile != null && myFileIndex.isInContent(virtualFile);
+    return virtualFile != null && myFileIndex.getValue().isInContent(virtualFile);
   }
 
   @Override
@@ -140,12 +116,7 @@ public class PsiManagerImpl extends PsiManagerEx {
   public void setAssertOnFileLoadingFilter(@NotNull VirtualFileFilter filter, @NotNull Disposable parentDisposable) {
     // Find something to ensure there's no changed files waiting to be processed in repository indices.
     myAssertOnFileLoadingFilter = filter;
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        myAssertOnFileLoadingFilter = VirtualFileFilter.NONE;
-      }
-    });
+    Disposer.register(parentDisposable, () -> myAssertOnFileLoadingFilter = VirtualFileFilter.NONE);
   }
 
   @Override
@@ -183,8 +154,8 @@ public class PsiManagerImpl extends PsiManagerEx {
     return myFileManager.findFile(file);
   }
 
+  @NotNull
   @Override
-  @Nullable
   public FileViewProvider findViewProvider(@NotNull VirtualFile file) {
     ProgressIndicatorProvider.checkCanceled();
     return myFileManager.findViewProvider(file);
@@ -209,12 +180,7 @@ public class PsiManagerImpl extends PsiManagerEx {
   @Override
   public void addPsiTreeChangeListener(@NotNull final PsiTreeChangeListener listener, @NotNull Disposable parentDisposable) {
     addPsiTreeChangeListener(listener);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        removePsiTreeChangeListener(listener);
-      }
-    });
+    Disposer.register(parentDisposable, () -> removePsiTreeChangeListener(listener));
   }
 
   @Override
@@ -222,10 +188,10 @@ public class PsiManagerImpl extends PsiManagerEx {
     myTreeChangeListeners.remove(listener);
   }
 
-  private static String logPsi(@Nullable PsiElement element) {
+  private static @NonNls String logPsi(@Nullable PsiElement element) {
     return element == null ? " null" : element.getClass().getName();
   }
-  
+
   @Override
   public void beforeChildAddition(@NotNull PsiTreeChangeEventImpl event) {
     beforeChange(true);
@@ -371,73 +337,19 @@ public class PsiManagerImpl extends PsiManagerEx {
       for (PsiTreeChangePreprocessor preprocessor : myTreeChangePreprocessors) {
         preprocessor.treeChanged(event);
       }
-      boolean enableOutOfCodeBlockTracking = ((PsiModificationTrackerImpl)myModificationTracker).isEnableCodeBlockTracker();
-      for (PsiTreeChangePreprocessor preprocessor : Extensions.getExtensions(PsiTreeChangePreprocessor.EP_NAME, myProject)) {
-        if (!enableOutOfCodeBlockTracking && preprocessor instanceof PsiTreeChangePreprocessorBase) continue;
-        preprocessor.treeChanged(event);
-      }
-      if (!enableOutOfCodeBlockTracking) {
-        for (PsiTreeChangePreprocessor preprocessor : Extensions.getExtensions(PsiTreeChangePreprocessor.EP_NAME, myProject)) {
-          if (!(preprocessor instanceof PsiTreeChangePreprocessorBase)) continue;
-          ((PsiTreeChangePreprocessorBase)preprocessor).onOutOfCodeBlockModification(event);
-        }
-      }
-
-      for (PsiTreeChangeListener listener : myTreeChangeListeners) {
+      for (PsiTreeChangePreprocessor preprocessor : PsiTreeChangePreprocessor.EP.getExtensions(myProject)) {
         try {
-          switch (event.getCode()) {
-            case BEFORE_CHILD_ADDITION:
-              listener.beforeChildAddition(event);
-              break;
-
-            case BEFORE_CHILD_REMOVAL:
-              listener.beforeChildRemoval(event);
-              break;
-
-            case BEFORE_CHILD_REPLACEMENT:
-              listener.beforeChildReplacement(event);
-              break;
-
-            case BEFORE_CHILD_MOVEMENT:
-              listener.beforeChildMovement(event);
-              break;
-
-            case BEFORE_CHILDREN_CHANGE:
-              listener.beforeChildrenChange(event);
-              break;
-
-            case BEFORE_PROPERTY_CHANGE:
-              listener.beforePropertyChange(event);
-              break;
-
-            case CHILD_ADDED:
-              listener.childAdded(event);
-              break;
-
-            case CHILD_REMOVED:
-              listener.childRemoved(event);
-              break;
-
-            case CHILD_REPLACED:
-              listener.childReplaced(event);
-              break;
-
-            case CHILD_MOVED:
-              listener.childMoved(event);
-              break;
-
-            case CHILDREN_CHANGED:
-              listener.childrenChanged(event);
-              break;
-
-            case PROPERTY_CHANGED:
-              listener.propertyChanged(event);
-              break;
-          }
+          preprocessor.treeChanged(event);
         }
-        catch (Exception e) {
+        catch (Throwable e) {
           LOG.error(e);
         }
+      }
+      for (PsiTreeChangeListener listener : myTreeChangeListeners) {
+        notifyPsiTreeChangeListener(event, listener);
+      }
+      for (PsiTreeChangeListener listener : PsiTreeChangeListener.EP.getExtensions(myProject)) {
+        notifyPsiTreeChangeListener(event, listener);
       }
     }
     finally {
@@ -447,9 +359,66 @@ public class PsiManagerImpl extends PsiManagerEx {
     }
   }
 
+  private static void notifyPsiTreeChangeListener(@NotNull PsiTreeChangeEventImpl event, PsiTreeChangeListener listener) {
+    try {
+      switch (event.getCode()) {
+        case BEFORE_CHILD_ADDITION:
+          listener.beforeChildAddition(event);
+          break;
+
+        case BEFORE_CHILD_REMOVAL:
+          listener.beforeChildRemoval(event);
+          break;
+
+        case BEFORE_CHILD_REPLACEMENT:
+          listener.beforeChildReplacement(event);
+          break;
+
+        case BEFORE_CHILD_MOVEMENT:
+          listener.beforeChildMovement(event);
+          break;
+
+        case BEFORE_CHILDREN_CHANGE:
+          listener.beforeChildrenChange(event);
+          break;
+
+        case BEFORE_PROPERTY_CHANGE:
+          listener.beforePropertyChange(event);
+          break;
+
+        case CHILD_ADDED:
+          listener.childAdded(event);
+          break;
+
+        case CHILD_REMOVED:
+          listener.childRemoved(event);
+          break;
+
+        case CHILD_REPLACED:
+          listener.childReplaced(event);
+          break;
+
+        case CHILD_MOVED:
+          listener.childMoved(event);
+          break;
+
+        case CHILDREN_CHANGED:
+          listener.childrenChanged(event);
+          break;
+
+        case PROPERTY_CHANGED:
+          listener.propertyChanged(event);
+          break;
+      }
+    }
+    catch (Throwable e) {
+      LOG.error(e);
+    }
+  }
+
   @Override
   public void registerRunnableToRunOnChange(@NotNull final Runnable runnable) {
-    myMessageBus.connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener.Adapter() {
+    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
       @Override
       public void beforePsiChanged(boolean isPhysical) {
         if (isPhysical) runnable.run();
@@ -459,7 +428,7 @@ public class PsiManagerImpl extends PsiManagerEx {
 
   @Override
   public void registerRunnableToRunOnAnyChange(@NotNull final Runnable runnable) { // includes non-physical changes
-    myMessageBus.connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener.Adapter() {
+    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
       @Override
       public void beforePsiChanged(boolean isPhysical) {
         runnable.run();
@@ -469,7 +438,7 @@ public class PsiManagerImpl extends PsiManagerEx {
 
   @Override
   public void registerRunnableToRunAfterAnyChange(@NotNull final Runnable runnable) { // includes non-physical changes
-    myMessageBus.connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener.Adapter() {
+    myProject.getMessageBus().connect().subscribe(ANY_PSI_CHANGE_TOPIC, new AnyPsiChangeListener() {
       @Override
       public void afterPsiChanged(boolean isPhysical) {
         runnable.run();
@@ -479,12 +448,12 @@ public class PsiManagerImpl extends PsiManagerEx {
 
   @Override
   public void beforeChange(boolean isPhysical) {
-    myMessageBus.syncPublisher(ANY_PSI_CHANGE_TOPIC).beforePsiChanged(isPhysical);
+    myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).beforePsiChanged(isPhysical);
   }
 
   @Override
   public void afterChange(boolean isPhysical) {
-    myMessageBus.syncPublisher(ANY_PSI_CHANGE_TOPIC).afterPsiChanged(isPhysical);
+    myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).afterPsiChanged(isPhysical);
   }
 
   @Override
@@ -500,8 +469,8 @@ public class PsiManagerImpl extends PsiManagerEx {
 
   @Override
   public void finishBatchFilesProcessingMode() {
-    myBatchFilesProcessingModeCount.decrementAndGet();
-    LOG.assertTrue(myBatchFilesProcessingModeCount.get() >= 0);
+    int after = myBatchFilesProcessingModeCount.decrementAndGet();
+    LOG.assertTrue(after >= 0);
   }
 
   @Override
@@ -514,5 +483,25 @@ public class PsiManagerImpl extends PsiManagerEx {
     assert ApplicationManager.getApplication().isUnitTestMode();
     myFileManager.cleanupForNextTest();
     dropPsiCaches();
+  }
+
+  public void dropResolveCacheRegularly(@NotNull ProgressIndicator indicator) {
+    indicator = ProgressWrapper.unwrap(indicator);
+    if (indicator instanceof ProgressIndicatorEx) {
+      ((ProgressIndicatorEx)indicator).addStateDelegate(new AbstractProgressIndicatorExBase() {
+        private final AtomicLong lastClearedTimeStamp = new AtomicLong();
+
+        @Override
+        public void setFraction(double fraction) {
+          long current = System.currentTimeMillis();
+          long last = lastClearedTimeStamp.get();
+          if (current - last >= 500 && lastClearedTimeStamp.compareAndSet(last, current)) {
+            // fraction is changed when each file is processed =>
+            // resolve caches used when searching in that file are likely to be not needed anymore
+            dropResolveCaches();
+          }
+        }
+      });
+    }
   }
 }

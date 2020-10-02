@@ -21,7 +21,8 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.IdeActions;
-import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.keymap.KeymapUtil;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -29,7 +30,7 @@ import org.jetbrains.annotations.NotNull;
 /**
  * @author peter
  */
-public class DefaultCompletionContributor extends CompletionContributor {
+public class DefaultCompletionContributor extends CompletionContributor implements DumbAware {
 
   static void addDefaultAdvertisements(LookupImpl lookup, boolean includePsiFeatures) {
     Project project = lookup.getProject();
@@ -39,7 +40,7 @@ public class DefaultCompletionContributor extends CompletionContributor {
     if (!includePsiFeatures) return;
     
     if (CompletionUtil.shouldShowFeature(project, CodeCompletionFeatures.EDITING_COMPLETION_FINISH_BY_SMART_ENTER)) {
-      final String shortcut = getActionShortcut(IdeActions.ACTION_CHOOSE_LOOKUP_ITEM_COMPLETE_STATEMENT);
+      final String shortcut = KeymapUtil.getFirstKeyboardShortcutText(IdeActions.ACTION_CHOOSE_LOOKUP_ITEM_COMPLETE_STATEMENT);
       if (StringUtil.isNotEmpty(shortcut)) {
         lookup.addAdvertisement(LangBundle.message("completion.smart.enter.ad", shortcut), null);
       }
@@ -47,7 +48,7 @@ public class DefaultCompletionContributor extends CompletionContributor {
 
     if ((CompletionUtil.shouldShowFeature(project, ShowQuickDocInfoAction.CODEASSISTS_QUICKJAVADOC_FEATURE) ||
          CompletionUtil.shouldShowFeature(project, ShowQuickDocInfoAction.CODEASSISTS_QUICKJAVADOC_LOOKUP_FEATURE))) {
-      final String shortcut = getActionShortcut(IdeActions.ACTION_QUICK_JAVADOC);
+      final String shortcut = KeymapUtil.getFirstKeyboardShortcutText(IdeActions.ACTION_QUICK_JAVADOC);
       if (StringUtil.isNotEmpty(shortcut)) {
         lookup.addAdvertisement(LangBundle.message("completion.quick.javadoc.ad", shortcut), null);
       }
@@ -55,16 +56,11 @@ public class DefaultCompletionContributor extends CompletionContributor {
 
     if (CompletionUtil.shouldShowFeature(project, ShowImplementationsAction.CODEASSISTS_QUICKDEFINITION_FEATURE) ||
         CompletionUtil.shouldShowFeature(project, ShowImplementationsAction.CODEASSISTS_QUICKDEFINITION_LOOKUP_FEATURE)) {
-      final String shortcut = getActionShortcut(IdeActions.ACTION_QUICK_IMPLEMENTATIONS);
+      final String shortcut = KeymapUtil.getFirstKeyboardShortcutText(IdeActions.ACTION_QUICK_IMPLEMENTATIONS);
       if (StringUtil.isNotEmpty(shortcut)) {
         lookup.addAdvertisement(LangBundle.message("completion.quick.implementations.ad", shortcut), null);
       }
     }
-  }
-
-  @Override
-  public String handleEmptyLookup(@NotNull final CompletionParameters parameters, final Editor editor) {
-    return LangBundle.message("completion.no.suggestions");
   }
 
   @Override

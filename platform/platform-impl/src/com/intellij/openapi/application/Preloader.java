@@ -1,53 +1,31 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
-import com.intellij.openapi.Disposable;
-import com.intellij.openapi.components.ApplicationComponent;
+import com.intellij.application.options.RegistryManager;
+import com.intellij.diagnostic.Activity;
+import com.intellij.diagnostic.ActivityCategory;
+import com.intellij.diagnostic.StartUpMeasurer;
+import com.intellij.ide.ApplicationInitializedListener;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.util.TimeoutUtil;
-import com.intellij.util.concurrency.SequentialTaskExecutor;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
-/**
- * @author peter
- */
-public class Preloader implements Disposable, ApplicationComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.application.Preloader");
-  private final Executor myExecutor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("Preloader Pool");
-  private final ProgressIndicator myIndicator = new ProgressIndicatorBase();
-  private final ProgressIndicator myWrappingIndicator = new AbstractProgressIndicatorBase() {
-    @Override
-    public void checkCanceled() {
-      checkHeavyProcessRunning();
-      myIndicator.checkCanceled();
-    }
-
-    @Override
-    public boolean isCanceled() {
-      return myIndicator.isCanceled();
-    }
-  };
+final class Preloader implements ApplicationInitializedListener {
+  private static final ExtensionPointName<PreloadingActivity> EP_NAME = new ExtensionPointName<>("com.intellij.preloadingActivity");
+  private static final Logger LOG = Logger.getInstance(Preloader.class);
 
   private static void checkHeavyProcessRunning() {
     if (HeavyProcessLatch.INSTANCE.isRunning()) {
@@ -56,33 +34,68 @@ public class Preloader implements Disposable, ApplicationComponent {
   }
 
   @Override
-  public void initComponent() {
-    if (ApplicationManager.getApplication().isUnitTestMode() || ApplicationManager.getApplication().isHeadlessEnvironment()) {
+  public void componentsInitialized() {
+    Application app = ApplicationManager.getApplication();
+    if (app.isUnitTestMode() || app.isHeadlessEnvironment() || !RegistryManager.getInstance().is("enable.activity.preloading")) {
       return;
     }
 
-    ProgressManager progressManager = ProgressManager.getInstance();
-    for (final PreloadingActivity activity : PreloadingActivity.EP_NAME.getExtensions()) {
-      myExecutor.execute(() -> {
-        if (myIndicator.isCanceled()) return;
-
-        checkHeavyProcessRunning();
-        if (myIndicator.isCanceled()) return;
-
-        progressManager.runProcess(() -> {
-          try {
-            activity.preload(myWrappingIndicator);
-          }
-          catch (ProcessCanceledException ignore) {
-          }
-          LOG.info("Finished preloading " + activity);
-        }, myIndicator);
-      });
-    }
+    EP_NAME.processWithPluginDescriptor(Preloader::preload);
   }
 
-  @Override
-  public void dispose() {
-    myIndicator.cancel();
+  private static void preload(@NotNull PreloadingActivity activity, @Nullable PluginDescriptor descriptor) {
+    ExecutorService executor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Preloader Pool", 1);
+
+    ProgressIndicator indicator = new ProgressIndicatorBase();
+    Disposer.register(ApplicationManager.getApplication(), indicator::cancel);
+    ProgressIndicator wrappingIndicator = new AbstractProgressIndicatorBase() {
+      @Override
+      public void checkCanceled() {
+        checkHeavyProcessRunning();
+        indicator.checkCanceled();
+      }
+
+      @Override
+      public boolean isCanceled() {
+        return indicator.isCanceled();
+      }
+    };
+
+    executor.execute(() -> {
+      if (indicator.isCanceled()) {
+        return;
+      }
+
+      checkHeavyProcessRunning();
+      if (indicator.isCanceled()) {
+        return;
+      }
+
+      ProgressManager.getInstance().runProcess(() -> {
+        Activity measureActivity;
+        if (descriptor == null) {
+          measureActivity = null;
+        }
+        else {
+          measureActivity = StartUpMeasurer.startActivity(activity.getClass().getName(), ActivityCategory.PRELOAD_ACTIVITY, descriptor.getPluginId().getIdString());
+        }
+
+        try {
+          activity.preload(wrappingIndicator);
+        }
+        catch (ProcessCanceledException ignore) {
+          return;
+        }
+        finally {
+          if (measureActivity != null) {
+            measureActivity.end();
+          }
+        }
+
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(activity.getClass().getName() + " finished");
+        }
+      }, indicator);
+    });
   }
 }

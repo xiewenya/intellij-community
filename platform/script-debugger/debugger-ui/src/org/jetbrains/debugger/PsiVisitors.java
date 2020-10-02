@@ -34,7 +34,7 @@ public final class PsiVisitors {
   /**
    * Read action will be taken automatically
    */
-  public static <RESULT> RESULT visit(@NotNull XSourcePosition position, @NotNull Project project, @NotNull Visitor<RESULT> visitor, RESULT defaultResult) {
+  public static <RESULT> RESULT visit(@NotNull XSourcePosition position, @NotNull Project project, @NotNull Visitor<? extends RESULT> visitor, RESULT defaultResult) {
     return ReadAction.compute(()->{
       Document document = FileDocumentManager.getInstance().getDocument(position.getFile());
       PsiFile file = document == null || document.getTextLength() == 0 ? null : PsiDocumentManager.getInstance(project).getPsiFile(document);
@@ -62,22 +62,22 @@ public final class PsiVisitors {
 
   public static abstract class FilteringPsiRecursiveElementWalkingVisitor extends PsiRecursiveElementWalkingVisitor {
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (!(element instanceof ForeignLeafPsiElement) && element.isPhysical()) {
         super.visitElement(element);
       }
     }
 
     @Override
-    public void visitWhiteSpace(PsiWhiteSpace space) {
+    public void visitWhiteSpace(@NotNull PsiWhiteSpace space) {
     }
 
     @Override
-    public void visitComment(PsiComment comment) {
+    public void visitComment(@NotNull PsiComment comment) {
     }
 
     @Override
-    public void visitOuterLanguageElement(OuterLanguageElement element) {
+    public void visitOuterLanguageElement(@NotNull OuterLanguageElement element) {
     }
   }
 }

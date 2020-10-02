@@ -26,14 +26,14 @@ import java.util.Queue;
 
 @FunctionalInterface
 public interface SweepProcessor<T> {
-  boolean process(int offset, @NotNull T interval, boolean atStart, @NotNull Collection<T> overlappingIntervals);
+  boolean process(int offset, @NotNull T interval, boolean atStart, @NotNull Collection<? extends T> overlappingIntervals);
 
   /**
    * Process all intervals from generator in their "start offset - then end offset" order.
    * For each interval call sweepProcessor and pass this interval with its current endpoint (start or end) and current overlapping intervals which this endpoint stabs.
    * E.g. for (0,4), (2,5) intervals call sweepProcessor with (0, empty), (2, 0-4), (4, 2-5), (5, empty)
    */
-  static <T extends Segment> boolean sweep(@NotNull Generator<T> generator, @NotNull final SweepProcessor<T> sweepProcessor) {
+  static <T extends Segment> boolean sweep(@NotNull Generator<? extends T> generator, @NotNull final SweepProcessor<T> sweepProcessor) {
     Queue<T> ends = new PriorityQueue<>(5, Comparator.comparingInt(Segment::getEndOffset));
     if (!generator.generateInStartOffsetOrder(marker -> {
       // decide whether previous marker ends here or new marker begins
@@ -66,6 +66,6 @@ public interface SweepProcessor<T> {
 
   @FunctionalInterface
   interface Generator<T> {
-    boolean generateInStartOffsetOrder(@NotNull Processor<T> processor);
+    boolean generateInStartOffsetOrder(@NotNull Processor<? super T> processor);
   }
 }

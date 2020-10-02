@@ -16,20 +16,21 @@
 package com.intellij.refactoring.ui;
 
 import com.intellij.util.EventDispatcher;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
-@SuppressWarnings("deprecation")
 public abstract class VisibilityPanelBase<V> extends JPanel {
 
   /**
    * @deprecated To be removed in 2018.2. Actually replaced by 'private'.
    * Use {@link #stateChanged(ChangeEvent)} instead. This field will become private.
    */
-  protected final EventDispatcher<ChangeListener> myEventDispatcher = EventDispatcher.create(ChangeListener.class);
+  @ApiStatus.ScheduledForRemoval(inVersion = "2018.2")
+  @Deprecated protected final EventDispatcher<ChangeListener> myEventDispatcher = EventDispatcher.create(ChangeListener.class);
 
   @Nullable
   public abstract V getVisibility();

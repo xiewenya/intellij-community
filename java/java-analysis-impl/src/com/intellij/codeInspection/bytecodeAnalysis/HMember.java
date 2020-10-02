@@ -1,79 +1,63 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
-import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.util.text.StringHash;
 import one.util.streamex.IntStreamEx;
 import org.jetbrains.annotations.NotNull;
 
-import java.security.MessageDigest;
-import java.util.Arrays;
-
-import static com.intellij.codeInspection.bytecodeAnalysis.BytecodeAnalysisConverter.getMessageDigest;
+import java.nio.ByteBuffer;
 
 /**
  * Hashed representation of method.
  */
 public final class HMember implements MemberDescriptor {
   // how many bytes are taken from class fqn digest
-  private static final int CLASS_HASH_SIZE = 10;
+  private static final int CLASS_HASH_SIZE = Long.BYTES;
   // how many bytes are taken from signature digest
-  private static final int SIGNATURE_HASH_SIZE = 4;
+  private static final int SIGNATURE_HASH_SIZE = Integer.BYTES;
   static final int HASH_SIZE = CLASS_HASH_SIZE + SIGNATURE_HASH_SIZE;
 
-  @NotNull
-  final byte[] myBytes;
+  final long myClass;
+  final int myMethod;
 
-  HMember(Member method, MessageDigest md) {
-    if (md == null) {
-      md = getMessageDigest();
-    }
-    byte[] classDigest = md.digest(method.internalClassName.getBytes(CharsetToolkit.UTF8_CHARSET));
-    md.update(method.methodName.getBytes(CharsetToolkit.UTF8_CHARSET));
-    md.update(method.methodDesc.getBytes(CharsetToolkit.UTF8_CHARSET));
-    byte[] sigDigest = md.digest();
-    myBytes = new byte[HASH_SIZE];
-    System.arraycopy(classDigest, 0, myBytes, 0, CLASS_HASH_SIZE);
-    System.arraycopy(sigDigest, 0, myBytes, CLASS_HASH_SIZE, SIGNATURE_HASH_SIZE);
+  HMember(Member method) {
+    myClass = StringHash.calc(method.internalClassName);
+    myMethod = StringHash.murmur(method.methodName, 37) * 31 + StringHash.murmur(method.methodDesc, 41);
   }
 
-  public HMember(@NotNull byte[] bytes) {
-    myBytes = bytes;
+  public HMember(byte @NotNull [] bytes) {
+    ByteBuffer buffer = ByteBuffer.wrap(bytes);
+    myClass = buffer.getLong();
+    myMethod = buffer.getInt();
+  }
+
+  byte @NotNull [] asBytes() {
+    ByteBuffer bytes = ByteBuffer.allocate(HASH_SIZE);
+    bytes.putLong(myClass).putInt(myMethod);
+    return bytes.array();
   }
 
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
-    return Arrays.equals(myBytes, ((HMember)o).myBytes);
+    HMember that = (HMember)o;
+    return that.myClass == myClass && that.myMethod == myMethod;
   }
 
   @Override
   public int hashCode() {
-    return Arrays.hashCode(myBytes);
+    return Long.hashCode(myClass) * 31 + myMethod;
   }
 
   @NotNull
   @Override
-  public HMember hashed(MessageDigest md) {
+  public HMember hashed() {
     return this;
   }
 
   public String toString() {
-    return bytesToString(myBytes);
+    return bytesToString(asBytes());
   }
 
   static String bytesToString(byte[] key) {

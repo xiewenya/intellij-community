@@ -15,7 +15,7 @@
  */
 package org.zmlx.hg4idea.util;
 
-import com.intellij.openapi.util.SystemInfo;
+import org.jetbrains.annotations.NonNls;
 
 /**
  * Utilities for operations involving working with a number of changesets: log, incoming, outgoing, parents, etc.
@@ -36,7 +36,8 @@ public class HgChangesetUtil {
    * @param templateItems template items like <pre>{rev}</pre>, <pre>{node}</pre>.
    * @return items joined by ITEM_SEPARATOR, ended by CHANGESET_SEPARATOR.
    */
-  public static String makeTemplate(String... templateItems) {
+  @NonNls
+  public static String makeTemplate(@NonNls String... templateItems) {
     StringBuilder template = new StringBuilder();
 
     for (String item : templateItems) {

@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.classlayout;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
@@ -26,7 +27,7 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
-import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -34,14 +35,6 @@ import javax.swing.*;
 public class ListenerMayUseAdapterInspection extends BaseInspection {
 
   public boolean checkForEmptyMethods = true;
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "listener.may.use.adapter.display.name");
-  }
 
   @Override
   @NotNull
@@ -77,13 +70,13 @@ public class ListenerMayUseAdapterInspection extends BaseInspection {
     @Override
     @NotNull
     public String getName() {
-      return InspectionGadgetsBundle.message("listener.may.use.adapter.quickfix", adapterName);
+      return CommonQuickFixBundle.message("fix.replace.with.x", "extends " + adapterName);
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Replace with adapter";
+      return InspectionGadgetsBundle.message("listener.may.use.adapter.fix.family.name");
     }
 
     @Override
@@ -158,7 +151,7 @@ public class ListenerMayUseAdapterInspection extends BaseInspection {
         return;
       }
       final PsiClass implementsClass = (PsiClass)target;
-      final String className = implementsClass.getQualifiedName();
+      @NonNls final String className = implementsClass.getQualifiedName();
       if (className == null || !className.endsWith("Listener")) {
         return;
       }
@@ -176,7 +169,7 @@ public class ListenerMayUseAdapterInspection extends BaseInspection {
       if (allDefault) {
         return;
       }
-      final String adapterName = className.substring(0, className.length() - 8) + "Adapter";
+      @NonNls final String adapterName = className.substring(0, className.length() - 8) + "Adapter";
       final GlobalSearchScope scope = implementsClass.getResolveScope();
       final PsiClass adapterClass = JavaPsiFacade.getInstance(aClass.getProject()).findClass(adapterName, scope);
       if (adapterClass == null || adapterClass.equals(aClass) || !adapterClass.hasModifierProperty(PsiModifier.ABSTRACT) ||

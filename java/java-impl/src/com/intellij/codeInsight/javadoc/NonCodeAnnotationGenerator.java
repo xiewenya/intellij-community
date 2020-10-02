@@ -1,27 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.javadoc;
 
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.documentation.DocumentationMarkup;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.PsiParameter;
+import com.intellij.psi.util.JavaElementKind;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -51,7 +41,7 @@ public class NonCodeAnnotationGenerator {
       if (generators.size() > 1) {
         myOutput.append(getKind(owner)).append(" <code>").append(((PsiNamedElement)owner).getName()).append("</code>: ");
       }
-      List<AnnotationDocGenerator> annotations = ContainerUtil.newArrayList(generators.get(owner));
+      List<AnnotationDocGenerator> annotations = new ArrayList<>(generators.get(owner));
       for (int i = 0; i < annotations.size(); i++) {
         if (i > 0) myOutput.append(" ");
         annotations.get(i).generateAnnotation(myOutput, AnnotationFormat.JavaDocComplete);
@@ -84,18 +74,20 @@ public class NonCodeAnnotationGenerator {
   }
 
   @NotNull
-  public static String getNonCodeHeader(Collection<? extends AnnotationDocGenerator> values) {
+  public static @Nls String getNonCodeHeader(Collection<? extends AnnotationDocGenerator> values) {
     boolean hasExternal = values.stream().anyMatch(AnnotationDocGenerator::isExternal);
     boolean hasInferred = values.stream().anyMatch(AnnotationDocGenerator::isInferred);
 
-    return (hasExternal && hasInferred ? "External and <i>inferred</i>" : hasExternal ? "External" : "<i>Inferred</i>") + " annotations";
+    if (hasExternal && hasInferred) {
+      return JavaBundle.message("non.code.annotations.explanation.external.and.inferred");
+    }
+    if (hasExternal) {
+      return JavaBundle.message("non.code.annotations.explanation.external");
+    }
+    return JavaBundle.message("non.code.annotations.explanation.inferred");
   }
 
   private static String getKind(PsiModifierListOwner owner) {
-    if (owner instanceof PsiParameter) return "Parameter";
-    if (owner instanceof PsiMethod) {
-      return ((PsiMethod)owner).isConstructor() ? "Constructor" : "Method";
-    }
-    return owner.getClass().getName(); // unexpected
+    return StringUtil.capitalize(JavaElementKind.fromElement(owner).subject());
   }
 }

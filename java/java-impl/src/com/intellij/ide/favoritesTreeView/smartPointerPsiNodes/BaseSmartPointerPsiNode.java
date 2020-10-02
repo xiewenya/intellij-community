@@ -1,10 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.favoritesTreeView.smartPointerPsiNodes;
 
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.projectView.ProjectViewNode;
 import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.CompoundProjectViewNodeDecorator;
+import com.intellij.ide.projectView.impl.nodes.BasePsiNode;
 import com.intellij.ide.projectView.impl.nodes.PackageElement;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.navigation.NavigationItem;
@@ -23,17 +24,16 @@ import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPointer> extends ProjectViewNode<Type> implements
-                                                                                                                  PsiElementNavigationItem {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.projectView.impl.nodes.BasePsiNode");
+abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPointer> extends ProjectViewNode<Type> implements PsiElementNavigationItem {
+  private static final Logger LOG = Logger.getInstance(BasePsiNode.class);
 
-  protected BaseSmartPointerPsiNode(Project project, Type value, ViewSettings viewSettings) {
+  BaseSmartPointerPsiNode(@NotNull Project project, @NotNull Type value, @NotNull ViewSettings viewSettings) {
     super(project, value, viewSettings);
   }
 
   @Override
   @NotNull
-  public final Collection<AbstractTreeNode> getChildren() {
+  public final Collection<AbstractTreeNode<?>> getChildren() {
     PsiElement value = getPsiElement();
     if (value == null) return new ArrayList<>();
     LOG.assertTrue(value.isValid());
@@ -41,9 +41,9 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
   }
 
   @NotNull
-  protected abstract Collection<AbstractTreeNode> getChildrenImpl();
+  protected abstract Collection<AbstractTreeNode<?>> getChildrenImpl();
 
-  protected boolean isMarkReadOnly() {
+  private boolean isMarkReadOnly() {
     final Object parentValue = getParentValue();
     return parentValue instanceof PsiDirectory || parentValue instanceof PackageElement;
   }
@@ -51,12 +51,7 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
   @Override
   public PsiElement getTargetElement() {
     VirtualFile file = getVirtualFileForValue();
-    if (file == null) {
-      return null;
-    }
-    else {
-      return file.isDirectory() ? PsiManager.getInstance(getProject()).findDirectory(file) : PsiManager.getInstance(getProject()).findFile(file);
-    }
+    return PsiUtilCore.findFileSystemItem(getProject(), file);
   }
 
   private VirtualFile getVirtualFileForValue() {
@@ -66,16 +61,16 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
   }
   // Should be called in atomic action
 
-  protected abstract void updateImpl(PresentationData data);
+  protected abstract void updateImpl(@NotNull PresentationData data);
 
 
   @Override
-  public void update(PresentationData data) {
+  public void update(@NotNull PresentationData data) {
     final PsiElement value = getPsiElement();
     if (value == null || !value.isValid()) {
       setValue(null);
     }
-    if (getPsiElement() == null) return;
+    if (value == null) return;
 
     int flags = Iconable.ICON_FLAG_VISIBILITY;
     if (isMarkReadOnly()) {
@@ -96,10 +91,10 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
 
   private boolean isDeprecated() {
     try {
-      final PsiElement element = getPsiElement();
-      return element instanceof PsiDocCommentOwner
-             && element.isValid()
-             && ((PsiDocCommentOwner)element).isDeprecated();
+      PsiElement psiElement = getPsiElement();
+      return psiElement instanceof PsiDocCommentOwner
+             && psiElement.isValid()
+             && ((PsiDocCommentOwner)psiElement).isDeprecated();
     }
     catch (IndexNotReadyException e) {
       return false;
@@ -108,8 +103,9 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
 
   @Override
   public boolean contains(@NotNull VirtualFile file) {
-    if (getPsiElement() == null) return false;
-    PsiFile containingFile = getPsiElement().getContainingFile();
+    PsiElement psiElement = getPsiElement();
+    if (psiElement == null) return false;
+    PsiFile containingFile = psiElement.getContainingFile();
     return file.equals(containingFile.getVirtualFile());
   }
 
@@ -122,16 +118,18 @@ public abstract class BaseSmartPointerPsiNode <Type extends SmartPsiElementPoint
 
   @Override
   public boolean canNavigate() {
-    return getPsiElement() instanceof NavigationItem && ((NavigationItem)getPsiElement()).canNavigate();
+    PsiElement psiElement = getPsiElement();
+    return psiElement instanceof NavigationItem && ((NavigationItem)psiElement).canNavigate();
   }
 
   @Override
   public boolean canNavigateToSource() {
-    return getPsiElement() instanceof NavigationItem && ((NavigationItem)getPsiElement()).canNavigateToSource();
+    PsiElement psiElement = getPsiElement();
+    return psiElement instanceof NavigationItem && ((NavigationItem)psiElement).canNavigateToSource();
   }
 
   protected PsiElement getPsiElement(){
-    final Type value = getValue();
-    return value == null ? null : value.getElement();
+    //noinspection CastToIncompatibleInterface
+    return (PsiElement)getValue(); // automatically de-anchorized in AbstractTreeNode.getValue
   }
 }

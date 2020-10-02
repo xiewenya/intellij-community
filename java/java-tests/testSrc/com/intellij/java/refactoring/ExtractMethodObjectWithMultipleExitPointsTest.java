@@ -20,7 +20,6 @@ import com.intellij.JavaTestUtil;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.refactoring.extractMethodObject.ExtractMethodObjectHandler;
 import com.intellij.refactoring.extractMethodObject.ExtractMethodObjectProcessor;
@@ -40,16 +39,16 @@ public class ExtractMethodObjectWithMultipleExitPointsTest extends LightRefactor
   private void doTest(final boolean createInnerClass) throws Exception {
     final String testName = getTestName(false);
     configureByFile("/refactoring/extractMethodObject/multipleExitPoints/" + testName + ".java");
-    int startOffset = myEditor.getSelectionModel().getSelectionStart();
-    int endOffset = myEditor.getSelectionModel().getSelectionEnd();
+    int startOffset = getEditor().getSelectionModel().getSelectionStart();
+    int endOffset = getEditor().getSelectionModel().getSelectionEnd();
 
     final PsiElement[] elements;
-    PsiExpression expr = CodeInsightUtil.findExpressionInRange(myFile, startOffset, endOffset);
+    PsiExpression expr = CodeInsightUtil.findExpressionInRange(getFile(), startOffset, endOffset);
     if (expr != null) {
       elements = new PsiElement[]{expr};
     }
     else {
-      elements = CodeInsightUtil.findStatementsInRange(myFile, startOffset, endOffset);
+      elements = CodeInsightUtil.findStatementsInRange(getFile(), startOffset, endOffset);
     }
 
     final ExtractMethodObjectProcessor processor =
@@ -165,17 +164,9 @@ public class ExtractMethodObjectWithMultipleExitPointsTest extends LightRefactor
   }
 
   private void doTestWithIdeaCodeStyleSettings() throws Exception {
-    final JavaCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject()).getCustomSettings(JavaCodeStyleSettings.class);
-    String oldPrefix = settings.FIELD_NAME_PREFIX;
+    final JavaCodeStyleSettings settings = JavaCodeStyleSettings.getInstance(getProject());
     settings.FIELD_NAME_PREFIX = "my";
-    boolean oldPrefer = settings.PREFER_LONGER_NAMES;
     settings.PREFER_LONGER_NAMES = false;
-    try {
-      doTest();
-    }
-    finally {
-      settings.FIELD_NAME_PREFIX = oldPrefix;
-      settings.PREFER_LONGER_NAMES = oldPrefer;
-    }
+    doTest();
   }
 }

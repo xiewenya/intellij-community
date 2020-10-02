@@ -17,27 +17,23 @@ package org.jetbrains.plugins.groovy.codeInspection;
 
 import com.intellij.codeInspection.LocalInspectionToolSession;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementVisitor;
 
 public abstract class BaseInspection extends GroovySuppressableInspectionTool {
-
-  @Deprecated public static final String ASSIGNMENT_ISSUES = GroovyBundle.message("inspection.assignments");
-  @Deprecated public static final String CONFUSING_CODE_CONSTRUCTS = GroovyBundle.message("inspection.confusing");
-  @Deprecated public static final String CONTROL_FLOW = GroovyBundle.message("inspection.control.flow");
-  @Deprecated public static final String PROBABLE_BUGS = GroovyBundle.message("inspection.bugs");
-  @Deprecated public static final String ERROR_HANDLING = GroovyBundle.message("inspection.error.handling");
-  @Deprecated public static final String GPATH = GroovyBundle.message("inspection.gpath");
-  @Deprecated public static final String METHOD_METRICS = GroovyBundle.message("inspection.method.metrics");
-  @Deprecated public static final String THREADING_ISSUES = GroovyBundle.message("inspection.threading");
-  @Deprecated public static final String VALIDITY_ISSUES = GroovyBundle.message("inspection.validity");
-  @Deprecated public static final String ANNOTATIONS_ISSUES = GroovyBundle.message("inspection.annotations");
+  /**
+   * @deprecated Use {@link #getProbableBugs()} instead
+   */
+  @Deprecated public static final String PROBABLE_BUGS = getProbableBugs();
 
   @Nullable
+  @InspectionMessage
   protected String buildErrorString(Object... args) {
     return null;
   }
@@ -63,4 +59,9 @@ public abstract class BaseInspection extends GroovySuppressableInspectionTool {
 
   @NotNull
   protected abstract BaseInspectionVisitor buildVisitor();
+
+  @Nls(capitalization = Nls.Capitalization.Sentence)
+  public static String getProbableBugs() {
+    return GroovyBundle.message("inspection.bugs");
+  }
 }

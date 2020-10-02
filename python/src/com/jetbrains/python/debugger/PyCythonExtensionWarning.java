@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
 import com.intellij.execution.ExecutionException;
@@ -35,14 +21,16 @@ import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ui.UIUtil;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PythonHelpersLocator;
 import com.jetbrains.python.run.AbstractPythonRunConfiguration;
-import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonEnvUtil;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -50,10 +38,9 @@ import java.io.IOException;
 import java.util.*;
 
 public class PyCythonExtensionWarning {
-  private static final Logger LOG = Logger.getInstance("com.jetbrains.python.debugger.PyCythonExtensionWarning");
-  public static final String ERROR_TITLE = "Compile Cython Extensions Error";
+  private static final Logger LOG = Logger.getInstance(PyCythonExtensionWarning.class);
+
   private static final String CYTHON_WARNING_GROUP_ID = "CythonWarning";
-  private static final String WARNING_MESSAGE = "Cython extension speeds up Python debugging";
   public static final String SETUP_CYTHON_PATH = "pydev/setup_cython.py";
 
 
@@ -62,7 +49,8 @@ public class PyCythonExtensionWarning {
       return;
     }
     Notification notification =
-      new Notification(CYTHON_WARNING_GROUP_ID, "Python Debugger Extension Available", WARNING_MESSAGE,
+      new Notification(CYTHON_WARNING_GROUP_ID, PyBundle.message("compile.cython.extensions.notification"),
+                       PyBundle.message("debugger.cython.extension.speeds.up.python.debugging"),
                        NotificationType.INFORMATION);
     notification.addAction(createInstallAction(notification, project));
     notification.addAction(createDocsAction());
@@ -70,10 +58,10 @@ public class PyCythonExtensionWarning {
   }
 
   private static AnAction createInstallAction(@NotNull Notification notification, @NotNull Project project) {
-    return new DumbAwareAction("Install") {
+    return new DumbAwareAction(PyBundle.message("compile.cython.extensions.install")) {
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         compileCythonExtension(project);
         notification.expire();
       }
@@ -81,10 +69,10 @@ public class PyCythonExtensionWarning {
   }
 
   private static AnAction createDocsAction() {
-    return new DumbAwareAction("How does it work") {
+    return new DumbAwareAction(PyBundle.message("compile.cython.extensions.help")) {
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         HelpManager.getInstance().invokeHelp("Cython_Speedups");
       }
     };
@@ -102,11 +90,11 @@ public class PyCythonExtensionWarning {
     }
     AbstractPythonRunConfiguration runConfiguration = (AbstractPythonRunConfiguration)configuration;
     // Temporarily disable notification for Remote interpreters
-    return PySdkUtil.isRemote(runConfiguration.getSdk());
+    return PythonSdkUtil.isRemote(runConfiguration.getSdk());
   }
 
-  private static void showErrorDialog(Project project, String message) {
-    Messages.showMessageDialog(project, message, ERROR_TITLE, null);
+  private static void showErrorDialog(Project project, @DialogMessage String message) {
+    Messages.showMessageDialog(project, message, PyBundle.message("compile.cython.extensions.error"), null);
   }
 
   private static void compileCythonExtension(@NotNull Project project) {
@@ -114,11 +102,11 @@ public class PyCythonExtensionWarning {
       final RunManager runManager = RunManager.getInstance(project);
       final RunnerAndConfigurationSettings selectedConfiguration = runManager.getSelectedConfiguration();
       if (selectedConfiguration == null) {
-        throw new ExecutionException("Python Run Configuration should be selected");
+        throw new ExecutionException(PyBundle.message("debugger.cython.python.run.configuration.should.be.selected"));
       }
       final RunConfiguration configuration = selectedConfiguration.getConfiguration();
       if (!(configuration instanceof AbstractPythonRunConfiguration)) {
-        throw new ExecutionException("Python Run Configuration should be selected");
+        throw new ExecutionException(PyBundle.message("debugger.cython.python.run.configuration.should.be.selected"));
       }
       AbstractPythonRunConfiguration runConfiguration = (AbstractPythonRunConfiguration)configuration;
       final String interpreterPath = runConfiguration.getInterpreterPath();
@@ -143,17 +131,17 @@ public class PyCythonExtensionWarning {
       }
       GeneralCommandLine commandLine = new GeneralCommandLine(cmdline).withEnvironment(environment);
 
-      final boolean canCreate = FileUtil.ensureCanCreateFile(new File(helpersPath));
+      final boolean canCreate = FileUtil.ensureCanCreateFile(new File(cythonExtensionsDir));
       final boolean useSudo = !canCreate && !SystemInfo.isWindows;
       Process process;
       if (useSudo) {
-        process = ExecUtil.sudo(commandLine, "Please enter your password to compile cython extensions: ");
+        process = ExecUtil.sudo(commandLine, PyBundle.message("debugger.cython.please.enter.your.password.to.compile.cython.extensions"));
       }
       else {
         process = commandLine.createProcess();
       }
 
-      ProgressManager.getInstance().run(new Task.Backgroundable(project, "Compile Cython Extensions") {
+      ProgressManager.getInstance().run(new Task.Backgroundable(project, PyBundle.message("compile.cython.extensions.title")) {
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
           final CapturingProcessHandler handler =
@@ -164,7 +152,7 @@ public class PyCythonExtensionWarning {
               if (outputType == ProcessOutputTypes.STDOUT || outputType == ProcessOutputTypes.STDERR) {
                 for (String line : StringUtil.splitByLines(event.getText())) {
                   if (isSignificantOutput(line)) {
-                    indicator.setText2(line.trim());
+                    indicator.setText2(line.trim()); //NON-NLS
                   }
                 }
               }
@@ -178,8 +166,8 @@ public class PyCythonExtensionWarning {
           final int exitCode = result.getExitCode();
           if (exitCode != 0) {
             final String message = StringUtil.isEmptyOrSpaces(result.getStdout()) && StringUtil.isEmptyOrSpaces(result.getStderr())
-                                   ? "Permission denied"
-                                   : "Non-zero exit code (" + exitCode + "): \n" + result.getStderr();
+                                   ? PyBundle.message("debugger.cython.extension.permission.denied")
+                                   : PyBundle.message("debugger.cython.extension.non.zero.exit.code", exitCode, result.getStderr());
             UIUtil.invokeLaterIfNeeded(() -> showErrorDialog(project, message));
           }
         }

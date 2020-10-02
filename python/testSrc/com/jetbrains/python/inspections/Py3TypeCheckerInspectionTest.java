@@ -34,13 +34,15 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
   }
 
   @Override
-  protected void doTest() {
-    runWithLanguageLevel(LanguageLevel.PYTHON36, () -> super.doTest());
+  protected void setUp() throws Exception {
+    super.setUp();
+    setLanguageLevel(LanguageLevel.getLatest());
   }
 
   @Override
-  protected void doMultiFileTest() {
-    runWithLanguageLevel(LanguageLevel.PYTHON36, () -> super.doMultiFileTest());
+  protected void tearDown() throws Exception {
+    setLanguageLevel(null);
+    super.tearDown();
   }
 
   // PY-9289
@@ -81,7 +83,7 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
   public void testStrFormatPy3() {
     doTest();
   }
-  
+
   // PY-18762
   public void testHomogeneousTuples() {
     doTest();
@@ -149,7 +151,7 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
 
   // PY-20769
   public void testPathLikePassedToStdlibFunctions() {
-    doMultiFileTest();
+    doTest();
   }
 
   // PY-21048
@@ -297,8 +299,185 @@ public class Py3TypeCheckerInspectionTest extends PyInspectionTestCase {
     runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
   }
 
+  // PY-28442
+  public void testDataclassClsCallType() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
+  }
+
+  // PY-26354
+  public void testInitializingAttrs() {
+    doTestByText("import attr\n" +
+                 "import typing\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Weak1:\n" +
+                 "    x = attr.ib()\n" +
+                 "    y = attr.ib(default=0)\n" +
+                 "    z = attr.ib(default=attr.Factory(list))\n" +
+                 "    \n" +
+                 "Weak1(1, \"str\", 2)\n" +
+                 "\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Weak2:\n" +
+                 "    x = attr.ib()\n" +
+                 "    \n" +
+                 "    @x.default\n" +
+                 "    def __init_x__(self):\n" +
+                 "        return 1\n" +
+                 "    \n" +
+                 "Weak2(\"str\")\n" +
+                 "\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class Strong:\n" +
+                 "    x = attr.ib(type=int)\n" +
+                 "    y = attr.ib(default=0, type=int)\n" +
+                 "    z = attr.ib(default=attr.Factory(list), type=typing.List[int])\n" +
+                 "    \n" +
+                 "Strong(1, <warning descr=\"Expected type 'int', got 'str' instead\">\"str\"</warning>, <warning descr=\"Expected type 'list[int]', got 'list[str]' instead\">[\"str\"]</warning>)");
+  }
+
   // PY-28957
   public void testDataclassesReplace() {
     runWithLanguageLevel(LanguageLevel.PYTHON37, () -> super.doMultiFileTest());
+  }
+
+  // PY-28127 PY-31424
+  public void testInitializingTypeVar() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testReAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testTypeCommentAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testTypeDeclarationAndAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testClassLevelAssignment() {
+    doTest();
+  }
+
+  // PY-24832
+  public void testNoTypeMismatchInAssignmentWithoutTypeAnnotation() {
+    doTest();
+  }
+
+  // PY-35235
+  public void testTypingLiteralStrings() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON36,
+      () -> doTestByText("from typing_extensions import Literal\n" +
+                         "\n" +
+                         "a: Literal[\"abc\"] = undefined\n" +
+                         "b: Literal[b\"abc\"] = undefined\n" +
+                         "\n" +
+                         "def foo1(p1: Literal[\"abc\"]):\n" +
+                         "    pass\n" +
+                         "foo1(a)\n" +
+                         "foo1(<warning descr=\"Expected type 'Literal[\\\"abc\\\"]', got 'Literal[b\\\"abc\\\"]' instead\">b</warning>)\n" +
+                         "\n" +
+                         "def foo2(p1: Literal[b\"abc\"]):\n" +
+                         "    pass\n" +
+                         "foo2(<warning descr=\"Expected type 'Literal[b\\\"abc\\\"]', got 'Literal[\\\"abc\\\"]' instead\">a</warning>)\n" +
+                         "foo2(b)\n" +
+                         "\n" +
+                         "def foo3(p1: str):\n" +
+                         "    pass\n" +
+                         "foo3(a)\n" +
+                         "foo3(<warning descr=\"Expected type 'str', got 'Literal[b\\\"abc\\\"]' instead\">b</warning>)\n" +
+                         "\n" +
+                         "def foo4(p1: bytes):\n" +
+                         "    pass\n" +
+                         "foo4(<warning descr=\"Expected type 'bytes', got 'Literal[\\\"abc\\\"]' instead\">a</warning>)\n" +
+                         "foo4(b)\n")
+    );
+  }
+
+  // PY-42418
+  public void testParametrizedBuiltinCollectionsAndTheirTypingAliasesAreEquivalent() {
+    doTest();
+  }
+
+  // PY-42418
+  public void testParametrizedBuiltinTypeAndTypingTypeAreEquivalent() {
+    doTest();
+  }
+
+  // PY-30747
+  public void testPathlibPathMatchingOsPathLike() {
+    doTestByText(
+      "import pathlib\n" +
+      "import os\n" +
+      "\n" +
+      "def foo(p: pathlib.Path):\n" +
+      "    with open(p) as file:\n" +
+      "        pass\n" +
+      "\n" +
+      "p1: pathlib.Path\n" +
+      "p2: os.PathLike[bytes] = p1  # false negative, see PyTypeChecker.matchGenerics\n" +
+      "p3: os.PathLike[str] = p1"
+    );
+  }
+
+  // PY-41847
+  public void testTypingAnnotatedType() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> {
+        doTestByText("from typing import Annotated\n" +
+                     "A = Annotated[bool, 'Some constraint']\n" +
+                     "a: A = <warning descr=\"Expected type 'bool', got 'str' instead\">'str'</warning>\n" +
+                     "b: A = True\n" +
+                     "c: Annotated[bool, 'Some constraint'] = <warning descr=\"Expected type 'bool', got 'str' instead\">'str'</warning>\n" +
+                     "d: Annotated[str, 'Some constraint'] = 'str'\n");
+      }
+    );
+  }
+
+  // PY-41847
+  public void testTypingAnnotatedTypeMultiFile() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doMultiFileTest);
+  }
+
+  // PY-43838
+  public void testParameterizedClassAgainstType() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Type, Any, List\n" +
+                         "\n" +
+                         "def my_function(param: Type[Any]):\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "my_function(List[str])")
+    );
+  }
+
+  // PY-43838
+  public void testUnionAgainstType() {
+    runWithLanguageLevel(
+      LanguageLevel.getLatest(),
+      () -> doTestByText("from typing import Type, Any, Union\n" +
+                         "\n" +
+                         "def my_function(param: Type[Any]):\n" +
+                         "    pass\n" +
+                         "\n" +
+                         "my_function(Union[int, str])")
+    );
   }
 }

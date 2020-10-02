@@ -15,12 +15,15 @@
  */
 package com.intellij.openapi.externalSystem.service.project
 
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.project.ProjectData
 import com.intellij.openapi.externalSystem.test.AbstractExternalSystemTest
 import com.intellij.openapi.externalSystem.test.ExternalSystemTestUtil
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
@@ -28,26 +31,62 @@ import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
 import com.intellij.openapi.roots.*
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.pom.java.LanguageLevel
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.util.ArrayUtil
+import com.intellij.util.PathUtil
+import org.jetbrains.annotations.NotNull
+import org.jetbrains.annotations.Nullable
 
 import static com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType.*
 import static com.intellij.openapi.externalSystem.test.ExternalSystemTestCase.collectRootsInside
-/**
- * @author Denis Zhdanov
- * @since 8/8/13 5:17 PM
- */
-class ExternalProjectServiceTest extends AbstractExternalSystemTest {
+
+class ExternalProjectServiceTest extends ExternalProjectServiceTestCase {
+
+  void 'test module names deduplication'() {
+    DataNode<ProjectData> projectNode = buildExternalProjectInfo {
+      project {
+        module('root', externalConfigPath: 'root') {}
+        module('root', externalConfigPath: 'root/1') {}
+        module('root', externalConfigPath: 'root/2') {}
+        module('root', externalConfigPath: 'root/3') {}
+        module('root', externalConfigPath: 'another/root') {}
+        module('root', externalConfigPath: 'another/notRoot') {}
+        module('root', externalConfigPath: 'root/root/root') {}
+        module('root', externalConfigPath: 'root/root/root/root') {}
+        module('root', externalConfigPath: 'yetanother/root/root') {}
+        module('group-root', externalConfigPath: 'root') {}
+        module('group-root', externalConfigPath: 'root/group/root') {}
+        module('group-root', externalConfigPath: 'root/my/group/root') {}
+        module('group-root', externalConfigPath: 'root/my-group/root') {}
+      }
+    }
+
+    def modelsProvider = new IdeModelsProviderImpl(project)
+    applyProjectState([projectNode])
+    def expectedNames = [
+      'root', '1-root', '2-root', '3-root', 'another-root', 'notRoot-root', 'root-root', 'root-root-root', 'yetanother-root-root',
+      'group-root', 'root-group-root', 'my-group-root', 'my-group-group-root'
+    ]
+    assertOrderedEquals(modelsProvider.getModules().collect { it.name }, expectedNames)
+
+    // check reimport with the same data
+    applyProjectState([projectNode])
+    assertOrderedEquals(modelsProvider.getModules().collect { it.name }, expectedNames)
+  }
 
   void 'test no duplicate library dependency is added on subsequent refresh when there is an unresolved library'() {
     DataNode<ProjectData> projectNode = buildExternalProjectInfo {
       project {
         module('module') {
           lib('lib1')
-          lib('lib2', unresolved: true) } } }
+          lib('lib2', unresolved: true)
+        }
+      }
+    }
 
     applyProjectState([projectNode, projectNode])
 
@@ -62,7 +101,7 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
         def name = (entry as LibraryOrderEntry).libraryName
         dependencies[name]++
       }
-      }
+    }
     ExternalSystemTestUtil.assertMapsEqual(['Test_external_system_id: lib1': 1, 'Test_external_system_id: lib2': 1], dependencies)
   }
 
@@ -71,8 +110,8 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
     String rootPath = ExternalSystemApiUtil.toCanonicalPath(project.basePath)
 
     def contentRoots = [
-      (TEST): ['src/test/resources', '/src/test/java', 'src/test/groovy'],
-      (SOURCE): ['src/main/resources', 'src/main/java', 'src/main/groovy'],
+      (TEST)    : ['src/test/resources', '/src/test/java', 'src/test/groovy'],
+      (SOURCE)  : ['src/main/resources', 'src/main/java', 'src/main/groovy'],
       (EXCLUDED): ['.gradle', 'build']
     ]
 
@@ -87,7 +126,11 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
           module {
             contentRoot(rootPath) {
               contentRoots.each { key, values -> values.each { folder(type: key, path: "$rootPath/$it") } }
-            } } } } }
+            }
+          }
+        }
+      }
+    }
 
     DataNode<ProjectData> projectNodeInitial = projectRootBuilder()
 
@@ -108,7 +151,7 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
         folders['source'] += contentEntry.sourceFolders.length
         folders['excluded'] += contentEntry.excludeFolders.length
       }
-      }
+    }
     ExternalSystemTestUtil.assertMapsEqual(['source': 4, 'excluded': 2], folders)
   }
 
@@ -126,15 +169,24 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
       buildExternalProjectInfo {
         project {
           module('module') {
-            lib('lib1', level: 'module', bin: [libBinPath.absolutePath]) } } },
+            lib('lib1', level: 'module', bin: [libBinPath.absolutePath])
+          }
+        }
+      },
       buildExternalProjectInfo {
         project {
           module('module') {
-            lib('lib1', level: 'module', bin: [libBinPath.absolutePath], src: [libSrcPath.absolutePath]) } } },
+            lib('lib1', level: 'module', bin: [libBinPath.absolutePath], src: [libSrcPath.absolutePath])
+          }
+        }
+      },
       buildExternalProjectInfo {
         project {
           module('module') {
-            lib('lib1', level: 'module', bin: [libBinPath.absolutePath], src: [libSrcPath.absolutePath],  doc: [libDocPath.absolutePath]) } } }
+            lib('lib1', level: 'module', bin: [libBinPath.absolutePath], src: [libSrcPath.absolutePath], doc: [libDocPath.absolutePath])
+          }
+        }
+      }
     ])
 
     def modelsProvider = new IdeModelsProviderImpl(project)
@@ -161,8 +213,8 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
         else {
           fail()
         }
-        }
       }
+    }
     ExternalSystemTestUtil.assertMapsEqual(['Test_external_system_id: lib1': 1], dependencies)
   }
 
@@ -178,7 +230,11 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
           module {
             contentRoot(rootPath) {
               contentRoots.each { key, values -> values.each { folder(type: key, path: "$rootPath/$it") } }
-            } } } } }
+            }
+          }
+        }
+      }
+    }
 
     DataNode<ProjectData> projectNodeInitial = projectRootBuilder()
 
@@ -195,7 +251,7 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
     for (OrderEntry entry : modelsProvider.getOrderEntries(module)) {
       if (entry instanceof ModuleSourceOrderEntry) {
         def contentEntry = (entry as ModuleSourceOrderEntry).getRootModel().getContentEntries().first()
-        folders = contentEntry.excludeFolders.collect {new File(it.url).name}
+        folders = contentEntry.excludeFolders.collect { new File(it.url).name }
       }
     }
     assertEquals(new HashSet<>(folders), new HashSet<>([".gradle", "build", "newExclDir"]))
@@ -211,20 +267,22 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
     VfsRootAccess.allowRootAccess(testRootDisposable, ArrayUtil.toStringArray(allowedRoots))
 
     WriteAction.run {
-        Sdk oldJdk = ProjectJdkTable.getInstance().findJdk(myJdkName)
-        if (oldJdk != null) {
-          ProjectJdkTable.getInstance().removeJdk(oldJdk)
-        }
-        VirtualFile jdkHomeDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myJdkHome))
-        Sdk jdk = SdkConfigurationUtil.setupSdk(new Sdk[0], jdkHomeDir, JavaSdk.getInstance(), true, null, myJdkName)
-        assertNotNull("Cannot create JDK for " + myJdkHome, jdk)
-        ProjectJdkTable.getInstance().addJdk(jdk, testFixture.project)
+      Sdk oldJdk = ProjectJdkTable.getInstance().findJdk(myJdkName)
+      if (oldJdk != null) {
+        ProjectJdkTable.getInstance().removeJdk(oldJdk)
       }
+      VirtualFile jdkHomeDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myJdkHome))
+      Sdk jdk = SdkConfigurationUtil.setupSdk(new Sdk[0], jdkHomeDir, JavaSdk.getInstance(), true, null, myJdkName)
+      assertNotNull("Cannot create JDK for " + myJdkHome, jdk)
+      ProjectJdkTable.getInstance().addJdk(jdk, testFixture.project)
+    }
 
     DataNode<ProjectData> projectNode = buildExternalProjectInfo {
       project {
         javaProject(jdk: '1.7', languageLevel: '1.7') {
-        } } }
+        }
+      }
+    }
 
     applyProjectState([projectNode])
 
@@ -233,5 +291,46 @@ class ExternalProjectServiceTest extends AbstractExternalSystemTest {
     assertNotNull(sdk)
     LanguageLevelProjectExtension languageLevelExtension = LanguageLevelProjectExtension.getInstance(project)
     assertEquals(LanguageLevel.JDK_1_7, languageLevelExtension.languageLevel)
+  }
+
+  void 'test package prefix setup'() {
+    def rootPath = ExternalSystemApiUtil.toCanonicalPath(projectDir.path)
+    createProjectSubDirectory("src/main/java")
+    applyProjectState([
+      buildExternalProjectInfo {
+        project {
+          module {
+            contentRoot(rootPath) {
+              folder(type: SOURCE, path: "$rootPath/src/main/java", packagePrefix: 'org.example')
+            }
+          }
+        }
+      }
+    ])
+    assertSourcePackagePrefix('module', 'src/main/java', 'org.example')
+    applyProjectState([
+      buildExternalProjectInfo {
+        project {
+          module {
+            contentRoot(rootPath) {
+              folder(type: SOURCE, path: "$rootPath/src/main/java", packagePrefix: 'org.jetbrains')
+            }
+          }
+        }
+      }
+    ])
+    assertSourcePackagePrefix('module', 'src/main/java', 'org.jetbrains')
+    applyProjectState([
+      buildExternalProjectInfo {
+        project {
+          module {
+            contentRoot(rootPath) {
+              folder(type: SOURCE, path: "$rootPath/src/main/java", packagePrefix: '')
+            }
+          }
+        }
+      }
+    ])
+    assertSourcePackagePrefix('module', 'src/main/java', 'org.jetbrains')
   }
 }

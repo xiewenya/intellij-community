@@ -20,24 +20,21 @@ import com.intellij.codeInspection.dataFlow.DataFlowRunner;
 import com.intellij.codeInspection.dataFlow.DfaInstructionState;
 import com.intellij.codeInspection.dataFlow.DfaMemoryState;
 import com.intellij.codeInspection.dataFlow.InstructionVisitor;
-import com.intellij.codeInspection.dataFlow.value.DfaUnknownValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.psi.PsiExpression;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-public class PushInstruction extends Instruction {
-  private final DfaValue myValue;
-  private final PsiExpression myPlace;
+public class PushInstruction extends ExpressionPushingInstruction<PsiExpression> {
+  private final @NotNull DfaValue myValue;
   private final boolean myReferenceWrite;
 
-  public PushInstruction(@Nullable DfaValue value, PsiExpression place) {
+  public PushInstruction(@NotNull DfaValue value, PsiExpression place) {
     this(value, place, false);
   }
 
-  public PushInstruction(@Nullable DfaValue value, PsiExpression place, final boolean isReferenceWrite) {
-    myValue = value != null ? value : DfaUnknownValue.getInstance();
-    myPlace = place;
+  public PushInstruction(@NotNull DfaValue value, PsiExpression place, final boolean isReferenceWrite) {
+    super(place);
+    myValue = value;
     myReferenceWrite = isReferenceWrite;
   }
 
@@ -50,13 +47,9 @@ public class PushInstruction extends Instruction {
     return myValue;
   }
 
-  public PsiExpression getPlace() {
-    return myPlace;
-  }
-
   @Override
   public DfaInstructionState[] accept(DataFlowRunner runner, DfaMemoryState stateBefore, InstructionVisitor visitor) {
-    return visitor.visitPush(this, runner, stateBefore);
+    return visitor.visitPush(this, runner, stateBefore, myValue);
   }
 
   public String toString() {

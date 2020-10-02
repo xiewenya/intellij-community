@@ -1,36 +1,19 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lexer;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.tree.IElementType;
-import java.util.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 
-/**
- * @author max
- */
 public class LayeredLexer extends DelegateLexer {
-  public static ThreadLocal<Boolean> ourDisableLayersFlag = new ThreadLocal<>();
+  public static final ThreadLocal<Boolean> ourDisableLayersFlag = new ThreadLocal<>();
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lexer.LayeredLexer");
+  private static final Logger LOG = Logger.getInstance(LayeredLexer.class);
   private static final int IN_LAYER_STATE = 1024; // TODO: Other value?
   private static final int IN_LAYER_LEXER_FINISHED_STATE = 2048;
 
@@ -38,8 +21,6 @@ public class LayeredLexer extends DelegateLexer {
 
   private final Map<IElementType, Lexer> myStartTokenToLayerLexer = new HashMap<>();
   private Lexer myCurrentLayerLexer;
-  // In some cases IDEA-57933 layered lexer is not able to parse all the token, that triggered this lexer,
-  // for this purposes we store left part of token in the following fields
   private IElementType myCurrentBaseTokenType;
   private int myLayerLeftPart = -1;
   private int myBaseTokenEnd = -1;
@@ -143,24 +124,21 @@ public class LayeredLexer extends DelegateLexer {
       }
       if (layerTokenType == null) {
         int tokenEnd = myCurrentLayerLexer.getTokenEnd();
-        if (!mySelfStoppingLexers.contains(myCurrentLayerLexer)) {
-          myCurrentLayerLexer = null;
+        boolean selfStopping = mySelfStoppingLexers.contains(myCurrentLayerLexer);
+        myCurrentLayerLexer = null;
+        if (!selfStopping) {
           super.advance();
-          activateLayerIfNecessary();
-        } else {
-          myCurrentLayerLexer = null;
-
           // In case when we have non-covered gap we should return left part as next token
-          if (tokenEnd != myBaseTokenEnd) {
-            myState = IN_LAYER_LEXER_FINISHED_STATE;
-            myLayerLeftPart = tokenEnd;
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("We've got not covered gap from layered lexer: " + activeLayerLexer +
-                        "\n on token: " + getBufferSequence().subSequence(myLayerLeftPart, myBaseTokenEnd));
-            }
-            return;
+        } else if (tokenEnd != myBaseTokenEnd) {
+          myState = IN_LAYER_LEXER_FINISHED_STATE;
+          myLayerLeftPart = tokenEnd;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("We've got not covered gap from layered lexer: " + activeLayerLexer +
+                      "\n on token: " + getBufferSequence().subSequence(myLayerLeftPart, myBaseTokenEnd));
           }
+          return;
         }
+        activateLayerIfNecessary();
       }
     } else {
       super.advance();

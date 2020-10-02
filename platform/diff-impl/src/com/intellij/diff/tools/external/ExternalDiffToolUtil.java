@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.tools.external;
 
+import com.intellij.CommonBundle;
 import com.intellij.diff.contents.*;
 import com.intellij.diff.merge.MergeResult;
 import com.intellij.diff.merge.ThreesideMergeRequest;
@@ -24,13 +11,11 @@ import com.intellij.diff.util.ThreeSide;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.diff.DiffBundle;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Ref;
@@ -43,22 +28,23 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.PathUtil;
 import com.intellij.util.TimeoutUtil;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.HashMap;
 import com.intellij.util.execution.ParametersListUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-public class ExternalDiffToolUtil {
+public final class ExternalDiffToolUtil {
   public static boolean canCreateFile(@NotNull DiffContent content) {
     if (content instanceof EmptyContent) return true;
     if (content instanceof DocumentContent) return true;
@@ -121,9 +107,7 @@ public class ExternalDiffToolUtil {
     Boolean hasBom = content.hasBom();
     if (hasBom == null) hasBom = CharsetToolkit.getMandatoryBom(charset) != null;
 
-    String contentData = ReadAction.compute(() -> {
-      return content.getDocument().getText();
-    });
+    String contentData = content.getDocument().getText();
     if (separator != LineSeparator.LF) {
       contentData = StringUtil.convertLineSeparators(contentData, separator.getSeparatorString());
     }
@@ -181,7 +165,7 @@ public class ExternalDiffToolUtil {
   }
 
   @NotNull
-  private static File createFile(@NotNull byte[] bytes, @NotNull FileNameInfo fileName) throws IOException {
+  private static File createFile(byte @NotNull [] bytes, @NotNull FileNameInfo fileName) throws IOException {
     File tempFile = FileUtil.createTempFile(fileName.prefix + "_", "_" + fileName.name, true);
     FileUtil.writeToFile(tempFile, bytes);
     return tempFile;
@@ -203,7 +187,7 @@ public class ExternalDiffToolUtil {
       files.add(createFile(project, content, fileName));
     }
 
-    Map<String, String> patterns = ContainerUtil.newHashMap();
+    Map<String, String> patterns = new HashMap<>();
     if (files.size() == 2) {
       patterns.put("%1", files.get(0).getPath());
       patterns.put("%2", files.get(1).getPath());
@@ -221,9 +205,22 @@ public class ExternalDiffToolUtil {
 
   public static void executeMerge(@Nullable Project project,
                                   @NotNull ExternalDiffSettings settings,
-                                  @NotNull ThreesideMergeRequest request)
-    throws IOException, ExecutionException {
+                                  @NotNull ThreesideMergeRequest request,
+                                  @Nullable JComponent parentComponent) throws IOException, ExecutionException {
     boolean success = false;
+    try {
+      success = tryExecuteMerge(project, settings, request, parentComponent);
+    }
+    finally {
+      request.applyResult(success ? MergeResult.RESOLVED : MergeResult.CANCEL);
+    }
+  }
+
+  public static boolean tryExecuteMerge(@Nullable Project project,
+                                        @NotNull ExternalDiffSettings settings,
+                                        @NotNull ThreesideMergeRequest request,
+                                        @Nullable JComponent parentComponent) throws IOException, ExecutionException {
+    boolean success;
     OutputFile outputFile = null;
     List<InputFile> inputFiles = new ArrayList<>();
     try {
@@ -254,66 +251,60 @@ public class ExternalDiffToolUtil {
       if (settings.isMergeTrustExitCode()) {
         final Ref<Boolean> resultRef = new Ref<>();
 
-        ProgressManager.getInstance().run(new Task.Modal(project, "Waiting for External Tool", true) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            final Semaphore semaphore = new Semaphore(0);
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+          final Semaphore semaphore = new Semaphore(0);
 
-            final Thread waiter = new Thread("external process waiter") {
-              @Override
-              public void run() {
-                try {
-                  resultRef.set(process.waitFor() == 0);
-                }
-                catch (InterruptedException ignore) {
-                }
-                finally {
-                  semaphore.release();
-                }
+          final Thread waiter = new Thread("external process waiter") {
+            @Override
+            public void run() {
+              try {
+                resultRef.set(process.waitFor() == 0);
               }
-            };
-            waiter.start();
-
-            try {
-              while (true) {
-                indicator.checkCanceled();
-                if (semaphore.tryAcquire(200, TimeUnit.MILLISECONDS)) break;
+              catch (InterruptedException ignore) {
+              }
+              finally {
+                semaphore.release();
               }
             }
-            catch (InterruptedException ignore) {
-            }
-            finally {
-              waiter.interrupt();
+          };
+          waiter.start();
+
+          try {
+            while (true) {
+              ProgressManager.checkCanceled();
+              if (semaphore.tryAcquire(200, TimeUnit.MILLISECONDS)) break;
             }
           }
-        });
-
+          catch (InterruptedException ignore) {
+          }
+          finally {
+            waiter.interrupt();
+          }
+        }, DiffBundle.message("waiting.for.external.tool"), true, project, parentComponent);
         success = resultRef.get() == Boolean.TRUE;
       }
       else {
-        ProgressManager.getInstance().run(new Task.Modal(project, "Launching External Tool", false) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            indicator.setIndeterminate(true);
-            TimeoutUtil.sleep(1000);
-          }
-        });
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+          TimeoutUtil.sleep(1000);
+        }, DiffBundle.message("launching.external.tool"), false, project, parentComponent);
 
         success = Messages.showYesNoDialog(project,
-                                           "Press \"Mark as Resolved\" when you finish resolving conflicts in the external tool",
-                                           "Merge In External Tool", "Mark as Resolved", "Revert", null) == Messages.YES;
+                                           DiffBundle.message("press.mark.as.resolve"),
+                                           DiffBundle.message("merge.in.external.tool"),
+                                           DiffBundle.message("mark.as.resolved"),
+                                           CommonBundle.message("button.revert"), null) == Messages.YES;
       }
 
       if (success) outputFile.apply();
     }
     finally {
-      request.applyResult(success ? MergeResult.RESOLVED : MergeResult.CANCEL);
 
       if (outputFile != null) outputFile.cleanup();
       for (InputFile file : inputFiles) {
         file.cleanup();
       }
     }
+    return success;
   }
 
   @NotNull
@@ -357,7 +348,7 @@ public class ExternalDiffToolUtil {
   }
 
   private static class LocalOutputFile extends LocalInputFile implements OutputFile {
-    public LocalOutputFile(@NotNull VirtualFile file) {
+    LocalOutputFile(@NotNull VirtualFile file) {
       super(file);
     }
 
@@ -370,7 +361,7 @@ public class ExternalDiffToolUtil {
   private static class NonLocalOutputFile extends TempInputFile implements OutputFile {
     @NotNull private final VirtualFile myFile;
 
-    public NonLocalOutputFile(@NotNull VirtualFile file, @NotNull File localFile) {
+    NonLocalOutputFile(@NotNull VirtualFile file, @NotNull File localFile) {
       super(localFile);
       myFile = file;
     }
@@ -386,7 +377,7 @@ public class ExternalDiffToolUtil {
     @NotNull private final Document myDocument;
     @NotNull private final Charset myCharset;
 
-    public DocumentOutputFile(@NotNull Document document, @NotNull Charset charset, @NotNull File localFile) {
+    DocumentOutputFile(@NotNull Document document, @NotNull Charset charset, @NotNull File localFile) {
       super(localFile);
       myDocument = document;
       myCharset = charset;
@@ -395,16 +386,14 @@ public class ExternalDiffToolUtil {
     @Override
     public void apply() throws IOException {
       final String content = StringUtil.convertLineSeparators(FileUtil.loadFile(myLocalFile, myCharset));
-      ApplicationManager.getApplication().runWriteAction(() -> {
-        myDocument.setText(content);
-      });
+      ApplicationManager.getApplication().runWriteAction(() -> myDocument.setText(content));
     }
   }
 
   private static class LocalInputFile implements InputFile {
     @NotNull protected final VirtualFile myFile;
 
-    public LocalInputFile(@NotNull VirtualFile file) {
+    LocalInputFile(@NotNull VirtualFile file) {
       myFile = file;
     }
 
@@ -422,7 +411,7 @@ public class ExternalDiffToolUtil {
   private static class TempInputFile implements InputFile {
     @NotNull protected final File myLocalFile;
 
-    public TempInputFile(@NotNull File localFile) {
+    TempInputFile(@NotNull File localFile) {
       myLocalFile = localFile;
     }
 
@@ -442,7 +431,7 @@ public class ExternalDiffToolUtil {
     @NotNull public final String prefix;
     @NotNull public final String name;
 
-    public FileNameInfo(@NotNull String prefix, @NotNull String name) {
+    FileNameInfo(@NotNull @NonNls String prefix, @NotNull @NonNls String name) {
       this.prefix = prefix;
       this.name = name;
     }

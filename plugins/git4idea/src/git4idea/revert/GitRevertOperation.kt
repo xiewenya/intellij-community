@@ -22,6 +22,7 @@ import git4idea.GitApplyChangesProcess
 import git4idea.commands.Git
 import git4idea.commands.GitCommandResult
 import git4idea.commands.GitLineHandlerListener
+import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 
 /**
@@ -33,12 +34,13 @@ class GitRevertOperation(private val project: Project,
   private val git = Git.getInstance()
 
   fun execute() {
-    GitApplyChangesProcess(project, commits, autoCommit, "revert", "reverted",
-                           command = { repository, hash, autoCommit, listeners ->
-                             doRevert(autoCommit, repository, hash, listeners)
+    GitApplyChangesProcess(project, commits, autoCommit, GitBundle.message("revert.operation.name"),
+                           GitBundle.message("revert.operation.applied"),
+                           command = { repository, commit, autoCommit, listeners ->
+                             doRevert(autoCommit, repository, commit, listeners)
                            },
                            emptyCommitDetector = { result -> result.outputAsJoinedString.contains("nothing to commit") },
-                           defaultCommitMessageGenerator = { commit ->
+                           defaultCommitMessageGenerator = { _, commit ->
                              """
                              Revert "${commit.subject}"
 

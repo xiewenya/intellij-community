@@ -1,7 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.plugin.replace;
 
+import com.intellij.codeInsight.template.impl.TemplateImplUtil;
 import com.intellij.openapi.util.JDOMExternalizable;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.structuralsearch.MatchOptions;
 import com.intellij.structuralsearch.ReplacementVariableDefinition;
 import org.jdom.Attribute;
@@ -21,6 +23,7 @@ public class ReplaceOptions implements JDOMExternalizable {
   private boolean toShortenFQN;
   private boolean myToReformatAccordingToStyle;
   private boolean myToUseStaticImport;
+  @NotNull
   private final MatchOptions matchOptions;
 
   @NonNls private static final String REFORMAT_ATTR_NAME = "reformatAccordingToStyle";
@@ -34,14 +37,14 @@ public class ReplaceOptions implements JDOMExternalizable {
     this(new MatchOptions());
   }
 
-  public ReplaceOptions(MatchOptions matchOptions) {
+  public ReplaceOptions(@NotNull MatchOptions matchOptions) {
     variableDefs = new LinkedHashMap<>();
     this.matchOptions = matchOptions;
     replacement = "";
     myToUseStaticImport = false;
   }
 
-  ReplaceOptions(ReplaceOptions options) {
+  private ReplaceOptions(@NotNull ReplaceOptions options) {
     variableDefs = new LinkedHashMap<>(options.variableDefs.size());
     options.variableDefs.forEach((key, value) -> variableDefs.put(key, value.copy())); // deep copy
     replacement = options.replacement;
@@ -51,11 +54,13 @@ public class ReplaceOptions implements JDOMExternalizable {
     matchOptions = options.matchOptions.copy(); // deep copy
   }
 
+  @NotNull
   public ReplaceOptions copy() {
     return new ReplaceOptions(this);
   }
 
-  public String getReplacement() {
+  @NotNull
+  public @NlsSafe String getReplacement() {
     return replacement;
   }
 
@@ -75,7 +80,7 @@ public class ReplaceOptions implements JDOMExternalizable {
     return myToReformatAccordingToStyle;
   }
 
-  public MatchOptions getMatchOptions() {
+  public @NotNull MatchOptions getMatchOptions() {
     return matchOptions;
   }
 
@@ -91,18 +96,27 @@ public class ReplaceOptions implements JDOMExternalizable {
     myToUseStaticImport = useStaticImport;
   }
 
+  @NotNull
+  private Set<String> getUsedVariableNames() {
+    return TemplateImplUtil.parseVariableNames(replacement);
+  }
+
+  public void removeUnusedVariables() {
+    variableDefs.keySet().removeIf(key -> !getUsedVariableNames().contains(key));
+  }
+
   @Override
   public void readExternal(Element element) {
     matchOptions.readExternal(element);
 
     Attribute attribute = element.getAttribute(REFORMAT_ATTR_NAME);
     try {
-      myToReformatAccordingToStyle = attribute.getBooleanValue();
+      myToReformatAccordingToStyle = attribute == null || attribute.getBooleanValue();
     } catch(DataConversionException ignored) {}
 
     attribute = element.getAttribute(SHORTEN_FQN_ATTR_NAME);
     try {
-      toShortenFQN = attribute.getBooleanValue();
+      toShortenFQN = attribute == null || attribute.getBooleanValue();
     } catch(DataConversionException ignored) {}
 
     attribute = element.getAttribute(USE_STATIC_IMPORT_ATTR_NAME);
@@ -129,11 +143,15 @@ public class ReplaceOptions implements JDOMExternalizable {
     element.setAttribute(REFORMAT_ATTR_NAME,String.valueOf(myToReformatAccordingToStyle));
     element.setAttribute(SHORTEN_FQN_ATTR_NAME,String.valueOf(toShortenFQN));
     if (myToUseStaticImport) {
-      element.setAttribute(USE_STATIC_IMPORT_ATTR_NAME, String.valueOf(myToUseStaticImport));
+      element.setAttribute(USE_STATIC_IMPORT_ATTR_NAME, String.valueOf(true));
     }
     element.setAttribute(REPLACEMENT_ATTR_NAME,replacement);
 
+    final Set<String> nameSet = getUsedVariableNames();
     for (final ReplacementVariableDefinition variableDefinition : variableDefs.values()) {
+      if (!nameSet.contains(variableDefinition.getName())) {
+        continue;
+      }
       final Element infoElement = new Element(VARIABLE_DEFINITION_TAG_NAME);
       element.addContent(infoElement);
       variableDefinition.writeExternal(infoElement);
@@ -150,7 +168,7 @@ public class ReplaceOptions implements JDOMExternalizable {
     if (toShortenFQN != replaceOptions.toShortenFQN) return false;
     if (myToUseStaticImport != replaceOptions.myToUseStaticImport) return false;
     if (!matchOptions.equals(replaceOptions.matchOptions)) return false;
-    if (replacement != null ? !replacement.equals(replaceOptions.replacement) : replaceOptions.replacement != null) return false;
+    if (!Objects.equals(replacement, replaceOptions.replacement)) return false;
     if (!variableDefs.equals(replaceOptions.variableDefs)) return false;
 
     return true;
@@ -166,15 +184,23 @@ public class ReplaceOptions implements JDOMExternalizable {
     return result;
   }
 
-  public ReplacementVariableDefinition getVariableDefinition(String name) {
+  public ReplacementVariableDefinition getVariableDefinition(@NotNull String name) {
     return variableDefs != null ? variableDefs.get(name): null;
   }
 
-  public void addVariableDefinition(ReplacementVariableDefinition definition) {
+  public void addVariableDefinition(@NotNull ReplacementVariableDefinition definition) {
     variableDefs.put(definition.getName(), definition);
   }
 
-  public Collection<ReplacementVariableDefinition> getReplacementVariableDefinitions() {
+  @NotNull
+  public ReplacementVariableDefinition addNewVariableDefinition(@NotNull String name) {
+    final ReplacementVariableDefinition definition = new ReplacementVariableDefinition(name);
+    variableDefs.put(name, definition);
+    return definition;
+  }
+
+  @NotNull
+  public Collection<ReplacementVariableDefinition> getVariableDefinitions() {
     return variableDefs.values();
   }
 

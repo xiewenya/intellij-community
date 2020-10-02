@@ -18,19 +18,20 @@ package com.intellij.refactoring.classMembers;
 
 import com.intellij.lang.LanguageDependentMembersRefactoringSupport;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.NavigatablePsiElement;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.RefactoringBundle;
-import java.util.HashMap;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
 public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extends PsiElement, M extends MemberInfoBase<T>> implements MemberDependencyGraph<T, M> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.util.classMembers.UsesMemberDependencyGraph");
+  private static final Logger LOG = Logger.getInstance(UsesMemberDependencyGraph.class);
   protected HashSet<T> mySelectedNormal;
   protected HashSet<T> mySelectedAbstract;
   protected HashSet<T> myDependencies = null;
@@ -63,7 +64,7 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
     return myDependenciesToDependentMap.get(member);
   }
 
-  public String getElementTooltip(T element) {
+  public @NlsContexts.Tooltip String getElementTooltip(T element) {
     final Set<? extends T> dependencies = getDependenciesOf(element);
     if(dependencies == null || dependencies.size() == 0) return null;
 
@@ -77,7 +78,7 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
   }
 
 
-  private void buildDeps(T sourceElement, Set<T> members) {
+  private void buildDeps(T sourceElement, Set<? extends T> members) {
     if (myRecursive) {
       buildDepsRecursively(sourceElement, members);
     }
@@ -93,7 +94,7 @@ public class UsesMemberDependencyGraph<T extends NavigatablePsiElement, C extend
     }
   }
 
-  private void buildDepsRecursively(final T sourceElement, @Nullable final Set<T> members) {
+  private void buildDepsRecursively(final T sourceElement, @Nullable final Set<? extends T> members) {
     if (members != null) {
       for (T member : members) {
         if (!myDependencies.contains(member)) {

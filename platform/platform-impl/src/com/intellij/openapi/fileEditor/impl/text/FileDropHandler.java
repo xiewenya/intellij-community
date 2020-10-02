@@ -1,32 +1,19 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl.text;
 
 import com.intellij.ide.dnd.FileCopyPasteUtil;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.openapi.editor.CustomFileDropHandler;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorDropHandler;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.*;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.fileEditor.impl.EditorWithProviderComposite;
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
@@ -36,6 +23,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -58,7 +46,7 @@ public class FileDropHandler implements EditorDropHandler {
     if (project != null) {
       final List<File> fileList = FileCopyPasteUtil.getFileList(t);
       if (fileList != null) {
-        boolean dropResult = ContainerUtil.process(Extensions.getExtensions(CustomFileDropHandler.CUSTOM_DROP_HANDLER_EP, project),
+        boolean dropResult = ContainerUtil.process(CustomFileDropHandler.CUSTOM_DROP_HANDLER_EP.getExtensions(project),
                                                    handler -> !(handler.canHandle(t, myEditor) && handler.handleDrop(t, myEditor, project)));
         if (!dropResult) return;
 
@@ -67,7 +55,7 @@ public class FileDropHandler implements EditorDropHandler {
     }
   }
 
-  private void openFiles(final Project project, final List<File> fileList, EditorWindow editorWindow) {
+  private void openFiles(final Project project, final List<? extends File> fileList, EditorWindow editorWindow) {
     if (editorWindow == null && myEditor != null) {
       editorWindow = findEditorWindow(project);
     }
@@ -76,14 +64,15 @@ public class FileDropHandler implements EditorDropHandler {
       final VirtualFile vFile = fileSystem.refreshAndFindFileByIoFile(file);
       final FileEditorManagerEx fileEditorManager = (FileEditorManagerEx) FileEditorManager.getInstance(project);
       if (vFile != null) {
-        NonProjectFileWritingAccessProvider.allowWriting(vFile);
-        
+        NonProjectFileWritingAccessProvider.allowWriting(Collections.singletonList(vFile));
+
         if (editorWindow != null) {
-          fileEditorManager.openFileWithProviders(vFile, true, editorWindow);
+          Pair<FileEditor[], FileEditorProvider[]> pair = fileEditorManager.openFileWithProviders(vFile, true, editorWindow);
+          if (pair.first.length > 0) {
+            continue;
+          }
         }
-        else {
-          new OpenFileDescriptor(project, vFile).navigate(true);
-        }
+        PsiNavigationSupport.getInstance().createNavigatable(project, vFile, -1).navigate(true);
       }
     }
   }

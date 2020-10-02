@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.packaging.impl.ui.actions;
 
 import com.intellij.notification.Notification;
@@ -20,7 +6,7 @@ import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.compiler.CompilerBundle;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.deployment.DeploymentUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -51,11 +37,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author nik
- */
-public class PackageFileWorker {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.packaging.impl.ui.actions.PackageFileWorker");
+public final class PackageFileWorker {
+  private static final Logger LOG = Logger.getInstance(PackageFileWorker.class);
   private final File myFile;
   private final String myRelativeOutputPath;
   private final boolean myPackIntoArchives;
@@ -66,15 +49,15 @@ public class PackageFileWorker {
     myPackIntoArchives = packIntoArchives;
   }
 
-  public static void startPackagingFiles(Project project, List<VirtualFile> files, Artifact[] artifacts, final @NotNull Runnable onFinishedInAwt) {
+  public static void startPackagingFiles(Project project, List<? extends VirtualFile> files, Artifact[] artifacts, final @NotNull Runnable onFinishedInAwt) {
     startPackagingFiles(project, files, artifacts, true).doWhenProcessed(
       () -> ApplicationManager.getApplication().invokeLater(onFinishedInAwt));
   }
 
-  public static ActionCallback startPackagingFiles(final Project project, final List<VirtualFile> files,
+  public static ActionCallback startPackagingFiles(final Project project, final List<? extends VirtualFile> files,
                                                    final Artifact[] artifacts, final boolean packIntoArchives) {
     final ActionCallback callback = new ActionCallback();
-    ProgressManager.getInstance().run(new Task.Backgroundable(project, "Packaging Files") {
+    ProgressManager.getInstance().run(new Task.Backgroundable(project, JavaCompilerBundle.message("packaging.files")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
@@ -86,8 +69,8 @@ public class PackageFileWorker {
               }
               catch (IOException e) {
                 LOG.info(e);
-                String message = CompilerBundle.message("message.tect.package.file.io.error", e.toString());
-                Notifications.Bus.notify(new Notification("Package File", "Cannot package file", message, NotificationType.ERROR));
+                String message = JavaCompilerBundle.message("message.tect.package.file.io.error", e.toString());
+                Notifications.Bus.notify(new Notification("Package File", JavaCompilerBundle.message("cannot.package.file"), message, NotificationType.ERROR));
               }
             });
             callback.setDone();
@@ -159,14 +142,11 @@ public class PackageFileWorker {
     final File archiveFile = new File(archivePath);
     if (parents.isEmpty()) {
       LOG.debug("  adding to archive " + archivePath);
-      JBZipFile file = getOrCreateZipFile(archiveFile);
-      try {
-        final String fullPathInArchive = DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, myRelativeOutputPath));
+      try (JBZipFile file = getOrCreateZipFile(archiveFile)) {
+        final String fullPathInArchive =
+          DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, myRelativeOutputPath));
         final JBZipEntry entry = file.getOrCreateEntry(fullPathInArchive);
         entry.setDataFromFile(myFile);
-      }
-      finally {
-        file.close();
       }
       return;
     }
@@ -175,8 +155,7 @@ public class PackageFileWorker {
     final String nextPathInArchive = DeploymentUtil.trimForwardSlashes(DeploymentUtil.appendToPath(pathInArchive, element.getName()));
     final List<CompositePackagingElement<?>> parentsTrail = parents.subList(1, parents.size());
     if (element instanceof ArchivePackagingElement) {
-      JBZipFile zipFile = getOrCreateZipFile(archiveFile);
-      try {
+      try (JBZipFile zipFile = getOrCreateZipFile(archiveFile)) {
         final JBZipEntry entry = zipFile.getOrCreateEntry(nextPathInArchive);
         LOG.debug("  extracting to temp file: " + nextPathInArchive + " from " + archivePath);
         final File tempFile = FileUtil.createTempFile("packageFile" + FileUtil.sanitizeFileName(nextPathInArchive),
@@ -189,9 +168,6 @@ public class PackageFileWorker {
         packFile(FileUtil.toSystemIndependentName(tempFile.getAbsolutePath()), "", parentsTrail);
         entry.setDataFromFile(tempFile);
         FileUtil.delete(tempFile);
-      }
-      finally {
-        zipFile.close();
       }
     }
     else {

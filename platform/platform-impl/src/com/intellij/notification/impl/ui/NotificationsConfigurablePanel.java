@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification.impl.ui;
 
+import com.intellij.ide.IdeBundle;
 import com.intellij.notification.NotificationDisplayType;
 import com.intellij.notification.impl.NotificationParentGroup;
 import com.intellij.notification.impl.NotificationParentGroupBean;
@@ -28,12 +15,12 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.BooleanTableCellRenderer;
 import com.intellij.ui.ScrollPaneFactory;
-import com.intellij.ui.SystemNotifications;
 import com.intellij.ui.TableSpeedSearch;
+import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.speedSearch.SpeedSearchSupply;
 import com.intellij.ui.treeStructure.treetable.TreeTable;
 import com.intellij.ui.treeStructure.treetable.TreeTableModel;
-import com.intellij.util.ObjectUtils;
+import com.intellij.util.ui.JBDimension;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.IndexTreePathState;
 import com.intellij.util.ui.tree.TreeUtil;
@@ -50,8 +37,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author spleaner
@@ -67,7 +54,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     setLayout(new BorderLayout(5, 5));
     myTable = new NotificationsTreeTable();
 
-    myDisplayBalloons = new JCheckBox("Display balloon notifications");
+    myDisplayBalloons = new JCheckBox(IdeBundle.message("notifications.configurable.display.balloon.notifications"));
     myDisplayBalloons.setMnemonic('b');
     myDisplayBalloons.addActionListener(new ActionListener() {
       @Override
@@ -76,9 +63,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
       }
     });
 
-    mySystemNotifications = new JCheckBox("Enable system notifications");
+    mySystemNotifications = new JCheckBox(IdeBundle.message("notifications.configurable.enable.system.notifications"));
     mySystemNotifications.setMnemonic('s');
-    mySystemNotifications.setVisible(SystemNotifications.getInstance().isAvailable());
 
     JPanel boxes = new JPanel();
     boxes.setLayout(new BoxLayout(boxes, BoxLayout.Y_AXIS));
@@ -100,13 +86,14 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     myTable.removeSelected();
   }
 
+  @Override
   public void dispose() {
     myTable = null;
   }
 
   public boolean isModified() {
-    final List<SettingsWrapper> list = myTable.getAllSettings();
-    for (SettingsWrapper settingsWrapper : list) {
+    final List<NotificationSettingsWrapper> list = myTable.getAllSettings();
+    for (NotificationSettingsWrapper settingsWrapper : list) {
       if (settingsWrapper.hasChanged()) {
         return true;
       }
@@ -118,8 +105,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
   }
 
   public void apply() {
-    final List<SettingsWrapper> list = myTable.getAllSettings();
-    for (SettingsWrapper settingsWrapper : list) {
+    final List<NotificationSettingsWrapper> list = myTable.getAllSettings();
+    for (NotificationSettingsWrapper settingsWrapper : list) {
       settingsWrapper.apply();
     }
 
@@ -129,8 +116,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
   }
 
   public void reset() {
-    final List<SettingsWrapper> list = myTable.getAllSettings();
-    for (SettingsWrapper settingsWrapper : list) {
+    final List<NotificationSettingsWrapper> list = myTable.getAllSettings();
+    for (NotificationSettingsWrapper settingsWrapper : list) {
       settingsWrapper.reset();
     }
 
@@ -142,75 +129,30 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     myTable.repaint();
   }
 
-  private static class SettingsWrapper {
-    private boolean myRemoved = false;
-    private NotificationSettings myVersion;
-    private String myTitle;
-
-    private SettingsWrapper(NotificationSettings settings) {
-      myVersion = settings;
-    }
-
-    public boolean hasChanged() {
-      return myRemoved || !getOriginalSettings().equals(myVersion);
-    }
-
-    public void remove() {
-      myRemoved = true;
-    }
-
-    public boolean isRemoved() {
-      return myRemoved;
-    }
-
-    @NotNull
-    private NotificationSettings getOriginalSettings() {
-      return NotificationsConfigurationImpl.getSettings(getGroupId());
-    }
-
-    public void apply() {
-      if (myRemoved) {
-        NotificationsConfigurationImpl.remove(getGroupId());
-      }
-      else {
-        NotificationsConfigurationImpl.getInstanceImpl().changeSettings(myVersion);
-      }
-    }
-
-    public void reset() {
-      myVersion = getOriginalSettings();
-      myRemoved = false;
-    }
-
-    String getGroupId() {
-      return myVersion.getGroupId();
-    }
-
-    @Override
-    public String toString() {
-      return myTitle == null ? getGroupId() : myTitle;
-    }
-  }
-
   private class NotificationsTreeTable extends TreeTable {
     private static final int ID_COLUMN = 0;
     private static final int DISPLAY_TYPE_COLUMN = 1;
     private static final int LOG_COLUMN = 2;
     private static final int READ_ALOUD_COLUMN = 3;
 
-    public NotificationsTreeTable() {
+    NotificationsTreeTable() {
       super(new NotificationsTreeTableModel());
       StripeTable.apply(this);
       setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
       getTree().setCellRenderer(new TreeColumnCellRenderer(this));
 
-      final TableColumn idColumn = getColumnModel().getColumn(ID_COLUMN);
-      idColumn.setPreferredWidth(200);
+      initColumns();
+    }
 
-      final TableColumn displayTypeColumn = getColumnModel().getColumn(DISPLAY_TYPE_COLUMN);
-      displayTypeColumn.setMaxWidth(300);
-      displayTypeColumn.setPreferredWidth(250);
-      displayTypeColumn.setCellRenderer(new ComboBoxTableRenderer<NotificationDisplayType>(NotificationDisplayType.values()) {
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+      return new JBDimension(600, 400);
+    }
+
+    private void initColumns() {
+      TableColumn displayTypeColumn = getColumnModel().getColumn(DISPLAY_TYPE_COLUMN);
+      ComboBoxTableRenderer<NotificationDisplayType> displayTypeRenderer =
+        new ComboBoxTableRenderer<NotificationDisplayType>(NotificationDisplayType.values()) {
         @Override
         protected void customizeComponent(NotificationDisplayType value, JTable table, boolean isSelected) {
           super.customizeComponent(myDisplayBalloons.isSelected() ? value : NotificationDisplayType.NONE, table, isSelected);
@@ -224,7 +166,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
         protected String getTextFor(@NotNull NotificationDisplayType value) {
           return value.getTitle();
         }
-      });
+      };
+      displayTypeColumn.setCellRenderer(displayTypeRenderer);
 
       displayTypeColumn.setCellEditor(new ComboBoxTableRenderer<NotificationDisplayType>(NotificationDisplayType.values()) {
         @Override
@@ -245,7 +188,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
           if (value != NotificationDisplayType.TOOL_WINDOW) return true;
 
           Object wrapper = ((NotificationsTreeTableModel)getTableModel()).getRowValue(row).second;
-          String groupId = ((SettingsWrapper)wrapper).getGroupId();
+          String groupId = ((NotificationSettingsWrapper)wrapper).getGroupId();
           return NotificationsConfigurationImpl.getInstanceImpl().hasToolWindowCapability(groupId);
         }
 
@@ -255,19 +198,30 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
         }
       });
 
-      final TableColumn logColumn = getColumnModel().getColumn(LOG_COLUMN);
-      logColumn.setMaxWidth(logColumn.getPreferredWidth());
-      logColumn.setCellRenderer(new BooleanTableCellRenderer());
+      displayTypeColumn.setPreferredWidth(displayTypeRenderer.getPreferredSize().width);
+      displayTypeColumn.setMaxWidth(displayTypeRenderer.getMinimumSize().width);
+
+      initBooleanColumn(LOG_COLUMN);
 
       if (SystemInfo.isMac) {
-        final TableColumn readAloudColumn = getColumnModel().getColumn(READ_ALOUD_COLUMN);
-        readAloudColumn.setMaxWidth(readAloudColumn.getPreferredWidth());
-        readAloudColumn.setCellRenderer(new BooleanTableCellRenderer());
+        initBooleanColumn(READ_ALOUD_COLUMN);
       }
 
       new TableSpeedSearch(this);
-      getEmptyText().setText("No notifications configured");
+      getEmptyText().setText(IdeBundle.message("notifications.configurable.no.notifications.configured"));
       TreeUtil.expandAll(getTree());
+    }
+
+    private void initBooleanColumn(int columnIndex) {
+      TableColumn column = getColumnModel().getColumn(columnIndex);
+      BooleanTableCellRenderer renderer = new BooleanTableCellRenderer();
+      column.setCellRenderer(renderer);
+
+      Dimension headerSize = getTableHeader().getDefaultRenderer().
+        getTableCellRendererComponent(this, getModel().getColumnName(columnIndex), false, false, 0, columnIndex).
+        getPreferredSize();
+
+      column.setMaxWidth(Math.max(JBUIScale.scale(65), Math.max(headerSize.width, renderer.getPreferredSize().width)));
     }
 
     @Override
@@ -290,7 +244,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
       return s;
     }
 
-    public List<SettingsWrapper> getAllSettings() {
+    public List<NotificationSettingsWrapper> getAllSettings() {
       return ((NotificationsTreeTableModel)getTableModel()).getAllSettings();
     }
 
@@ -307,9 +261,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
   private static class TreeColumnCellRenderer extends JLabel implements TreeCellRenderer {
     private final JTable myTable;
 
-    public TreeColumnCellRenderer(@NotNull JTable table) {
+    TreeColumnCellRenderer(@NotNull JTable table) {
       myTable = table;
-      setHorizontalAlignment(SwingConstants.CENTER);
       setVerticalAlignment(SwingConstants.CENTER);
     }
 
@@ -322,23 +275,24 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
                                                   int row,
                                                   boolean hasFocus) {
       setForeground(selected ? myTable.getSelectionForeground() : myTable.getForeground());
+      //noinspection HardCodedStringLiteral
       setText(value.toString());
       return this;
     }
   }
 
-  private static class NotificationsTreeTableModel extends DefaultTreeModel implements TreeTableModel {
-    private final List<SettingsWrapper> mySettings = new ArrayList<>();
+  public static class NotificationsTreeTableModel extends DefaultTreeModel implements TreeTableModel {
+    private final List<NotificationSettingsWrapper> mySettings = new ArrayList<>();
     private JTree myTree;
 
-    public NotificationsTreeTableModel() {
+    NotificationsTreeTableModel() {
       super(null);
 
       List<DefaultMutableTreeNode> rootChildren = new ArrayList<>();
 
       Map<NotificationParentGroupBean, List<DefaultMutableTreeNode>> parentChildrenTable = new HashMap<>();
       for (NotificationSettings setting : NotificationsConfigurationImpl.getInstanceImpl().getAllSettings()) {
-        SettingsWrapper wrapper = new SettingsWrapper(setting);
+        NotificationSettingsWrapper wrapper = new NotificationSettingsWrapper(setting);
         mySettings.add(wrapper);
 
         NotificationParentGroupBean parentGroup = NotificationParentGroup.findParent(setting);
@@ -347,9 +301,9 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
           rootChildren.add(treeNode);
         }
         else {
-          wrapper.myTitle = NotificationParentGroup.getReplaceTitle(wrapper.getGroupId());
-          if (wrapper.myTitle == null && parentGroup.titlePrefix != null) {
-            wrapper.myTitle = StringUtil.substringAfter(wrapper.getGroupId(), parentGroup.titlePrefix);
+          wrapper.setTitle(NotificationParentGroup.getReplaceTitle(wrapper.getGroupId()));
+          if (wrapper.getTitle() == null && parentGroup.titlePrefix != null) {
+            wrapper.setTitle(StringUtil.substringAfter(wrapper.getGroupId(), parentGroup.titlePrefix));
           }
 
           List<DefaultMutableTreeNode> children = parentChildrenTable.get(parentGroup);
@@ -368,7 +322,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
         }
       }
 
-      Collections.sort(rootChildren, (node1, node2) -> {
+      rootChildren.sort((node1, node2) -> {
         Object object1 = node1.getUserObject();
         Object object2 = node2.getUserObject();
         if (object1 instanceof NotificationParentGroupBean) {
@@ -377,8 +331,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
           }
           return -1;
         }
-        if (object2 instanceof SettingsWrapper) {
-          return ((SettingsWrapper)object1).getGroupId().compareTo(((SettingsWrapper)object2).getGroupId());
+        if (object2 instanceof NotificationSettingsWrapper) {
+          return ((NotificationSettingsWrapper)object1).getGroupId().compareTo(((NotificationSettingsWrapper)object2).getGroupId());
         }
         return 1;
       });
@@ -416,13 +370,13 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     public String getColumnName(int column) {
       switch (column) {
         case NotificationsTreeTable.ID_COLUMN:
-          return "Group";
+          return IdeBundle.message("notifications.configurable.column.group");
         case NotificationsTreeTable.LOG_COLUMN:
-          return "Log";
+          return IdeBundle.message("notifications.configurable.column.log");
         case NotificationsTreeTable.READ_ALOUD_COLUMN:
-          return "Read aloud";
+          return IdeBundle.message("notifications.configurable.column.read.aloud");
         default:
-          return "Popup";
+          return IdeBundle.message("notifications.configurable.column.popup");
       }
     }
 
@@ -443,7 +397,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
 
     @Override
     public boolean isCellEditable(Object node, int column) {
-      return column > 0 && ((DefaultMutableTreeNode)node).getUserObject() instanceof SettingsWrapper;
+      return column > 0 && ((DefaultMutableTreeNode)node).getUserObject() instanceof NotificationSettingsWrapper;
     }
 
     @Override
@@ -457,31 +411,31 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
         return null;
       }
 
-      SettingsWrapper wrapper = (SettingsWrapper)object;
+      NotificationSettingsWrapper wrapper = (NotificationSettingsWrapper)object;
       switch (column) {
         case NotificationsTreeTable.LOG_COLUMN:
-          return wrapper.myVersion.isShouldLog();
+          return wrapper.isShouldLog();
         case NotificationsTreeTable.READ_ALOUD_COLUMN:
-          return wrapper.myVersion.isShouldReadAloud();
+          return wrapper.isShouldReadAloud();
         case NotificationsTreeTable.DISPLAY_TYPE_COLUMN:
         default:
-          return wrapper.myVersion.getDisplayType();
+          return wrapper.getDisplayType();
       }
     }
 
     @Override
     public void setValueAt(Object value, Object node, int column) {
-      SettingsWrapper wrapper = (SettingsWrapper)((DefaultMutableTreeNode)node).getUserObject();
+      NotificationSettingsWrapper wrapper = (NotificationSettingsWrapper)((DefaultMutableTreeNode)node).getUserObject();
 
       switch (column) {
         case NotificationsTreeTable.DISPLAY_TYPE_COLUMN:
-          wrapper.myVersion = wrapper.myVersion.withDisplayType((NotificationDisplayType)value);
+          wrapper.setDisplayType((NotificationDisplayType)value);
           break;
         case NotificationsTreeTable.LOG_COLUMN:
-          wrapper.myVersion = wrapper.myVersion.withShouldLog((Boolean)value);
+          wrapper.setShouldLog((Boolean)value);
           break;
         case NotificationsTreeTable.READ_ALOUD_COLUMN:
-          wrapper.myVersion = wrapper.myVersion.withShouldReadAloud((Boolean)value);
+          wrapper.setShouldReadAloud((Boolean)value);
           break;
       }
     }
@@ -494,8 +448,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
 
     public TreePath removeRow(int row) {
       Pair<DefaultMutableTreeNode, Object> rowValue = getRowValue(row);
-      if (rowValue.second instanceof SettingsWrapper) {
-        ((SettingsWrapper)rowValue.second).remove();
+      if (rowValue.second instanceof NotificationSettingsWrapper) {
+        ((NotificationSettingsWrapper)rowValue.second).remove();
       }
       else {
         removeChildSettings(rowValue.first);
@@ -508,8 +462,8 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
       for (int i = 0; i < count; i++) {
         DefaultMutableTreeNode child = (DefaultMutableTreeNode)node.getChildAt(i);
         Object object = child.getUserObject();
-        if (object instanceof SettingsWrapper) {
-          ((SettingsWrapper)object).remove();
+        if (object instanceof NotificationSettingsWrapper) {
+          ((NotificationSettingsWrapper)object).remove();
         }
         else {
           removeChildSettings(child);
@@ -535,12 +489,12 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
       return Pair.create(node, node.getUserObject());
     }
 
-    public List<SettingsWrapper> getAllSettings() {
+    public List<NotificationSettingsWrapper> getAllSettings() {
       return mySettings;
     }
   }
 
   public void selectGroup(String searchQuery) {
-    ObjectUtils.assertNotNull(SpeedSearchSupply.getSupply(myTable, true)).findAndSelectElement(searchQuery);
+    Objects.requireNonNull(SpeedSearchSupply.getSupply(myTable, true)).findAndSelectElement(searchQuery);
   }
 }

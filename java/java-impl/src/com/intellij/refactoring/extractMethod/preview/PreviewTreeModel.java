@@ -1,14 +1,13 @@
 // Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod.preview;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
 import com.intellij.refactoring.extractMethod.ExtractMethodProcessor;
-import com.intellij.refactoring.extractMethod.ParametrizedDuplicates;
 import com.intellij.refactoring.util.duplicates.Match;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
@@ -23,26 +22,29 @@ import java.util.List;
 class PreviewTreeModel extends DefaultTreeModel {
   private final DefaultMutableTreeNode myDuplicatesGroup;
   private final DefaultMutableTreeNode myMethodGroup;
+  private final PatternNode myPatternNode;
   private boolean myValid;
 
-  public PreviewTreeModel(@NotNull ExtractMethodProcessor processor) {
+  PreviewTreeModel(@NotNull ExtractMethodProcessor processor) {
     super(new DefaultMutableTreeNode(""));
     setValidImpl(true);
     DefaultMutableTreeNode root = getRoot();
 
-    myMethodGroup = new DefaultMutableTreeNode("Method to extract");
+    myMethodGroup = new DefaultMutableTreeNode(JavaRefactoringBundle.message("refactoring.extract.method.preview.group.method"));
     root.add(myMethodGroup);
     PsiMethod emptyMethod = processor.generateEmptyMethod(processor.getMethodName(), processor.getTargetClass());
     myMethodGroup.add(new MethodNode(emptyMethod)); // will be replaced in updateMethod()
 
-    DefaultMutableTreeNode originalGroup = new DefaultMutableTreeNode("Original code fragment");
+    DefaultMutableTreeNode originalGroup =
+      new DefaultMutableTreeNode(JavaRefactoringBundle.message("refactoring.extract.method.preview.group.original"));
     root.add(originalGroup);
     PsiElement[] elements = processor.getElements();
-    originalGroup.add(new PatternNode(elements));
+    myPatternNode = new PatternNode(elements);
+    originalGroup.add(myPatternNode);
 
-    List<Match> duplicates = getDuplicates(processor);
+    List<Match> duplicates = processor.getAnyDuplicates();
     if (!ContainerUtil.isEmpty(duplicates)) {
-      myDuplicatesGroup = new DefaultMutableTreeNode("Duplicate code fragments");
+      myDuplicatesGroup = new DefaultMutableTreeNode(JavaRefactoringBundle.message("refactoring.extract.method.preview.group.duplicates"));
       root.add(myDuplicatesGroup);
       for (Match duplicate : duplicates) {
         myDuplicatesGroup.add(new DuplicateNode(duplicate));
@@ -58,12 +60,16 @@ class PreviewTreeModel extends DefaultTreeModel {
     return (DefaultMutableTreeNode)super.getRoot();
   }
 
-  void updateMethod(PsiMethod method) {
+  @NotNull
+  MethodNode updateMethod(PsiMethod method) {
     myMethodGroup.removeAllChildren();
-    myMethodGroup.add(new MethodNode(method));
+    MethodNode methodNode = new MethodNode(method);
+    myMethodGroup.add(methodNode);
     reload(myMethodGroup);
+    return methodNode;
   }
 
+  @NotNull
   public List<DuplicateNode> getEnabledDuplicates() {
     if (myDuplicatesGroup != null && myDuplicatesGroup.getChildCount() != 0) {
       List<DuplicateNode> duplicates = new ArrayList<>();
@@ -81,6 +87,7 @@ class PreviewTreeModel extends DefaultTreeModel {
     return Collections.emptyList();
   }
 
+  @NotNull
   public List<DuplicateNode> getAllDuplicates() {
     if (myDuplicatesGroup != null && myDuplicatesGroup.getChildCount() != 0) {
       List<DuplicateNode> duplicates = new ArrayList<>();
@@ -95,24 +102,17 @@ class PreviewTreeModel extends DefaultTreeModel {
     return Collections.emptyList();
   }
 
+  @NotNull
+  public PatternNode getPatternNode() {
+    return myPatternNode;
+  }
+
   public synchronized boolean isValid() {
     return myValid;
   }
 
   private synchronized void setValidImpl(boolean valid) {
     myValid = valid;
-  }
-
-  @Nullable
-  public static List<Match> getDuplicates(@NotNull ExtractMethodProcessor processor) {
-    List<Match> duplicates = processor.getDuplicates();
-    if (ContainerUtil.isEmpty(duplicates)) {
-      ParametrizedDuplicates parametrizedDuplicates = processor.getParametrizedDuplicates();
-      if (parametrizedDuplicates != null) {
-        duplicates = parametrizedDuplicates.getDuplicates();
-      }
-    }
-    return duplicates;
   }
 
   public void setValid(boolean valid) {

@@ -16,9 +16,10 @@
 package com.siyeh.ig.controlflow;
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.dataFlow.CommonDataflow;
-import com.intellij.codeInspection.dataFlow.DfaFactType;
+import com.intellij.codeInspection.dataFlow.types.DfTypes;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -34,7 +35,6 @@ import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import com.siyeh.ig.psiutils.SideEffectChecker;
 import com.siyeh.ig.psiutils.VariableAccessUtils;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,13 +49,6 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
   public JComponent createOptionsPanel() {
     return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("simplifiable.equals.expression.option.non.constant"), this,
                                           "REPORT_NON_CONSTANT");
-  }
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("simplifiable.equals.expression.display.name");
   }
 
   @NotNull
@@ -73,7 +66,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
 
     private final String myMethodName;
 
-    public SimplifiableEqualsExpressionFix(String methodName) {
+    SimplifiableEqualsExpressionFix(String methodName) {
       myMethodName = methodName;
     }
 
@@ -86,7 +79,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
@@ -101,7 +94,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
       if (operands.length != 2) {
         return;
       }
-      PsiExpression operand = ParenthesesUtils.stripParentheses(operands[1]);
+      PsiExpression operand = PsiUtil.skipParenthesizedExprDown(operands[1]);
       @NonNls final StringBuilder newExpressionText = new StringBuilder();
       if (operand instanceof PsiPrefixExpression) {
         final PsiPrefixExpression prefixExpression = (PsiPrefixExpression)operand;
@@ -109,7 +102,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
           return;
         }
         newExpressionText.append('!');
-        operand = ParenthesesUtils.stripParentheses(prefixExpression.getOperand());
+        operand = PsiUtil.skipParenthesizedExprDown(prefixExpression.getOperand());
       }
       if (!(operand instanceof PsiMethodCallExpression)) {
         return;
@@ -187,7 +180,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
         if (variable == null) {
           return;
         }
-        final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[1]);
+        final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(operands[1]);
         if (!isEqualsConstant(rhs, variable)) {
           return;
         }
@@ -203,7 +196,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
         if (variable == null) {
           return;
         }
-        final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[1]);
+        final PsiExpression rhs = PsiUtil.skipParenthesizedExprDown(operands[1]);
         if (!(rhs instanceof PsiPrefixExpression)) {
           return;
         }
@@ -211,7 +204,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
         if (!JavaTokenType.EXCL.equals(prefixExpression.getOperationTokenType())) {
           return;
         }
-        final PsiExpression operand = ParenthesesUtils.stripParentheses(prefixExpression.getOperand());
+        final PsiExpression operand = PsiUtil.skipParenthesizedExprDown(prefixExpression.getOperand());
         if (!isEqualsConstant(operand, variable)) {
           return;
         }
@@ -247,7 +240,7 @@ public class SimplifiableEqualsExpressionInspection extends BaseInspection imple
       return REPORT_NON_CONSTANT &&
              !VariableAccessUtils.variableIsUsed(variable, argument) &&
              !SideEffectChecker.mayHaveSideEffects(argument) &&
-             Boolean.FALSE.equals(CommonDataflow.getExpressionFact(argument, DfaFactType.CAN_BE_NULL));
+             !CommonDataflow.getDfType(argument).isSuperType(DfTypes.NULL);
     }
   }
 }

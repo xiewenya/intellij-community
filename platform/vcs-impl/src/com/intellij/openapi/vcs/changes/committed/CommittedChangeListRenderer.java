@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.committed;
 
 import com.intellij.openapi.project.Project;
@@ -26,6 +12,7 @@ import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -33,17 +20,18 @@ import javax.swing.plaf.TreeUI;
 import javax.swing.plaf.basic.BasicTreeUI;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
-import java.util.Date;
 import java.util.List;
+
+import static com.intellij.util.text.DateFormatUtil.formatPrettyDateTime;
 
 public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
   private final IssueLinkRenderer myRenderer;
-  private final List<CommittedChangeListDecorator> myDecorators;
+  private final List<? extends CommittedChangeListDecorator> myDecorators;
   private final Project myProject;
   private int myDateWidth;
   private int myFontSize;
 
-  public CommittedChangeListRenderer(final Project project, final List<CommittedChangeListDecorator> decorators) {
+  public CommittedChangeListRenderer(final Project project, final List<? extends CommittedChangeListDecorator> decorators) {
     myProject = project;
     myRenderer = new IssueLinkRenderer(project, this);
     myDecorators = decorators;
@@ -51,25 +39,23 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
     myFontSize = -1;
   }
 
-  public static String getDateOfChangeList(@NotNull Date date) {
-    return DateFormatUtil.formatPrettyDateTime(date);
-  }
-
   @NotNull
   public static String getDescriptionOfChangeList(@NotNull String text) {
     return text.replaceAll("\n", " // ");
   }
 
-  public static String truncateDescription(final String initDescription, final FontMetrics fontMetrics, int maxWidth) {
+  @Contract(pure = true)
+  public static @NotNull String truncateDescription(@NotNull String initDescription, @NotNull FontMetrics fontMetrics, int maxWidth) {
     String description = initDescription;
     int descWidth = fontMetrics.stringWidth(description);
-    while(description.length() > 0 && (descWidth > maxWidth)) {
+    while (description.length() > 0 && (descWidth > maxWidth)) {
       description = trimLastWord(description);
       descWidth = fontMetrics.stringWidth(description + " ");
     }
     return description;
   }
 
+  @Override
   public void customizeCellRenderer(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
     customize(tree, value, selected, expanded, leaf, row, hasFocus);
   }
@@ -94,8 +80,9 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
     final FontMetrics boldMetrics = tree.getFontMetrics(tree.getFont().deriveFont(Font.BOLD));
     final FontMetrics italicMetrics = tree.getFontMetrics(tree.getFont().deriveFont(Font.ITALIC));
     if (myDateWidth <= 0 || (fontMetrics.getFont().getSize() != myFontSize)) {
-      myDateWidth = Math.max(fontMetrics.stringWidth(", Yesterday 00:00 PM "), fontMetrics.stringWidth(", 00/00/00 00:00 PM "));
-      myDateWidth = Math.max(myDateWidth, fontMetrics.stringWidth(getDateOfChangeList(new Date(2000, 11, 31))));
+      myDateWidth = Math.max(fontMetrics.stringWidth(", Yesterday 00:00 PM "), // NON-NLS
+                             fontMetrics.stringWidth(", 00/00/00 00:00 PM ")); // NON-NLS
+      myDateWidth = Math.max(myDateWidth, fontMetrics.stringWidth(formatPrettyDateTime(DateFormatUtil.getSampleDateTime())));
       myFontSize = fontMetrics.getFont().getSize();
     }
     int dateCommitterSize = myDateWidth + boldMetrics.stringWidth(changeList.getCommitterName());
@@ -172,9 +159,7 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
 
     append(changeList.getCommitterName(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
     if (changeList.getCommitDate() != null) {
-      String date = ", " + getDateOfChangeList(changeList.getCommitDate());
-
-      append(date, SimpleTextAttributes.REGULAR_ATTRIBUTES);
+      append(", " + formatPrettyDateTime(changeList.getCommitDate()), SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }
   }
 

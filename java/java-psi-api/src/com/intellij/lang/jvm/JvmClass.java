@@ -44,8 +44,7 @@ public interface JvmClass extends JvmTypeParametersOwner, JvmTypeDeclaration {
    * @see Class#getAnnotatedInterfaces
    * @see Class#getGenericInterfaces
    */
-  @NotNull
-  JvmReferenceType[] getInterfaceTypes();
+  JvmReferenceType @NotNull [] getInterfaceTypes();
 
   //
 
@@ -54,15 +53,13 @@ public interface JvmClass extends JvmTypeParametersOwner, JvmTypeDeclaration {
    * @see Class#getDeclaredMethods
    * @see Class#getDeclaredConstructors
    */
-  @NotNull
-  JvmMethod[] getMethods();
+  JvmMethod @NotNull [] getMethods();
 
   /**
    * @return methods (excluding inherited) with the specified name
    * @see Class#getDeclaredMethod
    */
-  @NotNull
-  default JvmMethod[] findMethodsByName(@NotNull String methodName) {
+  default JvmMethod @NotNull [] findMethodsByName(@NotNull String methodName) {
     return JvmClassDefaults.findMethodsByName(this, methodName);
   }
 
@@ -70,13 +67,16 @@ public interface JvmClass extends JvmTypeParametersOwner, JvmTypeDeclaration {
    * @return all (static, private, etc) fields declared by this class but excluding inherited ones
    * @see Class#getDeclaredFields
    */
-  @NotNull
-  JvmField[] getFields();
+  JvmField @NotNull [] getFields();
 
   /**
    * @return all (static, private, etc) inner classes declared by this class but excluding inherited ones
    * @see Class#getDeclaredClasses
    */
-  @NotNull
-  JvmClass[] getInnerClasses();
+  JvmClass @NotNull [] getInnerClasses();
+
+  @Override
+  default <T> T accept(@NotNull JvmElementVisitor<T> visitor) {
+    return visitor.visitClass(this);
+  }
 }

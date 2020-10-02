@@ -16,6 +16,7 @@
 package com.jetbrains.python.inspections;
 
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
+import com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalInspection;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
@@ -87,6 +88,7 @@ public class PyUnusedLocalInspectionTest extends PyInspectionTestCase {
   }
 
   // PY-3996
+  // PY-27435
   public void testUnderscorePrefixed() {
     doTest();
   }
@@ -99,6 +101,106 @@ public class PyUnusedLocalInspectionTest extends PyInspectionTestCase {
   // PY-28017
   public void testModuleGetAttr() {
     runWithLanguageLevel(LanguageLevel.PYTHON37, this::doTest);
+  }
+
+  // PY-27435
+  public void testVariableStartingWithUnderscore() {
+    final PyUnusedLocalInspection inspection = new PyUnusedLocalInspection();
+    inspection.ignoreVariablesStartingWithUnderscore = false;
+    doTest(inspection);
+  }
+
+  // PY-20893
+  public void testExceptionTargetStartingWithUnderscore() {
+    final PyUnusedLocalInspection inspection = new PyUnusedLocalInspection();
+    inspection.ignoreVariablesStartingWithUnderscore = true;
+    doTest(inspection);
+  }
+
+  // PY-31388
+  public void testIgnoringVariablesStartingWithUnderscore() {
+    final PyUnusedLocalInspection inspection = new PyUnusedLocalInspection();
+    inspection.ignoreVariablesStartingWithUnderscore = true;
+    inspection.ignoreLambdaParameters = false;
+    inspection.ignoreLoopIterationVariables = false;
+    inspection.ignoreTupleUnpacking = false;
+    doTest(inspection);
+  }
+
+  // PY-16419, PY-26417
+  public void testPotentiallySuppressedExceptions() {
+    doTestByText(
+      "class C(object):\n" +
+      "    def __enter__(self):\n" +
+      "        return self\n" +
+      "\n" +
+      "    def __exit__(self, exc, value, traceback):\n" +
+      "        return undefined\n" +
+      "\n" +
+      "def f11():\n" +
+      "    with C():\n" +
+      "        x = 1\n" +
+      "        raise Exception()\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "def g2():\n" +
+      "    raise Exception()\n" +
+      "\n" +
+      "def f12():\n" +
+      "    with C():\n" +
+      "        <weak_warning descr=\"Local variable 'x' value is not used\">x</weak_warning> = 2\n" +
+      "        return g2()\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "class A1(TestCase):\n" +
+      "    def f3(self):\n" +
+      "        with C():\n" +
+      "            x = 2\n" +
+      "            g2()\n" +
+      "        print(x) #pass\n" +
+      "    \n" +
+      "import contextlib\n" +
+      "from contextlib import suppress\n" +
+      "from unittest import TestCase\n" +
+      "\n" +
+      "def f21():\n" +
+      "    with suppress(Exception):\n" +
+      "        x = 1\n" +
+      "        raise Exception()\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "def f22():\n" +
+      "    with contextlib.suppress(Exception):\n" +
+      "        x = 2\n" +
+      "        return g2()\n" +
+      "    print(x) #pass\n" +
+      "\n" +
+      "class A2(TestCase):\n" +
+      "    def f3(self):\n" +
+      "        with self.assertRaises(Exception):\n" +
+      "            x = 2\n" +
+      "            g2()\n" +
+      "        print(x) #pass"
+    );
+  }
+  // PY-22204
+  public void testForwardTypeDeclaration() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-22204
+  public void testTypeDeclarationFollowsTargetBeforeItsFirstUsage() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-44102
+  public void testUnusedMultiAssignmentTarget() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
+  // PY-44102
+  public void testUnusedAssignmentExpression() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
   }
 
   @NotNull

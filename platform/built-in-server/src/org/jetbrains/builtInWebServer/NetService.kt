@@ -15,6 +15,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.util.Consumer
 import com.intellij.util.net.NetUtils
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.concurrency.*
 import javax.swing.Icon
 
@@ -33,14 +34,14 @@ abstract class NetService @JvmOverloads protected constructor(protected val proj
     }
 
     override fun load(promise: AsyncPromise<OSProcessHandler>): Promise<OSProcessHandler> {
-      val port = NetUtils.findAvailableSocketPort()
+      val port = getAvailableSocketPort()
       val processHandler = doGetProcessHandler(port)
       if (processHandler == null) {
         promise.setError("rejected")
         return promise
       }
 
-      promise.rejected {
+      promise.onError {
         processHandler.destroyProcess()
         LOG.errorIfNotMessage(it)
       }
@@ -78,6 +79,8 @@ abstract class NetService @JvmOverloads protected constructor(protected val proj
     }
   }
 
+  protected open fun getAvailableSocketPort() = NetUtils.findAvailableSocketPort()
+
   @Throws(ExecutionException::class)
   protected abstract fun createProcessHandler(project: Project, port: Int): OSProcessHandler?
 
@@ -94,6 +97,7 @@ abstract class NetService @JvmOverloads protected constructor(protected val proj
   protected open fun configureConsole(consoleBuilder: TextConsoleBuilder) {
   }
 
+  @NonNls
   protected abstract fun getConsoleToolWindowId(): String
 
   protected abstract fun getConsoleToolWindowIcon(): Icon
@@ -114,6 +118,7 @@ abstract class NetService @JvmOverloads protected constructor(protected val proj
       if (result != null && result == osProcessHandler) {
         processHandler.reset()
       }
+      @Suppress("HardCodedStringLiteral")
       print("${getConsoleToolWindowId()} terminated\n", ConsoleViewContentType.SYSTEM_OUTPUT)
     }
 

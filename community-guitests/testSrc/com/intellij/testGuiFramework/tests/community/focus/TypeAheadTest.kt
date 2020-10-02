@@ -3,8 +3,7 @@ package com.intellij.testGuiFramework.tests.community.focus
 
 import com.intellij.testGuiFramework.fixtures.JDialogFixture
 import com.intellij.testGuiFramework.framework.RunWithIde
-import com.intellij.testGuiFramework.impl.GuiTestCase
-import com.intellij.testGuiFramework.impl.GuiTestUtilKt
+import com.intellij.testGuiFramework.impl.*
 import com.intellij.testGuiFramework.launcher.ide.CommunityIde
 import com.intellij.testGuiFramework.tests.community.CommunityProjectCreator
 import org.fest.swing.timing.Pause.pause
@@ -14,8 +13,8 @@ import org.junit.Test
 class TypeAheadTest : GuiTestCase() {
 
   @Test
-  fun testProjectCreate() {
-    CommunityProjectCreator.createCommandLineProject("type-ahead-problem")
+  fun testTypeAhead() {
+    CommunityProjectCreator.importCommandLineAppAndOpenMain()
     ideFrame {
       waitForBackgroundTasksToFinish()
       configurationList {
@@ -42,6 +41,6 @@ class TypeAheadTest : GuiTestCase() {
     val actionName = "Add New Configuration"
     GuiTestUtilKt.waitUntil("action button will be visible") { actionButton(actionName).target().isShowing }
     actionButton(actionName).click()
-    popupClick("JUnit")
+    popupMenu("JUnit").clickSearchedItem()
   }
 }

@@ -36,12 +36,12 @@ import java.util.Collection;
 import java.util.Collections;
 
 public abstract class AbstractModuleNode extends ProjectViewNode<Module> implements NavigatableWithText {
-  protected AbstractModuleNode(Project project, Module module, ViewSettings viewSettings) {
+  protected AbstractModuleNode(Project project, @NotNull Module module, ViewSettings viewSettings) {
     super(project, module, viewSettings);
   }
 
   @Override
-  public void update(PresentationData presentation) {
+  public void update(@NotNull PresentationData presentation) {
     Module module = getValue();
     if (module == null || module.isDisposed()) {
       setValue(null);
@@ -66,7 +66,9 @@ public abstract class AbstractModuleNode extends ProjectViewNode<Module> impleme
   @Override
   public Collection<VirtualFile> getRoots() {
     Module module = getValue();
-    return module != null ? Arrays.asList(ModuleRootManager.getInstance(module).getContentRoots()) : Collections.emptyList();
+    return module != null && !module.isDisposed()
+           ? Arrays.asList(ModuleRootManager.getInstance(module).getContentRoots())
+           : Collections.emptyList();
   }
 
   @Override
@@ -90,7 +92,7 @@ public abstract class AbstractModuleNode extends ProjectViewNode<Module> impleme
   @Override
   public void navigate(final boolean requestFocus) {
     Module module = getValue();
-    if (module != null) {
+    if (module != null && !module.isDisposed()) {
       ProjectSettingsService.getInstance(myProject).openModuleSettings(module);
     }
   }
@@ -102,7 +104,8 @@ public abstract class AbstractModuleNode extends ProjectViewNode<Module> impleme
 
   @Override
   public boolean canNavigate() {
-    return ProjectSettingsService.getInstance(myProject).canOpenModuleSettings() && getValue() != null;
+    Module module = getValue();
+    return module != null && !module.isDisposed() && ProjectSettingsService.getInstance(myProject).canOpenModuleSettings();
   }
 
   @SuppressWarnings("deprecation")

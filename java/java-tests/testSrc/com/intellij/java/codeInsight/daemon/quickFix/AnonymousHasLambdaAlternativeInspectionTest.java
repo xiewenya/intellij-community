@@ -22,15 +22,12 @@ import org.jetbrains.annotations.NotNull;
 
 
 public class AnonymousHasLambdaAlternativeInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{
       new AnonymousHasLambdaAlternativeInspection(),
     };
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

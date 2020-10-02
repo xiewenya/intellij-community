@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.codeInsight.completion;
 
 import com.intellij.JavaTestUtil;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.completion.CodeCompletionHandlerBase;
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.codeInsight.lookup.Lookup;
@@ -25,14 +12,14 @@ import com.intellij.codeInsight.lookup.impl.LookupManagerImpl;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
+import com.intellij.testFramework.NeedsIndex;
 import com.intellij.testFramework.TestDataPath;
 import org.jetbrains.annotations.NotNull;
 
 @TestDataPath("$CONTENT_ROOT/testData")
-public class CompletionStyleTest extends LightCodeInsightTestCase{
+public class CompletionStyleTest extends LightJavaCodeInsightTestCase {
   private static final String BASE_PATH = "/codeInsight/completion/style";
 
   @Override
@@ -46,6 +33,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     return JavaTestUtil.getJavaTestDataPath();
   }
 
+  @NeedsIndex.Full
   public void testGenericParametersReplace() {
     final String path = BASE_PATH;
 
@@ -105,6 +93,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after3.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodsParametersStyle2() {
     final String path = BASE_PATH;
 
@@ -122,14 +111,15 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after6.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testLocalVariablePreselect() {
-    final String path = BASE_PATH;
 
-    configureByFile(path + "/before5.java");
+    configureByFile(BASE_PATH + "/before5.java");
     performSmartCompletion();
     assertEquals("xxxx", getSelected().getLookupString());
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodCompletionInsideInlineTags() {
     final String path = BASE_PATH;
 
@@ -166,6 +156,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after10.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testCaretPositionAfterCompletion1() {
     final String path = BASE_PATH;
 
@@ -175,6 +166,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after11.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testCaretPositionAfterCompletion2() {
     final String path = BASE_PATH;
 
@@ -184,6 +176,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after12.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testParensReuse() {
     final String path = BASE_PATH;
 
@@ -203,6 +196,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after22.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodReplacementReuseParens1() {
     final String path = BASE_PATH;
 
@@ -212,6 +206,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after15.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodReplacementReuseParens2() {
     final String path = BASE_PATH;
 
@@ -221,6 +216,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after16.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodReplacementReuseParens3() {
     final String path = BASE_PATH;
 
@@ -248,6 +244,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     checkResultByFile(path + "/after31.java");
   }
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodParensStyle2() {
     final String path = BASE_PATH;
     CommonCodeStyleSettings styleSettings = getCodeStyleSettings();
@@ -259,11 +256,12 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     styleSettings.SPACE_BEFORE_METHOD_CALL_PARENTHESES = space_before_method_call_parentheses;
   }
 
-  private static CommonCodeStyleSettings getCodeStyleSettings() {
-    return CodeStyleSettingsManager.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
+  private CommonCodeStyleSettings getCodeStyleSettings() {
+    return CodeStyle.getSettings(getProject()).getCommonSettings(JavaLanguage.INSTANCE);
   }
 
 
+  @NeedsIndex.ForStandardLibrary
   public void testMethodParensStyle3() {
     final String path = BASE_PATH;
     CommonCodeStyleSettings styleSettings = getCodeStyleSettings();
@@ -276,6 +274,18 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     performNormalCompletion();
     checkResultByFile(path + "/after32-a.java");
     styleSettings.SPACE_BEFORE_METHOD_CALL_PARENTHESES = space_before_method_call_parentheses;
+    styleSettings.SPACE_WITHIN_METHOD_CALL_PARENTHESES = space_within_method_call_parentheses;
+  }
+
+  public void testSpaceWithinNonEmptyCallParens() {
+    final String path = BASE_PATH;
+    CommonCodeStyleSettings styleSettings = getCodeStyleSettings();
+    final boolean space_within_method_call_parentheses = styleSettings.SPACE_WITHIN_METHOD_CALL_PARENTHESES;
+
+    styleSettings.SPACE_WITHIN_METHOD_CALL_PARENTHESES = true;
+    configureByFile(path + "/" + getTestName(false) + ".java");
+    performNormalCompletion();
+    checkResultByFile(path + "/" + getTestName(false) + "-out.java");
     styleSettings.SPACE_WITHIN_METHOD_CALL_PARENTHESES = space_within_method_call_parentheses;
   }
 
@@ -339,12 +349,7 @@ public class CompletionStyleTest extends LightCodeInsightTestCase{
     return LookupManager.getInstance(getProject()).getActiveLookup().getCurrentItem();
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    LookupManager.getInstance(getProject()).hideActiveLookup();
-    super.tearDown();    
-  }
-
+  @NeedsIndex.SmartMode(reason = "For now ConstructorInsertHandler.createOverrideRunnable doesn't work in dumb mode")
   public void testAfterNew15() {
     final LanguageLevelProjectExtension ll = LanguageLevelProjectExtension.getInstance(getProject());
     final LanguageLevel old = ll.getLanguageLevel();

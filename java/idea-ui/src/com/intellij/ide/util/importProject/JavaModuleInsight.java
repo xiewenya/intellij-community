@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.importProject;
 
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.util.projectWizard.importSources.DetectedProjectRoot;
 import com.intellij.ide.util.projectWizard.importSources.DetectedSourceRoot;
@@ -28,6 +15,7 @@ import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
@@ -45,7 +33,7 @@ import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-public class JavaModuleInsight extends ModuleInsight {
+public final class JavaModuleInsight extends ModuleInsight {
   private static final Logger LOG = Logger.getInstance(JavaModuleInsight.class);
   private final Lexer myLexer;
 
@@ -80,7 +68,7 @@ public class JavaModuleInsight extends ModuleInsight {
       Map<String, ModuleInfo> moduleInfos = new HashMap<>();
       for (JavaModuleSourceRoot moduleInfoRoot : moduleInfoRoots) {
         final File sourceRoot = moduleInfoRoot.getDirectory();
-        myProgress.setText("Scanning " + sourceRoot.getPath());
+        myProgress.setText(JavaUiBundle.message("module.insight.scan.progress.text.scanning", sourceRoot.getPath()));
         final ModuleInfo moduleInfo = scanModuleInfoFile(sourceRoot);
         if (moduleInfo != null) {
           moduleInfo.descriptor = createModuleDescriptor(moduleInfo.directory, Collections.singletonList(moduleInfoRoot));
@@ -88,7 +76,7 @@ public class JavaModuleInsight extends ModuleInsight {
           addExportedPackages(sourceRoot, moduleInfo.exportsPackages);
         }
       }
-      myProgress.setText("Building modules layout...");
+      myProgress.setText(JavaUiBundle.message("module.insight.scan.progress.text.building.modules.layout"));
       for (ModuleInfo moduleInfo : moduleInfos.values()) {
         for (String requiresModule : moduleInfo.requiresModules) {
           ModuleInfo requiredModuleInfo = moduleInfos.get(requiresModule);
@@ -115,7 +103,8 @@ public class JavaModuleInsight extends ModuleInsight {
 
   private ModuleInfo scanModuleInfoFile(@NotNull File directory) {
     File file = new File(directory, PsiJavaModule.MODULE_INFO_FILE);
-    myProgress.setText2(file.getName());
+    @NlsSafe final String name = file.getName();
+    myProgress.setText2(name);
     try {
       String text = FileUtil.loadFile(file);
 
@@ -257,15 +246,17 @@ public class JavaModuleInsight extends ModuleInsight {
     }
   }
 
+  @Override
   protected ModuleDescriptor createModuleDescriptor(final File moduleContentRoot, final Collection<DetectedSourceRoot> sourceRoots) {
     return new ModuleDescriptor(moduleContentRoot, StdModuleTypes.JAVA, sourceRoots);
   }
 
+  @Override
   public boolean isApplicableRoot(final DetectedProjectRoot root) {
     return root instanceof JavaModuleSourceRoot;
   }
 
-  private static class ModuleInfo {
+  private static final class ModuleInfo {
     final String name;
     final Set<String> requiresModules = new HashSet<>();
     final Set<String> exportsPackages = new HashSet<>();
@@ -281,16 +272,15 @@ public class JavaModuleInsight extends ModuleInsight {
   private static class ModuleInfoVisitor extends JavaRecursiveElementVisitor {
     private final ModuleInfo myInfo;
 
-    public ModuleInfoVisitor(ModuleInfo info) {
+    ModuleInfoVisitor(ModuleInfo info) {
       myInfo = info;
     }
 
     @Override
     public void visitRequiresStatement(PsiRequiresStatement statement) {
       super.visitRequiresStatement(statement);
-      PsiJavaModuleReferenceElement referenceElement = statement.getReferenceElement();
-      if (referenceElement != null) {
-        String referenceText = referenceElement.getReferenceText();
+      String referenceText = statement.getModuleName();
+      if (referenceText != null) {
         myInfo.requiresModules.add(referenceText);
       }
     }

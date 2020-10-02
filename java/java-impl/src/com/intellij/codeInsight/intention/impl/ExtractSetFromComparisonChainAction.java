@@ -15,10 +15,11 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
+import com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.WriteAction;
@@ -32,19 +33,16 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
-import com.intellij.psi.impl.PsiDiamondTypeUtil;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.rename.inplace.MemberInplaceRenamer;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ThrowableRunnable;
-import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.EqualityCheck;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.MethodCallUtils;
 import one.util.streamex.IntStreamEx;
 import one.util.streamex.MoreCollectors;
 import one.util.streamex.StreamEx;
@@ -57,29 +55,23 @@ import java.util.*;
 
 import static com.intellij.util.ObjectUtils.tryCast;
 
-/**
- * @author Tagir Valeev
- */
 public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntentionAction {
-  private static final CallMatcher OBJECT_EQUALS = CallMatcher.anyOf(
-    CallMatcher.staticCall("java.util.Objects", "equals").parameterCount(2),
-    CallMatcher.staticCall("com.google.common.base.Objects", "equal").parameterCount(2));
-
-  private static final String GUAVA_IMMUTABLE_SET = "com.google.common.collect.ImmutableSet";
-  private static final String INITIALIZER_FORMAT_GUAVA = GUAVA_IMMUTABLE_SET + ".of({0})";
-  private static final String INITIALIZER_FORMAT_JAVA2 =
-    CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
-    "new " + CommonClassNames.JAVA_UTIL_HASH_SET +
-    "(" + CommonClassNames.JAVA_UTIL_ARRAYS + ".asList(new {1}[] '{'{0}'}')))";
-  private static final String INITIALIZER_FORMAT_JAVA5 =
-    CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
-    "new " + CommonClassNames.JAVA_UTIL_HASH_SET + "<{1}>" +
-    "(" + CommonClassNames.JAVA_UTIL_ARRAYS + ".asList({0})))";
-  private static final String INITIALIZER_FORMAT_JAVA9 = CommonClassNames.JAVA_UTIL_SET + ".of({0})";
-  private static final String INITIALIZER_ENUM_SET =
-    CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
-    "java.util.EnumSet.of({0}))";
-
+  private static class Holder {
+    private static final String GUAVA_IMMUTABLE_SET = "com.google.common.collect.ImmutableSet";
+    private static final String INITIALIZER_FORMAT_GUAVA = GUAVA_IMMUTABLE_SET + ".of({0})";
+    private static final String INITIALIZER_FORMAT_JAVA2 =
+      CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
+      "new " + CommonClassNames.JAVA_UTIL_HASH_SET +
+      "(" + CommonClassNames.JAVA_UTIL_ARRAYS + ".asList(new {1}[] '{'{0}'}')))";
+    private static final String INITIALIZER_FORMAT_JAVA5 =
+      CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
+      "new " + CommonClassNames.JAVA_UTIL_HASH_SET + "<{1}>" +
+      "(" + CommonClassNames.JAVA_UTIL_ARRAYS + ".asList({0})))";
+    private static final String INITIALIZER_FORMAT_JAVA9 = CommonClassNames.JAVA_UTIL_SET + ".of({0})";
+    private static final String INITIALIZER_ENUM_SET =
+      CommonClassNames.JAVA_UTIL_COLLECTIONS + ".unmodifiableSet(" +
+      "java.util.EnumSet.of({0}))";
+  }
   @Override
   public boolean startInWriteAction() {
     return false;
@@ -119,7 +111,7 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
                       (PsiUtil.isLanguageLevel5OrHigher(containingClass) ? "<" + elementType.getCanonicalText() + ">" : "");
         PsiField field = factory.createFieldFromText(modifiers + type + " " + name + "=" + initializer + ";", containingClass);
         field = (PsiField)containingClass.add(field);
-        PsiDiamondTypeUtil.removeRedundantTypeArguments(field);
+        RemoveRedundantTypeArgumentsUtil.removeRedundantTypeArguments(field);
         CodeStyleManager.getInstance(project).reformat(manager.shortenClassReferences(field));
 
         SmartPointerManager smartPointerManager = SmartPointerManager.getInstance(project);
@@ -136,9 +128,10 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
     if (!copies.isEmpty()) {
       int answer = ApplicationManager.getApplication().isUnitTestMode() ? Messages.YES :
                    Messages.showYesNoDialog(project,
-                                            CodeInsightBundle.message("intention.extract.set.from.comparison.chain.duplicates",
+                                            JavaBundle.message("intention.extract.set.from.comparison.chain.duplicates",
                                                                       ApplicationNamesInfo.getInstance().getProductName(),
-                                                                      copies.size()), "Process Duplicates",
+                                                                      copies.size()), JavaBundle.message(
+                       "dialog.title.process.duplicates"),
                                             Messages.getQuestionIcon());
       if (answer == Messages.YES) {
         WriteAction.run(() -> {
@@ -193,18 +186,18 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
   @NotNull
   String getInitializer(PsiType type, PsiClass containingClass) {
     if (!type.equalsToText(CommonClassNames.JAVA_LANG_STRING)) {
-      return INITIALIZER_ENUM_SET;
+      return Holder.INITIALIZER_ENUM_SET;
     }
     if (PsiUtil.isLanguageLevel9OrHigher(containingClass)) {
-      return INITIALIZER_FORMAT_JAVA9;
+      return Holder.INITIALIZER_FORMAT_JAVA9;
     }
-    if (JavaPsiFacade.getInstance(containingClass.getProject()).findClass(GUAVA_IMMUTABLE_SET, containingClass.getResolveScope()) != null) {
-      return INITIALIZER_FORMAT_GUAVA;
+    if (JavaPsiFacade.getInstance(containingClass.getProject()).findClass(Holder.GUAVA_IMMUTABLE_SET, containingClass.getResolveScope()) != null) {
+      return Holder.INITIALIZER_FORMAT_GUAVA;
     }
     if (PsiUtil.isLanguageLevel5OrHigher(containingClass)) {
-      return INITIALIZER_FORMAT_JAVA5;
+      return Holder.INITIALIZER_FORMAT_JAVA5;
     }
-    return INITIALIZER_FORMAT_JAVA2;
+    return Holder.INITIALIZER_FORMAT_JAVA2;
   }
 
   @Override
@@ -222,7 +215,7 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
   @NotNull
   @Override
   public String getFamilyName() {
-    return CodeInsightBundle.message("intention.extract.set.from.comparison.chain.family");
+    return JavaBundle.message("intention.extract.set.from.comparison.chain.family");
   }
 
   @NotNull
@@ -299,7 +292,6 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
       PsiClass containingClass = field.getContainingClass();
       if (containingClass == null) return null;
       String name = field.getName();
-      if (name == null) return null;
       PsiExpression expression = myExpressionPtr.getElement();
       PsiExpression firstComparison = myFirstComparisonPtr.getElement();
       PsiExpression lastComparison = myLastComparisonPtr.getElement();
@@ -346,18 +338,9 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
 
     static ExpressionToConstantComparison create(PsiExpression candidate) {
       candidate = PsiUtil.skipParenthesizedExprDown(candidate);
-      PsiMethodCallExpression call = tryCast(candidate, PsiMethodCallExpression.class);
-      if (call != null) {
-        if (MethodCallUtils.isEqualsCall(call)) {
-          PsiExpression qualifier = call.getMethodExpression().getQualifierExpression();
-          PsiExpression argument = ArrayUtil.getFirstElement(call.getArgumentList().getExpressions());
-          return fromComparison(candidate, qualifier, argument);
-        }
-        if (OBJECT_EQUALS.test(call)) {
-          PsiExpression[] arguments = call.getArgumentList().getExpressions();
-          return fromComparison(candidate, arguments[0], arguments[1]);
-        }
-        return null;
+      EqualityCheck check = EqualityCheck.from(candidate);
+      if (check != null) {
+        return fromComparison(candidate, check.getLeft(), check.getRight());
       }
       PsiBinaryExpression binOp = tryCast(candidate, PsiBinaryExpression.class);
       if (binOp != null && JavaTokenType.EQEQ.equals(binOp.getOperationTokenType())) {
@@ -383,7 +366,7 @@ public class ExtractSetFromComparisonChainAction extends PsiElementBaseIntention
       PsiReferenceExpression ref = tryCast(PsiUtil.skipParenthesizedExprDown(constant), PsiReferenceExpression.class);
       if (ref != null) {
         PsiEnumConstant enumConstant = tryCast(ref.resolve(), PsiEnumConstant.class);
-        if (enumConstant != null && enumConstant.getName() != null) {
+        if (enumConstant != null) {
           return new ExpressionToConstantComparison(candidate, nonConstant, ref, enumConstant.getName());
         }
       }

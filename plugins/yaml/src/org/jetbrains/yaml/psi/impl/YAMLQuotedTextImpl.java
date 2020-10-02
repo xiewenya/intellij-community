@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi.impl;
 
 import com.intellij.lang.ASTNode;
@@ -5,20 +6,21 @@ import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiElementVisitor;
 import com.intellij.util.ObjectUtils;
-import java.util.HashMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.YAMLUtil;
 import org.jetbrains.yaml.lexer.YAMLGrammarCharUtil;
 import org.jetbrains.yaml.psi.YAMLQuotedText;
+import org.jetbrains.yaml.psi.YamlPsiElementVisitor;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
-public class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText {
+public final class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText {
   private final boolean myIsSingleQuoted;
 
   public YAMLQuotedTextImpl(@NotNull ASTNode node) {
@@ -187,6 +189,7 @@ public class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText
     return textContains('\n');
   }
 
+  @Override
   public boolean isSingleQuote() {
     return myIsSingleQuoted;
   }
@@ -196,7 +199,7 @@ public class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText
     return "YAML quoted text";
   }
 
-  private static class Escaper {
+  private static final class Escaper {
     private static final int[][] ONE_LETTER_CONVERSIONS = new int[][] {
       {'0', 0},
       {'a', 7},
@@ -218,29 +221,13 @@ public class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText
       {'P', 8233},
     };
 
-    private static final NotNullLazyValue<Map<Integer, Integer>> ESC_TO_CODE = new NotNullLazyValue<Map<Integer, Integer>>() {
-      @NotNull
-      @Override
-      protected Map<Integer, Integer> compute() {
-        final HashMap<Integer, Integer> map = new HashMap<>(ONE_LETTER_CONVERSIONS.length);
-        for (int[] conversion : ONE_LETTER_CONVERSIONS) {
-          map.put(conversion[0], conversion[1]);
-        }
-        return map;
+    private static final NotNullLazyValue<Int2IntOpenHashMap> ESC_TO_CODE = NotNullLazyValue.createValue(() -> {
+      Int2IntOpenHashMap map = new Int2IntOpenHashMap(ONE_LETTER_CONVERSIONS.length);
+      for (int[] conversion : ONE_LETTER_CONVERSIONS) {
+        map.put(conversion[0], conversion[1]);
       }
-    };
-
-    private static final NotNullLazyValue<Map<Integer, Integer>> CODE_TO_ESC = new NotNullLazyValue<Map<Integer, Integer>>() {
-      @NotNull
-      @Override
-      protected Map<Integer, Integer> compute() {
-        final HashMap<Integer, Integer> map = new HashMap<>(ONE_LETTER_CONVERSIONS.length);
-        for (int[] conversion : ONE_LETTER_CONVERSIONS) {
-          map.put(conversion[1], conversion[2]);
-        }
-        return map;
-      }
-    };
+      return map;
+    });
 
     static int findEscapementLength(@NotNull CharSequence text, int pos) {
       if (pos + 1 >= text.length() || text.charAt(pos) != '\\') {
@@ -269,13 +256,23 @@ public class YAMLQuotedTextImpl extends YAMLScalarImpl implements YAMLQuotedText
           return Integer.parseInt(s.toString(), 16);
         }
         catch (NumberFormatException e) {
-          return (int)'?';
+          return '?';
         }
       }
       else {
-        final Integer result = ESC_TO_CODE.getValue().get((int)text.charAt(pos + 1));
+        final Integer result = ESC_TO_CODE.getValue().get(text.charAt(pos + 1));
         return ObjectUtils.notNull(result, (int)text.charAt(pos + 1));
       }
+    }
+  }
+
+  @Override
+  public void accept(@NotNull PsiElementVisitor visitor) {
+    if (visitor instanceof YamlPsiElementVisitor) {
+      ((YamlPsiElementVisitor)visitor).visitQuotedText(this);
+    }
+    else {
+      super.accept(visitor);
     }
   }
 }

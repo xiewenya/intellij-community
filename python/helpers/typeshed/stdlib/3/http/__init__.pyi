@@ -1,69 +1,74 @@
 import sys
-
 from enum import IntEnum
+from typing_extensions import Literal
 
-if sys.version_info >= (3, 5):
-    class HTTPStatus(IntEnum):
-
-        def __init__(self, *a) -> None: ...
-
-        phrase = ...  # type: str
-        description = ...  # type: str
-
-        CONTINUE = ...  # type: HTTPStatus
-        SWITCHING_PROTOCOLS = ...  # type: HTTPStatus
-        PROCESSING = ...  # type: HTTPStatus
-        OK = ...  # type: HTTPStatus
-        CREATED = ...  # type: HTTPStatus
-        ACCEPTED = ...  # type: HTTPStatus
-        NON_AUTHORITATIVE_INFORMATION = ...  # type: HTTPStatus
-        NO_CONTENT = ...  # type: HTTPStatus
-        RESET_CONTENT = ...  # type: HTTPStatus
-        PARTIAL_CONTENT = ...  # type: HTTPStatus
-        MULTI_STATUS = ...  # type: HTTPStatus
-        ALREADY_REPORTED = ...  # type: HTTPStatus
-        IM_USED = ...  # type: HTTPStatus
-        MULTIPLE_CHOICES = ...  # type: HTTPStatus
-        MOVED_PERMANENTLY = ...  # type: HTTPStatus
-        FOUND = ...  # type: HTTPStatus
-        SEE_OTHER = ...  # type: HTTPStatus
-        NOT_MODIFIED = ...  # type: HTTPStatus
-        USE_PROXY = ...  # type: HTTPStatus
-        TEMPORARY_REDIRECT = ...  # type: HTTPStatus
-        PERMANENT_REDIRECT = ...  # type: HTTPStatus
-        BAD_REQUEST = ...  # type: HTTPStatus
-        UNAUTHORIZED = ...  # type: HTTPStatus
-        PAYMENT_REQUIRED = ...  # type: HTTPStatus
-        FORBIDDEN = ...  # type: HTTPStatus
-        NOT_FOUND = ...  # type: HTTPStatus
-        METHOD_NOT_ALLOWED = ...  # type: HTTPStatus
-        NOT_ACCEPTABLE = ...  # type: HTTPStatus
-        PROXY_AUTHENTICATION_REQUIRED = ...  # type: HTTPStatus
-        REQUEST_TIMEOUT = ...  # type: HTTPStatus
-        CONFLICT = ...  # type: HTTPStatus
-        GONE = ...  # type: HTTPStatus
-        LENGTH_REQUIRED = ...  # type: HTTPStatus
-        PRECONDITION_FAILED = ...  # type: HTTPStatus
-        REQUEST_ENTITY_TOO_LARGE = ...  # type: HTTPStatus
-        REQUEST_URI_TOO_LONG = ...  # type: HTTPStatus
-        UNSUPPORTED_MEDIA_TYPE = ...  # type: HTTPStatus
-        REQUESTED_RANGE_NOT_SATISFIABLE = ...  # type: HTTPStatus
-        EXPECTATION_FAILED = ...  # type: HTTPStatus
-        UNPROCESSABLE_ENTITY = ...  # type: HTTPStatus
-        LOCKED = ...  # type: HTTPStatus
-        FAILED_DEPENDENCY = ...  # type: HTTPStatus
-        UPGRADE_REQUIRED = ...  # type: HTTPStatus
-        PRECONDITION_REQUIRED = ...  # type: HTTPStatus
-        TOO_MANY_REQUESTS = ...  # type: HTTPStatus
-        REQUEST_HEADER_FIELDS_TOO_LARGE = ...  # type: HTTPStatus
-        INTERNAL_SERVER_ERROR = ...  # type: HTTPStatus
-        NOT_IMPLEMENTED = ...  # type: HTTPStatus
-        BAD_GATEWAY = ...  # type: HTTPStatus
-        SERVICE_UNAVAILABLE = ...  # type: HTTPStatus
-        GATEWAY_TIMEOUT = ...  # type: HTTPStatus
-        HTTP_VERSION_NOT_SUPPORTED = ...  # type: HTTPStatus
-        VARIANT_ALSO_NEGOTIATES = ...  # type: HTTPStatus
-        INSUFFICIENT_STORAGE = ...  # type: HTTPStatus
-        LOOP_DETECTED = ...  # type: HTTPStatus
-        NOT_EXTENDED = ...  # type: HTTPStatus
-        NETWORK_AUTHENTICATION_REQUIRED = ...  # type: HTTPStatus
+class HTTPStatus(IntEnum):
+    @property
+    def phrase(self) -> str: ...
+    @property
+    def description(self) -> str: ...
+    CONTINUE: int
+    SWITCHING_PROTOCOLS: int
+    PROCESSING: int
+    OK: int
+    CREATED: int
+    ACCEPTED: int
+    NON_AUTHORITATIVE_INFORMATION: int
+    NO_CONTENT: int
+    RESET_CONTENT: int
+    PARTIAL_CONTENT: int
+    MULTI_STATUS: int
+    ALREADY_REPORTED: int
+    IM_USED: int
+    MULTIPLE_CHOICES: int
+    MOVED_PERMANENTLY: int
+    FOUND: int
+    SEE_OTHER: int
+    NOT_MODIFIED: int
+    USE_PROXY: int
+    TEMPORARY_REDIRECT: int
+    PERMANENT_REDIRECT: int
+    BAD_REQUEST: int
+    UNAUTHORIZED: int
+    PAYMENT_REQUIRED: int
+    FORBIDDEN: int
+    NOT_FOUND: int
+    METHOD_NOT_ALLOWED: int
+    NOT_ACCEPTABLE: int
+    PROXY_AUTHENTICATION_REQUIRED: int
+    REQUEST_TIMEOUT: int
+    CONFLICT: int
+    GONE: int
+    LENGTH_REQUIRED: int
+    PRECONDITION_FAILED: int
+    REQUEST_ENTITY_TOO_LARGE: int
+    REQUEST_URI_TOO_LONG: int
+    UNSUPPORTED_MEDIA_TYPE: int
+    REQUESTED_RANGE_NOT_SATISFIABLE: int
+    EXPECTATION_FAILED: int
+    UNPROCESSABLE_ENTITY: int
+    LOCKED: int
+    FAILED_DEPENDENCY: int
+    UPGRADE_REQUIRED: int
+    PRECONDITION_REQUIRED: int
+    TOO_MANY_REQUESTS: int
+    REQUEST_HEADER_FIELDS_TOO_LARGE: int
+    INTERNAL_SERVER_ERROR: int
+    NOT_IMPLEMENTED: int
+    BAD_GATEWAY: int
+    SERVICE_UNAVAILABLE: int
+    GATEWAY_TIMEOUT: int
+    HTTP_VERSION_NOT_SUPPORTED: int
+    VARIANT_ALSO_NEGOTIATES: int
+    INSUFFICIENT_STORAGE: int
+    LOOP_DETECTED: int
+    NOT_EXTENDED: int
+    NETWORK_AUTHENTICATION_REQUIRED: int
+    if sys.version_info >= (3, 7):
+        MISDIRECTED_REQUEST: int
+    if sys.version_info >= (3, 8):
+        UNAVAILABLE_FOR_LEGAL_REASONS: int
+    if sys.version_info >= (3, 9):
+        EARLY_HINTS: Literal[103]
+        IM_A_TEAPOT: Literal[418]
+        TOO_EARLY: Literal[425]

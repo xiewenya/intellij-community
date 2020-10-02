@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceField;
 
 import com.intellij.codeInsight.completion.JavaCompletionUtil;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
@@ -36,15 +23,13 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 
 class IntroduceFieldDialog extends DialogWrapper {
-
-
   public static BaseExpressionToFieldHandler.InitializationPlace ourLastInitializerPlace;
 
   private final Project myProject;
@@ -62,9 +47,8 @@ class IntroduceFieldDialog extends DialogWrapper {
 
   private TypeSelector myTypeSelector;
   private NameSuggestionsManager myNameSuggestionsManager;
-  private static final String REFACTORING_NAME = RefactoringBundle.message("introduce.field.title");
 
-  public IntroduceFieldDialog(Project project,
+  IntroduceFieldDialog(Project project,
                               PsiClass parentClass,
                               PsiExpression initializerExpression,
                               PsiLocalVariable localVariable,
@@ -86,7 +70,7 @@ class IntroduceFieldDialog extends DialogWrapper {
 
     myTypeSelectorManager = typeSelectorManager;
 
-    setTitle(REFACTORING_NAME);
+    setTitle(getRefactoringName());
     init();
 
     myCentralPanel.initializeControls(initializerExpression, ourLastInitializerPlace);
@@ -102,7 +86,6 @@ class IntroduceFieldDialog extends DialogWrapper {
   }
 
   public BaseExpressionToFieldHandler.InitializationPlace getInitializerPlace() {
-
     return myCentralPanel.getInitializerPlace();
   }
 
@@ -113,12 +96,10 @@ class IntroduceFieldDialog extends DialogWrapper {
 
   public boolean isReplaceAllOccurrences() {
     return myCentralPanel.isReplaceAllOccurrences();
-
   }
 
   public boolean isDeleteVariable() {
     return myCentralPanel.isDeleteVariable();
-
   }
 
   public boolean isDeclareFinal() {
@@ -129,15 +110,13 @@ class IntroduceFieldDialog extends DialogWrapper {
     return myTypeSelector.getSelectedType();
   }
 
-
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
+  @Override
+  protected String getHelpId() {
+    return HelpID.INTRODUCE_FIELD;
   }
 
-
+  @Override
   protected JComponent createNorthPanel() {
-
     JPanel panel = new JPanel(new GridBagLayout());
     GridBagConstraints gbConstraints = new GridBagConstraints();
 
@@ -180,24 +159,23 @@ class IntroduceFieldDialog extends DialogWrapper {
     myNameField.addDataChangedListener(() -> updateButtons());
     namePrompt.setLabelFor(myNameField.getFocusableComponent());
 
-    // We delay initialization of name field till dialog is shown, so that it will be executed in a different command and won't 
+    // We delay initialization of name field till dialog is shown, so that it will be executed in a different command and won't
     // be tied to any document changes performed in current command (and won't prevent undo for them later)
-    new UiNotifyConnector.Once(panel, new Activatable.Adapter() {
+    new UiNotifyConnector.Once(panel, new Activatable() {
       @Override
       public void showNotify() {
         myNameSuggestionsManager = new NameSuggestionsManager(myTypeSelector, myNameField,
-                                                              createGenerator(myWillBeDeclaredStatic, myLocalVariable, 
-                                                                              myInitializerExpression, myIsInvokedOnDeclaration, 
+                                                              createGenerator(myWillBeDeclaredStatic, myLocalVariable,
+                                                                              myInitializerExpression, myIsInvokedOnDeclaration,
                                                                               myEnteredName, myParentClass, myProject));
         myNameSuggestionsManager.setLabelsFor(type, namePrompt);
-        
+
         Editor editor = myNameField.getEditor();
         if (editor != null) {
           editor.getSelectionModel().setSelection(0, editor.getDocument().getTextLength());
         }
       }
     });
-
 
     return panel;
   }
@@ -206,12 +184,13 @@ class IntroduceFieldDialog extends DialogWrapper {
     setOKActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(getEnteredName()));
   }
 
-  private String getTypeLabel() {
+  private @Nls String getTypeLabel() {
     return myWillBeDeclaredStatic ?
-           RefactoringBundle.message("introduce.field.static.field.of.type") :
-           RefactoringBundle.message("introduce.field.field.of.type");
+           JavaRefactoringBundle.message("introduce.field.static.field.of.type") :
+           JavaRefactoringBundle.message("introduce.field.field.of.type");
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myCentralPanel.createCenterPanel();
   }
@@ -225,6 +204,7 @@ class IntroduceFieldDialog extends DialogWrapper {
                                                   final Project project) {
     return new NameSuggestionsGenerator() {
       private final JavaCodeStyleManager myCodeStyleManager = JavaCodeStyleManager.getInstance(project);
+      @Override
       public SuggestedNameInfo getSuggestedNameInfo(PsiType type) {
         VariableKind variableKind = willBeDeclaredStatic ? VariableKind.STATIC_FIELD : VariableKind.FIELD;
 
@@ -248,7 +228,7 @@ class IntroduceFieldDialog extends DialogWrapper {
     };
   }
 
-
+  @Override
   protected void doOKAction() {
     String fieldName = getEnteredName();
     String errorString = null;
@@ -259,23 +239,22 @@ class IntroduceFieldDialog extends DialogWrapper {
     }
     if (errorString != null) {
       CommonRefactoringUtil.showErrorMessage(
-              IntroduceFieldHandler.REFACTORING_NAME,
-              errorString,
-              HelpID.INTRODUCE_FIELD,
-              myProject
+	IntroduceFieldHandler.getRefactoringNameText(),
+	errorString,
+	HelpID.INTRODUCE_FIELD,
+	myProject
       );
       return;
     }
 
     PsiField oldField = myParentClass.findFieldByName(fieldName, true);
-
     if (oldField != null) {
       int answer = Messages.showYesNoDialog(
-              myProject,
-              RefactoringBundle.message("field.exists", fieldName,
+	myProject,
+	RefactoringBundle.message("field.exists", fieldName,
                                    oldField.getContainingClass().getQualifiedName()),
-              IntroduceFieldHandler.REFACTORING_NAME,
-              Messages.getWarningIcon()
+	IntroduceFieldHandler.getRefactoringNameText(),
+	Messages.getWarningIcon()
       );
       if (answer != Messages.YES) {
         return;
@@ -291,11 +270,12 @@ class IntroduceFieldDialog extends DialogWrapper {
     super.doOKAction();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myNameField.getFocusableComponent();
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INTRODUCE_FIELD);
+  private static @NlsContexts.DialogTitle String getRefactoringName() {
+    return RefactoringBundle.message("introduce.field.title");
   }
 }

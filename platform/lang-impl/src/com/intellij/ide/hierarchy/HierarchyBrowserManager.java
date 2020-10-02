@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.hierarchy;
 
 import com.intellij.icons.AllIcons;
@@ -27,11 +27,11 @@ public final class HierarchyBrowserManager implements PersistentStateComponent<H
 
   public HierarchyBrowserManager(final Project project) {
     ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(project);
-    ToolWindow toolWindow = toolWindowManager.registerToolWindow(ToolWindowId.HIERARCHY, true, ToolWindowAnchor.RIGHT, project);
+    ToolWindow toolWindow = toolWindowManager.registerToolWindow(ToolWindowId.HIERARCHY, true, ToolWindowAnchor.RIGHT, project, true);
 
     myContentManager = toolWindow.getContentManager();
     toolWindow.setIcon(AllIcons.Toolwindows.ToolWindowHierarchy);
-    new ContentManagerWatcher(toolWindow, myContentManager);
+    ContentManagerWatcher.watchContentManager(toolWindow, myContentManager);
   }
 
   public final ContentManager getContentManager() {

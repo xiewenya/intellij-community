@@ -16,13 +16,14 @@
 
 package com.intellij.tasks.trello.model;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Tag;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
 @SuppressWarnings("UnusedDeclaration")
 @Tag("TrelloList")
@@ -66,7 +67,7 @@ public class TrelloList extends TrelloModel {
   @NotNull
   @Attribute("name")
   @Override
-  public String getName() {
+  public @NlsSafe String getName() {
     return name;
   }
 

@@ -24,12 +24,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.impl.DebuggerSupport;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author nik
- */
 public class MarkObjectAction extends XDebuggerActionBase {
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Project project = event.getData(CommonDataKeys.PROJECT);
     boolean enabled = false;
     Presentation presentation = event.getPresentation();

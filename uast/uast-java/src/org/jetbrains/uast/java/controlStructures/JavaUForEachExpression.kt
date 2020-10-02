@@ -15,23 +15,21 @@
  */
 package org.jetbrains.uast.java
 
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiForeachStatement
 import com.intellij.psi.impl.source.tree.ChildRole
-import org.jetbrains.uast.UElement
-import org.jetbrains.uast.UForEachExpression
-import org.jetbrains.uast.UIdentifier
-import org.jetbrains.uast.UParameter
+import org.jetbrains.uast.*
 
 class JavaUForEachExpression(
-  override val psi: PsiForeachStatement,
+  override val sourcePsi: PsiForeachStatement,
   givenParent: UElement?
 ) : JavaAbstractUExpression(givenParent), UForEachExpression {
   override val variable: UParameter
-    get() = JavaUParameter(psi.iterationParameter, this)
+    get() = JavaUParameter(sourcePsi.iterationParameter, this)
 
-  override val iteratedValue by lz { JavaConverter.convertOrEmpty(psi.iteratedValue, this) }
-  override val body by lz { JavaConverter.convertOrEmpty(psi.body, this) }
+  override val iteratedValue: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.iteratedValue, this) }
+  override val body: UExpression by lz { JavaConverter.convertOrEmpty(sourcePsi.body, this) }
 
   override val forIdentifier: UIdentifier
-    get() = UIdentifier(psi.getChildByRole(ChildRole.FOR_KEYWORD), this)
+    get() = UIdentifier(sourcePsi.getChildByRole(ChildRole.FOR_KEYWORD), this)
 }

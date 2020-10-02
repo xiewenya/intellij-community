@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.mvc;
 
@@ -25,6 +25,8 @@ import com.intellij.openapi.roots.ui.configuration.libraries.AddCustomLibraryDia
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ModificationTracker;
+import com.intellij.openapi.util.NlsContexts.LinkLabel;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
@@ -40,9 +42,11 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.PathsList;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
 import org.jetbrains.plugins.groovy.config.GroovyLibraryDescription;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyNamesUtil;
@@ -60,7 +64,7 @@ import java.util.regex.Pattern;
 public abstract class MvcFramework {
   protected static final ExtensionPointName<MvcFramework> EP_NAME = ExtensionPointName.create("org.intellij.groovy.mvc.framework");
 
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.mvc.MvcFramework");
+  private static final Logger LOG = Logger.getInstance(MvcFramework.class);
   public static final Key<Boolean> CREATE_APP_STRUCTURE = Key.create("CREATE_MVC_APP_STRUCTURE");
   public static final Key<Boolean> UPGRADE = Key.create("UPGRADE");
   @NonNls public static final String GROOVY_STARTER_CONF = "/conf/groovy-starter.conf";
@@ -89,15 +93,15 @@ public abstract class MvcFramework {
   }
 
   @NotNull
-  public Map<String, Runnable> createConfigureActions(final @NotNull Module module) {
-    return Collections.singletonMap("Configure " + getFrameworkName() + " SDK",
+  public Map<@LinkLabel String, Runnable> createConfigureActions(final @NotNull Module module) {
+    return Collections.singletonMap(GroovyBundle.message("mvc.framework.0.configure.sdk.label", getFrameworkName()),
                                     () -> configureAsLibraryDependency(module));
   }
 
   protected void configureAsLibraryDependency(@NotNull Module module) {
     final GroovyLibraryDescription description = createLibraryDescription();
     final AddCustomLibraryDialog dialog = AddCustomLibraryDialog.createDialog(description, module, null);
-    dialog.setTitle("Change " + getDisplayName() + " SDK version");
+    dialog.setTitle(GroovyBundle.message("mvc.framework.0.change.sdk.version.title", getDisplayName()));
     if (dialog.showAndGet()) module.putUserData(UPGRADE, Boolean.TRUE);
   }
 
@@ -133,13 +137,12 @@ public abstract class MvcFramework {
   public void createApplicationIfNeeded(@NotNull final Module module) {
     if (findAppRoot(module) == null && module.getUserData(CREATE_APP_STRUCTURE) == Boolean.TRUE) {
       while (ModuleRootManager.getInstance(module).getSdk() == null) {
-        if (Messages.showYesNoDialog(module.getProject(), "Cannot generate " + getDisplayName() + " project structure because JDK is not specified for module \"" +
-                                                          module.getName() + "\".\n" +
-                                                          getDisplayName() + " project will not be created if you don't specify JDK.\nDo you want to specify JDK?",
-                                     "Error", Messages.getErrorIcon()) == Messages.NO) {
+        if (Messages.showYesNoDialog(module.getProject(),
+                                     GroovyBundle.message("mvc.no.jdk.found.error.message", getDisplayName(), module.getName(), getDisplayName()),
+                                     GroovyBundle.message("mvc.no.jdk.found.error.title"), Messages.getErrorIcon()) == Messages.NO) {
           return;
         }
-        ProjectSettingsService.getInstance(module.getProject()).showModuleConfigurationDialog(module.getName(), ClasspathEditor.NAME);
+        ProjectSettingsService.getInstance(module.getProject()).showModuleConfigurationDialog(module.getName(), ClasspathEditor.getName());
       }
       module.putUserData(CREATE_APP_STRUCTURE, null);
       final GeneralCommandLine commandLine = getCreationCommandLine(module);
@@ -170,7 +173,7 @@ public abstract class MvcFramework {
 
   @Nullable
   public VirtualFile findAppRoot(@Nullable Module module) {
-    if (module == null) return null;
+    if (module == null || module.isDisposed()) return null;
 
     String appDirName = getApplicationDirectoryName();
 
@@ -271,7 +274,7 @@ public abstract class MvcFramework {
   }
 
   public PathsList getApplicationClassPath(Module module) {
-    final List<VirtualFile> classPath = ContainerUtil.newArrayList();
+    final List<VirtualFile> classPath = new ArrayList<>();
     classPath.addAll(OrderEnumerator.orderEntries(module).recursively().withoutSdk().getPathsList().getVirtualFiles());
 
     retainOnlyJarsAndDirectories(classPath);
@@ -329,7 +332,7 @@ public abstract class MvcFramework {
     }
 
     final ConfigurationFactory factory = configurationType.getConfigurationFactories()[0];
-    final RunnerAndConfigurationSettings runSettings = runManager.createRunConfiguration(name,
+    final RunnerAndConfigurationSettings runSettings = runManager.createConfiguration(name,
                                                                                                                                  factory);
     final MvcRunConfiguration configuration = (MvcRunConfiguration)runSettings.getConfiguration();
     configuration.setModule(module);
@@ -343,12 +346,14 @@ public abstract class MvcFramework {
   @NotNull
   public abstract String getFrameworkName();
 
-  public String getDisplayName() {
+  public @NlsSafe String getDisplayName() {
     return getFrameworkName();
   }
 
+  @NotNull
   public abstract Icon getIcon(); // 16*16
 
+  @NotNull
   public abstract Icon getToolWindowIcon(); // 13*13
 
   public abstract String getSdkHomePropertyName();
@@ -369,7 +374,7 @@ public abstract class MvcFramework {
       return createCommand(module, forCreation, command);
     }
     catch (ExecutionException e) {
-      Messages.showErrorDialog(e.getMessage(), "Failed to run grails command: " + command);
+      Messages.showErrorDialog(e.getMessage(), GroovyBundle.message("mvc.console.execution.error.title", command));
       return null;
     }
   }
@@ -519,7 +524,7 @@ public abstract class MvcFramework {
 
   public abstract String getSomeFrameworkClass();
 
-  public static void addAvailableSystemScripts(final Collection<String> result, @NotNull Module module) {
+  public static void addAvailableSystemScripts(final Collection<? super String> result, @NotNull Module module) {
     VirtualFile scriptRoot = null;
 
     GlobalSearchScope searchScope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, false);
@@ -556,7 +561,7 @@ public abstract class MvcFramework {
 
   public abstract boolean isToReformatOnCreation(VirtualFile file);
 
-  public static void addAvailableScripts(final Collection<String> result, @Nullable final VirtualFile root) {
+  public static void addAvailableScripts(final Collection<? super String> result, @Nullable final VirtualFile root) {
     if (root == null || !root.isDirectory()) {
       return;
     }
@@ -621,6 +626,7 @@ public abstract class MvcFramework {
 
   public boolean isRunTargetActionSupported(Module module) { return false; }
 
+  @Contract("null -> null")
   @Nullable
   public static MvcFramework getInstance(@Nullable final Module module) {
     if (module == null) {

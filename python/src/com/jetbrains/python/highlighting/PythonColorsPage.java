@@ -15,8 +15,10 @@ import com.intellij.openapi.options.colors.RainbowColorSettingsPage;
 import com.intellij.psi.codeStyle.DisplayPriority;
 import com.intellij.psi.codeStyle.DisplayPrioritySortable;
 import com.intellij.util.PlatformUtils;
+import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.PythonLanguage;
+import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,33 +31,45 @@ import java.util.Map;
  */
 public class PythonColorsPage implements RainbowColorSettingsPage, InspectionColorSettingsPage, DisplayPrioritySortable {
   private static final AttributesDescriptor[] ATTRS = new AttributesDescriptor[] {
-    new AttributesDescriptor("Keyword", PyHighlighter.PY_KEYWORD),
-    new AttributesDescriptor("String (bytes)", PyHighlighter.PY_BYTE_STRING),
-    new AttributesDescriptor("String (Unicode)", PyHighlighter.PY_UNICODE_STRING),
-    new AttributesDescriptor("Number", PyHighlighter.PY_NUMBER),
-    new AttributesDescriptor("Line Comment", PyHighlighter.PY_LINE_COMMENT),
-    new AttributesDescriptor("Operation Sign", PyHighlighter.PY_OPERATION_SIGN),
-    new AttributesDescriptor("Parentheses", PyHighlighter.PY_PARENTHS),
-    new AttributesDescriptor("Brackets", PyHighlighter.PY_BRACKETS),
-    new AttributesDescriptor("Braces", PyHighlighter.PY_BRACES),
-    new AttributesDescriptor("Comma", PyHighlighter.PY_COMMA),
-    new AttributesDescriptor("Dot", PyHighlighter.PY_DOT),
-    new AttributesDescriptor("Function definition", PyHighlighter.PY_FUNC_DEFINITION),
-    new AttributesDescriptor("Class definition", PyHighlighter.PY_CLASS_DEFINITION),
-    new AttributesDescriptor("Docstring", PyHighlighter.PY_DOC_COMMENT),
-    new AttributesDescriptor("Docstring tag", PyHighlighter.PY_DOC_COMMENT_TAG),
-    new AttributesDescriptor("Predefined item definition", PyHighlighter.PY_PREDEFINED_DEFINITION),
-    new AttributesDescriptor("Decorator", PyHighlighter.PY_DECORATOR),
-    new AttributesDescriptor("Built-in name", PyHighlighter.PY_BUILTIN_NAME),
-    new AttributesDescriptor("Predefined name", PyHighlighter.PY_PREDEFINED_USAGE),
-    new AttributesDescriptor("Parameter", PyHighlighter.PY_PARAMETER),
-    new AttributesDescriptor("'self' parameter", PyHighlighter.PY_SELF_PARAMETER),
-    new AttributesDescriptor("Keyword argument", PyHighlighter.PY_KEYWORD_ARGUMENT),
-    new AttributesDescriptor("Function call", PyHighlighter.PY_FUNCTION_CALL),
-    new AttributesDescriptor("Method call", PyHighlighter.PY_METHOD_CALL),
-    new AttributesDescriptor("Type annotations", PyHighlighter.PY_ANNOTATION),
-    new AttributesDescriptor("Valid escape sequence", PyHighlighter.PY_VALID_STRING_ESCAPE),
-    new AttributesDescriptor("Invalid escape sequence", PyHighlighter.PY_INVALID_STRING_ESCAPE),
+    new AttributesDescriptor(PyBundle.message("python.colors.number"), PyHighlighter.PY_NUMBER),
+    new AttributesDescriptor(PyBundle.message("python.colors.keyword"), PyHighlighter.PY_KEYWORD),
+    new AttributesDescriptor(PyBundle.message("python.colors.line.comment"), PyHighlighter.PY_LINE_COMMENT),
+
+    new AttributesDescriptor(PyBundle.message("python.colors.string.binary.bytes"), PyHighlighter.PY_BYTE_STRING),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.text.unicode"), PyHighlighter.PY_UNICODE_STRING),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.escape.sequence.valid"), PyHighlighter.PY_VALID_STRING_ESCAPE),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.escape.sequence.invalid"), PyHighlighter.PY_INVALID_STRING_ESCAPE),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.f.string.expression.braces"), PyHighlighter.PY_FSTRING_FRAGMENT_BRACES),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.f.string.type.conversion"), PyHighlighter.PY_FSTRING_FRAGMENT_TYPE_CONVERSION),
+    new AttributesDescriptor(PyBundle.message("python.colors.string.f.string.format.specifier.start"), PyHighlighter.PY_FSTRING_FRAGMENT_COLON),
+
+    new AttributesDescriptor(PyBundle.message("python.colors.docstring.text"), PyHighlighter.PY_DOC_COMMENT),
+    new AttributesDescriptor(PyBundle.message("python.colors.docstring.tag"), PyHighlighter.PY_DOC_COMMENT_TAG),
+    
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.operation.sign"), PyHighlighter.PY_OPERATION_SIGN),
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.parentheses"), PyHighlighter.PY_PARENTHS),
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.brackets"), PyHighlighter.PY_BRACKETS),
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.braces"), PyHighlighter.PY_BRACES),
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.comma"), PyHighlighter.PY_COMMA),
+    new AttributesDescriptor(PyBundle.message("python.colors.braces.and.operators.dot"), PyHighlighter.PY_DOT),
+    
+    new AttributesDescriptor(PyBundle.message("python.colors.functions.function.definition"), PyHighlighter.PY_FUNC_DEFINITION),
+    new AttributesDescriptor(PyBundle.message("python.colors.functions.nested.function.definition"), PyHighlighter.PY_NESTED_FUNC_DEFINITION),
+    new AttributesDescriptor(PyBundle.message("python.colors.functions.function.call"), PyHighlighter.PY_FUNCTION_CALL),
+    new AttributesDescriptor(PyBundle.message("python.colors.functions.method.call"), PyHighlighter.PY_METHOD_CALL),
+    
+    new AttributesDescriptor(PyBundle.message("python.colors.parameters.parameter"), PyHighlighter.PY_PARAMETER),
+    new AttributesDescriptor(PyBundle.message("python.colors.parameters.self.parameter"), PyHighlighter.PY_SELF_PARAMETER),
+    
+    new AttributesDescriptor(PyBundle.message("python.colors.keyword.argument"), PyHighlighter.PY_KEYWORD_ARGUMENT),
+
+    new AttributesDescriptor(PyBundle.message("python.colors.special.names.definition"), PyHighlighter.PY_PREDEFINED_DEFINITION),
+    new AttributesDescriptor(PyBundle.message("python.colors.special.names.usage"), PyHighlighter.PY_PREDEFINED_USAGE),
+    
+    new AttributesDescriptor(PyBundle.message("python.colors.built.in.name"), PyHighlighter.PY_BUILTIN_NAME),
+    new AttributesDescriptor(PyBundle.message("python.colors.decorator"), PyHighlighter.PY_DECORATOR),
+    new AttributesDescriptor(PyBundle.message("python.colors.class.definition"), PyHighlighter.PY_CLASS_DEFINITION),
+    new AttributesDescriptor(PyBundle.message("python.colors.type.annotation"), PyHighlighter.PY_ANNOTATION),
   };
 
   @NonNls private static final Map<String,TextAttributesKey> ourTagToDescriptorMap = ImmutableMap.<String, TextAttributesKey>builder()
@@ -65,6 +79,7 @@ public class PythonColorsPage implements RainbowColorSettingsPage, InspectionCol
     .put("predefined", PyHighlighter.PY_PREDEFINED_DEFINITION)
     .put("predefinedUsage", PyHighlighter.PY_PREDEFINED_USAGE)
     .put("funcDef", PyHighlighter.PY_FUNC_DEFINITION)
+    .put("nestedFuncDef", PyHighlighter.PY_NESTED_FUNC_DEFINITION)
     .put("classDef", PyHighlighter.PY_CLASS_DEFINITION)
     .put("builtin", PyHighlighter.PY_BUILTIN_NAME)
     .put("self", PyHighlighter.PY_SELF_PARAMETER)
@@ -80,7 +95,7 @@ public class PythonColorsPage implements RainbowColorSettingsPage, InspectionCol
   @Override
   @NotNull
   public String getDisplayName() {
-    return "Python";
+    return PyBundle.message("python.colors.python");
   }
 
   @Override
@@ -89,23 +104,23 @@ public class PythonColorsPage implements RainbowColorSettingsPage, InspectionCol
   }
 
   @Override
-  @NotNull
-  public AttributesDescriptor[] getAttributeDescriptors() {
+  public AttributesDescriptor @NotNull [] getAttributeDescriptors() {
     return ATTRS;
   }
 
   @Override
-  @NotNull
-  public ColorDescriptor[] getColorDescriptors() {
+  public ColorDescriptor @NotNull [] getColorDescriptors() {
     return ColorDescriptor.EMPTY_ARRAY;
   }
 
   @Override
   @NotNull
   public SyntaxHighlighter getHighlighter() {
-    final SyntaxHighlighter highlighter = SyntaxHighlighterFactory.getSyntaxHighlighter(PythonFileType.INSTANCE, null, null);
-    assert highlighter != null;
-    return highlighter;
+    final SyntaxHighlighterFactory factory = SyntaxHighlighterFactory.LANGUAGE_FACTORY.forLanguage(PythonLanguage.getInstance());
+    if (factory instanceof PySyntaxHighlighterFactory) {
+      return ((PySyntaxHighlighterFactory)factory).getSyntaxHighlighterForLanguageLevel(LanguageLevel.getLatest());
+    }
+    return factory.getSyntaxHighlighter(null, null);
   }
 
   @Override
@@ -116,22 +131,26 @@ public class PythonColorsPage implements RainbowColorSettingsPage, InspectionCol
       "def f(<param>x</param>):\n" +
       "    <docComment>\"\"\" Syntax Highlighting Demo\n" +
       "        <docCommentTag>@param</docCommentTag> x Parameter\n" +
+      "" +
       RainbowHighlighter.generatePaletteExample("\n        ") + "\n" +
       "    \"\"\"</docComment>\n" +
-      "    <localVar>s</localVar> = (\"Test\", 2+3, {'a': 'b'}, <param>x</param>)   # Comment\n" +
-      "    <call>f</call>(<localVar>s</localVar>[0].<mcall>lower()</mcall>)\n"+
-      "\n"+
-      "class <classDef>Foo</classDef>:\n"+
+      "    def <nestedFuncDef>nested_func</nestedFuncDef>(<param>y</param>):\n" +
+      "        <call>print</call>(<param>y</param> + 1)\n" +
+      "    <localVar>s</localVar> = (\"Test\", 2+3, {'a': 'b'}, f'{<param>x</param>!s:{\"^10\"}}')   # Comment\n" +
+      "    <call>f</call>(<localVar>s</localVar>[0].<mcall>lower()</mcall>)\n" +
+      "    <call>nested_func(42)</call>" +
+      "\n" +
+      "class <classDef>Foo</classDef>:\n" +
       "    tags: <annotation>List[<builtin>str</builtin>]</annotation>\n" +
       "    def <predefined>__init__</predefined>(<self>self</self>: <annotation>Foo</annotation>):\n" +
-      "        <localVar>byte_string</localVar>: <annotation><builtin>str</builtin></annotation> = 'newline:\\n also newline:\\x0a'\n" +
-      "        <localVar>text_string</localVar> = u\"Cyrillic \u042f is \\u042f. Oops: \\u042g\"\n"+
-      "        <self>self</self>.<mcall>makeSense</mcall>(<kwarg>whatever</kwarg>=1)\n" +
+      "        <localVar>byte_string</localVar>: <annotation><builtin>bytes</builtin></annotation> = b'newline:\\n also newline:\\x0a'\n" +
+      "        <localVar>text_string</localVar> = u\"Cyrillic Я is \\u042f. Oops: \\u042g\"\n" +
+      "        <self>self</self>.<mcall>make_sense</mcall>(<kwarg>whatever</kwarg>=1)\n" +
       "    \n" +
-      "    def <funcDef>makeSense</funcDef>(<self>self</self>, <param>whatever</param>):\n"+
-      "        <self>self</self>.sense = <param>whatever</param>\n"+
-      "\n"+
-      "<localVar>x</localVar> = <builtin>len</builtin>('abc')\n"+
+      "    def <funcDef>make_sense</funcDef>(<self>self</self>, <param>whatever</param>):\n" +
+      "        <self>self</self>.sense = <param>whatever</param>\n" +
+      "\n" +
+      "<localVar>x</localVar> = <builtin>len</builtin>('abc')\n" +
       "print(f.<predefinedUsage>__doc__</predefinedUsage>)"
     ;
   }
@@ -148,7 +167,7 @@ public class PythonColorsPage implements RainbowColorSettingsPage, InspectionCol
 
   @Override
   public boolean isRainbowType(TextAttributesKey type) {
-    return PyRainbowVisitor.getHIGHLIGHTING_KEYS().contains(type);
+    return PyRainbowVisitor.Holder.getHIGHLIGHTING_KEYS().contains(type);
   }
 
   @Nullable

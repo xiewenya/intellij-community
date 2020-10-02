@@ -4,8 +4,11 @@ package com.intellij.codeInspection.java18api;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.codeInspection.util.LambdaGenerationUtil;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -15,21 +18,15 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.LambdaRefactoringUtil;
 import com.intellij.util.ObjectUtils;
 import com.siyeh.ig.callMatcher.CallMatcher;
-import com.siyeh.ig.psiutils.CommentTracker;
-import com.siyeh.ig.psiutils.EquivalenceChecker;
-import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.MethodCallUtils;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 
-/**
- * @author Tagir Valeev
- */
 public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTool {
   private static final String JAVA_UTIL_MAP_ENTRY = CommonClassNames.JAVA_UTIL_MAP + ".Entry";
 
@@ -45,14 +42,14 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
-    return new SingleCheckboxOptionsPanel(InspectionsBundle.message("inspection.map.foreach.option.no.loops"), this,
+    return new SingleCheckboxOptionsPanel(JavaBundle.message("inspection.map.foreach.option.no.loops"), this,
                                           "DO_NOT_HIGHLIGHT_LOOP");
   }
 
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly) {
-    if (!PsiUtil.isLanguageLevel8OrHigher(holder.getFile())) {
+    if (!JavaFeature.ADVANCED_COLLECTIONS_API.isFeatureSupported(holder.getFile())) {
       return PsiElementVisitor.EMPTY_VISITOR;
     }
     return new JavaElementVisitor() {
@@ -68,11 +65,12 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
         PsiParameter entry = lambdaParameters[0];
         if (!allUsagesAllowed(entry)) return;
         PsiElement nameElement = Objects.requireNonNull(call.getMethodExpression().getReferenceNameElement());
-        holder.registerProblem(nameElement, InspectionsBundle.message("inspection.map.foreach.message"), new ReplaceWithMapForEachFix());
+        holder.registerProblem(nameElement, JavaAnalysisBundle.message("inspection.can.be.replaced.with.message", "Map.forEach()"),
+                               new ReplaceWithMapForEachFix());
       }
 
       private boolean allUsagesAllowed(@NotNull PsiParameter entry) {
-        return ReferencesSearch.search(entry).forEach(entryRef -> {
+        return ReferencesSearch.search(entry).allMatch(entryRef -> {
           PsiMethodCallExpression entryCall =
             ExpressionUtils.getCallForQualifier(ObjectUtils.tryCast(entryRef.getElement(), PsiExpression.class));
           return ENTRY_GETTER.test(entryCall);
@@ -103,7 +101,7 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
             toHighlight = firstChild;
             range = new TextRange(0, firstChild.getTextLength());
           }
-          holder.registerProblem(toHighlight, InspectionsBundle.message("inspection.map.foreach.message"),
+          holder.registerProblem(toHighlight, JavaAnalysisBundle.message("inspection.can.be.replaced.with.message", "Map.forEach()"),
                                  type, range, new ReplaceWithMapForEachFix());
         }
       }
@@ -115,7 +113,7 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
     @NotNull
     @Override
     public String getFamilyName() {
-      return InspectionsBundle.message("inspection.map.foreach.fix.name");
+      return CommonQuickFixBundle.message("fix.replace.with.x", "Map.forEach()");
     }
 
     @Override
@@ -152,9 +150,9 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
       PsiType entryType = entryParameter.getType();
       ParameterCandidate key = new ParameterCandidate(entryType, true);
       ParameterCandidate value = new ParameterCandidate(entryType, false);
-      Collection<PsiReference> references = ReferencesSearch.search(entryParameter).findAll();
-      for (PsiReference ref : references) {
-        PsiMethodCallExpression entryCall = ExpressionUtils.getCallForQualifier(ObjectUtils.tryCast(ref.getElement(), PsiExpression.class));
+      List<PsiReferenceExpression> references = VariableAccessUtils.getVariableReferences(entryParameter, body);
+      for (PsiReferenceExpression ref : references) {
+        PsiMethodCallExpression entryCall = ExpressionUtils.getCallForQualifier(ref);
         if (ENTRY_GETTER.test(entryCall)) {
           ParameterCandidate.select(entryCall, key, value).accept(entryCall);
         }
@@ -162,9 +160,8 @@ public class Java8MapForEachInspection extends AbstractBaseJavaLocalInspectionTo
       key.createName(body, ct);
       value.createName(body, ct);
       PsiElementFactory factory = JavaPsiFacade.getElementFactory(entrySetCall.getProject());
-      for (PsiReference ref : references) {
-        PsiExpression expression = ObjectUtils.tryCast(ref.getElement(), PsiExpression.class);
-        if (expression == null || !expression.isValid()) continue;
+      for (PsiExpression expression : references) {
+        if (!expression.isValid()) continue;
         PsiMethodCallExpression entryCall = ExpressionUtils.getCallForQualifier(expression);
         if (ENTRY_GETTER.test(entryCall)) {
           ct.replace(entryCall, factory.createIdentifier(ParameterCandidate.select(entryCall, key, value).myName));

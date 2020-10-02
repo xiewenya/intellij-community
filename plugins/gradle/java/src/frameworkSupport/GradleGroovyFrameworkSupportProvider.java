@@ -14,7 +14,6 @@ import javax.swing.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/24/2015
  */
 public class GradleGroovyFrameworkSupportProvider extends GradleFrameworkSupportProvider {
 
@@ -33,7 +32,8 @@ public class GradleGroovyFrameworkSupportProvider extends GradleFrameworkSupport
       @NotNull
       @Override
       public String getPresentableName() {
-        return "Groovy";
+        //noinspection HardCodedStringLiteral
+        return "Groovy";//NON-NLS
       }
 
       @NotNull
@@ -51,7 +51,7 @@ public class GradleGroovyFrameworkSupportProvider extends GradleFrameworkSupport
                          @NotNull ModifiableModelsProvider modifiableModelsProvider,
                          @NotNull BuildScriptDataBuilder buildScriptData) {
     buildScriptData
-      .addPluginDefinition("apply plugin: 'groovy'")
+      .addPluginDefinitionInPluginsGroup("id 'groovy'")
       .addRepositoriesDefinition("mavenCentral()")
       .addDependencyNotation("compile 'org.codehaus.groovy:groovy-all:2.3.11'")
       .addDependencyNotation("testCompile group: 'junit', name: 'junit', version: '4.12'");

@@ -1,8 +1,11 @@
-// "Convert to local" "true"
+// "Convert field to local variable in method 'someMethod'" "true"
 class TestFieldConversion
 {
 
     public void someMethod(int s) {
+        /**
+         * doc1
+         */
         int someInt = 0;
         switch (s) {
       case 1:

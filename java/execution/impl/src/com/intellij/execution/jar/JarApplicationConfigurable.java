@@ -16,9 +16,11 @@
 package com.intellij.execution.jar;
 
 import com.intellij.application.options.ModulesComboBox;
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.ui.CommonJavaParametersPanel;
 import com.intellij.execution.ui.DefaultJreSelector;
 import com.intellij.execution.ui.JrePathEditor;
+import com.intellij.openapi.compiler.JavaCompilerBundle;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SettingsEditor;
@@ -47,11 +49,12 @@ public class JarApplicationConfigurable extends SettingsEditor<JarApplicationCon
     myProject = project;
     myAnchor = UIUtil.mergeComponentsWithAnchor(myJarPathComponent, myCommonProgramParameters, myJrePathEditor);
     ModulesComboBox modulesComboBox = myModuleComponent.getComponent();
-    modulesComboBox.allowEmptySelection("<whole project>");
+    modulesComboBox.allowEmptySelection(JavaCompilerBundle.message("whole.project"));
     modulesComboBox.fillModules(project);
     myJrePathEditor.setDefaultJreSelector(DefaultJreSelector.fromModuleDependencies(modulesComboBox, true));
   }
 
+  @Override
   public void applyEditorTo(@NotNull final JarApplicationConfiguration configuration) throws ConfigurationException {
     myCommonProgramParameters.applyTo(configuration);
     configuration.setAlternativeJrePath(myJrePathEditor.getJrePathOrName());
@@ -60,6 +63,7 @@ public class JarApplicationConfigurable extends SettingsEditor<JarApplicationCon
     configuration.setModule(myModuleComponent.getComponent().getSelectedModule());
   }
 
+  @Override
   public void resetEditorFrom(@NotNull final JarApplicationConfiguration configuration) {
     myCommonProgramParameters.reset(configuration);
     myJarPathComponent.getComponent().setText(FileUtil.toSystemDependentName(configuration.getJarPath()));
@@ -68,6 +72,7 @@ public class JarApplicationConfigurable extends SettingsEditor<JarApplicationCon
     myModuleComponent.getComponent().setSelectedModule(configuration.getModule());
   }
 
+  @Override
   @NotNull
   public JComponent createEditor() {
     return myWholePanel;
@@ -76,7 +81,7 @@ public class JarApplicationConfigurable extends SettingsEditor<JarApplicationCon
   private void createUIComponents() {
     myJarPathComponent = new LabeledComponent<>();
     TextFieldWithBrowseButton textFieldWithBrowseButton = new TextFieldWithBrowseButton();
-    textFieldWithBrowseButton.addBrowseFolderListener("Choose JAR File", null, myProject,
+    textFieldWithBrowseButton.addBrowseFolderListener(ExecutionBundle.message("choose.jar.file"), null, myProject,
                                                       new FileChooserDescriptor(false, false, true, true, false, false));
     myJarPathComponent.setComponent(textFieldWithBrowseButton);
   }

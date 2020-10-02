@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.compiler;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -31,20 +17,16 @@ import com.intellij.ui.EditorNotificationPanel;
 import com.intellij.ui.EditorNotifications;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 
 import java.util.Arrays;
 
 /**
  * @author peter
  */
-public class GroovyStubNotificationProvider extends EditorNotifications.Provider<EditorNotificationPanel> {
+public final class GroovyStubNotificationProvider extends EditorNotifications.Provider<EditorNotificationPanel> {
   static final String GROOVY_STUBS = "groovyStubs";
   private static final Key<EditorNotificationPanel> KEY = Key.create("GroovyStubNotificationProvider");
-  private final Project myProject;
-
-  public GroovyStubNotificationProvider(Project project) {
-    myProject = project;
-  }
 
   @Nullable
   @VisibleForTesting
@@ -67,14 +49,14 @@ public class GroovyStubNotificationProvider extends EditorNotifications.Provider
 
   private static EditorNotificationPanel decorateStubFile(final VirtualFile file, final Project project) {
     final EditorNotificationPanel panel = new EditorNotificationPanel();
-    panel.setText("This stub is generated for Groovy class to make Groovy-Java cross-compilation possible");
-    panel.createActionLabel("Go to the Groovy class", () -> DumbService.getInstance(project).withAlternativeResolveEnabled(() -> {
+    panel.setText(GroovyBundle.message("generated.stub.message"));
+    panel.createActionLabel(GroovyBundle.message("generated.stub.navigate.link.label"), () -> DumbService.getInstance(project).withAlternativeResolveEnabled(() -> {
       final PsiClass original = findClassByStub(project, file);
       if (original != null) {
         original.navigate(true);
       }
     }));
-    panel.createActionLabel("Exclude from stub generation", () -> DumbService.getInstance(project).withAlternativeResolveEnabled(() -> {
+    panel.createActionLabel(GroovyBundle.message("generated.stub.exclude.link.label"), () -> DumbService.getInstance(project).withAlternativeResolveEnabled(() -> {
       final PsiClass psiClass = findClassByStub(project, file);
       if (psiClass != null) {
         ExcludeFromStubGenerationAction.doExcludeFromStubGeneration(psiClass.getContainingFile());
@@ -91,11 +73,11 @@ public class GroovyStubNotificationProvider extends EditorNotifications.Provider
 
   @Nullable
   @Override
-  public EditorNotificationPanel createNotificationPanel(@NotNull VirtualFile file, @NotNull FileEditor fileEditor) {
+  public EditorNotificationPanel createNotificationPanel(@NotNull VirtualFile file, @NotNull FileEditor fileEditor, @NotNull Project project) {
     if (file.getName().endsWith(".java") && file.getPath().contains(GROOVY_STUBS)) {
-      final PsiClass psiClass = findClassByStub(myProject, file);
+      final PsiClass psiClass = findClassByStub(project, file);
       if (psiClass != null) {
-        return decorateStubFile(file, myProject);
+        return decorateStubFile(file, project);
       }
     }
 

@@ -15,7 +15,6 @@
  */
 package com.intellij.testIntegration.createTest;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.analysis.ImportsHighlightUtil;
@@ -24,6 +23,7 @@ import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
@@ -55,9 +55,12 @@ public class JavaTestGenerator implements TestGenerator {
   public JavaTestGenerator() {
   }
 
+  @SuppressWarnings("Convert2Diamond")//due to internal java compiler error in corretto 11.0.7
+  @Override
   public PsiElement generateTest(final Project project, final CreateTestDialog d) {
     return PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(
       () -> ApplicationManager.getApplication().runWriteAction(new Computable<PsiElement>() {
+        @Override
         public PsiElement compute() {
           try {
             IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
@@ -167,7 +170,7 @@ public class JavaTestGenerator implements TestGenerator {
     final PsiReferenceList extendsList = targetClass.getExtendsList();
     if (extendsList == null) return;
 
-    PsiElementFactory ef = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory ef = JavaPsiFacade.getElementFactory(project);
     PsiJavaCodeReferenceElement superClassRef;
 
     PsiClass superClass = findClass(project, superClassName);
@@ -194,7 +197,7 @@ public class JavaTestGenerator implements TestGenerator {
   public static void addTestMethods(Editor editor,
                                     PsiClass targetClass,
                                     final TestFramework descriptor,
-                                    Collection<MemberInfo> methods,
+                                    Collection<? extends MemberInfo> methods,
                                     boolean generateBefore,
                                     boolean generateAfter) throws IncorrectOperationException {
     addTestMethods(editor, targetClass, null, descriptor, methods, generateBefore, generateAfter);
@@ -204,7 +207,7 @@ public class JavaTestGenerator implements TestGenerator {
                                     PsiClass targetClass,
                                     @Nullable PsiClass sourceClass,
                                     final TestFramework descriptor,
-                                    Collection<MemberInfo> methods,
+                                    Collection<? extends MemberInfo> methods,
                                     boolean generateBefore,
                                     boolean generateAfter) throws IncorrectOperationException {
     final Set<String> existingNames = new HashSet<>();
@@ -221,7 +224,7 @@ public class JavaTestGenerator implements TestGenerator {
                                                                             targetClass, sourceClass, null, true, existingNames);
     JVMElementFactory elementFactory = JVMElementFactories.getFactory(targetClass.getLanguage(), targetClass.getProject());
     final String prefix = elementFactory != null ? elementFactory.createMethodFromText(template.getTemplateText(), targetClass).getName() : "";
-    existingNames.addAll(ContainerUtil.map(targetClass.getMethods(), method -> StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix))));
+    existingNames.addAll(ContainerUtil.map(targetClass.getAllMethods(), method -> StringUtil.decapitalize(StringUtil.trimStart(method.getName(), prefix))));
 
     for (MemberInfo m : methods) {
       anchor = generateMethod(TestIntegrationUtils.MethodKind.TEST, descriptor, targetClass, sourceClass, editor, m.getMember().getName(), existingNames, anchor);
@@ -230,8 +233,8 @@ public class JavaTestGenerator implements TestGenerator {
 
   private static void showErrorLater(final Project project, final String targetClassName) {
     ApplicationManager.getApplication().invokeLater(() -> Messages.showErrorDialog(project,
-                                                                               CodeInsightBundle.message("intention.error.cannot.create.class.message", targetClassName),
-                                                                               CodeInsightBundle.message("intention.error.cannot.create.class.title")));
+                                                                               JavaBundle.message("intention.error.cannot.create.class.message", targetClassName),
+                                                                               JavaBundle.message("intention.error.cannot.create.class.title")));
   }
 
   private static PsiMethod generateMethod(@NotNull TestIntegrationUtils.MethodKind methodKind,
@@ -240,7 +243,7 @@ public class JavaTestGenerator implements TestGenerator {
                                           @Nullable PsiClass sourceClass,
                                           Editor editor,
                                           @Nullable String name,
-                                          Set<String> existingNames, PsiMethod anchor) {
+                                          Set<? super String> existingNames, PsiMethod anchor) {
     PsiMethod dummyMethod = TestIntegrationUtils.createDummyMethod(targetClass);
     PsiMethod method = (PsiMethod)(anchor == null ? targetClass.add(dummyMethod) : targetClass.addAfter(dummyMethod, anchor));
     PsiDocumentManager.getInstance(targetClass.getProject()).doPostponedOperationsAndUnblockDocument(editor.getDocument());
@@ -250,6 +253,6 @@ public class JavaTestGenerator implements TestGenerator {
 
   @Override
   public String toString() {
-    return CodeInsightBundle.message("intention.create.test.dialog.java");
+    return JavaBundle.message("intention.create.test.dialog.java");
   }
 }

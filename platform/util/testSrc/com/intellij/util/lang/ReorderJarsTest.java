@@ -15,8 +15,9 @@
  */
 package com.intellij.util.lang;
 
-import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.io.zip.JBZipEntry;
 import com.intellij.util.io.zip.JBZipFile;
 import com.intellij.util.io.zip.ReorderJarsMain;
@@ -34,9 +35,9 @@ import static org.junit.Assert.*;
 
 /**
  * @author Dmitry Avdeev
- * @since 12/07/2011
  */
 public class ReorderJarsTest {
+  private static final Logger LOG = Logger.getInstance(ReorderJarsTest.class);
   private File myTempDirectory;
 
   @Before
@@ -50,22 +51,16 @@ public class ReorderJarsTest {
   }
 
   private static String getTestDataPath() {
-    String homePath = PathManager.getHomePath().replace(File.separatorChar, '/');
-    if (new File(homePath + "/community/java/java-tests/testData").exists()) return homePath + "/community/java/java-tests/testData";
-    return homePath + "/java/java-tests/testData";
+    return PlatformTestUtil.getPlatformTestDataPath() + "plugins/reorderJars";
   }
 
   @Test
   public void testReordering() throws IOException {
-    String path = getTestDataPath() + "/ide/plugins/reorderJars";
+    String path = getTestDataPath();
 
-    JBZipFile zipFile1 = new JBZipFile(path + "/annotations.jar");
-    try {
+    try (JBZipFile zipFile1 = new JBZipFile(path + "/annotations.jar")) {
       List<JBZipEntry> entries = zipFile1.getEntries();
-      System.out.println(entries);
-    }
-    finally {
-      zipFile1.close();
+      LOG.debug(String.valueOf(entries));
     }
 
     ReorderJarsMain.main(new String[]{path + "/order.txt", path, myTempDirectory.getPath()});
@@ -77,10 +72,9 @@ public class ReorderJarsTest {
     assertEquals("annotations.jar", file.getName());
 
     byte[] data;
-    JBZipFile zipFile2 = new JBZipFile(file);
-    try {
+    try (JBZipFile zipFile2 = new JBZipFile(file)) {
       List<JBZipEntry> entries = zipFile2.getEntries();
-      System.out.println(entries);
+      LOG.debug(String.valueOf(entries));
       assertEquals(JarMemoryLoader.SIZE_ENTRY, entries.get(0).getName());
       JBZipEntry entry = entries.get(1);
       data = entry.getData();
@@ -89,12 +83,8 @@ public class ReorderJarsTest {
       assertEquals("org/jetbrains/annotations/NotNull.class", entries.get(2).getName());
       assertEquals("META-INF/", entries.get(3).getName());
     }
-    finally {
-      zipFile2.close();
-    }
 
-    ZipFile zipFile3 = new ZipFile(file);
-    try {
+    try (ZipFile zipFile3 = new ZipFile(file)) {
       JarMemoryLoader loader = JarMemoryLoader.load(zipFile3, file.toURI().toURL(), null);
       assertNotNull(loader);
       Resource resource = loader.getResource("org/jetbrains/annotations/Nullable.class");
@@ -103,14 +93,11 @@ public class ReorderJarsTest {
       assertEquals(548, bytes.length);
       assertTrue(Arrays.equals(data, bytes));
     }
-    finally {
-      zipFile3.close();
-    }
   }
 
   @Test
   public void testPluginXml() throws Exception {
-    String path = getTestDataPath() + "/ide/plugins/reorderJars";
+    String path = getTestDataPath();
 
     ReorderJarsMain.main(new String[] { path + "/zkmOrder.txt", path, myTempDirectory.getPath() } );
 
@@ -119,15 +106,11 @@ public class ReorderJarsTest {
     File file = files[0];
     assertEquals("zkm.jar", file.getName());
 
-    JBZipFile zipFile = new JBZipFile(file);
-    try {
+    try (JBZipFile zipFile = new JBZipFile(file)) {
       List<JBZipEntry> entries = zipFile.getEntries();
-      System.out.println(entries);
+      LOG.debug(String.valueOf(entries));
       assertEquals(JarMemoryLoader.SIZE_ENTRY, entries.get(0).getName());
       assertEquals("META-INF/plugin.xml", entries.get(1).getName());
-    }
-    finally {
-      zipFile.close();
     }
   }
 }

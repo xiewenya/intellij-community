@@ -16,19 +16,20 @@
 
 package com.intellij.codeInspection.reference;
 
-import com.intellij.codeInspection.InspectionsBundle;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiModifierListOwner;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UClass;
+
+import java.util.Objects;
 
 public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImplicitConstructor {
-
-  private final RefClass myOwnerClass;
   RefImplicitConstructorImpl(@NotNull RefClass ownerClass) {
-    super(InspectionsBundle.message("inspection.reference.implicit.constructor.name", ownerClass.getName()), ownerClass);
-    myOwnerClass = ownerClass;
+    super(JavaAnalysisBundle.message("inspection.reference.implicit.constructor.name", ownerClass.getName()), ownerClass);
   }
 
   @Override
@@ -44,7 +45,7 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
   @NotNull
   @Override
   public String getName() {
-    return InspectionsBundle.message("inspection.reference.implicit.constructor.name", getOwnerClass().getName());
+    return JavaAnalysisBundle.message("inspection.reference.implicit.constructor.name", getOwnerClass().getName());
   }
 
   @Override
@@ -54,9 +55,11 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
 
   @Override
   public boolean isValid() {
-    return ReadAction.compute(getOwnerClass()::isValid).booleanValue();
+    RefClass ownerClass = getOwnerClass();
+    return ownerClass != null && ReadAction.compute(ownerClass::isValid).booleanValue();
   }
 
+  @NotNull
   @Override
   public String getAccessModifier() {
     return getOwnerClass().getAccessModifier();
@@ -69,7 +72,19 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
 
   @Override
   public PsiModifierListOwner getElement() {
-    return getOwnerClass().getElement();
+    return Objects.requireNonNull(getOwnerClass()).getElement();
+  }
+
+  @Override
+  public UClass getUastElement() {
+    return (UClass)super.getUastElement();
+  }
+
+  @Nullable
+  @Override
+  public PsiElement getPsiElement() {
+    RefClass ownerClass = getOwnerClass();
+    return ownerClass == null ? null : ownerClass.getPsiElement();
   }
 
   @Override
@@ -79,7 +94,7 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
   }
 
   @Override
-  public RefClass getOwnerClass() {
-    return myOwnerClass;
+  protected void initialize() {
+    throw new AssertionError("Should not be called!");
   }
 }

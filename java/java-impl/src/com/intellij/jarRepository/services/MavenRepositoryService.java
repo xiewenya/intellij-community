@@ -17,10 +17,18 @@ package com.intellij.jarRepository.services;
 
 import com.intellij.jarRepository.RemoteRepositoryDescription;
 import com.intellij.jarRepository.RepositoryArtifactDescription;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.Url;
+import com.intellij.util.Urls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Gregory.Shrago
@@ -33,10 +41,35 @@ public abstract class MavenRepositoryService {
   public abstract List<RemoteRepositoryDescription> getRepositories(@NotNull String url) throws IOException;
 
   @NotNull
-  public abstract List<RepositoryArtifactDescription> findArtifacts(@NotNull String url, @NotNull RepositoryArtifactDescription template) throws IOException;
+  public abstract List<RepositoryArtifactDescription> findArtifacts(@NotNull String url, @NotNull RepositoryArtifactDescription template)
+    throws IOException;
 
 
   public final String toString() {
     return getDisplayName();
+  }
+
+
+  @NotNull
+  protected String mapToParamString(@NotNull Map<String, String> params) {
+    return StringUtil.join(params.entrySet(), entry -> {
+      if (entry.getValue() == null) {
+        return null;
+      }
+      return entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8);
+    }, "&");
+  }
+
+  protected Url toUrl(@NotNull String base, @NotNull String path) throws MalformedURLException {
+    return toUrl(base, path, null);
+  }
+
+  protected Url toUrl(@NotNull String base, @NotNull String path, @Nullable String parameters) throws MalformedURLException {
+    Url baseUrl = Urls.parse(base, false);
+    if (baseUrl == null || baseUrl.getScheme() == null || baseUrl.getAuthority() == null) {
+      throw new MalformedURLException("cannot parse " + base);
+    }
+    String newPath = baseUrl.getPath().endsWith("/") ? baseUrl.getPath() + path : baseUrl.getPath() + "/" + path;
+    return Urls.newUrl(baseUrl.getScheme(), baseUrl.getAuthority(), newPath, parameters == null ? null : "?" + parameters);
   }
 }

@@ -21,6 +21,7 @@ import com.intellij.codeInsight.folding.impl.CodeFoldingManagerImpl;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiFile;
@@ -98,16 +99,25 @@ public class CopyPasteFoldingProcessor extends CopyPastePostProcessor<FoldingTra
     if (value.getData().length == 0) return;
 
     final CodeFoldingManagerImpl foldingManager = (CodeFoldingManagerImpl)CodeFoldingManager.getInstance(project);
+    if (foldingManager == null) return; // default project
     foldingManager.updateFoldRegions(editor, true);
 
     Runnable operation = () -> {
       for (FoldingData data : value.getData()) {
-        FoldRegion region = foldingManager.findFoldRegion(editor, data.startOffset + bounds.getStartOffset(), data.endOffset + bounds.getStartOffset());
+        FoldRegion region =
+          foldingManager.findFoldRegion(editor, data.startOffset + bounds.getStartOffset(), data.endOffset + bounds.getStartOffset());
         if (region != null) {
           region.setExpanded(data.isExpanded);
         }
       }
     };
+    int verticalPositionBefore = editor.getScrollingModel().getVisibleAreaOnScrollingFinished().y;
     editor.getFoldingModel().runBatchFoldingOperation(operation);
+    EditorUtil.runWithAnimationDisabled(editor, () -> editor.getScrollingModel().scrollVertically(verticalPositionBefore));
+  }
+
+  @Override
+  public boolean requiresAllDocumentsToBeCommitted(@NotNull Editor editor, @NotNull Project project) {
+    return false;
   }
 }

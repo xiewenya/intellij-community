@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView.impl.nodes;
 
@@ -16,6 +16,7 @@ import com.intellij.openapi.module.ModuleGrouper;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ContainerUtil;
@@ -27,27 +28,25 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> implements DropTargetNode {
-  public ModuleGroupNode(final Project project, final ModuleGroup value, final ViewSettings viewSettings) {
+  public ModuleGroupNode(final Project project, @NotNull ModuleGroup value, final ViewSettings viewSettings) {
     super(project, value, viewSettings);
   }
-   public ModuleGroupNode(final Project project, final Object value, final ViewSettings viewSettings) {
-    this(project, (ModuleGroup)value, viewSettings);
-  }
 
-  protected abstract AbstractTreeNode createModuleNode(Module module) throws
+  @NotNull
+  protected abstract AbstractTreeNode createModuleNode(@NotNull Module module) throws
                                                                       InstantiationException, IllegalAccessException, InvocationTargetException, NoSuchMethodException;
-  protected abstract ModuleGroupNode createModuleGroupNode(ModuleGroup moduleGroup);
+  @NotNull
+  protected abstract ModuleGroupNode createModuleGroupNode(@NotNull ModuleGroup moduleGroup);
 
   @Override
   @NotNull
-  public Collection<AbstractTreeNode> getChildren() {
-    ModuleGrouper grouper = ModuleGrouper.instanceFor(getProject());
-    final Collection<ModuleGroup> childGroups = getValue().childGroups(grouper);
-    final List<AbstractTreeNode> result = new ArrayList<>();
+  public Collection<AbstractTreeNode<?>> getChildren() {
+    final Collection<ModuleGroup> childGroups = getValue().childGroups(getProject());
+    final List<AbstractTreeNode<?>> result = new ArrayList<>();
     for (final ModuleGroup childGroup : childGroups) {
       result.add(createModuleGroupNode(childGroup));
     }
-    Collection<Module> modules = getValue().modulesInGroup(grouper, false);
+    Collection<Module> modules = getValue().modulesInGroup(getProject());
     try {
       for (Module module : modules) {
         result.add(createModuleNode(module));
@@ -63,7 +62,7 @@ public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> imple
   @NotNull
   @Override
   public Collection<VirtualFile> getRoots() {
-    Collection<AbstractTreeNode> children = getChildren();
+    Collection<AbstractTreeNode<?>> children = getChildren();
     Set<VirtualFile> result = new HashSet<>();
     for (AbstractTreeNode each : children) {
       if (each instanceof ProjectViewNode) {
@@ -77,6 +76,10 @@ public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> imple
   @Override
   public boolean contains(@NotNull VirtualFile file) {
     List<Module> modules = getModulesByFile(file);
+    if (modules.isEmpty() && file.getFileSystem() instanceof ArchiveFileSystem) {
+      VirtualFile archiveFile = ((ArchiveFileSystem)file.getFileSystem()).getLocalByEntry(file);
+      if (archiveFile != null) modules = getModulesByFile(archiveFile);
+    }
     List<String> thisGroupPath = getValue().getGroupPathList();
     ModuleGrouper grouper = ModuleGrouper.instanceFor(getProject());
     for (Module module : modules) {
@@ -96,7 +99,7 @@ public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> imple
   protected abstract List<Module> getModulesByFile(@NotNull VirtualFile file);
 
   @Override
-  public void update(PresentationData presentation) {
+  public void update(@NotNull PresentationData presentation) {
     presentation.setPresentableText(getPresentableName());
     presentation.setIcon(PlatformIcons.CLOSED_MODULE_GROUP_ICON);
   }
@@ -139,13 +142,13 @@ public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> imple
   }
 
   @Override
-  public boolean canDrop(TreeNode[] sourceNodes) {
+  public boolean canDrop(TreeNode @NotNull [] sourceNodes) {
     final List<Module> modules = extractModules(sourceNodes);
     return !modules.isEmpty();
   }
 
   @Override
-  public void drop(TreeNode[] sourceNodes, DataContext dataContext) {
+  public void drop(TreeNode @NotNull [] sourceNodes, @NotNull DataContext dataContext) {
     final List<Module> modules = extractModules(sourceNodes);
     MoveModulesToGroupAction.doMove(modules.toArray(Module.EMPTY_ARRAY), getValue(), null);
   }
@@ -159,7 +162,7 @@ public abstract class ModuleGroupNode extends ProjectViewNode<ModuleGroup> imple
     final List<Module> modules = new ArrayList<>();
     for (TreeNode sourceNode : sourceNodes) {
       if (sourceNode instanceof DefaultMutableTreeNode) {
-        final Object userObject = AbstractProjectViewPane.extractUserObject((DefaultMutableTreeNode)sourceNode);
+        final Object userObject = AbstractProjectViewPane.extractValueFromNode(sourceNode);
         if (userObject instanceof Module) {
           modules.add((Module) userObject);
         }

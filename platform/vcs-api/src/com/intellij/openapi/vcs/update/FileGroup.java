@@ -7,6 +7,7 @@ import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jdom.Element;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -15,14 +16,14 @@ import java.util.*;
 
 public class FileGroup implements JDOMExternalizable {
 
-  public String myUpdateName;
-  public String myStatusName;
+  @Nls public String myUpdateName;
+  @Nls public String myStatusName;
   private final Map<String, String> myErrorsMap = new HashMap<>();
 
   private final Collection<UpdatedFile> myFiles = new ArrayList<>();
   public boolean mySupportsDeletion;
   public boolean myCanBeAbsent;
-  public String myId;
+  public @NonNls String myId;
   @NonNls private static final String PATH = "PATH";
   @NonNls private static final String VCS_ATTRIBUTE = "vcs";
   @NonNls private static final String REVISION_ATTRIBUTE = "revision";
@@ -53,7 +54,7 @@ public class FileGroup implements JDOMExternalizable {
    * @param id               - Using in order to find the group
    * @param canBeAbsent      - If canBeAbsent == true absent files from the group will not be marked as invalid
    */
-  public FileGroup(String updateName, String statusName, boolean supportsDeletion, String id, boolean canBeAbsent) {
+  public FileGroup(@Nls String updateName, @Nls String statusName, boolean supportsDeletion, @NonNls String id, boolean canBeAbsent) {
     mySupportsDeletion = supportsDeletion;
     myId = id;
     myCanBeAbsent = canBeAbsent;
@@ -140,10 +141,12 @@ public class FileGroup implements JDOMExternalizable {
     }
   }
 
+  @NonNls
   public String getId() {
     return myId;
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     DefaultJDOMExternalizer.writeExternal(this, element);
     for (final UpdatedFile file : myFiles) {
@@ -159,6 +162,7 @@ public class FileGroup implements JDOMExternalizable {
     }
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
     List pathElements = element.getChildren(PATH);
@@ -177,7 +181,7 @@ public class FileGroup implements JDOMExternalizable {
     return myChildren;
   }
 
-  public static void writeGroupsToElement(List<FileGroup> groups, Element element) throws WriteExternalException {
+  public static void writeGroupsToElement(List<? extends FileGroup> groups, Element element) throws WriteExternalException {
     for (FileGroup fileGroup : groups) {
       Element groupElement = new Element(FILE_GROUP_ELEMENT_NAME);
       element.addContent(groupElement);
@@ -186,7 +190,7 @@ public class FileGroup implements JDOMExternalizable {
     }
   }
 
-  public static void readGroupsFromElement(List<FileGroup> groups, Element element) throws InvalidDataException {
+  public static void readGroupsFromElement(List<? super FileGroup> groups, Element element) throws InvalidDataException {
     List groupElements = element.getChildren();
     for (final Object groupElement1 : groupElements) {
       Element groupElement = (Element)groupElement1;
@@ -197,10 +201,12 @@ public class FileGroup implements JDOMExternalizable {
     }
   }
 
+  @Nls
   public String getStatusName() {
     return myStatusName;
   }
 
+  @Nls
   public String getUpdateName() {
     return myUpdateName;
   }
@@ -243,7 +249,7 @@ public class FileGroup implements JDOMExternalizable {
     private final String myVcsName;
     private final String myRevision;
 
-    public UpdatedFile(final String path, @NotNull final VcsKey vcsKey, final String revision) {
+    UpdatedFile(final String path, @NotNull final VcsKey vcsKey, final String revision) {
       myPath = path;
       myVcsName = vcsKey.getName();
       myRevision = revision;

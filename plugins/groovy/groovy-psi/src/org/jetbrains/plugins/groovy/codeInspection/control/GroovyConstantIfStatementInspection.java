@@ -21,6 +21,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -32,19 +33,8 @@ public class GroovyConstantIfStatementInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return "Constant if statement";
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... args) {
-    return "#ref statement can be simplified #loc";
+    return GroovyBundle.message("inspection.message.ref.statement.can.be.simplified");
   }
 
   @NotNull
@@ -63,7 +53,7 @@ public class GroovyConstantIfStatementInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Simplify";
+      return GroovyBundle.message("intention.family.name.simplify");
     }
 
     @Override

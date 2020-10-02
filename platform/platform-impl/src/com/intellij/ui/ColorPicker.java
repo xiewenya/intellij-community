@@ -1,16 +1,33 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorGutter;
+import com.intellij.openapi.editor.VisualPosition;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsContexts.DialogTitle;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.WindowManager;
+import com.intellij.ui.awt.RelativePoint;
+import com.intellij.ui.colorpicker.ColorPickerBuilder;
+import com.intellij.ui.colorpicker.LightCalloutPopup;
+import com.intellij.ui.colorpicker.MaterialGraphicalColorPipetteProvider;
 import com.intellij.ui.picker.ColorListener;
 import com.intellij.ui.picker.ColorPipette;
 import com.intellij.ui.picker.ColorPipetteBase;
@@ -19,6 +36,7 @@ import com.intellij.util.Alarm;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.TimerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,18 +75,19 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   private final JTextField myBlue;
   private final JTextField myHex;
   private final Alarm myUpdateQueue;
-  private final List<ColorPickerListener> myExternalListeners;
+  private final List<? extends ColorPickerListener> myExternalListeners;
 
   private RecentColorsComponent myRecentColorsComponent;
   @Nullable
   private final ColorPipette myPicker;
-  private final JLabel myR = new JLabel("R:");
-  private final JLabel myG = new JLabel("G:");
-  private final JLabel myB = new JLabel("B:");
-  private final JLabel myR_after = new JLabel("");
-  private final JLabel myG_after = new JLabel("");
-  private final JLabel myB_after = new JLabel("");
-  private final JComboBox myFormat = new JComboBox(new String[]{"RGB", "HSB"}) {
+  private final JLabel myR = new JLabel(IdeBundle.message("colorpicker.label.red"));
+  private final JLabel myG = new JLabel(IdeBundle.message("colorpicker.label.green"));
+  private final JLabel myB = new JLabel(IdeBundle.message("colorpicker.label.blue"));
+  private final JLabel myR_after = new JLabel(" ");
+  private final JLabel myG_after = new JLabel(" ");
+  private final JLabel myB_after = new JLabel(" "); // " " is here because empty text would cause unfortunate traversal order (WEB-43164)
+  private final JComboBox<String> myFormat = new ComboBox<>(new String[] { IdeBundle.message("colorpicker.format.rgb"),
+                                                                           IdeBundle.message("colorpicker.format.hsb")}) {
     @Override
     public Dimension getPreferredSize() {
       Dimension size = super.getPreferredSize();
@@ -86,7 +105,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   private ColorPicker(@NotNull Disposable parent,
                       @Nullable Color color,
                       boolean restoreColors, boolean enableOpacity,
-                      List<ColorPickerListener> listeners, boolean opacityInPercent) {
+                      List<? extends ColorPickerListener> listeners, boolean opacityInPercent) {
     myUpdateQueue = new Alarm(Alarm.ThreadToUse.SWING_THREAD, parent);
     myRed = createColorField(false);
     myGreen = createColorField(false);
@@ -101,12 +120,12 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       @Override
       public void actionPerformed(ActionEvent e) {
         PropertiesComponent.getInstance().setValue(HSB_PROPERTY, String.valueOf(!isRGBMode()), Boolean.FALSE.toString());
-        myR.setText(isRGBMode() ? "R:" : "H:");
-        myG.setText(isRGBMode() ? "G:" : "S:");
-        myR_after.setText(isRGBMode() ? "" : "\u00B0");
-        myG.setText(isRGBMode() ? "G:" : "S:");
-        myG_after.setText(isRGBMode() ? "" : "%");
-        myB_after.setText(isRGBMode() ? "" : "%");
+        myR.setText(IdeBundle.message(isRGBMode() ? "colorpicker.label.red" : "colorpicker.label.hue"));
+        myR_after.setText(isRGBMode() ? " " : "\u00B0");
+        myG.setText(IdeBundle.message(isRGBMode() ? "colorpicker.label.green" : "colorpicker.label.saturation"));
+        myG_after.setText(isRGBMode() ? " " : "%");
+        myB.setText(IdeBundle.message(isRGBMode() ? "colorpicker.label.blue" : "colorpicker.label.brightness"));
+        myB_after.setText(isRGBMode() ? " " : "%"); // " " is here because empty text would cause unfortunate traversal order (WEB-43164)
         applyColor(myColor);
       }
     });
@@ -146,6 +165,24 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   }
 
   @Nullable
+  public static RelativePoint bestLocationForColorPickerPopup(@Nullable Editor editor) {
+    if (editor == null || editor.isDisposed()) {
+      return null;
+    }
+    AWTEvent event = IdeEventQueue.getInstance().getTrueCurrentEvent();
+    if (event instanceof MouseEvent) {
+      Component component = ((MouseEvent)event).getComponent();
+      Component clickComponent = SwingUtilities.getDeepestComponentAt(component, ((MouseEvent)event).getX(), ((MouseEvent)event).getY());
+      if (clickComponent instanceof EditorGutter) {
+        return null;
+      }
+    }
+    VisualPosition visualPosition = editor.getCaretModel().getCurrentCaret().getVisualPosition();
+    Point pointInEditor = editor.visualPositionToXY(new VisualPosition(visualPosition.line + 1, visualPosition.column));
+    return new RelativePoint(editor.getContentComponent(),pointInEditor);
+  }
+
+  @Nullable
   private ColorPipette createPipette(@NotNull ColorListener colorListener, @NotNull Disposable parentDisposable) {
     if (ColorPipetteBase.canUseMacPipette()) {
       ColorPipette pipette = getPipetteIfAvailable(new MacColorPipette(this, colorListener), parentDisposable);
@@ -173,26 +210,22 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   }
 
   private JTextField createColorField(boolean hex) {
-    final NumberDocument doc = new NumberDocument(hex);
-    int lafFix = UIUtil.isUnderWindowsLookAndFeel() || UIUtil.isUnderDarcula() ? 1 : 0;
-    UIManager.LookAndFeelInfo info = LafManager.getInstance().getCurrentLookAndFeel();
-    if (info != null && (info.getName().startsWith("IDEA") || info.getName().equals("Windows Classic")))
-      lafFix = 1;
-    final JTextField field;
-    if (SystemInfo.isMac && UIUtil.isUnderIntelliJLaF()) {
-      field = new JTextField("");
-      field.setDocument(doc);
-      field.setPreferredSize(new Dimension(hex ? 60 : 40, 26));
-    } else {
-      field = new JTextField(doc, "", (hex ? 5 : 2) + lafFix);
-      field.setSize(50, -1);
-    }
+    NumberDocument doc = new NumberDocument(hex);
+    JTextField field = new JTextField("");
+    field.setDocument(doc);
+
     doc.setSource(field);
     field.getDocument().addDocumentListener(this);
     field.addFocusListener(new FocusAdapter() {
       @Override
       public void focusGained(final FocusEvent e) {
         field.selectAll();
+      }
+
+      @Override
+      public void focusLost(FocusEvent event) {
+        myUpdateQueue.cancelAllRequests();
+        validateAndUpdatePreview(field);
       }
     });
     return field;
@@ -230,6 +263,8 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   }
 
   private void update(final JTextField src) {
+    if (!src.hasFocus()) return;
+
     myUpdateQueue.cancelAllRequests();
     myUpdateQueue.addRequest(() -> validateAndUpdatePreview(src), 300);
   }
@@ -245,8 +280,9 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
   }
 
   private void validateAndUpdatePreview(JTextField src) {
+    boolean fromHex = src == myHex;
     Color color;
-    if (myHex.hasFocus()) {
+    if (fromHex) {
       Color c = ColorUtil.fromHex(myHex.getText(), null);
       color = c != null ? ColorUtil.toAlpha(c, myColorWheelPanel.myColorWheel.myOpacity) : null;
     } else {
@@ -256,7 +292,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       if (myColorWheelPanel.myOpacityComponent != null) {
         color = ColorUtil.toAlpha(color, myColorWheelPanel.myOpacityComponent.getValue());
       }
-      updatePreview(color, src == myHex);
+      updatePreview(color, fromHex);
     }
   }
 
@@ -347,10 +383,10 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
   @Nullable
   public static Color showDialog(@NotNull Component parent,
-                                 String caption,
+                                 @DialogTitle String caption,
                                  Color preselectedColor,
                                  boolean enableOpacity,
-                                 List<ColorPickerListener> listeners,
+                                 List<? extends ColorPickerListener> listeners,
                                  boolean opacityInPercent) {
     final ColorPickerDialog dialog = new ColorPickerDialog(parent, caption, preselectedColor, enableOpacity, listeners, opacityInPercent);
     dialog.show();
@@ -359,6 +395,117 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
 
     return null;
+  }
+
+  public static void showColorPickerPopup(@Nullable Project project, @Nullable Color currentColor, @Nullable Editor editor, @NotNull ColorListener listener) {
+    showColorPickerPopup(project, currentColor, listener, bestLocationForColorPickerPopup(editor));
+  }
+
+  public static void showColorPickerPopup(@Nullable Project project, @Nullable Color currentColor, @NotNull ColorListener listener) {
+    showColorPickerPopup(project, currentColor, listener, null);
+  }
+
+  public static void showColorPickerPopup(@Nullable Project project, @Nullable Color currentColor, @NotNull ColorListener listener, @Nullable RelativePoint location) {
+    showColorPickerPopup(project, currentColor, listener, location, false);
+  }
+
+  public static void showColorPickerPopup(@Nullable final Project project, @Nullable Color currentColor, @NotNull final ColorListener listener, @Nullable RelativePoint location, boolean showAlpha) {
+    if(!isEnoughSpaceToShowPopup()) {
+      Color color = showDialog(IdeFocusManager.getGlobalInstance().getFocusOwner(), IdeBundle.message("dialog.title.choose.color"),
+                               currentColor, showAlpha, null, false);
+      if (color != null) {
+        listener.colorChanged(color, null);
+      }
+      return;
+    }
+    Ref<LightCalloutPopup> ref = Ref.create();
+
+    ColorListener colorListener = new ColorListener() {
+      final Object groupId = new Object();
+
+      @Override
+      public void colorChanged(final Color color, final Object source) {
+        ApplicationManager.getApplication().invokeLaterOnWriteThread(
+          () -> CommandProcessor.getInstance().executeCommand(project,
+                                                              () -> listener.colorChanged(color, source),
+                                                              IdeBundle.message("command.name.apply.color"),
+                                                              groupId));
+      }
+    };
+
+    LightCalloutPopup popup = new ColorPickerBuilder(showAlpha)
+      .setOriginalColor(currentColor)
+      .addSaturationBrightnessComponent()
+      .addColorAdjustPanel(new MaterialGraphicalColorPipetteProvider())
+      .addColorValuePanel().withFocus()
+      //.addSeparator()
+      //.addCustomComponent(MaterialColorPaletteProvider.INSTANCE)
+      .addColorListener(colorListener,true)
+      .addColorListener(new ColorListener() {
+        @Override
+        public void colorChanged(Color color, Object source) {
+          updatePointer(ref);
+        }
+      }, true)
+      .focusWhenDisplay(true)
+      .setFocusCycleRoot(true)
+      .addKeyAction(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), cancelPopup(ref))
+      .addKeyAction(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), applyColor(ref))
+      .build();
+    ref.set(popup);
+
+    if (location == null) {
+      location = new RelativePoint(MouseInfo.getPointerInfo().getLocation());
+    }
+    popup.show(location.getScreenPoint());
+    updatePointer(ref);
+  }
+
+  private static boolean isEnoughSpaceToShowPopup() {
+    DialogWrapper currentDialog = DialogWrapper.findInstanceFromFocus();
+    if (currentDialog != null && (currentDialog.getWindow().getWidth() < 500 || currentDialog.getWindow().getHeight() < 500)) {
+      return false;
+    }
+    return true;
+  }
+
+  private static void updatePointer(Ref<LightCalloutPopup> ref) {
+    LightCalloutPopup popup = ref.get();
+    Balloon balloon = popup.getBalloon();
+    if (balloon instanceof BalloonImpl) {
+      RelativePoint showingPoint = ((BalloonImpl)balloon).getShowingPoint();
+      Color c = popup.getPointerColor(showingPoint, ((BalloonImpl)balloon).getComponent());
+      if (c != null) {
+        c = ColorUtil.withAlpha(c, 1.0); //clear transparency
+      }
+      ((BalloonImpl)balloon).setPointerColor(c);
+    }
+  }
+
+  @NotNull
+  private static AbstractAction cancelPopup(Ref<LightCalloutPopup> ref) {
+    return new AbstractAction() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        final LightCalloutPopup popup = ref.get();
+        if (popup != null) {
+          popup.cancel();
+        }
+      }
+    };
+  }
+
+  @NotNull
+  private static AbstractAction applyColor(Ref<LightCalloutPopup> ref) {
+    return new AbstractAction() {
+      @Override
+      public void actionPerformed(ActionEvent e) {
+        final LightCalloutPopup popup = ref.get();
+        if (popup != null) {
+          popup.close();
+        }
+      }
+    };
   }
 
   private JComponent buildTopPanel(boolean enablePipette) throws ParseException {
@@ -390,23 +537,21 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
     final JPanel rgbPanel = new JPanel();
     rgbPanel.setLayout(new BoxLayout(rgbPanel, BoxLayout.X_AXIS));
-    if (!UIUtil.isUnderAquaLookAndFeel()) {
-      myR_after.setPreferredSize(new Dimension(14, -1));
-      myG_after.setPreferredSize(new Dimension(14, -1));
-      myB_after.setPreferredSize(new Dimension(14, -1));
-    }
+    myR_after.setPreferredSize(new Dimension(14, -1));
+    myG_after.setPreferredSize(new Dimension(14, -1));
+    myB_after.setPreferredSize(new Dimension(14, -1));
     rgbPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
     rgbPanel.add(myR);
     rgbPanel.add(myRed);
-    if (!UIUtil.isUnderAquaLookAndFeel()) rgbPanel.add(myR_after);
+    rgbPanel.add(myR_after);
     rgbPanel.add(Box.createHorizontalStrut(2));
     rgbPanel.add(myG);
     rgbPanel.add(myGreen);
-    if (!UIUtil.isUnderAquaLookAndFeel()) rgbPanel.add(myG_after);
+    rgbPanel.add(myG_after);
     rgbPanel.add(Box.createHorizontalStrut(2));
     rgbPanel.add(myB);
     rgbPanel.add(myBlue);
-    if (!UIUtil.isUnderAquaLookAndFeel()) rgbPanel.add(myB_after);
+    rgbPanel.add(myB_after);
     rgbPanel.add(Box.createHorizontalStrut(2));
     rgbPanel.add(myFormat);
 
@@ -423,7 +568,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     return result;
   }
 
-  private static class ColorWheelPanel extends JPanel {
+  private static final class ColorWheelPanel extends JPanel {
     private final ColorWheel myColorWheel;
     private final SlideComponent myBrightnessComponent;
     private SlideComponent myOpacityComponent = null;
@@ -437,8 +582,8 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
       myColorWheel.addListener(listener);
 
-      myBrightnessComponent = new SlideComponent("Brightness", true);
-      myBrightnessComponent.setToolTipText("Brightness");
+      myBrightnessComponent = new SlideComponent(IdeBundle.message("colorpicker.brightness.slider.title"), true);
+      myBrightnessComponent.setToolTipText(IdeBundle.message("colorpicker.brightness.slider.tooltip"));
       myBrightnessComponent.addListener(value -> {
         myColorWheel.setBrightness(1f - (value / 255f));
         myColorWheel.repaint();
@@ -447,9 +592,9 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       add(myBrightnessComponent, BorderLayout.EAST);
 
       if (enableOpacity) {
-        myOpacityComponent = new SlideComponent("Opacity", false);
+        myOpacityComponent = new SlideComponent(IdeBundle.message("colorpicker.opacity.slider.title"), false);
         myOpacityComponent.setUnits(opacityInPercent ? SlideComponent.Unit.PERCENT : SlideComponent.Unit.LEVEL);
-        myOpacityComponent.setToolTipText("Opacity");
+        myOpacityComponent.setToolTipText(IdeBundle.message("colorpicker.opacity.slider.tooltip"));
         myOpacityComponent.addListener(integer -> {
           myColorWheel.setOpacity(integer.intValue());
           myColorWheel.repaint();
@@ -476,7 +621,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
   }
 
-  private static class ColorWheel extends JComponent {
+  private static final class ColorWheel extends JComponent {
     private static final int BORDER_SIZE = 5;
     private float myBrightness = 1f;
     private float myHue = 1f;
@@ -510,8 +655,8 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
           int my = myWheel.y + myWheel.height / 2;
           double s;
           double h;
-          s = Math.sqrt((double)((x - mx) * (x - mx) + (y - my) * (y - my))) / (myWheel.height / 2);
-          h = -Math.atan2((double)(y - my), (double)(x - mx)) / (2 * Math.PI);
+          s = Math.sqrt((x - mx) * (x - mx) + (y - my) * (y - my)) / (myWheel.height / 2);
+          h = -Math.atan2(y - my, x - mx) / (2 * Math.PI);
           if (h < 0) h += 1.0;
           if (s > 1) s = 1.0;
 
@@ -528,8 +673,8 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
           int my = myWheel.y + myWheel.height / 2;
           double s;
           double h;
-          s = Math.sqrt((double)((x - mx) * (x - mx) + (y - my) * (y - my))) / (myWheel.height / 2);
-          h = -Math.atan2((double)(y - my), (double)(x - mx)) / (2 * Math.PI);
+          s = Math.sqrt((x - mx) * (x - mx) + (y - my) * (y - my)) / (myWheel.height / 2);
+          h = -Math.atan2(y - my, x - mx) / (2 * Math.PI);
           if (h < 0) h += 1.0;
           if (s <= 1) {
             setHSBValue((float)h, (float)s, myBrightness, myOpacity);
@@ -642,7 +787,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
   }
 
-  private static class ColorPreviewComponent extends JComponent {
+  private static final class ColorPreviewComponent extends JComponent {
     private Color myColor;
 
     private ColorPreviewComponent() {
@@ -696,12 +841,14 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     void setSource(JTextField field) {
       mySrc = field;
     }
+    @Override
     public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
+      str = StringUtil.trimStart(str, "#");
       final boolean rgb = isRGBMode();
       char[] source = str.toCharArray();
       if (mySrc != null) {
         final int selected = mySrc.getSelectionEnd() - mySrc.getSelectionStart();
-        int newLen = mySrc.getText().length() -  selected + str.length();
+        int newLen = mySrc.getText().length() - selected + str.length();
         if (newLen > (myHex ? 6 : 3)) {
           Toolkit.getDefaultToolkit().beep();
           return;
@@ -727,9 +874,10 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
               Toolkit.getDefaultToolkit().beep();
               return;
             }
-          } else {
+          }
+          else {
             if ((mySrc == myRed && num > 359)
-              || ((mySrc == myGreen || mySrc == myBlue) && num > 100)) {
+                || ((mySrc == myGreen || mySrc == myBlue) && num > 100)) {
               Toolkit.getDefaultToolkit().beep();
               return;
             }
@@ -742,7 +890,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
   }
 
-  private static class RecentColorsComponent extends JComponent {
+  private static final class RecentColorsComponent extends JComponent {
     private static final int WIDTH = 10 * 30 + 13;
     private static final int HEIGHT = 62 + 3;
 
@@ -795,8 +943,9 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     public String getToolTipText(MouseEvent event) {
       Color color = getColor(event);
       if (color != null) {
-        return String.format("R: %d G: %d B: %d A: %s", color.getRed(), color.getGreen(), color.getBlue(),
-                             String.format("%.2f", (float)(color.getAlpha() / 255.0)));
+        return IdeBundle.message("colorpicker.recent.color.tooltip",
+                                 color.getRed(), color.getGreen(), color.getBlue(),
+                                 String.format("%.2f", (float)(color.getAlpha() / 255.0)));
       }
 
       return super.getToolTipText(event);
@@ -848,9 +997,9 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       final int top = i.top + (d.height - i.top - i.bottom - HEIGHT) / 2;
 
       int col = (x - left - 2) / 31;
-      col = col > 9 ? 9 : col;
+      col = Math.min(col, 9);
       int row = (y - top - 2) / 31;
-      row = row > 1 ? 1 : row;
+      row = Math.min(row, 1);
 
       return row >= 0 && col >= 0 ? Couple.of(row, col) : null;
     }
@@ -899,13 +1048,17 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
   static class ColorPickerDialog extends DialogWrapper {
     private final Color myPreselectedColor;
-    private final List<ColorPickerListener> myListeners;
+    private final List<? extends ColorPickerListener> myListeners;
     private ColorPicker myColorPicker;
     private final boolean myEnableOpacity;
     private final boolean myOpacityInPercent;
 
-    public ColorPickerDialog(@NotNull Component parent, String caption, @Nullable Color preselectedColor, boolean enableOpacity,
-                             List<ColorPickerListener> listeners, boolean opacityInPercent) {
+    ColorPickerDialog(@NotNull Component parent,
+                      @DialogTitle String caption,
+                      @Nullable Color preselectedColor,
+                      boolean enableOpacity,
+                      List<? extends ColorPickerListener> listeners,
+                      boolean opacityInPercent) {
       super(parent, true);
       myListeners = listeners;
       myPreselectedColor = preselectedColor;
@@ -914,7 +1067,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
       setTitle(caption);
       setResizable(false);
-      setOKButtonText("Choose");
+      setOKButtonText(IdeBundle.message("button.choose"));
       super.init();
     }
 
@@ -1029,7 +1182,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
     }
   }
 
-  private static class DefaultColorPipette extends ColorPipetteBase {
+  private static final class DefaultColorPipette extends ColorPipetteBase {
     private static final int SIZE = 30;
     private static final int DIALOG_SIZE = SIZE - 4;
     private static final Point HOT_SPOT = new Point(DIALOG_SIZE / 2, DIALOG_SIZE / 2);
@@ -1046,7 +1199,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
     private DefaultColorPipette(@NotNull JComponent parent, @NotNull ColorListener colorListener) {
       super(parent, colorListener);
-      myTimer = UIUtil.createNamedTimer("DefaultColorPipette",5, new ActionListener() {
+      myTimer = TimerUtil.createNamedTimer("DefaultColorPipette", 5, new ActionListener() {
         @Override
         public void actionPerformed(ActionEvent e) {
           updatePipette();
@@ -1081,6 +1234,7 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
       return false;
     }
 
+    @Override
     @NotNull
     @SuppressWarnings("UseJBColor")
     protected Dialog getOrCreatePickerDialog() {
@@ -1123,7 +1277,6 @@ public class ColorPicker extends JPanel implements ColorListener, DocumentListen
 
         myPipetteImage = UIUtil.createImage(pickerDialog, AllIcons.Ide.Pipette.getIconWidth(), AllIcons.Ide.Pipette.getIconHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = myPipetteImage.createGraphics();
-        //noinspection ConstantConditions
         AllIcons.Ide.Pipette.paintIcon(null, graphics, 0, 0);
         graphics.dispose();
 

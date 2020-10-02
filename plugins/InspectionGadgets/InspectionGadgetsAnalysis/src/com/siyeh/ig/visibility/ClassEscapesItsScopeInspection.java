@@ -53,12 +53,6 @@ public class ClassEscapesItsScopeInspection extends AbstractBaseJavaLocalInspect
     return "ClassEscapesDefinedScope";
   }
 
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("class.escapes.defined.scope.display.name");
-  }
-
   @Nullable
   @Override
   public JComponent createOptionsPanel() {
@@ -104,7 +98,7 @@ public class ClassEscapesItsScopeInspection extends AbstractBaseJavaLocalInspect
   private static class VisibilityVisitor extends JavaElementVisitor {
     private final VisibilityChecker[] myCheckers;
 
-    public VisibilityVisitor(VisibilityChecker[] checkers) {
+    VisibilityVisitor(VisibilityChecker[] checkers) {
       myCheckers = checkers;
     }
 
@@ -158,7 +152,7 @@ public class ClassEscapesItsScopeInspection extends AbstractBaseJavaLocalInspect
   }
 
   private class ClassEscapesItsScopeVisitor extends VisibilityChecker {
-    public ClassEscapesItsScopeVisitor(ProblemsHolder holder) {
+    ClassEscapesItsScopeVisitor(ProblemsHolder holder) {
       super(holder);
     }
 
@@ -209,7 +203,7 @@ public class ClassEscapesItsScopeInspection extends AbstractBaseJavaLocalInspect
     private final Set<String> myExportedPackageNames;
     private final String myModuleName;
 
-    public Java9NonAccessibleTypeExposedVisitor(@NotNull ProblemsHolder holder,
+    Java9NonAccessibleTypeExposedVisitor(@NotNull ProblemsHolder holder,
                                                 @NotNull Module module,
                                                 @NotNull String moduleName,
                                                 @NotNull Set<String> exportedPackageNames) {
@@ -229,11 +223,16 @@ public class ClassEscapesItsScopeInspection extends AbstractBaseJavaLocalInspect
       return false;
     }
 
+    private static boolean isInFinalClass(@NotNull PsiMember member) {
+      final PsiClass containingClass = member.getContainingClass();
+      if (containingClass == null) return false;
+      return containingClass.hasModifierProperty(PsiModifier.FINAL);
+    }
+
     @Contract("null -> false")
     private boolean isModulePublicApi(@Nullable PsiMember member) {
-      if (member != null &&
-          !(member instanceof PsiTypeParameter) &&
-          (member.hasModifierProperty(PsiModifier.PUBLIC) || member.hasModifierProperty(PsiModifier.PROTECTED))) {
+      if (member == null || member instanceof PsiTypeParameter) return false;
+      if (member.hasModifierProperty(PsiModifier.PUBLIC) || !isInFinalClass(member) && member.hasModifierProperty(PsiModifier.PROTECTED)) {
         PsiElement parent = member.getParent();
         if (parent instanceof PsiClass) {
           return isModulePublicApi((PsiClass)parent);

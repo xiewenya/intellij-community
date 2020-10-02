@@ -20,20 +20,12 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.java18api.Java8MapForEachInspection;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
 public class Java8MapForEachInspectionTest extends LightQuickFixParameterizedTestCase {
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     Java8MapForEachInspection inspection = new Java8MapForEachInspection();
     inspection.DO_NOT_HIGHLIGHT_LOOP = false;
     return new LocalInspectionTool[]{inspection};
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   @Override

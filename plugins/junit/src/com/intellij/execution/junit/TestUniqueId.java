@@ -2,9 +2,7 @@
 package com.intellij.execution.junit;
 
 import com.intellij.codeInsight.TestFrameworks;
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.JavaExecutionUtil;
-import com.intellij.execution.Location;
+import com.intellij.execution.*;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.configurations.RuntimeConfigurationException;
 import com.intellij.execution.runners.ExecutionEnvironment;
@@ -57,7 +55,7 @@ public class TestUniqueId extends TestObject {
       }
       else {
         PsiClass containingClass = PsiTreeUtil.getParentOfType(psiElement, PsiClass.class);
-        if (containingClass != null && TestFrameworks.detectFramework(containingClass) == null) {
+        if (containingClass == null || TestFrameworks.detectFramework(containingClass) == null) {
           return nodeId;
         }
       }
@@ -75,8 +73,7 @@ public class TestUniqueId extends TestObject {
 
   @Override
   public String suggestActionName() {
-    String[] ids = getConfiguration().getPersistentData().getUniqueIds();
-    return JavaExecutionUtil.getShortClassName(ids.length > 0 ? ids[0] : "<empty>");
+    return ProgramRunnerUtil.shortenName(getConfiguration().getName(), 2);
   }
 
   @Override
@@ -99,7 +96,7 @@ public class TestUniqueId extends TestObject {
     super.checkConfiguration();
     String[] ids = getConfiguration().getPersistentData().getUniqueIds();
     if (ids == null || ids.length == 0) {
-      throw new RuntimeConfigurationException("No unique id specified");
+      throw new RuntimeConfigurationException(JUnitBundle.message("dialog.message.no.unique.id.specified.exception"));
     }
   }
 }

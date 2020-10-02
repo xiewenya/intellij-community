@@ -23,10 +23,14 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts.DialogMessage;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.DirectoryProjectGeneratorBase;
@@ -34,10 +38,15 @@ import com.intellij.util.BooleanFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.webcore.packaging.PackageManagementService.ErrorDescription;
 import com.intellij.webcore.packaging.PackagesNotificationPanel;
+import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PyPsiPackageUtil;
+import com.jetbrains.python.packaging.PyPackage;
+import com.jetbrains.python.packaging.PyPackageManager;
+import com.jetbrains.python.packaging.PyPackageUtil;
 import com.jetbrains.python.packaging.ui.PyPackageManagementService;
 import com.jetbrains.python.remote.*;
 import com.jetbrains.python.sdk.PyLazySdk;
-import com.jetbrains.python.sdk.PySdkUtil;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -59,8 +68,8 @@ import java.util.function.Consumer;
  * <br/>
  * <h2>Module vs PyCharm projects</h2>
  * <p>
- *   When you create project in PyCharm it always calls {@link #configureProject(Project, VirtualFile, PyNewProjectSettings, Module, PyProjectSynchronizer)},
- *   but in Intellij Plugin settings are not ready to the moment of project creation, so there are 2 ways to support plugin:
+ * When you create project in PyCharm it always calls {@link #configureProject(Project, VirtualFile, PyNewProjectSettings, Module, PyProjectSynchronizer)},
+ * but in Intellij Plugin settings are not ready to the moment of project creation, so there are 2 ways to support plugin:
  *   <ol>
  *     <li>Do not lean on settings at all. You simply implement {@link #configureProjectNoSettings(Project, VirtualFile, Module)}
  *     This way is common for project templates.
@@ -81,7 +90,7 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
   public static final PyNewProjectSettings NO_SETTINGS = new PyNewProjectSettings();
   private static final Logger LOGGER = Logger.getInstance(PythonProjectGenerator.class);
 
-  private final List<SettingsListener> myListeners = ContainerUtil.newArrayList();
+  private final List<SettingsListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final boolean myAllowRemoteProjectCreation;
   @Nullable private MouseListener myErrorLabelMouseListener;
 
@@ -124,16 +133,16 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
                                             @NotNull final File projectDirectory) throws PyNoProjectAllowedOnSdkException {
 
     // Check if project does not support remote creation at all
-    if (!myAllowRemoteProjectCreation && PySdkUtil.isRemote(sdk)) {
+    if (!myAllowRemoteProjectCreation && PythonSdkUtil.isRemote(sdk)) {
       throw new PyNoProjectAllowedOnSdkException(
-        "Can't create project of this type on remote interpreter. Choose local interpreter.");
+        PyBundle.message("python.remote.interpreter.can.t.create.project.this.type"));
     }
 
 
     // Check if project synchronizer could be used with this project dir
     // No project can be created remotely if project synchronizer can't work with it
 
-    final PyProjectSynchronizer synchronizer = PythonRemoteInterpreterManager.getSynchronizerInstance(sdk);
+    final PyProjectSynchronizer synchronizer = PyProjectSynchronizerProvider.getSynchronizer(sdk);
     if (synchronizer == null) {
       return;
     }
@@ -159,7 +168,6 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
     /*Instead of this method overwrite ``configureProject``*/
 
     // If we deal with remote project -- use remote manager to configure it
-    final PythonRemoteInterpreterManager remoteManager = PythonRemoteInterpreterManager.getInstance();
     final Sdk sdk = settings.getSdk();
 
     if (sdk instanceof PyLazySdk) {
@@ -170,7 +178,7 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
       }
     }
 
-    final PyProjectSynchronizer synchronizer = (remoteManager != null ? remoteManager.getSynchronizer(sdk) : null);
+    final PyProjectSynchronizer synchronizer = PyProjectSynchronizerProvider.getSynchronizer(sdk);
 
     if (synchronizer != null) {
       // Before project creation we need to configure sync
@@ -183,13 +191,11 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
           break;
         }
         userProvidedPath = null; // According to checkSynchronizationAvailable should be cleared
-        final String message = String.format("Local/Remote synchronization is not configured correctly.\n%s\n" +
-                                             "You may need to sync local and remote project manually.\n\n Do you want to continue? \n\n" +
-                                             "Say 'Yes' to stay with misconfigured  mappings or 'No' to start manual configuration process.",
-                                             syncError);
+        final String message =
+          PyBundle.message("python.new.project.synchronization.not.configured.dialog.message", syncError);
         if (Messages.showYesNoDialog(project,
                                      message,
-                                     "Synchronization not Configured",
+                                     PyBundle.message("python.new.project.synchronization.not.configured.dialog.title"),
                                      General.WarningDialog) == Messages.YES) {
           break;
         }
@@ -217,16 +223,16 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
    * To support remote project creation, be sure to use {@link PyProjectSynchronizer}.
    * <br/>
    * When overwriting this method, <strong>be sure</strong> to call super() or call
-   * {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer)}  at least once: automatic sync works only after it.
+   * {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer, String...)}  at least once: automatic sync works only after it.
    *
    * @param synchronizer null if project is local and no sync required.
    *                     Otherwise, be sure to use it move code between local (java) and remote (python) side.
    *                     Remote interpreters can't be used with out of it. Contract is following:
    *                     <ol>
    *                     <li>Create some code on python (remote) side using helpers</li>
-   *                     <li>call {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer)}</li>
+   *                     <li>call {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer, String...)}</li>
    *                     <li>Change locally</li>
-   *                     <li>call {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer)} again in opposite direction</li>
+   *                     <li>call {@link PyProjectSynchronizer#syncProject(Module, PySyncDirection, Consumer, String...)} again in opposite direction</li>
    *                     </ol>
    */
 
@@ -303,7 +309,8 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
 
     final ErrorDescription errorDescription = getErrorDescription(sdkAndException);
     final Application app = ApplicationManager.getApplication();
-    app.invokeLater(() -> PackagesNotificationPanel.showError(String.format("Install %s failed", frameworkName), errorDescription));
+    app.invokeLater(() -> PackagesNotificationPanel.showError(PyBundle.message("python.new.project.install.failed.title", frameworkName),
+                                                              errorDescription));
   }
 
   @NotNull
@@ -318,13 +325,91 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
     }
 
     if (errorDescription == null) {
-      errorDescription = ErrorDescription.fromMessage("Choose another SDK");
+      errorDescription = ErrorDescription.fromMessage(PyBundle.message("python.new.project.error.solution.another.sdk"));
     }
     return errorDescription;
   }
 
+
+  //TODO: Support for plugin also
+
+  /**
+   * Installs framework and runs callback on success.
+   * Installation runs in modal dialog and callback is posted to AWT thread.
+   * <p>
+   * If "forceInstallFramework" is passed then installs framework in any case.
+   * If SDK is remote then checks if it has interpreter and installs if missing
+   *
+   * @param frameworkName         user-readable framework name (i.e. "Django")
+   * @param requirement           name of requirement to install (i.e. "django")
+   * @param forceInstallFramework pass true if you are sure required framework is missing
+   * @param callback              to be called after installation (or instead of is framework is installed) on AWT thread
+   */
+  protected static void installFrameworkIfNeeded(@NotNull final Project project,
+                                                 @NotNull final String frameworkName,
+                                                 @NotNull final String requirement,
+                                                 @Nullable final Sdk sdk,
+                                                 final boolean forceInstallFramework,
+                                                 @Nullable final Runnable callback) {
+
+    if (sdk == null) {
+      reportPackageInstallationFailure(frameworkName, null);
+      return;
+    }
+    final PyPackageManager packageManager = PyPackageManager.getInstance(sdk);
+    // For remote SDK we are not sure if framework exists or not, so we'll check it anyway
+    if (forceInstallFramework || PythonSdkUtil.isRemote(sdk)) {
+      //Modal is used because it is insane to create project when framework is not installed
+      ProgressManager.getInstance().run(new Task.Modal(project, PyBundle.message("python.install.framework.ensure.installed", frameworkName), false) {
+        @Override
+        public void run(@NotNull final ProgressIndicator indicator) {
+
+          boolean installed = false;
+          if (!forceInstallFramework) {
+            // First check if we need to do it
+            indicator.setText(PyBundle.message("python.install.framework.checking.is.installed", frameworkName));
+            final List<PyPackage> packages = PyPackageUtil.refreshAndGetPackagesModally(sdk);
+            installed = PyPsiPackageUtil.findPackage(packages, requirement) != null;
+          }
+
+
+          if (!installed) {
+            indicator.setText(PyBundle.message("python.install.framework.installing", frameworkName));
+            try {
+              packageManager.install(requirement);
+              packageManager.refresh();
+            }
+            catch (final ExecutionException e) {
+              reportPackageInstallationFailure(requirement, Pair.create(sdk, e));
+            }
+          }
+        }
+
+        @Override
+        public void onSuccess() {
+          // Installed / checked successfully, call callback on AWT
+          if (callback != null) {
+            callback.run();
+          }
+        }
+      });
+    }
+    else {
+      // No need to install, but still need to call callback on AWT
+      if (callback != null) {
+        assert SwingUtilities.isEventDispatchThread();
+        callback.run();
+      }
+    }
+  }
+
   @Nullable
   public String getPreferredEnvironmentType() {
+    return null;
+  }
+
+  @Nullable
+  public String getNewProjectPrefix() {
     return null;
   }
 
@@ -337,7 +422,7 @@ public abstract class PythonProjectGenerator<T extends PyNewProjectSettings> ext
     /**
      * @param reason why project can't be created
      */
-    PyNoProjectAllowedOnSdkException(@NotNull final String reason) {
+    PyNoProjectAllowedOnSdkException(@NotNull @DialogMessage final String reason) {
       super(reason);
     }
   }

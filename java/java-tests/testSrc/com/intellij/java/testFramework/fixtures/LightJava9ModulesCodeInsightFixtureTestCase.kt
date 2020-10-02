@@ -11,10 +11,10 @@ import com.intellij.testFramework.InspectionTestUtil
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.createGlobalContextForTool
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.intellij.lang.annotations.Language
 
-abstract class LightJava9ModulesCodeInsightFixtureTestCase : LightCodeInsightFixtureTestCase() {
+abstract class LightJava9ModulesCodeInsightFixtureTestCase : LightJavaCodeInsightFixtureTestCase() {
   override fun getProjectDescriptor(): LightProjectDescriptor = MultiModuleJava9ProjectDescriptor
 
   override fun tearDown() {
@@ -23,10 +23,11 @@ abstract class LightJava9ModulesCodeInsightFixtureTestCase : LightCodeInsightFix
   }
 
   protected fun addFile(path: String, text: String, module: ModuleDescriptor = MAIN): VirtualFile =
-    VfsTestUtil.createFile(module.root(), path, text)
+    VfsTestUtil.createFile(module.root()!!, path, text)
 
-  protected fun addTestFile(path: String, text: String): VirtualFile =
-    VfsTestUtil.createFile(MAIN.testRoot()!!, path, text)
+  @JvmOverloads
+  protected fun addTestFile(path: String, text: String, module: ModuleDescriptor = MAIN): VirtualFile =
+    VfsTestUtil.createFile(module.testRoot()!!, path, text)
 
   /**
    * @param classNames is like <code>arrayOf("foo.api.Api", "foo.impl.Impl")</code>; the file's directory path is created based on FQN

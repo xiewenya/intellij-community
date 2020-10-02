@@ -23,7 +23,7 @@ import java.io.IOException;
 
 public abstract class ConsoleState {
   @NotNull
-  public abstract ConsoleState attachTo(@NotNull ConsoleViewImpl console, ProcessHandler processHandler);
+  public abstract ConsoleState attachTo(@NotNull ConsoleViewImpl console, @NotNull ProcessHandler processHandler);
   @NotNull
   public abstract ConsoleState dispose();
 
@@ -32,6 +32,13 @@ public abstract class ConsoleState {
   }
 
   public boolean isRunning() {
+    return false;
+  }
+
+  /**
+   * @return whether the given line should be folded as a command line if it's first in the console
+   */
+  public boolean isCommandLine(@NotNull String line) {
     return false;
   }
 

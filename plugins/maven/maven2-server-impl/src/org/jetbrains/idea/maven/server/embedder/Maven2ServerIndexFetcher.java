@@ -51,6 +51,7 @@ public class Maven2ServerIndexFetcher implements ResourceFetcher {
     myListener = listener;
   }
 
+  @Override
   public void connect(String _ignoredContextId, String _ignoredUrl) throws IOException {
     final ArtifactRepository mirrorRepository = myWagonManager.getMirrorRepository(
       new DefaultArtifactRepository(myOriginalRepositoryId, myOriginalRepositoryUrl, null));
@@ -67,17 +68,14 @@ public class Maven2ServerIndexFetcher implements ResourceFetcher {
                       myWagonManager.getProxy(mirrorRepository.getProtocol()));
     }
     catch (AuthenticationException e) {
-      IOException newEx = new IOException("Authentication exception connecting to " + repository);
-      newEx.initCause(e);
-      throw newEx;
+      throw new IOException("Authentication exception connecting to " + repository, e);
     }
     catch (WagonException e) {
-      IOException newEx = new IOException("Wagon exception connecting to " + repository);
-      newEx.initCause(e);
-      throw newEx;
+      throw new IOException("Wagon exception connecting to " + repository, e);
     }
   }
 
+  @Override
   public void disconnect() throws RemoteException {
     if (myWagon == null) return;
 
@@ -89,14 +87,13 @@ public class Maven2ServerIndexFetcher implements ResourceFetcher {
     }
   }
 
+  @Override
   public void retrieve(String name, File targetFile) throws IOException {
     try {
       myWagon.get(name, targetFile);
     }
     catch (AuthorizationException e) {
-      IOException newEx = new IOException("Authorization exception retrieving " + name);
-      newEx.initCause(e);
-      throw newEx;
+      throw new IOException("Authorization exception retrieving " + name, e);
     }
     catch (ResourceDoesNotExistException e) {
       IOException newEx = new FileNotFoundException("Resource " + name + " does not exist");
@@ -104,9 +101,7 @@ public class Maven2ServerIndexFetcher implements ResourceFetcher {
       throw newEx;
     }
     catch (WagonException e) {
-      IOException newEx = new IOException("Transfer for " + name + " failed");
-      newEx.initCause(e);
-      throw newEx;
+      throw new IOException("Transfer for " + name + " failed", e);
     }
   }
 }

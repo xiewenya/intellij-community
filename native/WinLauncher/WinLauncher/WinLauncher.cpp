@@ -1,5 +1,5 @@
 /*
-* Copyright 2000-2017 JetBrains s.r.o.
+* Copyright 2000-2019 JetBrains s.r.o.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-
+#define _UNICODE
 #include "stdafx.h"
 #include "WinLauncher.h"
 
@@ -29,6 +29,7 @@ JNI_createJavaVM pCreateJavaVM = NULL;
 JavaVM* jvm = NULL;
 JNIEnv* env = NULL;
 volatile bool terminating = false;
+volatile int hookExitCode = 0;
 
 HANDLE hFileMapping;
 HANDLE hEvent;
@@ -80,8 +81,12 @@ bool IsValidJRE(const char* path)
 bool Is64BitJRE(const char* path)
 {
   std::string cfgPath(path);
+  std::string cfgJava9Path(path);
+  std::string accessbridgeVersion(path);
   cfgPath += "\\lib\\amd64\\jvm.cfg";
-  return FileExists(cfgPath);
+  cfgJava9Path += "\\lib\\jvm.cfg";
+  accessbridgeVersion += "\\bin\\windowsaccessbridge-32.dll";
+  return FileExists(cfgPath) || (FileExists(cfgJava9Path) && !FileExists(accessbridgeVersion));
 }
 
 bool FindValidJVM(const char* path)
@@ -192,12 +197,20 @@ bool FindJVMInRegistryKey(const char* key, bool wow64_32)
 bool FindJVMInRegistryWithVersion(const char* version, bool wow64_32)
 {
   char* keyName = "Java Runtime Environment";
+  // starting from java 9 key name has been changed
+  char* jreKeyName = "JRE";
+  char* jdkKeyName = "JDK";
+
   bool foundJava = false;
   char buf[_MAX_PATH];
   //search jre in registry if the product doesn't require tools.jar
   if (LoadStdString(IDS_JDK_ONLY) != std::string("true")) {
     sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", keyName, version);
     foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    if (!foundJava) {
+      sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", jreKeyName, version);
+      foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    }
   }
 
   //search jdk in registry if the product requires tools.jar or jre isn't installed.
@@ -205,6 +218,10 @@ bool FindJVMInRegistryWithVersion(const char* version, bool wow64_32)
     keyName = "Java Development Kit";
     sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", keyName, version);
     foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    if (!foundJava) {
+      sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", jdkKeyName, version);
+      foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    }
   }
   return foundJava;
 }
@@ -214,17 +231,19 @@ bool FindJVMInRegistry()
 #ifndef _M_X64
   if (FindJVMInRegistryWithVersion("1.8", true))
     return true;
-  if (FindJVMInRegistryWithVersion("1.7", true))
+  if (FindJVMInRegistryWithVersion("9", true))
     return true;
-  if (FindJVMInRegistryWithVersion("1.6", true))
+  if (FindJVMInRegistryWithVersion("10", true))
     return true;
 #endif
 
   if (FindJVMInRegistryWithVersion("1.8", false))
     return true;
-  if (FindJVMInRegistryWithVersion("1.7", false))
+  if (FindJVMInRegistryWithVersion("9", false))
     return true;
-  if (FindJVMInRegistryWithVersion("1.6", false))
+  if (FindJVMInRegistryWithVersion("10", false))
+    return true;
+  if (FindJVMInRegistryWithVersion("11", false))
     return true;
   return false;
 }
@@ -264,15 +283,9 @@ bool LocateJVM()
 
   if (FindJVMInSettings()) return true;
 
-  std::vector<std::string> jrePaths;
-  if(need64BitJRE) jrePaths.push_back(GetAdjacentDir("jre64"));
-  jrePaths.push_back(GetAdjacentDir("jre32"));
-  jrePaths.push_back(GetAdjacentDir("jre"));
-  for(std::vector<std::string>::iterator it = jrePaths.begin(); it != jrePaths.end(); ++it) {
-    if (FindValidJVM((*it).c_str()) && Is64BitJRE(jvmPath) == need64BitJRE)
-    {
-      return true;
-    }
+  if (FindValidJVM(GetAdjacentDir(need64BitJRE ? "jbr" : "jbr-x86").c_str()) && Is64BitJRE(jvmPath) == need64BitJRE)
+  {
+    return true;
   }
 
   if (FindJVMInEnvVar("JAVA_HOME", result))
@@ -301,7 +314,7 @@ bool LocateJVM()
   }
 
   std::string error = LoadStdString(IDS_ERROR_LAUNCHING_APP);
-  MessageBoxA(NULL, jvmError.c_str(),  error.c_str(), MB_OK);
+  MessageBoxA(NULL, jvmError.c_str(), error.c_str(), MB_OK);
   return false;
 }
 
@@ -323,8 +336,8 @@ bool LoadVMOptionsFile(const TCHAR* path, std::vector<std::string>& vmOptionLine
   FILE *f = _tfopen(path, _T("rt"));
   if (!f) return false;
 
-  char line[_MAX_PATH];
-  while (fgets(line, _MAX_PATH, f))
+  char line[4096];
+  while (fgets(line, 4096, f))
   {
     TrimLine(line);
     if (line[0] == '#') continue;
@@ -403,11 +416,14 @@ std::string BuildClassPath()
   std::string classpathLibs = LoadStdString(IDS_CLASSPATH_LIBS);
   std::string result = CollectLibJars(classpathLibs);
 
-  std::string toolsJar = FindToolsJar();
-  if (toolsJar.size() > 0)
+  if (LoadStdString(IDS_JDK_ONLY) == std::string("true"))
   {
-    result += ";";
-    result += toolsJar;
+    std::string toolsJar = FindToolsJar();
+    if (toolsJar.size() > 0)
+    {
+      result += ";";
+      result += toolsJar;
+    }
   }
 
   return result;
@@ -482,6 +498,13 @@ void AddPredefinedVMOptions(std::vector<std::string>& vmOptionLines)
   }
 }
 
+/* 
+This hook is passed to JNI in the LoadVMOptions method to catch exit code of java program
+*/
+void (JNICALL jniExitHook)(jint code) {
+  hookExitCode = code;
+}
+
 bool LoadVMOptions()
 {
   TCHAR buffer[_MAX_PATH];
@@ -500,10 +523,10 @@ bool LoadVMOptions()
     }
   }
 
-  std::wstring::size_type pos = module.find_last_of(L"\\bin\\", -1);
+  std::wstring::size_type pos = module.find_last_of('\\');
   if (pos > 0)
   {
-      files.push_back(module.substr(0, pos - 5) + L".vmoptions");
+    files.push_back(module.substr(0, pos - 4) + L".vmoptions");
   }
 
   if (LoadString(hInst, IDS_VM_OPTIONS_PATH, buffer, _MAX_PATH))
@@ -528,14 +551,21 @@ bool LoadVMOptions()
   vmOptionLines.push_back(std::string("-Djb.vmOptionsFile=") + EncodeWideACP(used));
 
   if (!AddClassPathOptions(vmOptionLines)) return false;
+  std::string dllName(jvmPath);
+  std::string binDirs = dllName + "\\bin;" + dllName + "\\bin\\server";
+
+  vmOptionLines.push_back(std::string("-Djava.library.path=") + binDirs);
   AddPredefinedVMOptions(vmOptionLines);
 
-  vmOptionCount = vmOptionLines.size();
+  vmOptionCount = vmOptionLines.size() + 1;
   vmOptions = (JavaVMOption*)malloc(vmOptionCount * sizeof(JavaVMOption));
+
+  vmOptions[0].optionString = "exit";
+  vmOptions[0].extraInfo = jniExitHook; // It's our method defined above this one
   for (int i = 0; i < vmOptionLines.size(); i++)
   {
-    vmOptions[i].optionString = _strdup(vmOptionLines[i].c_str());
-    vmOptions[i].extraInfo = 0;
+    vmOptions[i + 1].optionString = _strdup(vmOptionLines[i].c_str());
+    vmOptions[i + 1].extraInfo = 0;
   }
 
   return true;
@@ -545,7 +575,6 @@ bool LoadJVMLibrary()
 {
   std::string dllName(jvmPath);
   std::string binDir = dllName + "\\bin";
-  TCHAR currentDir[MAX_PATH];
   std::string serverDllName = binDir + "\\server\\jvm.dll";
   std::string clientDllName = binDir + "\\client\\jvm.dll";
   if ((bServerJVM && FileExists(serverDllName)) || !FileExists(clientDllName))
@@ -557,15 +586,19 @@ bool LoadJVMLibrary()
     dllName = clientDllName;
   }
 
-  // ensure we can find msvcr100.dll which is located in jre/bin directory; jvm.dll depends on it.
-  GetCurrentDirectory(sizeof(currentDir),currentDir);
+  // Sometimes the parent process may call SetDllDirectory to change its own context, and this will be inherited by the
+  // launcher. In that case, we won't be able to load the libraries from the current directory that is set below. So, to
+  // fix such cases, we have to reset the DllDirectory to restore the default DLL loading order.
+  SetDllDirectoryW(nullptr);
+
+  // Call SetCurrentDirectory to allow jvm.dll to load the corresponding runtime libraries.
   SetCurrentDirectoryA(binDir.c_str());
   hJVM = LoadLibraryA(dllName.c_str());
   if (hJVM)
   {
     pCreateJavaVM = (JNI_createJavaVM) GetProcAddress(hJVM, "JNI_CreateJavaVM");
   }
-  SetCurrentDirectory(currentDir);
+
   if (!pCreateJavaVM)
   {
     std::string jvmError = "Failed to load JVM DLL ";
@@ -615,6 +648,23 @@ void SetProcessDPIAwareProperty()
     }
 }
 
+std::string getErrorMessage(int errorCode)
+{
+// possible error values:
+// JNI_ERR          (-1)  /* unknown error */
+// JNI_EDETACHED    (-2)  /* thread detached from the VM */
+// JNI_EVERSION     (-3)  /* JNI version error */
+// JNI_ENOMEM       (-4)  /* not enough memory */
+// JNI_EEXIST       (-5)  /* VM already created */
+// JNI_EINVAL       (-6)  /* invalid arguments */
+  std::string errorMessage = "";
+  if (errorCode == -6)
+  {
+      errorMessage = "Improperly specified VM option. To fix the problem, edit your JVM options and remove the options that are obsolete or not supported by the current version of the JVM.";
+  }
+  return errorMessage;
+}
+
 bool CreateJVM()
 {
   JavaVMInitArgs initArgs;
@@ -625,7 +675,7 @@ bool CreateJVM()
 
   int result = pCreateJavaVM(&jvm, &env, &initArgs);
 
-  for (int i = 0; i < vmOptionCount; i++)
+  for (int i = 1; i < vmOptionCount; i++)
   {
     free(vmOptions[i].optionString);
   }
@@ -635,11 +685,15 @@ bool CreateJVM()
   if (result != JNI_OK)
   {
     std::stringstream buf;
+    std::string jvmError = getErrorMessage(result);
+    if (jvmError == "") {
+        jvmError = "If you already have a " BITS_STR " JDK installed, define a JAVA_HOME variable in \n";
+        jvmError += "Computer > System Properties > System Settings > Environment Variables.\n";
+    }
 
-    buf << "Failed to create JVM: error code " << result << ".\n";
-    buf << "JVM Path: " << jvmPath << "\n";
-    buf << "If you already have a " BITS_STR " JDK installed, define a JAVA_HOME variable in \n";
-    buf << "Computer > System Properties > System Settings > Environment Variables.";
+    buf << jvmError;
+    buf << "\nFailed to create JVM. ";
+    buf << "JVM Path: " << jvmPath;
     std::string error = LoadStdString(IDS_ERROR_LAUNCHING_APP);
     MessageBoxA(NULL, buf.str().c_str(), error.c_str(), MB_OK);
   }
@@ -661,6 +715,13 @@ jobjectArray ArgsToJavaArray(std::vector<LPWSTR> args)
   return result;
 }
 
+bool isNumber(std::string line)
+{
+  char* p;
+  strtol(line.c_str(), &p, 10);
+  return *p == 0;
+}
+
 std::vector<LPWSTR> ParseCommandLine(LPCWSTR commandLine)
 {
   int numArgs;
@@ -670,6 +731,25 @@ std::vector<LPWSTR> ParseCommandLine(LPCWSTR commandLine)
   std::vector<LPWSTR> result;
   for (int i = 1; i < numArgs; i++)
   {
+    std::wstring arg(argv[i]);
+    std::string command(arg.begin(), arg.end());
+    // IDEA-230983
+    if (command.find_last_of(":") != std::string::npos && command.rfind("jetbrains://", 0) != 0)
+    {
+      std::string line = command.substr(command.find_last_of(":") + 1);
+      if (isNumber(line))
+      {
+        result.push_back(L"-l");
+        int numArgs;
+        LPWSTR* lineNumberArg = CommandLineToArgvW(std::wstring(line.begin(), line.end()).c_str(), &numArgs);
+        result.push_back(lineNumberArg[0]);
+        std::string fileName = command.substr(0, command.find_last_of(":"));
+        LPWSTR* fileNameArg = CommandLineToArgvW(std::wstring(fileName.begin(), fileName.end()).c_str(), &numArgs);
+        result.push_back(fileNameArg[0]);
+        continue;
+      }
+    }
+    
     result.push_back(argv[i]);
   }
   return result;
@@ -718,10 +798,11 @@ bool RunMainClass(std::vector<LPWSTR> args)
   return true;
 }
 
-void CallCommandLineProcessor(const std::wstring& curDir, const std::wstring& args)
+int CallCommandLineProcessor(const std::wstring& curDir, const std::wstring& args)
 {
   JNIEnv *env;
   JavaVMAttachArgs attachArgs;
+  int exitCode = -1;
   attachArgs.version = JNI_VERSION_1_2;
   attachArgs.name = "WinLauncher external command processing thread";
   attachArgs.group = NULL;
@@ -731,12 +812,12 @@ void CallCommandLineProcessor(const std::wstring& curDir, const std::wstring& ar
   jclass processorClass = env->FindClass(processorClassName.c_str());
   if (processorClass)
   {
-    jmethodID processMethodID = env->GetStaticMethodID(processorClass, "processWindowsLauncherCommandLine", "(Ljava/lang/String;[Ljava/lang/String;)V");
+    jmethodID processMethodID = env->GetStaticMethodID(processorClass, "processWindowsLauncherCommandLine", "(Ljava/lang/String;[Ljava/lang/String;)I");
     if (processMethodID)
     {
       jstring jCurDir = env->NewString((const jchar *)curDir.c_str(), curDir.size());
       jobjectArray jArgs = ArgsToJavaArray(RemovePredefinedArgs(ParseCommandLine(args.c_str())));
-      env->CallStaticVoidMethod(processorClass, processMethodID, jCurDir, jArgs);
+      exitCode = (int)(env->CallStaticIntMethod(processorClass, processMethodID, jCurDir, jArgs));
       jthrowable exc = env->ExceptionOccurred();
       if (exc)
       {
@@ -746,6 +827,7 @@ void CallCommandLineProcessor(const std::wstring& curDir, const std::wstring& ar
   }
 
   jvm->DetachCurrentThread();
+  return exitCode;
 }
 
 DWORD WINAPI SingleInstanceThread(LPVOID args)
@@ -761,10 +843,32 @@ DWORD WINAPI SingleInstanceThread(LPVOID args)
     int pos = command.find('\n');
     if (pos >= 0)
     {
+      int second_pos = command.find('\n', pos + 1);
       std::wstring curDir = command.substr(0, pos);
-      std::wstring args = command.substr(pos + 1);
+      std::wstring args = command.substr(pos + 1, second_pos - pos - 1);
+      std::wstring response_id = command.substr(second_pos + 1);
 
-      CallCommandLineProcessor(curDir, args);
+      int exitCode = CallCommandLineProcessor(curDir, args);
+      
+      std::string message = std::to_string(static_cast<long long>(exitCode));
+      std::string resultFileName = std::string("IntelliJLauncherResultMapping.") + std::string(response_id.begin(), response_id.end());
+      HANDLE hResultFileMapping = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, resultFileName.c_str());
+      if (hResultFileMapping)
+      {
+        void *resultView = MapViewOfFile(hResultFileMapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+        if (resultView)
+        {
+          memcpy(resultView, message.c_str(), (message.size() + 1) * sizeof(wchar_t));
+          UnmapViewOfFile(resultView);
+        }
+        
+        std::string eventName = std::string("IntelliJLauncherEvent.") + std::string(response_id.begin(), response_id.end());
+        HANDLE hResponseEvent = CreateEventA(NULL, FALSE, FALSE, eventName.c_str());
+        SetEvent(hResponseEvent);
+        CloseHandle(hResponseEvent);
+        CloseHandle(hResultFileMapping);
+      }
+      
     }
 
     UnmapViewOfFile(view);
@@ -772,13 +876,17 @@ DWORD WINAPI SingleInstanceThread(LPVOID args)
   return 0;
 }
 
-void SendCommandLineToFirstInstance()
+void SendCommandLineToFirstInstance(int response_id)
 {
   wchar_t curDir[_MAX_PATH];
   GetCurrentDirectoryW(_MAX_PATH - 1, curDir);
+  std::string resultFileName = std::to_string(static_cast<long long>(response_id));
+  
   std::wstring command(curDir);
   command += _T("\n");
   command += GetCommandLineW();
+  command += _T("\n");
+  command += std::wstring(resultFileName.begin(), resultFileName.end());
 
   void *view = MapViewOfFile(hFileMapping, FILE_MAP_ALL_ACCESS, 0, 0, 0);
   if (view)
@@ -789,7 +897,7 @@ void SendCommandLineToFirstInstance()
   SetEvent(hEvent);
 }
 
-bool CheckSingleInstance()
+int CheckSingleInstance()
 {
   char moduleFileName[_MAX_PATH];
   GetModuleFileNameA(NULL, moduleFileName, _MAX_PATH - 1);
@@ -807,14 +915,54 @@ bool CheckSingleInstance()
   {
     hFileMapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, FILE_MAPPING_SIZE,
       mappingName.c_str());
-    return true;
+    // Means we're the first instance
+    return -1;
   }
   else
   {
-    SendCommandLineToFirstInstance();
+    srand(239);
+    int response_id;
+    std::string resultFileName;
+    
+    // Let's find a vacant result port. It's advised to use different result connections:
+    // that's because requests can be blocking (for quite a time) and several ones might exist at once.
+    while (true)
+    {
+      response_id = rand();
+      resultFileName = std::string("IntelliJLauncherResultMapping.") + std::to_string(static_cast<long long>(response_id));
+      
+      if (!OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, resultFileName.c_str()))
+        break;
+    }
+    
+    // Creating mapping for exitCode transmission
+    HANDLE hResultFileMapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, FILE_MAPPING_SIZE, resultFileName.c_str());
+     
+    SendCommandLineToFirstInstance(response_id);
     CloseHandle(hFileMapping);
     CloseHandle(hEvent);
-    return false;
+    
+    // Lock wait for the response
+    std::string responseEventName = std::string("IntelliJLauncherEvent.") + std::to_string(static_cast<long long>(response_id));
+    HANDLE hResponseEvent = CreateEventA(NULL, FALSE, FALSE, responseEventName.c_str());
+    WaitForSingleObject(hResponseEvent, INFINITE);
+    CloseHandle(hResponseEvent);
+    
+    // Read the exitCode
+    wchar_t *view = static_cast<wchar_t *>(MapViewOfFile(hResultFileMapping, FILE_MAP_ALL_ACCESS, 0, 0, 0));
+    int exitCode;
+    if (view)
+    {
+      exitCode = (int)wcstol(view, NULL, 10);
+      UnmapViewOfFile(view);
+    }
+    else
+    {
+      exitCode = 1;
+    }
+    
+    CloseHandle(hResultFileMapping);
+    return exitCode;
   }
 }
 
@@ -961,6 +1109,51 @@ void StartSplashProcess()
   }
 }
 
+std::wstring GetCurrentDirectoryAsString()
+{
+  std::vector<wchar_t> buffer(_MAX_PATH);
+  DWORD sizeWithoutTerminatingZero = GetCurrentDirectoryW(buffer.size(), buffer.data());
+  if (sizeWithoutTerminatingZero >= buffer.size())
+  {
+    buffer.resize(sizeWithoutTerminatingZero + 1);
+    sizeWithoutTerminatingZero = GetCurrentDirectoryW(buffer.size(), buffer.data());
+  }
+
+  return std::wstring(buffer.data(), sizeWithoutTerminatingZero);
+}
+
+static void SetPathVariable(const wchar_t *varName, REFKNOWNFOLDERID rfId)
+{
+  wchar_t env_var_buffer[1];
+  if (GetEnvironmentVariableW(varName, env_var_buffer, 1) == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
+  {
+    wchar_t *path = NULL;
+    if (SHGetKnownFolderPath(rfId, KF_FLAG_DONT_VERIFY, NULL, &path) == S_OK)
+    {
+      SetEnvironmentVariableW(varName, path);
+      CoTaskMemFree(path);
+    }
+  }
+}
+
+void PrintUsage()
+{
+  char fullPath[_MAX_PATH];
+  GetModuleFileNameA(NULL, fullPath, _MAX_PATH);
+  std::string::size_type pos = std::string(fullPath).find_last_of("\\/");
+  std::string fileName = std::string(fullPath).substr(pos+1);
+
+  std::stringstream buf;
+  buf << "Usage:\n   ";
+  buf << fileName + " -h | -? | --help\n   ";
+  buf << fileName + " [project_dir]\n   ";
+  buf << fileName + " [-l|--line line] [project_dir|--temp-project] file[:line]\n   ";
+  buf << fileName + " diff <left> <right>\n   ";
+  buf << fileName + " merge <local> <remote> [base] <merged>";
+
+  MessageBoxA(NULL, buf.str().c_str(), "Command-line Options", MB_OK);
+}
+
 int APIENTRY _tWinMain(HINSTANCE hInstance,
                        HINSTANCE hPrevInstance,
                        LPTSTR    lpCmdLine,
@@ -983,8 +1176,27 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
     return 0;
   }
 
+  for (int i = 1; i < __argc; i++)
+  {
+    if (wcscmp(L"-h", __wargv[i]) == 0 || wcscmp(L"-?", __wargv[i]) == 0 || wcscmp(L"--help", __wargv[i]) == 0)
+    {
+      PrintUsage();
+      return 0;
+    }
+  }
+
+  // ensures path variables are defined
+  SetPathVariable(L"APPDATA", FOLDERID_RoamingAppData);
+  SetPathVariable(L"LOCALAPPDATA", FOLDERID_LocalAppData);
+
   //it's OK to return 0 here, because the control is transferred to the first instance
-  if (!CheckSingleInstance()) return 0;
+  int exitCode = CheckSingleInstance();
+  if (exitCode != -1) return exitCode;
+
+  // Read current directory and pass it to JVM through environment variable. The real current directory will be changed
+  // in LoadJVMLibrary.
+  std::wstring currentDirectory = GetCurrentDirectoryAsString();
+  SetEnvironmentVariableW(L"IDEA_INITIAL_DIRECTORY", currentDirectory.c_str());
 
   std::vector<LPWSTR> args = ParseCommandLine(GetCommandLineW());
 
@@ -1014,5 +1226,5 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
   CloseHandle(hEvent);
   CloseHandle(hFileMapping);
 
-  return 0;
+  return hookExitCode;
 }

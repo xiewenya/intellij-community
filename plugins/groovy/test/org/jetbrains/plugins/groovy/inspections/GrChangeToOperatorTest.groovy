@@ -1,11 +1,9 @@
-// Copyright 2000-2017 JetBrains s.r.o.
-// Use of this source code is governed by the Apache 2.0 license that can be
-// found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.inspections
 
 import com.intellij.testFramework.LightProjectDescriptor
 import groovy.transform.CompileStatic
-import org.jetbrains.plugins.groovy.GroovyLightProjectDescriptor
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.codeInspection.changeToOperator.ChangeToOperatorInspection
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
@@ -17,7 +15,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrUnaryE
 @CompileStatic
 class GrChangeToOperatorTest extends LightGroovyTestCase {
 
-  final LightProjectDescriptor projectDescriptor = GroovyLightProjectDescriptor.GROOVY_LATEST
+  final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST
 
   final ChangeToOperatorInspection inspection = new ChangeToOperatorInspection()
 
@@ -62,8 +60,21 @@ class Operators {
     doTest "a.bitwiseNegate()", "~a"
     doTest "a.negative()", "-a"
     doTest "a.positive()", "+a"
-    doTest "a.next()", "++a"
-    doTest "a.previous()", "--a"
+  }
+
+  void testIncDecUnary() {
+    doTest 'a.next()'
+    doTest 'a.previous()'
+    doTest 'a = a.next(1)'
+    doTest 'a = a.previous(1)'
+    doTest 'b = a.next()'
+    doTest 'b = a.previous()'
+    doTest 'a = a.<caret>next()', '++a'
+    doTest 'a = a.<caret>previous()', '--a'
+    doTest 'b = a = a.<caret>next()', 'b = ++a'
+    doTest 'b = a = a.<caret>previous()', 'b = --a'
+    doTest 'while(a = a.<caret>next()) {}', 'while(++a) {}'
+    doTest 'while(a = a.<caret>previous()) {}', 'while(--a) {}'
   }
 
   void testAsBoolean() {
@@ -82,8 +93,6 @@ class Operators {
     doTest "a.bitwiseNegate(1)"
     doTest "a.negative(1)"
     doTest "a.positive(1)"
-    doTest "a.next(1)"
-    doTest "a.previous(1)"
     doTest "a.asBoolean(1)"
   }
 
@@ -111,7 +120,7 @@ class Operators {
       "a.leftShift(b)"         : "a << b",
       "a.rightShift(b)"        : "a >> b",
       "a.rightShiftUnsigned(b)": "a >>> b",
-      "a.plus({ b })"            : "a + { b }",
+      "a.plus({ b })"          : "a + { b }",
     ].each {
       doTest it.key, it.value
     }
@@ -173,14 +182,14 @@ class Operators {
   }
 
   void testSamePrioritiesExpression() {
-    doTest "a.eq<caret>uals(b) == 1", "(a == b) == 1"
+    doTest "a.eq<caret>uals(b) == 1", "a == b == 1"
     doTest "(a == b).eq<caret>uals(1)", "(a == b) == 1"
     doTest "1 == a.eq<caret>uals(b)", "1 == (a == b)"
-    doTest "!a.eq<caret>uals(b) == 1", "(a != b) == 1"
+    doTest "!a.eq<caret>uals(b) == 1", "a != b == 1"
     doTest "1 == !a.eq<caret>uals(b)", "1 == (a != b)"
 
-    doTest "1 + a.p<caret>lus(b)", "1 + a + b"
-    doTest "1 + a.m<caret>inus(b)", "1 + a - b"
+    doTest "1 + a.p<caret>lus(b)", "1 + (a + b)"
+    doTest "1 + a.m<caret>inus(b)", "1 + (a - b)"
     doTest "1 - a.m<caret>inus(b)", "1 - (a - b)"
     doTest "a.m<caret>inus(1 - b)", "a - (1 - b)"
     doTest "1 - a.p<caret>lus(b)", "1 - (a + b)"
@@ -199,8 +208,13 @@ class Operators {
     doTest "a.asType(UnknownClass)"
   }
 
+  void 'test asType with context'() {
+    fixture.addClass 'package com.foo; class Node {}'
+    doTest 'import com.foo.Node\n\na.asType(Node)', 'import com.foo.Node\n\na as Node'
+  }
+
   void testComplex() {
-    doTest "a.eq<caret>uals(b * c) == 1", "(a == b * c) == 1"
+    doTest "a.eq<caret>uals(b * c) == 1", "a == b * c == 1"
 
     doTest "a.eq<caret>uals(b * c)", "a == b * c"
     doTest "(Boolean) a.eq<caret>uals(b)", "(Boolean) (a == b)"
@@ -211,21 +225,30 @@ class Operators {
     doTest(/!(1.toString().replace('1', '2')+"").equals(2.toString())/, /(1.toString().replace('1', '2') + "") != 2.toString()/)
   }
 
-  void testCompareTo() {
+  void 'test compareTo'() {
     doTest "a.compareTo(b)", "a <=> b"
-    doTest "a.compareTo(b) < 0", "a < b"
-
-    doTest "a.compareTo(b) <= 0", "a <= b"
-    doTest "a.compareTo(b) == 0", "a == b"
-    doTest "a.compareTo(b) != 0", "a != b"
-    doTest "a.compareTo(b) >= 0", "a >= b"
-    doTest "a.compareTo(b) > 0", "a > b"
-    doTest "if ((2-1).compa<caret>reTo(3) > 0);", /if ((2 - 1) > 3);/
-    doTest "! (a.compar<caret>eTo(b) < 0)", "!(a < b)"
-    doTest "(2 - 1).compa<caret>reTo(2 | 1) > 0", "(2 - 1) > (2 | 1)"
+    doTest "a.compareTo(b) < 1", "(a <=> b) < 1"
+    doTest "a.compareTo(b) <= 1", "(a <=> b) <= 1"
+    doTest "a.compareTo(b) == 1", "a <=> b == 1"
+    doTest "a.compareTo(b) != 1", "a <=> b != 1"
+    doTest "a.compareTo(b) >= 1", "(a <=> b) >= 1"
+    doTest "a.compareTo(b) > 1", "(a <=> b) > 1"
   }
 
-  void testCompareToOption() {
+  void 'test compareTo 0'() {
+    doTest "a.compareTo(b) < 0", "a < b"
+    doTest "a.compareTo(b) <= 0l", "a <= b"
+    doTest "a.compareTo(b) == 0g", "a == b"
+    doTest "a.compareTo(b) != 0f", "a != b"
+    doTest "a.compareTo(b) >= 0d", "a >= b"
+    doTest "a.compareTo(b) > 0.0g", "a > b"
+
+    doTest "if ((2-1).<caret>compareTo(3) > 0);", /if ((2 - 1) > 3);/
+    doTest "! (a.<caret>compareTo(b) < 0)", "!(a < b)"
+    doTest "(2 - 1).<caret>compareTo(2 | 1) > 0", "(2 - 1) > (2 | 1)"
+  }
+
+  void 'test compareTo 0 off'() {
     inspection.shouldChangeCompareToEqualityToEquals = false
     doTest "a.compareTo(b) == 0"
     doTest "a.compareTo(b) != 0"
@@ -245,17 +268,17 @@ class Operators {
     doTest "a.put<caret>At(b) { 1 }", "a[b] = { 1 }"
 
     doTest(
-''' a.put<caret>At(b) { 
+      ''' a.put<caret>At(b) { 
     return 1 
 };''',
-'''a[b] = {
+      '''a[b] = {
     return 1
 };''')
   }
 
   void testWithoutAdditionalParenthesesOption() {
     inspection.withoutAdditionalParentheses = true
-    doTest "a.eq<caret>uals(b) == 1"
+    doTest "a.eq<caret>uals(b) == 1", 'a == b == 1'
     doTest "1 == !a.eq<caret>uals(b)"
     doTest "a.eq<caret>uals(b) && c", "a == b && c"
 
@@ -270,9 +293,6 @@ class Operators {
 
     doTest "a.g<caret>etAt(b).field", "a[b].field"
     doTest "a.p<caret>utAt(b, 1).field"
-
-    doTest "a.ne<caret>xt().bytes"
-    doTest "a.ne<caret>xt() + 1", "++a + 1"
 
     doTest "[1, 2, 3].is<caret>Case(2-1)", "2 - 1 in [1, 2, 3]"
     doTest "![1, 2, 3].is<caret>Case(2-1)"
@@ -329,7 +349,7 @@ class Inheritor extends Operators {
   final String DECLARATIONS = 'def (Operators a, Operators b) = [null, null]\n'
 
   private void doTest(String before, String after = null) {
-    Closeable closeCaret =  {fixture.editor.caretModel.moveToOffset(0)}
+    Closeable closeCaret = { fixture.editor.caretModel.moveToOffset(0) }
 
     closeCaret.withCloseable {
       fixture.with {

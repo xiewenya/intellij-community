@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
 import com.intellij.codeInsight.CodeInsightSettings;
@@ -12,7 +10,7 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import org.jetbrains.annotations.NotNull;
 
-public class TypedHandlerUtil {
+public final class TypedHandlerUtil {
   private static int computeBracesBalance(@NotNull Editor editor,
                                          int offset,
                                          @NotNull IElementType lt,
@@ -99,6 +97,7 @@ public class TypedHandlerUtil {
     int offset = editor.getCaretModel().getOffset();
     if (computeBracesBalance(editor, offset, lt, gt, invalidInsideReference, true) == 1) {
       editor.getDocument().insertString(offset, ">");
+      TabOutScopesTracker.getInstance().registerEmptyScope(editor, offset);
     }
   }
 

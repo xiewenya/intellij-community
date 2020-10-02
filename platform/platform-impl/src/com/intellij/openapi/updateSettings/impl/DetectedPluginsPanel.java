@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginHeaderPanel;
-import com.intellij.ide.plugins.PluginManager;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.ide.plugins.PluginManagerMain;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.ui.OnePixelDivider;
@@ -25,6 +11,7 @@ import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.ui.*;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBDimension;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -48,10 +35,11 @@ public class DetectedPluginsPanel extends OrderPanel<PluginDownloader> {
   public DetectedPluginsPanel() {
     super(PluginDownloader.class);
     JTable entryTable = getEntryTable();
-    myHeader = new PluginHeaderPanel(null);
+    myHeader = new PluginHeaderPanel();
     entryTable.setTableHeader(null);
     entryTable.setDefaultRenderer(PluginDownloader.class, new ColoredTableCellRenderer() {
-      protected void customizeCellRenderer(JTable table,
+      @Override
+      protected void customizeCellRenderer(@NotNull JTable table,
                                            Object value,
                                            boolean selected,
                                            boolean hasFocus,
@@ -62,7 +50,7 @@ public class DetectedPluginsPanel extends OrderPanel<PluginDownloader> {
         if (downloader != null) {
           String pluginName = downloader.getPluginName();
           append(pluginName, SimpleTextAttributes.REGULAR_ATTRIBUTES);
-          IdeaPluginDescriptor ideaPluginDescriptor = PluginManager.getPlugin(PluginId.getId(downloader.getPluginId()));
+          IdeaPluginDescriptor ideaPluginDescriptor = PluginManagerCore.getPlugin(downloader.getId());
           if (ideaPluginDescriptor != null) {
             String oldPluginName = ideaPluginDescriptor.getName();
             if (!Comparing.strEqual(pluginName, oldPluginName)) {
@@ -81,19 +69,18 @@ public class DetectedPluginsPanel extends OrderPanel<PluginDownloader> {
       }
     });
     entryTable.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         int selectedRow = entryTable.getSelectedRow();
         if (selectedRow != -1) {
           PluginDownloader selection = getValueAt(selectedRow);
           IdeaPluginDescriptor descriptor = selection.getDescriptor();
-          if (descriptor != null) {
-            PluginManagerMain.pluginInfoUpdate(descriptor, null, myDescriptionPanel, myHeader);
-          }
+          PluginManagerMain.pluginInfoUpdate(descriptor, null, myDescriptionPanel, myHeader);
         }
       }
     });
     setCheckboxColumnName("");
-    myDescriptionPanel.setPreferredSize(new Dimension(400, -1));
+    myDescriptionPanel.setPreferredSize(new JBDimension(600, 400));
     myDescriptionPanel.setEditable(false);
     myDescriptionPanel.setEditorKit(UIUtil.getHTMLEditorKit());
     myDescriptionPanel.addHyperlinkListener(new PluginManagerMain.MyHyperlinkListener());
@@ -110,34 +97,38 @@ public class DetectedPluginsPanel extends OrderPanel<PluginDownloader> {
     JScrollPane pane = ScrollPaneFactory.createScrollPane(c);
     pane.setBorder(JBUI.Borders.customLine(OnePixelDivider.BACKGROUND, 1, left, 1, right));
     return pane;
-  } 
+  }
 
+  @Override
   public String getCheckboxColumnName() {
     return "";
   }
 
+  @Override
   public boolean isCheckable(PluginDownloader downloader) {
     return true;
   }
 
+  @Override
   public boolean isChecked(PluginDownloader downloader) {
-    return !getSkippedPlugins().contains(downloader.getPluginId());
+    return !getSkippedPlugins().contains(downloader.getId());
   }
 
+  @Override
   public void setChecked(PluginDownloader downloader, boolean checked) {
     if (checked) {
-      getSkippedPlugins().remove(downloader.getPluginId());
+      getSkippedPlugins().remove(downloader.getId());
     }
     else {
-      getSkippedPlugins().add(downloader.getPluginId());
+      getSkippedPlugins().add(downloader.getId());
     }
     for (Listener listener : myListeners) {
       listener.stateChanged();
     }
   }
 
-  protected Set<String> getSkippedPlugins() {
-    return UpdateChecker.getDisabledToUpdatePlugins();
+  protected Set<PluginId> getSkippedPlugins() {
+    return UpdateChecker.getDisabledToUpdate();
   }
 
   public void addStateListener(Listener l) {

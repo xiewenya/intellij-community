@@ -11,16 +11,20 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public abstract class GraphAlgorithms {
   public static GraphAlgorithms getInstance() {
     return ServiceManager.getService(GraphAlgorithms.class);
   }
 
+  /**
+   * @deprecated use more generic {@link #findShortestPath(InboundSemiGraph, Object, Object)} instead
+   */
+  @Deprecated
   @Nullable
   public abstract <Node> List<Node> findShortestPath(@NotNull Graph<Node> graph, @NotNull Node start, @NotNull Node finish);
+
+  @Nullable
+  public abstract <Node> List<Node> findShortestPath(@NotNull InboundSemiGraph<Node> graph, @NotNull Node start, @NotNull Node finish);
 
   @NotNull
   public abstract <Node> List<List<Node>> findKShortestPaths(@NotNull Graph<Node> graph, @NotNull Node start, @NotNull Node finish, int k,
@@ -30,7 +34,7 @@ public abstract class GraphAlgorithms {
   public abstract <Node> Set<List<Node>> findCycles(@NotNull Graph<Node> graph, @NotNull Node node);
 
   @NotNull
-  public abstract <Node> List<List<Node>> removePathsWithCycles(@NotNull List<List<Node>> paths);
+  public abstract <Node> List<List<Node>> removePathsWithCycles(@NotNull List<? extends List<Node>> paths);
 
   @NotNull
   public abstract <Node> Graph<Node> invertEdgeDirections(@NotNull Graph<Node> graph);
@@ -44,9 +48,8 @@ public abstract class GraphAlgorithms {
   /**
    * Adds start node and all its outs to given set recursively.
    * Nodes which are already in set aren't processed.
-   *
-   * @param start node to start from
+   *  @param start node to start from
    * @param set set to be populated
    */
-  public abstract <Node> void collectOutsRecursively(@NotNull Graph<Node> graph, Node start, Set<Node> set);
+  public abstract <Node> void collectOutsRecursively(@NotNull Graph<Node> graph, Node start, Set<? super Node> set);
 }

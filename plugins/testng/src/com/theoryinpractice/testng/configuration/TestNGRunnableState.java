@@ -16,39 +16,32 @@
 
 package com.theoryinpractice.testng.configuration;
 
-import com.beust.jcommander.JCommander;
 import com.intellij.execution.ExecutionException;
-import com.intellij.execution.Executor;
 import com.intellij.execution.JavaTestFrameworkRunnableState;
 import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.execution.configurations.ParametersList;
-import com.intellij.execution.process.KillableColoredProcessHandler;
-import com.intellij.execution.process.OSProcessHandler;
-import com.intellij.execution.process.ProcessTerminatedListener;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.testframework.SourceScope;
 import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.PsiPackage;
 import com.intellij.rt.execution.testFrameworks.ForkedDebuggerHelper;
+import com.intellij.rt.testng.IDEATestNGListener;
+import com.intellij.rt.testng.RemoteTestNGStarter;
 import com.intellij.util.PathUtil;
 import com.intellij.util.net.NetUtils;
+import com.theoryinpractice.testng.TestngBundle;
 import com.theoryinpractice.testng.model.TestData;
+import com.theoryinpractice.testng.model.TestType;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.testng.CommandLineArgs;
-import org.testng.IDEATestNGListener;
-import org.testng.RemoteTestNGStarter;
-import org.testng.remote.RemoteArgs;
-import org.testng.remote.RemoteTestNG;
-import org.testng.remote.strprotocol.SerializedMessageSender;
 
 import java.io.File;
 import java.io.IOException;
@@ -69,22 +62,6 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
 
   @NotNull
   @Override
-  protected OSProcessHandler startProcess() throws ExecutionException {
-    final OSProcessHandler processHandler = new KillableColoredProcessHandler(createCommandLine());
-    ProcessTerminatedListener.attach(processHandler);
-    createSearchingForTestsTask().attachTaskToProcess(processHandler);
-    return processHandler;
-  }
-
-  @NotNull
-  @Override
-  protected OSProcessHandler createHandler(Executor executor) throws ExecutionException {
-    appendForkInfo(executor);
-    return startProcess();
-  }
-
-  @NotNull
-  @Override
   protected String getFrameworkName() {
     return TESTNG_TEST_FRAMEWORK_NAME;
   }
@@ -95,21 +72,20 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
   }
 
   @Override
-  protected void configureRTClasspath(JavaParameters javaParameters) {
-    javaParameters.getClassPath().add(PathUtil.getJarPathForClass(RemoteTestNGStarter.class));
-    javaParameters.getClassPath().addTail(PathUtil.getJarPathForClass(JCommander.class));
+  protected void configureRTClasspath(JavaParameters javaParameters, Module module) {
+    javaParameters.getClassPath().addFirst(PathUtil.getJarPathForClass(RemoteTestNGStarter.class));
   }
 
   @Override
   protected JavaParameters createJavaParameters() throws ExecutionException {
     final JavaParameters javaParameters = super.createJavaParameters();
-    javaParameters.setMainClass("org.testng.RemoteTestNGStarter");
+    javaParameters.setMainClass("com.intellij.rt.testng.RemoteTestNGStarter");
 
     try {
       port = NetUtils.findAvailableSocketPort();
     }
     catch (IOException e) {
-      throw new ExecutionException("Unable to bind to port " + port, e);
+      throw new ExecutionException(TestngBundle.message("dialog.message.unable.to.bind.to.port", port), e);
     }
 
     final TestData data = getConfiguration().getPersistantData();
@@ -149,6 +125,7 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
     return "none";
   }
 
+  @Override
   public SearchingForTestsTask createSearchingForTestsTask() {
     return new SearchingForTestsTask(myServerSocket, config, myTempFile) {
       @Override
@@ -176,7 +153,7 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
       }
 
       try {
-        writeClassesPerModule(getConfiguration().getPackage(), getJavaParameters(), perModule);
+        writeClassesPerModule(getConfiguration().getPackage(), getJavaParameters(), perModule, "");
       }
       catch (Exception e) {
         LOG.error(e);
@@ -184,15 +161,18 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
     }
   }
 
+  @Override
   @NotNull
   protected String getFrameworkId() {
     return "testng";
   }
 
+  @Override
   protected void passTempFile(ParametersList parametersList, String tempFilePath) {
     parametersList.add("-temp", tempFilePath);
   }
 
+  @Override
   @NotNull
   public TestNGConfiguration getConfiguration() {
     return config;
@@ -203,6 +183,7 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
     return getConfiguration().getPersistantData().getScope();
   }
 
+  @Override
   protected void passForkMode(String forkMode, File tempFile, JavaParameters parameters) throws ExecutionException {
     final ParametersList parametersList = parameters.getProgramParametersList();
     final List<String> params = parametersList.getParameters();
@@ -218,5 +199,27 @@ public class TestNGRunnableState extends JavaTestFrameworkRunnableState<TestNGCo
     if (getForkSocket() != null) {
       parametersList.addAt(paramIdx, ForkedDebuggerHelper.DEBUG_SOCKET + getForkSocket().getLocalPort());
     }
+  }
+
+   @Override
+  protected void collectPackagesToOpen(List<String> options) {
+    TestData data = getConfiguration().getPersistantData();
+    if (TestType.METHOD.getType().equals(data.TEST_OBJECT) || TestType.CLASS.getType().equals(data.TEST_OBJECT)) {
+      options.add(StringUtil.getPackageName(data.MAIN_CLASS_NAME));
+    }
+    else if (TestType.PACKAGE.getType().equals(data.TEST_OBJECT)){
+      PsiPackage aPackage = JavaPsiFacade.getInstance(getConfiguration().getProject()).findPackage(data.PACKAGE_NAME);
+      if (aPackage != null) {
+        SourceScope sourceScope = data.getScope().getSourceScope(getConfiguration());
+        if (sourceScope != null) {
+          collectSubPackages(options, aPackage, sourceScope.getGlobalSearchScope());
+        }
+      }
+    }
+  }
+
+  @Override
+  protected boolean useModulePath() {
+    return getConfiguration().isUseModulePath();
   }
 }

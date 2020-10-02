@@ -15,12 +15,15 @@
  */
 package com.intellij.psi;
 
+import com.intellij.openapi.extensions.ProjectExtensionPointName;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.EventListener;
 
 /**
- * Listener for receiving notifications about all changes in the PSI tree of a project.
+ * Listener for receiving notifications about all changes in the PSI tree of a project.<p></p>
+ *
+ * Try to avoid processing PSI events at all cost! See {@link PsiTreeChangeEvent} documentation for more details.
  *
  * @see PsiManager#addPsiTreeChangeListener(PsiTreeChangeListener)
  * @see PsiManager#removePsiTreeChangeListener(PsiTreeChangeListener)
@@ -141,4 +144,6 @@ public interface PsiTreeChangeListener extends EventListener {
    * @param event the event object describing the change.
    */
   void propertyChanged(@NotNull PsiTreeChangeEvent event);
+
+  ProjectExtensionPointName<PsiTreeChangeListener> EP = new ProjectExtensionPointName<>("com.intellij.psi.treeChangeListener");
 }

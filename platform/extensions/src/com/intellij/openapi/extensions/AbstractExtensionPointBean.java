@@ -1,78 +1,98 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.extensions;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.pico.CachingConstructorInjectionComponentAdapter;
+import com.intellij.util.xmlb.annotations.Transient;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.picocontainer.PicoContainer;
 
 /**
- * @author peter
+ * @deprecated Use {@link com.intellij.serviceContainer.LazyExtensionInstance}.
  */
+@Deprecated
 public abstract class AbstractExtensionPointBean implements PluginAware {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.extensions.AbstractExtensionPointBean");
+  private static final Logger LOG = Logger.getInstance(AbstractExtensionPointBean.class);
+
   protected PluginDescriptor myPluginDescriptor;
 
-  @Override
-  public final void setPluginDescriptor(PluginDescriptor pluginDescriptor) {
-    myPluginDescriptor = pluginDescriptor;
-  }
-
+  @Transient
   public PluginDescriptor getPluginDescriptor() {
     return myPluginDescriptor;
   }
 
-  @NotNull
-  public final <T> Class<T> findClass(final String className) throws ClassNotFoundException {
-    return (Class<T>)Class.forName(className, true, getLoaderForClass());
+  @Override
+  public final void setPluginDescriptor(@NotNull PluginDescriptor pluginDescriptor) {
+    myPluginDescriptor = pluginDescriptor;
   }
 
-  @Nullable
-  public final <T> Class<T> findClassNoExceptions(final String className) {
+  public @Nullable PluginId getPluginId() {
+    return myPluginDescriptor == null ? null : myPluginDescriptor.getPluginId();
+  }
+
+  /**
+   * @deprecated use {@link #findExtensionClass(String)} instead. It'll throw {@link ExtensionInstantiationException} instead of
+   * {@link ClassNotFoundException}, which contains information about the plugin which registers the problematic extension so error reporters
+   * will be able to report such exception as a plugin problem, not core problem. Also it isn't a checked exception so you won't need to wrap
+   * it to unchecked exception in your code.
+   */
+  @SuppressWarnings("DeprecatedIsStillUsed")
+  @Deprecated
+  public final @NotNull <T> Class<T> findClass(@NotNull String className) throws ClassNotFoundException {
+    return findClass(className, myPluginDescriptor);
+  }
+
+  public final @NotNull <T> Class<T> findExtensionClass(@NotNull String className) {
+    try {
+      return findClass(className, myPluginDescriptor);
+    }
+    catch (Throwable t) {
+      throw new ExtensionInstantiationException(t, myPluginDescriptor);
+    }
+  }
+
+  public static @NotNull <T> Class<T> findClass(@NotNull String className, @Nullable PluginDescriptor pluginDescriptor) throws ClassNotFoundException {
+    ClassLoader classLoader = pluginDescriptor == null ? AbstractExtensionPointBean.class.getClassLoader() : pluginDescriptor.getPluginClassLoader();
+    //noinspection unchecked
+    return (Class<T>)Class.forName(className, true, classLoader);
+  }
+
+  public final @Nullable <T> Class<T> findClassNoExceptions(String className) {
     try {
       return findClass(className);
     }
-    catch (ClassNotFoundException e) {
-      LOG.error("Problem loading class " + className + " from plugin " + myPluginDescriptor.getPluginId().getIdString(), e);
+    catch (Throwable t) {
+      LOG.error(new ExtensionInstantiationException(t, myPluginDescriptor));
       return null;
     }
   }
 
-  @NotNull
-  public ClassLoader getLoaderForClass() {
+  public @NotNull ClassLoader getLoaderForClass() {
     return myPluginDescriptor == null ? getClass().getClassLoader() : myPluginDescriptor.getPluginClassLoader();
   }
 
-  @NotNull
-  public final <T> T instantiate(final String className, @NotNull final PicoContainer container) throws ClassNotFoundException {
-    return instantiate(this.<T>findClass(className), container);
+  /**
+   * @deprecated use {@link #instantiateClass(String, PicoContainer)} instead. It'll throw {@link ExtensionInstantiationException} instead of
+   * {@link ClassNotFoundException}, which contains information about the plugin which registers the problematic extension so error reporters
+   * will be able to report such exception as a plugin problem, not core problem. Also it isn't a checked exception so you won't need to wrap
+   * it to unchecked exception in your code.
+   */
+  @Deprecated
+  public final @NotNull <T> T instantiate(@NotNull String className, @NotNull PicoContainer container) throws ClassNotFoundException {
+    return instantiate(findClass(className), container);
   }
 
-  @NotNull
-  public static <T> T instantiate(@NotNull final Class<T> aClass, @NotNull final PicoContainer container) {
-    return instantiate(aClass, container, false);
+  public final @NotNull <T> T instantiateClass(@NotNull String className, @NotNull PicoContainer container) {
+    return instantiate(findExtensionClass(className), container);
   }
 
-  @NotNull
-  public static <T> T instantiate(@NotNull final Class<T> aClass,
-                                  @NotNull final PicoContainer container,
-                                  final boolean allowNonPublicClasses) {
-    return (T)new CachingConstructorInjectionComponentAdapter(aClass.getName(), aClass, null, allowNonPublicClasses).getComponentInstance(container);
+  public static @NotNull <T> T instantiate(@NotNull Class<T> aClass, @NotNull PicoContainer container) {
+    return instantiate(aClass, container, true);
   }
 
+  public static @NotNull <T> T instantiate(@NotNull Class<T> aClass, @NotNull PicoContainer container, @SuppressWarnings("unused") boolean allowNonPublicClasses) {
+    //noinspection unchecked
+    return (T)CachingConstructorInjectionComponentAdapter.instantiateGuarded(null, container, aClass);
+  }
 }

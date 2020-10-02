@@ -16,7 +16,9 @@
 package com.intellij.codeInsight.intention.impl.config;
 
 import com.intellij.codeInsight.highlighting.TooltipLinkHandler;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -28,7 +30,14 @@ import org.jetbrains.annotations.Nullable;
 public class AssignmentTooltipLinkHandler extends TooltipLinkHandler {
   @Nullable
   @Override
+  @NlsSafe
   public String getDescription(@NotNull String refSuffix, @NotNull Editor editor) {
-    return StringUtil.unescapeXml(refSuffix);
+    return StringUtil.unescapeXmlEntities(refSuffix);
+  }
+
+  @NotNull
+  @Override
+  public String getDescriptionTitle(@NotNull String refSuffix, @NotNull Editor editor) {
+    return JavaBundle.message("inspection.message.full.description");
   }
 }

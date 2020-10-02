@@ -1,13 +1,11 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Eugene Zhuravlev
  */
 package com.intellij.debugger.jdi;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
@@ -18,13 +16,14 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.*;
+import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
 public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl implements ThreadReferenceProxy {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.jdi.ThreadReferenceProxyImpl");
+  private static final Logger LOG = Logger.getInstance(ThreadReferenceProxyImpl.class);
   // cached data
   private String myName;
   private int                       myFrameCount = -1;
@@ -133,6 +132,7 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
     super.clearCaches();
   }
 
+  @MagicConstant(valuesFromClass = ThreadReference.class)
   public int status() {
     try {
       return getThreadReference().status();
@@ -193,6 +193,15 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
       catch (InternalException e) {
         LOG.info(e);
         myFrameCount = 0;
+      }
+      catch (Exception e) {
+        if (!getVirtualMachine().canBeModified()) { // do not care in read only vms
+          LOG.debug(e);
+          myFrameCount = 0;
+        }
+        else {
+          throw e;
+        }
       }
     }
     return myFrameCount;
@@ -309,7 +318,7 @@ public final class ThreadReferenceProxyImpl extends ObjectReferenceProxyImpl imp
     }
     catch (InternalException e) {
       if (e.errorCode() == JvmtiError.OPAQUE_FRAME) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("drop.frame.error.no.information"));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("drop.frame.error.no.information"));
       }
       else throw EvaluateExceptionUtil.createEvaluateException(e);
     }

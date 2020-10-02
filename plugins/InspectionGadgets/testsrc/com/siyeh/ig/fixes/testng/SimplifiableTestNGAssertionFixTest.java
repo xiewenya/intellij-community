@@ -17,46 +17,24 @@ package com.siyeh.ig.fixes.testng;
 
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
-import com.theoryinpractice.testng.inspection.SimplifiedTestNGAssertionInspection;
+import com.siyeh.ig.testFrameworks.SimplifiableAssertionInspection;
 
 public class SimplifiableTestNGAssertionFixTest extends IGQuickFixesTestCase {
 
-  public void testTrueToNullable() {
-    doTest();
-  }
-
-  public void testTrueToNullableWithMessage() {
-    doTest();
-  }
-
-  public void testTrueToSameWithMessage() {
-    doTest();
-  }
-
-  public void testTrueToNotSameWithMessage() {
-    doTest();
-  }
-
-  public void testTrueToNotNull() {
-    doTest();
-  }
-
-  public void testTrueToNotNullWithMessage() {
-    doTest();
-  }
-
-  public void testTrueToEquals() {
-    doTest();
-  }
-
-  public void testTrueToFail() {
-    doTest();
-  }
+  public void testTrueToNullable() { doTest(); }
+  public void testTrueToNullableWithMessage() { doTest(); }
+  public void testTrueToSameWithMessage() { doTest(); }
+  public void testTrueToNotSameWithMessage() { doTest(); }
+  public void testTrueToNotNull() { doTest(); }
+  public void testTrueToNotNullWithMessage() { doTest(); }
+  public void testTrueToEquals() { doTest(); }
+  public void testTrueToEqualsConst() { doTest(); }
+  public void testTrueToFail() { doTest(); }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myFixture.enableInspections(new SimplifiedTestNGAssertionInspection());
+    myFixture.enableInspections(new SimplifiableAssertionInspection());
     myRelativePath = "testng/simplifiable_testng_assertion";
     myDefaultHint = InspectionGadgetsBundle.message("simplify.junit.assertion.simplify.quickfix");
 

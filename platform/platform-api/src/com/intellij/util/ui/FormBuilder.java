@@ -1,24 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * @author max
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.components.JBLabel;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,11 +13,13 @@ import static com.intellij.util.ui.UIUtil.DEFAULT_HGAP;
 import static com.intellij.util.ui.UIUtil.DEFAULT_VGAP;
 import static java.awt.GridBagConstraints.*;
 
+/**
+ * also consider using {@link UI.PanelFactory} for non-trivial forms
+ */
 public class FormBuilder {
   private boolean myAlignLabelOnRight;
 
   private int myLineCount = 0;
-  private int myIndent;
   private final JPanel myPanel;
   private boolean myVertical;
 
@@ -45,7 +30,6 @@ public class FormBuilder {
   public FormBuilder() {
     myPanel = new JPanel(new GridBagLayout());
     myVertical = false;
-    myIndent = 0;
     myAlignLabelOnRight = false;
     myVerticalGap = DEFAULT_VGAP;
     myHorizontalGap = DEFAULT_HGAP;
@@ -68,25 +52,25 @@ public class FormBuilder {
     return addLabeledComponent(label, component, myVerticalGap, labelOnTop);
   }
 
-  public FormBuilder addLabeledComponent(@NotNull String labelText, @NotNull JComponent component) {
+  public FormBuilder addLabeledComponent(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component) {
     return addLabeledComponent(labelText, component, myVerticalGap, false);
   }
 
-  public FormBuilder addLabeledComponent(@NotNull String labelText, @NotNull JComponent component, final int topInset) {
+  public FormBuilder addLabeledComponent(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component, final int topInset) {
     return addLabeledComponent(labelText, component, topInset, false);
   }
 
-  public FormBuilder addLabeledComponent(@NotNull String labelText, @NotNull JComponent component, boolean labelOnTop) {
+  public FormBuilder addLabeledComponent(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component, boolean labelOnTop) {
     return addLabeledComponent(labelText, component, myVerticalGap, labelOnTop);
   }
 
-  public FormBuilder addLabeledComponent(@NotNull String labelText, @NotNull JComponent component, final int topInset, boolean labelOnTop) {
+  public FormBuilder addLabeledComponent(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component, final int topInset, boolean labelOnTop) {
     JLabel label = createLabelForComponent(labelText, component);
     return addLabeledComponent(label, component, topInset, labelOnTop);
   }
 
   @NotNull
-  private static JLabel createLabelForComponent(@NotNull String labelText, @NotNull JComponent component) {
+  private static JLabel createLabelForComponent(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component) {
     JLabel label = new JLabel(UIUtil.removeMnemonic(labelText));
     final int index = UIUtil.getDisplayMnemonicIndex(labelText);
     if (index != -1) {
@@ -128,7 +112,7 @@ public class FormBuilder {
                                new Box.Filler(new JBDimension(0, height), new JBDimension(0, height), new JBDimension(Short.MAX_VALUE, height)));
   }
 
-  public FormBuilder addTooltip(final String text) {
+  public FormBuilder addTooltip(final @NlsContexts.Label String text) {
     final JBLabel label = new JBLabel(text, UIUtil.ComponentStyle.SMALL, UIUtil.FontColor.BRIGHTER);
     label.setBorder(JBUI.Borders.emptyLeft(10));
     return addComponentToRightColumn(label, 1);
@@ -150,7 +134,7 @@ public class FormBuilder {
     return addLabeledComponent(label, component, topInset, labelOnTop, fillVertically);
   }
 
-  public FormBuilder addLabeledComponentFillVertically(@NotNull String labelText, @NotNull JComponent component) {
+  public FormBuilder addLabeledComponentFillVertically(@NotNull @NlsContexts.Label String labelText, @NotNull JComponent component) {
     JLabel label = createLabelForComponent(labelText, component);
     return addLabeledComponent(label, component, myVerticalGap, true, true);
   }
@@ -167,7 +151,7 @@ public class FormBuilder {
       c.weighty = 0;
       c.fill = NONE;
       c.anchor = getLabelAnchor(false, fillVertically);
-      c.insets = JBUI.insets(topInset, myIndent + myFormLeftIndent, DEFAULT_VGAP, 0);
+      c.insets = JBUI.insets(topInset, myFormLeftIndent, DEFAULT_VGAP, 0);
 
       if (label != null) myPanel.add(label, c);
 
@@ -177,7 +161,7 @@ public class FormBuilder {
       c.weighty = getWeightY(fillVertically);
       c.fill = getFill(component, fillVertically);
       c.anchor = WEST;
-      c.insets = JBUI.insets(label == null ? topInset : 0, myIndent + myFormLeftIndent, 0, 0);
+      c.insets = JBUI.insets(label == null ? topInset : 0, myFormLeftIndent, 0, 0);
 
       myPanel.add(component, c);
 
@@ -191,7 +175,7 @@ public class FormBuilder {
       c.weighty = 0;
       c.fill = NONE;
       c.anchor = getLabelAnchor(true, fillVertically);
-      c.insets = JBUI.insets(topInset, myIndent + myFormLeftIndent, 0, myHorizontalGap);
+      c.insets = JBUI.insets(topInset, myFormLeftIndent, 0, myHorizontalGap);
 
       myPanel.add(label, c);
 
@@ -200,7 +184,7 @@ public class FormBuilder {
       c.weighty = getWeightY(fillVertically);
       c.fill = getFill(component, fillVertically);
       c.anchor = WEST;
-      c.insets = JBUI.insets(topInset, myIndent, 0, 0);
+      c.insets = JBUI.insets(topInset, 0, 0, 0);
 
       myPanel.add(component, c);
 
@@ -218,6 +202,7 @@ public class FormBuilder {
   protected int getFill(JComponent component) {
     if (component instanceof JComboBox ||
         component instanceof JSpinner ||
+        component instanceof JButton ||
         component instanceof JTextField && ((JTextField)component).getColumns() != 0) {
       return NONE;
     }
@@ -260,15 +245,6 @@ public class FormBuilder {
 
   public FormBuilder setHorizontalGap(int horizontalGap) {
     myHorizontalGap = horizontalGap;
-    return this;
-  }
-
-  /**
-   * @deprecated use {@link #setHorizontalGap} or {@link #setFormLeftIndent}, to be removed in IDEA 16
-   */
-  @Deprecated
-  public FormBuilder setIndent(int indent) {
-    myIndent = indent;
     return this;
   }
 

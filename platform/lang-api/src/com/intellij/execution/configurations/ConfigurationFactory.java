@@ -1,30 +1,35 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.execution.BeforeRunTask;
 import com.intellij.execution.RunManager;
+import com.intellij.openapi.components.BaseState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.util.DeprecatedMethodException;
 import com.intellij.util.IconUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
 /**
  * Factory for run configuration instances.
- * @see com.intellij.execution.configurations.ConfigurationType#getConfigurationFactories()
+ * @see ConfigurationType#getConfigurationFactories()
  */
 public abstract class ConfigurationFactory {
-  public static final Icon ADD_ICON = IconUtil.getAddIcon();
-
+  public static final ConfigurationFactory[] EMPTY_ARRAY = new ConfigurationFactory[0];
   private final ConfigurationType myType;
 
-  protected ConfigurationFactory(@NotNull final ConfigurationType type) {
+  protected ConfigurationFactory(@NotNull ConfigurationType type) {
     myType = type;
+  }
+
+  ConfigurationFactory() {
+    myType = null;
   }
 
   /**
@@ -34,7 +39,8 @@ public abstract class ConfigurationFactory {
    * @param template the template from which the run configuration is copied
    * @return the new run configuration.
    */
-  public RunConfiguration createConfiguration(String name, RunConfiguration template) {
+  @NotNull
+  public RunConfiguration createConfiguration(@NlsSafe @Nullable String name, @NotNull RunConfiguration template) {
     RunConfiguration newConfiguration = template.clone();
     newConfiguration.setName(name);
     return newConfiguration;
@@ -65,28 +71,35 @@ public abstract class ConfigurationFactory {
   }
 
   /**
-   * Returns the id of the run configuration that is used for serialization.
-   * For compatibility reason the default implementation calls
-   * the method <code>getName</code> instead of <code>myType.getId()</code>.
-   * New implementations need to call <code>myType.getId()</code> by default.
+   * Returns the id of the run configuration that is used for serialization. For compatibility reason the default implementation calls
+   * the method {@link #getName()} and this may cause problems if {@link #getName} returns localized value. So the default implementation
+   * <strong>must be overriden</strong> in all inheritors. In existing implementations you need to use the same value which is returned
+   * by {@link #getName()} for compatibility but store it directly in the code instead of taking from a message bundle. For new configurations
+   * you may use any unique ID; if a new {@link ConfigurationType} has a single {@link ConfigurationFactory}, use {@link SimpleConfigurationType} instead.
    */
-  @NonNls
+  @NotNull @NonNls
   public String getId() {
+    DeprecatedMethodException.reportDefaultImplementation(getClass(), "getId",
+      "The default implementation delegates to 'getName' which may be localized but return value of this method must not depend on current localization.");
     return getName();
   }
 
   /**
-   * Returns the name of the run configuration variant created by this factory.
-   *
-   * @return the name of the run configuration variant created by this factory
+   * The name of the run configuration variant created by this factory.
    */
-  @Nls
+  @NotNull
   public String getName() {
+    // null only if SimpleConfigurationType (but method overriden)
+    //noinspection ConstantConditions
     return myType.getDisplayName();
   }
 
+  /**
+   * @deprecated Use {@link com.intellij.icons.AllIcons.General#Add}
+   */
+  @Deprecated
   public Icon getAddIcon() {
-    return ADD_ICON;
+    return IconUtil.getAddIcon();
   }
 
   public Icon getIcon(@NotNull final RunConfiguration configuration) {
@@ -94,11 +107,15 @@ public abstract class ConfigurationFactory {
   }
 
   public Icon getIcon() {
+    // null only if SimpleConfigurationType (but method overridden)
+    //noinspection ConstantConditions
     return myType.getIcon();
   }
 
   @NotNull
   public ConfigurationType getType() {
+    // null only if SimpleConfigurationType (but method overridden)
+    //noinspection ConstantConditions
     return myType;
   }
 
@@ -108,11 +125,33 @@ public abstract class ConfigurationFactory {
   public void configureBeforeRunTaskDefaults(Key<? extends BeforeRunTask> providerID, BeforeRunTask task) {
   }
 
+  /**
+   * @deprecated Use {@link RunConfigurationSingletonPolicy}
+   */
+  @Deprecated
   public boolean isConfigurationSingletonByDefault() {
+    return getSingletonPolicy() != RunConfigurationSingletonPolicy.MULTIPLE_INSTANCE;
+  }
+
+  /**
+   * @deprecated Use {@link RunConfigurationSingletonPolicy}
+   */
+  @Deprecated
+  public boolean canConfigurationBeSingleton() {
+    return getSingletonPolicy() != RunConfigurationSingletonPolicy.SINGLE_INSTANCE_ONLY;
+  }
+
+  @NotNull
+  public RunConfigurationSingletonPolicy getSingletonPolicy() {
+    return RunConfigurationSingletonPolicy.SINGLE_INSTANCE;
+  }
+
+  public boolean isEditableInDumbMode() {
     return false;
   }
 
-  public boolean canConfigurationBeSingleton() {
-    return true; // Configuration may be marked as singleton by default
+  @Nullable
+  public Class<? extends BaseState> getOptionsClass() {
+    return null;
   }
 }

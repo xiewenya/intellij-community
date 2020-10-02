@@ -25,9 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-/**
- * @author cdr
- */
 public class DaemonProgressIndicator extends AbstractProgressIndicatorBase implements StandardProgressIndicator, Disposable {
   private static boolean debug;
   private final TraceableDisposable myTraceableDisposable = new TraceableDisposable(debug);
@@ -35,32 +32,52 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
   private volatile Throwable myCancellationCause;
 
   @Override
-  public synchronized void stop() {
-    super.stop();
-    cancel();
+  public final void stop() {
+    synchronized (getLock()) {
+      super.stop();
+      cancel();
+    }
   }
 
-  public synchronized void stopIfRunning() {
-    if (isRunning()) {
-      stop();
-    }
-    else {
-      cancel();
+  public void stopIfRunning() {
+    synchronized (getLock()) {
+      if (isRunning()) {
+        stop();
+      }
+      else {
+        cancel();
+      }
     }
   }
 
   @Override
   public final void cancel() {
-    myTraceableDisposable.kill("Daemon Progress Canceled");
-    super.cancel();
-    Disposer.dispose(this);
+    boolean changed = false;
+    synchronized (getLock()) {
+      if (!isCanceled()) {
+        myTraceableDisposable.kill("Daemon Progress Canceled");
+        super.cancel();
+        changed = true;
+      }
+    }
+    if (changed) {
+      Disposer.dispose(this);
+    }
   }
 
-  public void cancel(@NotNull Throwable cause) {
-    myCancellationCause = cause;
-    myTraceableDisposable.killExceptionally(cause);
-    super.cancel();
-    Disposer.dispose(this);
+  public final void cancel(@NotNull Throwable cause) {
+    boolean changed = false;
+    synchronized (getLock()) {
+      if (!isCanceled()) {
+        myCancellationCause = cause;
+        myTraceableDisposable.killExceptionally(cause);
+        super.cancel();
+        changed = true;
+      }
+    }
+    if (changed) {
+      Disposer.dispose(this);
+    }
   }
 
   // called when canceled
@@ -87,8 +104,8 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
   }
 
   @Override
-  public void start() {
-    assert !isCanceled() : "canceled";
+  public final void start() {
+    checkCanceled();
     assert !isRunning() : "running";
     super.start();
   }
@@ -113,7 +130,7 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
     return super.toString() + (debug ? "; "+myTraceableDisposable.getStackTrace()+"\n;" : "");
   }
 
-  boolean isDisposed() {
+  final boolean isDisposed() {
     return myDisposed;
   }
 }

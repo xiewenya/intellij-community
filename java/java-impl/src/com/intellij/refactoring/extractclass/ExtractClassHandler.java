@@ -15,6 +15,7 @@
  */
 package com.intellij.refactoring.extractclass;
 
+import com.intellij.idea.ActionsBundle;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.CaretModel;
@@ -24,11 +25,12 @@ import com.intellij.openapi.editor.ScrollingModel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactorJBundle;
+import com.intellij.refactoring.actions.RefactoringActionContextUtil;
 import com.intellij.refactoring.lang.ElementsHandler;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 public class ExtractClassHandler implements ElementsHandler, ContextAwareActionHandler {
@@ -38,7 +40,7 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
 
   @Override
   public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
-    return !PsiUtil.isModuleFile(file);
+    return RefactoringActionContextUtil.isOutsideModuleAndCodeBlock(editor, file);
   }
 
   @Override
@@ -46,6 +48,7 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
     return elements.length == 1 && PsiTreeUtil.getParentOfType(elements[0], PsiClass.class, false) != null;
   }
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     final ScrollingModel scrollingModel = editor.getScrollingModel();
     scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE);
@@ -58,7 +61,7 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
       //todo
       return;
     }
-    
+
     PsiClass containingClass = selectedMember.getContainingClass();
 
     if (containingClass == null && selectedMember instanceof PsiClass) {
@@ -67,15 +70,15 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
 
     final String cannotRefactorMessage = getCannotRefactorMessage(containingClass);
     if (cannotRefactorMessage != null)  {
-      CommonRefactoringUtil.showErrorHint(project, editor, 
-                                          RefactorJBundle.message("cannot.perform.the.refactoring") + cannotRefactorMessage, 
-                                          ExtractClassProcessor.REFACTORING_NAME, getHelpID());
+      CommonRefactoringUtil.showErrorHint(project, editor,
+                                          RefactorJBundle.message("cannot.perform.the.refactoring") + cannotRefactorMessage,
+                                          ActionsBundle.message("action.ExtractClass.description"), getHelpID());
       return;
     }
     new ExtractClassDialog(containingClass, selectedMember).show();
   }
 
-  private static String getCannotRefactorMessage(PsiClass containingClass) {
+  private static @Nls String getCannotRefactorMessage(PsiClass containingClass) {
     if (containingClass == null) {
       return RefactorJBundle.message("the.caret.should.be.positioned.within.a.class.to.be.refactored");
     }
@@ -95,7 +98,7 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
       return RefactorJBundle.message("the.selected.class.has.no.members.to.extract");
     }
     if (!containingClass.getManager().isInProject(containingClass)) {
-      return "The selected class should belong to project sources";
+      return RefactorJBundle.message("the.selected.class.should.belong.to.project.sources");
     }
     return null;
   }
@@ -104,7 +107,8 @@ public class ExtractClassHandler implements ElementsHandler, ContextAwareActionH
     return PsiTreeUtil.getParentOfType(aClass, PsiClass.class, true) != null;
   }
 
-  public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
+  @Override
+  public void invoke(@NotNull Project project, PsiElement @NotNull [] elements, DataContext dataContext) {
     if (elements.length != 1) {
       return;
     }

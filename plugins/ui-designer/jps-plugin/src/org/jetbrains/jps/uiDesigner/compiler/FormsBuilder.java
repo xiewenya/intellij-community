@@ -18,6 +18,7 @@ package org.jetbrains.jps.uiDesigner.compiler;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileFilters;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.incremental.BuilderCategory;
 import org.jetbrains.jps.incremental.ModuleLevelBuilder;
@@ -32,17 +33,17 @@ import java.util.Map;
  * @author Eugene Zhuravlev
  */
 public abstract class FormsBuilder extends ModuleLevelBuilder {
-  protected static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.uiDesigner.compiler.FormsInstrumenter");
+  protected static final Logger LOG = Logger.getInstance(FormsInstrumenter.class);
   protected static final Key<Map<File, Collection<File>>> FORMS_TO_COMPILE = Key.create("_forms-to_compile_");
   protected static final String FORM_EXTENSION = "form";
   protected static final FileFilter JAVA_SOURCES_FILTER = FileFilters.withExtension("java");
   protected static final FileFilter FORM_SOURCES_FILTER = FileFilters.withExtension(FORM_EXTENSION);
 
-  private final String myBuilderName;
+  private final @Nls String myBuilderName;
 
-  public FormsBuilder(BuilderCategory category, String name) {
+  public FormsBuilder(BuilderCategory category, @Nls String presentableName) {
     super(category);
-    myBuilderName = name;
+    myBuilderName = presentableName;
   }
 
   @NotNull

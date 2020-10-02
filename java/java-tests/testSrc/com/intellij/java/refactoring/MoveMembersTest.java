@@ -16,28 +16,25 @@
 package com.intellij.java.refactoring;
 
 import com.intellij.JavaTestUtil;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMember;
 import com.intellij.psi.PsiModifier;
-import com.intellij.psi.search.ProjectScope;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.MultiFileTestCase;
+import com.intellij.refactoring.LightMultiFileTestCase;
 import com.intellij.refactoring.move.moveMembers.MockMoveMembersOptions;
 import com.intellij.refactoring.move.moveMembers.MoveMembersProcessor;
 import com.intellij.util.VisibilityUtil;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 
-public class MoveMembersTest extends MultiFileTestCase {
+public class MoveMembersTest extends LightMultiFileTestCase {
   @Override
   protected String getTestDataPath() {
-    return JavaTestUtil.getJavaTestDataPath();
+    return JavaTestUtil.getJavaTestDataPath() + "/refactoring/moveMembers/";
   }
 
   public void testJavadocRefs() {
@@ -217,6 +214,10 @@ public class MoveMembersTest extends MultiFileTestCase {
     doTest("A", "B", 0);
   }
 
+  public void testClearQualifierInsideInnerAnnotation() {
+    doTest("A", "B", 0);
+  }
+
   public void testFromNestedToOuterMethodRef() {
     final LanguageLevelProjectExtension projectExtension = LanguageLevelProjectExtension.getInstance(getProject());
     final LanguageLevel oldLevel = projectExtension.getLanguageLevel();
@@ -227,12 +228,6 @@ public class MoveMembersTest extends MultiFileTestCase {
     finally {
       projectExtension.setLanguageLevel(oldLevel);
     }
-  }
-
-  @NotNull
-  @Override
-  protected String getTestRoot() {
-    return "/refactoring/moveMembers/";
   }
 
   private void doTest(final String sourceClassName, final String targetClassName, final int... memberIndices) {
@@ -251,15 +246,12 @@ public class MoveMembersTest extends MultiFileTestCase {
                       final boolean lowercaseFirstLetter,
                       final String defaultVisibility,
                       final int... memberIndices) {
-    doTest((rootDir, rootAfter) -> this.performAction(sourceClassName, targetClassName, memberIndices, defaultVisibility), lowercaseFirstLetter);
+    doTest(() -> this.performAction(sourceClassName, targetClassName, memberIndices, defaultVisibility), lowercaseFirstLetter);
   }
 
   private void performAction(String sourceClassName, String targetClassName, int[] memberIndices, final String visibility) {
-    PsiClass sourceClass = myJavaFacade.findClass(sourceClassName, ProjectScope.getProjectScope(myProject));
-    assertNotNull("Class " + sourceClassName + " not found", sourceClass);
-    PsiClass targetClass = myJavaFacade.findClass(targetClassName, ProjectScope.getProjectScope(myProject));
-    assertNotNull("Class " + targetClassName + " not found", targetClass);
-
+    PsiClass sourceClass = myFixture.findClass(sourceClassName);
+    PsiClass targetClass = myFixture.findClass(targetClassName);
     PsiElement[] children = sourceClass.getChildren();
     ArrayList<PsiMember> members = new ArrayList<>();
     for (PsiElement child : children) {
@@ -277,7 +269,7 @@ public class MoveMembersTest extends MultiFileTestCase {
 
     MockMoveMembersOptions options = new MockMoveMembersOptions(targetClass.getQualifiedName(), memberSet);
     options.setMemberVisibility(visibility);
-    new MoveMembersProcessor(myProject, null, options).run();
-    FileDocumentManager.getInstance().saveAllDocuments();
+    new MoveMembersProcessor(getProject(), null, options).run();
   }
+
 }

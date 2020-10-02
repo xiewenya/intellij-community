@@ -23,9 +23,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * @author cdr
- */
 public class SliceTreeStructure extends AbstractTreeStructureBase {
   private final SliceNode myRoot;
 
@@ -39,6 +36,7 @@ public class SliceTreeStructure extends AbstractTreeStructureBase {
     return Collections.emptyList();
   }
 
+  @NotNull
   @Override
   public Object getRootElement() {
     return myRoot;
@@ -55,7 +53,7 @@ public class SliceTreeStructure extends AbstractTreeStructureBase {
   }
 
   @Override
-  public boolean isToBuildChildrenInBackground(final Object element) {
+  public boolean isToBuildChildrenInBackground(@NotNull final Object element) {
     return true;//!ApplicationManager.getApplication().isUnitTestMode();
   }
 }

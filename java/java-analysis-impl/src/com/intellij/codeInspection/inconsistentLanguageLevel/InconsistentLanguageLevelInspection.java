@@ -17,14 +17,17 @@
 package com.intellij.codeInspection.inconsistentLanguageLevel;
 
 import com.intellij.analysis.AnalysisScope;
-import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInsight.intention.QuickFixFactory;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefModule;
 import com.intellij.codeInspection.unnecessaryModuleDependency.UnnecessaryModuleDependencyInspection;
+import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.openapi.module.EffectiveLanguageLevelUtil;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.roots.*;
+import com.intellij.openapi.roots.ModuleOrderEntry;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.pom.java.LanguageLevel;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -37,33 +40,31 @@ public class InconsistentLanguageLevelInspection extends GlobalInspectionTool {
     return false;
   }
 
-  @Nullable
   @Override
-  public CommonProblemDescriptor[] checkElement(@NotNull RefEntity refEntity,
-                                                @NotNull AnalysisScope scope,
-                                                @NotNull InspectionManager manager,
-                                                @NotNull GlobalInspectionContext globalContext,
-                                                @NotNull ProblemDescriptionsProcessor processor) {
+  public boolean isReadActionNeeded() {
+    return false;
+  }
+
+  @Override
+  public CommonProblemDescriptor @Nullable [] checkElement(@NotNull RefEntity refEntity,
+                                                           @NotNull AnalysisScope scope,
+                                                           @NotNull InspectionManager manager,
+                                                           @NotNull GlobalInspectionContext globalContext,
+                                                           @NotNull ProblemDescriptionsProcessor processor) {
     if (refEntity instanceof RefModule) {
       Module module = ((RefModule)refEntity).getModule();
       if (module.isDisposed() || !scope.containsModule(module)) return null;
-      LanguageLevel projectLanguageLevel = LanguageLevelProjectExtension.getInstance(manager.getProject()).getLanguageLevel();
-      LanguageLevel languageLevel = LanguageLevelModuleExtensionImpl.getInstance(module).getLanguageLevel();
-      if (languageLevel == null) {
-        languageLevel = projectLanguageLevel;
-      }
+      LanguageLevel languageLevel = EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(module);
       for (OrderEntry entry : ModuleRootManager.getInstance(module).getOrderEntries()) {
         if (!(entry instanceof ModuleOrderEntry)) continue;
         final Module dependantModule = ((ModuleOrderEntry)entry).getModule();
         if (dependantModule == null) continue;
-        LanguageLevel dependantLanguageLevel = LanguageLevelModuleExtensionImpl.getInstance(dependantModule).getLanguageLevel();
-        if (dependantLanguageLevel == null) {
-          dependantLanguageLevel = projectLanguageLevel;
-        }
+        LanguageLevel dependantLanguageLevel = EffectiveLanguageLevelUtil.getEffectiveLanguageLevel(dependantModule);
         if (languageLevel.compareTo(dependantLanguageLevel) < 0) {
           final CommonProblemDescriptor problemDescriptor = manager.createProblemDescriptor(
-            "Module " + module.getName() + " with language level " + languageLevel +
-            " depends on module " + dependantModule.getName() +" with language level " + dependantLanguageLevel,
+            JavaAnalysisBundle
+              .message("module.0.with.language.level.1.depends.on.module.2.with.language.level.3", module.getName(), languageLevel,
+                       dependantModule.getName(), dependantLanguageLevel),
             module,
             new UnnecessaryModuleDependencyInspection.RemoveModuleDependencyFix(dependantModule.getName()),
             (QuickFix)QuickFixFactory.getInstance().createShowModulePropertiesFix(module));
@@ -83,13 +84,7 @@ public class InconsistentLanguageLevelInspection extends GlobalInspectionTool {
   @Nls
   @NotNull
   public String getGroupDisplayName() {
-    return GroupNames.MODULARIZATION_GROUP_NAME;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Inconsistent language level settings";
+    return InspectionsBundle.message("group.names.modularization.issues");
   }
 
   @Override

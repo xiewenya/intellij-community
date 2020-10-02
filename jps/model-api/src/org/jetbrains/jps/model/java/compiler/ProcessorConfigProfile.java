@@ -15,28 +15,28 @@
  */
 package org.jetbrains.jps.model.java.compiler;
 
+import com.intellij.openapi.util.NlsSafe;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.Set;
 
-/**
- * @author nik
- */
 public interface ProcessorConfigProfile extends AnnotationProcessingConfiguration {
   String DEFAULT_PRODUCTION_DIR_NAME = "generated";
   String DEFAULT_TESTS_DIR_NAME = "generated_tests";
 
   void initFrom(ProcessorConfigProfile other);
 
-  String getName();
+  @NlsSafe String getName();
 
   void setName(String name);
 
   void setEnabled(boolean enabled);
 
   void setProcessorPath(@Nullable String processorPath);
+
+  void setUseProcessorModulePath(boolean isModulePath);
 
   void setObtainProcessorsFromClasspath(boolean value);
 

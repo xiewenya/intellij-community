@@ -15,21 +15,21 @@
  */
 package com.intellij.debugger.memory.action;
 
-import com.intellij.debugger.memory.ui.ClassesTable;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import com.sun.jdi.ReferenceType;
+import com.intellij.xdebugger.memory.ui.TypeInfo;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract class ClassesActionBase extends AnAction {
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(isEnabled(e));
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     perform(e);
   }
 
@@ -41,7 +41,7 @@ public abstract class ClassesActionBase extends AnAction {
   protected abstract void perform(AnActionEvent e);
 
   @Nullable
-  protected ReferenceType getSelectedClass(AnActionEvent e) {
-    return e.getData(ClassesTable.SELECTED_CLASS_KEY);
+  protected TypeInfo getSelectedClass(AnActionEvent e) {
+    return ActionUtil.getSelectedTypeInfo(e);
   }
 }

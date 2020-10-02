@@ -16,12 +16,13 @@
 
 package com.intellij.refactoring.inlineSuperClass;
 
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiDocCommentOwner;
 import com.intellij.psi.PsiMember;
 import com.intellij.refactoring.JavaRefactoringSettings;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.inline.InlineOptionsDialog;
 import com.intellij.refactoring.ui.DocCommentPanel;
 import com.intellij.util.ui.JBUI;
@@ -41,12 +42,13 @@ public class InlineSuperClassRefactoringDialog extends InlineOptionsDialog {
     mySuperClass = superClass;
     myCurrentInheritor = currentInheritor;
     myInvokedOnReference = currentInheritor != null;
-    myDocPanel = new DocCommentPanel("JavaDoc for inlined members");
+    myDocPanel = new DocCommentPanel(JavaRefactoringBundle.message("inline.super.doc.panel.title"));
     myDocPanel.setPolicy(JavaRefactoringSettings.getInstance().PULL_UP_MEMBERS_JAVADOC);
     init();
-    setTitle(InlineSuperClassRefactoringHandler.REFACTORING_NAME);
+    setTitle(JavaRefactoringBundle.message("inline.super.class"));
   }
 
+  @Override
   protected void doAction() {
     JavaRefactoringSettings settings = JavaRefactoringSettings.getInstance();
     if(myRbInlineThisOnly.isEnabled() && myRbInlineAll.isEnabled()) {
@@ -66,6 +68,7 @@ public class InlineSuperClassRefactoringDialog extends InlineOptionsDialog {
     return "Inline_Super_Class";
   }
 
+  @Override
   @NotNull
   protected JComponent createCenterPanel() {
     final JPanel panel = new JPanel(new GridBagLayout());
@@ -90,22 +93,22 @@ public class InlineSuperClassRefactoringDialog extends InlineOptionsDialog {
 
   @Override
   protected String getNameLabelText() {
-    return "Class " + mySuperClass.getQualifiedName();
+    return JavaRefactoringBundle.message("inline.super.class.label", mySuperClass.getQualifiedName());
   }
 
   @Override
   protected String getBorderTitle() {
-    return "Inline";
+    return JavaRefactoringBundle.message("inline.action.name");
   }
 
   @Override
   protected String getInlineAllText() {
-    return RefactoringBundle.message("all.references.and.remove.super.class");
+    return JavaRefactoringBundle.message("all.references.and.remove.super.class");
   }
 
   @Override
   protected String getInlineThisText() {
-    return RefactoringBundle.message("this.reference.only.and.keep.super.class");
+    return JavaRefactoringBundle.message("this.reference.only.and.keep.super.class");
   }
 
   @Override

@@ -64,8 +64,8 @@ public class ClientPropertiesProperty extends ReadOnlyProperty {
     return myEditor;
   }
 
-  @NotNull @Override
-  public Property[] getChildren(final RadComponent component) {
+  @Override
+  public Property @NotNull [] getChildren(final RadComponent component) {
     if (component == null) {
       return EMPTY_ARRAY;
     }
@@ -81,7 +81,7 @@ public class ClientPropertiesProperty extends ReadOnlyProperty {
   private class MyPropertyEditor extends PropertyEditor {
     private final TextFieldWithBrowseButton myTf = new TextFieldWithBrowseButton();
 
-    public MyPropertyEditor() {
+    MyPropertyEditor() {
       myTf.setText(UIDesignerBundle.message("client.properties.configure"));
       myTf.getTextField().setEditable(false);
       myTf.getTextField().setBorder(null);

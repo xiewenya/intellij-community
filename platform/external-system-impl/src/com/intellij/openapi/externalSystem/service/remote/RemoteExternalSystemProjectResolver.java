@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.externalSystem.service.remote;
 
+import com.intellij.openapi.externalSystem.importing.ProjectResolverPolicy;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
@@ -33,7 +34,6 @@ import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 4/9/13 6:56 PM
  */
 public interface RemoteExternalSystemProjectResolver<S extends ExternalSystemExecutionSettings> extends RemoteExternalSystemService<S> {
 
@@ -45,7 +45,8 @@ public interface RemoteExternalSystemProjectResolver<S extends ExternalSystemExe
     public DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
                                                     @NotNull String projectPath,
                                                     boolean isPreviewMode,
-                                                    @Nullable ExternalSystemExecutionSettings settings)
+                                                    @Nullable ExternalSystemExecutionSettings settings,
+                                                    @Nullable ProjectResolverPolicy resolverPolicy)
       throws ExternalSystemException, IllegalArgumentException, IllegalStateException
     {
       return null;
@@ -81,6 +82,7 @@ public interface RemoteExternalSystemProjectResolver<S extends ExternalSystemExe
   DataNode<ProjectData> resolveProjectInfo(@NotNull ExternalSystemTaskId id,
                                            @NotNull String projectPath,
                                            boolean isPreviewMode,
-                                           @Nullable S settings)
+                                           @Nullable S settings,
+                                           @Nullable ProjectResolverPolicy resolverPolicy)
     throws RemoteException, ExternalSystemException, IllegalArgumentException, IllegalStateException;
 }

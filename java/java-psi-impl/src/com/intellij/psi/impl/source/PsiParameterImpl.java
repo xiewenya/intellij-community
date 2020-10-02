@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.ASTNode;
@@ -28,12 +14,14 @@ import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiParameterStub;
 import com.intellij.psi.impl.source.tree.CompositeElement;
 import com.intellij.psi.impl.source.tree.JavaSharedImplUtil;
+import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.reference.SoftReference;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.IconManager;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
@@ -43,7 +31,7 @@ import java.lang.ref.Reference;
 import java.util.Arrays;
 
 public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> implements PsiParameter {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.PsiParameterImpl");
+  private static final Logger LOG = Logger.getInstance(PsiParameterImpl.class);
 
   private volatile Reference<PsiType> myCachedType;
 
@@ -66,8 +54,8 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
       if (parameterIndex > -1) {
         final PsiLambdaExpression lambdaExpression = PsiTreeUtil.getParentOfType(param, PsiLambdaExpression.class);
         if (lambdaExpression != null) {
-          final PsiType functionalInterfaceType = LambdaUtil.ourParameterGuard.doPreventingRecursion(param, false,
-                                                                                                     () -> LambdaUtil.getFunctionalInterfaceType(lambdaExpression, true));
+          final PsiType functionalInterfaceType = MethodCandidateInfo.ourOverloadGuard.doPreventingRecursion(param, false,
+                                                                                                              () -> LambdaUtil.getFunctionalInterfaceType(lambdaExpression, true));
           PsiType type = lambdaExpression.getGroundTargetType(functionalInterfaceType);
           if (type instanceof PsiIntersectionType) {
             final PsiType[] conjuncts = ((PsiIntersectionType)type).getConjuncts();
@@ -134,7 +122,6 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
 
   @Override
   @NotNull
-  @SuppressWarnings("Duplicates")
   public PsiType getType() {
     PsiParameterStub stub = getStub();
     if (stub != null) {
@@ -170,7 +157,6 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
   public PsiTypeElement getTypeElement() {
     for (PsiElement child = getFirstChild(); child != null; child = child.getNextSibling()) {
       if (child instanceof PsiTypeElement) {
-        //noinspection unchecked
         return (PsiTypeElement)child;
       }
     }
@@ -279,7 +265,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
 
   @Override
   public Icon getElementIcon(final int flags) {
-    final RowIcon baseIcon = createLayeredIcon(this, PlatformIcons.PARAMETER_ICON, 0);
+    final RowIcon baseIcon = IconManager.getInstance().createLayeredIcon(this, PlatformIcons.PARAMETER_ICON, 0);
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
   @Override
@@ -301,7 +287,7 @@ public class PsiParameterImpl extends JavaStubPsiElement<PsiParameterStub> imple
       PsiElement gParent = parent.getParent();
       if (gParent instanceof PsiMethod) {
         PsiElement originalMethod = gParent.getOriginalElement();
-        if (originalMethod instanceof PsiMethod) {
+        if (originalMethod instanceof PsiMethod && originalMethod != gParent) {
           int index = ((PsiParameterList)parent).getParameterIndex(this);
           PsiParameter[] originalParameters = ((PsiMethod)originalMethod).getParameterList().getParameters();
           if (index < originalParameters.length) {

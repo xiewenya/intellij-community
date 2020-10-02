@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.maddyhome.idea.copyright.ui;
 
+import com.intellij.copyright.CopyrightBundle;
 import com.intellij.copyright.CopyrightManager;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.util.scopeChooser.PackageSetChooserCombo;
@@ -25,13 +12,15 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.LabeledComponent;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.search.scope.packageSet.CustomScopesProviderEx;
 import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.ui.HyperlinkLabel;
 import com.intellij.ui.JBColor;
-import com.intellij.ui.ListCellRendererWrapper;
+import com.intellij.ui.SimpleListCellRenderer;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.editors.JBComboBoxTableCellEditorComponent;
 import com.intellij.ui.table.TableView;
@@ -47,8 +36,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class ProjectSettingsPanel {
   private final Project myProject;
@@ -57,7 +46,7 @@ public class ProjectSettingsPanel {
 
   private final TableView<ScopeSetting> myScopeMappingTable;
   private final ListTableModel<ScopeSetting> myScopeMappingModel;
-  private final JComboBox myProfilesComboBox = new ComboBox();
+  private final JComboBox<CopyrightProfile> myProfilesComboBox = new ComboBox<>();
 
   private final HyperlinkLabel myScopesLink = new HyperlinkLabel();
 
@@ -65,6 +54,7 @@ public class ProjectSettingsPanel {
     myProject = project;
     myProfilesModel = profilesModel;
     myProfilesModel.addItemsChangeListener(new Runnable() {
+      @Override
       public void run() {
         final Object selectedItem = myProfilesComboBox.getSelectedItem();
         reloadCopyrightProfiles();
@@ -85,23 +75,15 @@ public class ProjectSettingsPanel {
     ColumnInfo[] columns = {new ScopeColumn(), new SettingColumn()};
     myScopeMappingModel = new ListTableModel<>(columns, new ArrayList<>(), 0);
     myScopeMappingTable = new TableView<>(myScopeMappingModel);
+    myScopeMappingTable.setShowGrid(false);
 
     reloadCopyrightProfiles();
-    myProfilesComboBox.setRenderer(new ListCellRendererWrapper<CopyrightProfile>() {
-      @Override
-      public void customize(JList list, CopyrightProfile value, int index, boolean selected, boolean hasFocus) {
-        if (value == null) {
-          setText("No copyright");
-        }
-        else {
-          setText(value.getName());
-        }
-      }
-    });
+    myProfilesComboBox.setRenderer(SimpleListCellRenderer.create(CopyrightBundle.message("copyright.no.text"), CopyrightProfile::getName));
 
     myScopesLink.setVisible(!myProject.isDefault());
-    myScopesLink.setHyperlinkText("Select Scopes to add new scopes or modify existing ones");
+    myScopesLink.setHyperlinkText(CopyrightBundle.message("copyright.select.scopes.label"));
     myScopesLink.addHyperlinkListener(new HyperlinkListener() {
+      @Override
       public void hyperlinkUpdate(final HyperlinkEvent e) {
         if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
           DataContext context = DataManager.getInstance().getDataContextFromFocus().getResult();
@@ -128,7 +110,7 @@ public class ProjectSettingsPanel {
   public JComponent getMainComponent() {
 
     final LabeledComponent<JComboBox> component = new LabeledComponent<>();
-    component.setText("Default &project copyright:");
+    component.setText(CopyrightBundle.message("copyright.default.project.copyright"));
     component.setLabelLocation(BorderLayout.WEST);
     component.setComponent(myProfilesComboBox);
     ElementProducer<ScopeSetting> producer = new ElementProducer<ScopeSetting>() {
@@ -163,8 +145,8 @@ public class ProjectSettingsPanel {
       final NamedScope scope = setting.getScope();
       if (!iterator.hasNext()) return true;
       final String scopeName = iterator.next();
-      if (scope == null || !Comparing.strEqual(scopeName, scope.getName())) return true;
-      final String profileName = map.get(scope.getName());
+      if (scope == null || !Comparing.strEqual(scopeName, scope.getScopeId())) return true;
+      final String profileName = map.get(scope.getScopeId());
       if (profileName == null) return true;
       if (!profileName.equals(setting.getProfileName())) return true;
     }
@@ -175,7 +157,7 @@ public class ProjectSettingsPanel {
     myManager.setDefaultCopyright((CopyrightProfile)myProfilesComboBox.getSelectedItem());
     myManager.clearMappings();
     for (ScopeSetting scopeSetting : myScopeMappingModel.getItems()) {
-      myManager.mapCopyright(scopeSetting.getScope().getName(), scopeSetting.getProfileName());
+      myManager.mapCopyright(scopeSetting.getScope().getScopeId(), scopeSetting.getProfileName());
     }
   }
 
@@ -213,7 +195,7 @@ public class ProjectSettingsPanel {
       }
     }
 
-    public ScopeSetting(NamedScope scope, String profile) {
+    ScopeSetting(NamedScope scope, String profile) {
       myScope = scope;
       myProfileName = profile;
     }
@@ -238,18 +220,20 @@ public class ProjectSettingsPanel {
       myScope = scope;
     }
 
-    public String getProfileName() {
+    public @NlsSafe String getProfileName() {
       return myProfile != null ? myProfile.getName() : myProfileName;
     }
   }
 
-  private class SettingColumn extends MyColumnInfo<CopyrightProfile> {
+  private final class SettingColumn extends MyColumnInfo<CopyrightProfile> {
     private SettingColumn() {
-      super("Copyright");
+      super(CopyrightBundle.message("copyright.copyright.column"));
     }
 
+    @Override
     public TableCellRenderer getRenderer(final ScopeSetting scopeSetting) {
       return new DefaultTableCellRenderer() {
+        @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
           final Component rendererComponent = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
           if (!isSelected) {
@@ -262,17 +246,20 @@ public class ProjectSettingsPanel {
       };
     }
 
+    @Override
     public TableCellEditor getEditor(final ScopeSetting scopeSetting) {
       return new AbstractTableCellEditor() {
         private final JBComboBoxTableCellEditorComponent myProfilesChooser = new JBComboBoxTableCellEditorComponent();
 
+        @Override
         public Object getCellEditorValue() {
           return myProfilesChooser.getEditorValue();
         }
 
+        @Override
         public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
           final List<CopyrightProfile> copyrights = new ArrayList<>(myProfilesModel.getAllProfiles().values());
-          Collections.sort(copyrights, (o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
+          copyrights.sort((o1, o2) -> o1.getName().compareToIgnoreCase(o2.getName()));
           myProfilesChooser.setCell(table, row, column);
           myProfilesChooser.setOptions(copyrights.toArray());
           myProfilesChooser.setDefaultValue(scopeSetting.getProfile());
@@ -282,10 +269,12 @@ public class ProjectSettingsPanel {
       };
     }
 
+    @Override
     public CopyrightProfile valueOf(final ScopeSetting object) {
       return object.getProfile();
     }
 
+    @Override
     public void setValue(final ScopeSetting scopeSetting, final CopyrightProfile copyrightProfile) {
       if (copyrightProfile != null) {
         scopeSetting.setProfile(copyrightProfile);
@@ -293,68 +282,75 @@ public class ProjectSettingsPanel {
     }
   }
 
-  private class ScopeColumn extends MyColumnInfo<NamedScope> {
+  private final class ScopeColumn extends MyColumnInfo<NamedScope> {
     private ScopeColumn() {
-      super("Scope");
+      super(CopyrightBundle.message("copyright.scope.column"));
     }
 
+    @Override
     public TableCellRenderer getRenderer(final ScopeSetting mapping) {
       return new DefaultTableCellRenderer() {
+        @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
           super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
           if (value == null) {
             setText("");
           }
           else {
-            final String scopeName = ((NamedScope)value).getName();
+            final String scopeId = ((NamedScope)value).getScopeId();
             if (!isSelected) {
-              final NamedScope scope = NamedScopesHolder.getScope(myProject, scopeName);
+              final NamedScope scope = NamedScopesHolder.getScope(myProject, scopeId);
               if (scope == null) setForeground(JBColor.RED);
             }
-            setText(scopeName);
+            setText(((NamedScope)value).getPresentableName());
           }
           return this;
         }
       };
     }
 
+    @Override
     public TableCellEditor getEditor(final ScopeSetting mapping) {
       return new AbstractTableCellEditor() {
         private PackageSetChooserCombo myScopeChooser;
 
+        @Override
         @Nullable
         public Object getCellEditorValue() {
           return myScopeChooser.getSelectedScope();
         }
 
+        @Override
         public Component getTableCellEditorComponent(final JTable table, Object value, boolean isSelected, int row, int column) {
-          myScopeChooser = new PackageSetChooserCombo(myProject, value == null ? null : ((NamedScope)value).getName(), false, false){
+          myScopeChooser = new PackageSetChooserCombo(myProject, value == null ? null : ((NamedScope)value).getScopeId(), false, false){
             @Override
             protected NamedScope[] createModel() {
               final NamedScope[] model = super.createModel();
               final ArrayList<NamedScope> filteredScopes = new ArrayList<>(Arrays.asList(model));
               CustomScopesProviderEx.filterNoSettingsScopes(myProject, filteredScopes);
-              return filteredScopes.toArray(new NamedScope[0]);
+              return filteredScopes.toArray(NamedScope.EMPTY_ARRAY);
             }
           };
-          
+
           ((JBComboBoxTableCellEditorComponent)myScopeChooser.getChildComponent()).setCell(table, row, column);
           return myScopeChooser;
         }
       };
     }
 
+    @Override
     public NamedScope valueOf(final ScopeSetting mapping) {
       return mapping.getScope();
     }
 
+    @Override
     public void setValue(final ScopeSetting mapping, final NamedScope set) {
       mapping.setScope(set);
     }
   }
 
   private static abstract class MyColumnInfo<T> extends ColumnInfo<ScopeSetting, T> {
-    protected MyColumnInfo(final String name) {
+    protected MyColumnInfo(final @NlsContexts.ColumnName String name) {
       super(name);
     }
 

@@ -21,6 +21,10 @@ import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.impl.AbstractEditorTest;
 import com.intellij.testFramework.TestFileType;
 
+import java.util.Arrays;
+
+import static org.junit.Assert.assertArrayEquals;
+
 public class BlockSelectionEditingTest extends AbstractEditorTest {
 
   public void testBlockRemovalAndCollapsedFoldRegionsBefore() {
@@ -38,7 +42,7 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
     int column = "initialText".length();
     final LogicalPosition blockStart = new LogicalPosition(3, column);
     final LogicalPosition blockEnd = new LogicalPosition(4, column);
-    final SelectionModel selectionModel = myEditor.getSelectionModel();
+    final SelectionModel selectionModel = getEditor().getSelectionModel();
     selectionModel.setBlockSelection(blockStart, blockEnd);
     delete();
     delete();
@@ -49,7 +53,7 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
       "initialText    line 1\n" +
       "initialText  line 2\n" +
       "initialText  line 3";
-    assertEquals(expectedText, myEditor.getDocument().getText());
+    assertEquals(expectedText, getEditor().getDocument().getText());
     assertSelectionRanges(new int[][]{{59, 59}, {79, 79}});
     final FoldRegion foldRegion = getFoldRegion(0);
     assertNotNull(foldRegion);
@@ -85,5 +89,14 @@ public class BlockSelectionEditingTest extends AbstractEditorTest {
 
     assertTrue(getFoldRegion(foldStart1).isExpanded());
     assertFalse(getFoldRegion(foldStart2).isExpanded());
+  }
+
+  public void testBlockSelectionOnEmptyFile() {
+    initText("");
+
+    getEditor().getSelectionModel().setBlockSelection(new LogicalPosition(0, 0), new LogicalPosition(0, 0));
+
+    assertArrayEquals(getEditor().getSelectionModel().getBlockSelectionStarts(), new int[]{0});
+    assertArrayEquals(getEditor().getSelectionModel().getBlockSelectionEnds(), new int[]{0});
   }
 }

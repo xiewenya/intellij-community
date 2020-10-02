@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.regexp;
 
 import com.intellij.lang.Language;
@@ -39,7 +25,7 @@ import java.util.List;
  * @author yole
  */
 public class PythonRegexpInjector implements MultiHostInjector {
-  private static class RegexpMethodDescriptor {
+  private static final class RegexpMethodDescriptor {
     @NotNull private final String methodName;
     private final int argIndex;
 
@@ -88,7 +74,7 @@ public class PythonRegexpInjector implements MultiHostInjector {
     if (callee instanceof PyReferenceExpression && canBeRegexpCall(callee)) {
       final PyReferenceExpression referenceExpression = (PyReferenceExpression)callee;
       final TypeEvalContext context = TypeEvalContext.codeAnalysis(call.getProject(), call.getContainingFile());
-      return referenceExpression.getReference(PyResolveContext.noImplicits().withTypeEvalContext(context)).resolve();
+      return referenceExpression.getReference(PyResolveContext.defaultContext().withTypeEvalContext(context)).resolve();
     }
 
     return null;
@@ -96,15 +82,11 @@ public class PythonRegexpInjector implements MultiHostInjector {
 
   private static void injectRegexpLanguage(@NotNull MultiHostRegistrar registrar, @NotNull PsiElement context, boolean verbose) {
     final Language language = verbose ? PythonVerboseRegexpLanguage.INSTANCE : PythonRegexpLanguage.INSTANCE;
-    registrar.startInjecting(language);
-    final PyInjectionUtil.InjectionResult result = PyInjectionUtil.registerStringLiteralInjection(context, registrar);
-    if (result.isInjected()) {
-      registrar.doneInjecting();
-      if (!result.isStrict()) {
-        final PsiFile file = InjectedLanguageUtil.getCachedInjectedFileWithLanguage(context, language);
-        if (file != null) {
-          file.putUserData(InjectedLanguageUtil.FRANKENSTEIN_INJECTION, Boolean.TRUE);
-        }
+    final PyInjectionUtil.InjectionResult result = PyInjectionUtil.registerStringLiteralInjection(context, registrar, language);
+    if (result.isInjected() && !result.isStrict()) {
+      final PsiFile file = InjectedLanguageUtil.getCachedInjectedFileWithLanguage(context, language);
+      if (file != null) {
+        file.putUserData(InjectedLanguageUtil.FRANKENSTEIN_INJECTION, Boolean.TRUE);
       }
     }
   }

@@ -1,15 +1,16 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup.async;
 
+import com.intellij.CommonBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.popup.NextStepHandler;
 import com.intellij.ui.popup.WizardPopup;
 import com.intellij.util.Alarm;
-import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,8 +32,11 @@ public class AsyncPopupImpl extends WizardPopup implements Runnable {
   private final Alarm myAlarm;
   private JPanel myPanel;
 
-  public AsyncPopupImpl(@Nullable WizardPopup parent, @NotNull AsyncPopupStep step, Object parentValue) {
-    super(parent, step);
+  public AsyncPopupImpl(@Nullable Project project,
+                        @Nullable WizardPopup parent,
+                        @NotNull AsyncPopupStep<Object> step,
+                        @Nullable Object parentValue) {
+    super(project, parent, step);
 
     if (!(parent instanceof NextStepHandler)) throw new IllegalArgumentException("parent must be NextStepHandler");
 
@@ -77,10 +81,12 @@ public class AsyncPopupImpl extends WizardPopup implements Runnable {
   protected JComponent createContent() {
     if (myPanel != null) return myPanel;
     myPanel = new JPanel(new BorderLayout());
-    myPanel.add(new AsyncProcessIcon("Async Popup Step"), BorderLayout.WEST);
-    myPanel.add(new JBLabel("Loading..."), BorderLayout.CENTER);
+    //myPanel.add(new AsyncProcessIcon("Async Popup Step"), BorderLayout.WEST);
+    JBLabel label = new JBLabel(CommonBundle.getLoadingTreeNodeText());
+    label.setForeground(UIUtil.getLabelDisabledForeground());
+    myPanel.add(label, BorderLayout.CENTER);
     myPanel.setBorder(new EmptyBorder(UIUtil.getListCellPadding()));
-    myPanel.setBackground(UIUtil.getListSelectionBackground());
+    myPanel.setBackground(UIUtil.getListBackground());
     myPanel.registerKeyboardAction(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {

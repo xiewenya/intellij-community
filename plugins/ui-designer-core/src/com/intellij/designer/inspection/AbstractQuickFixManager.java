@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.designer.inspection;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -31,11 +17,11 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.wm.impl.VisibilityWatcher;
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.HintHint;
+import com.intellij.ui.IconManager;
 import com.intellij.ui.LightweightHint;
-import com.intellij.ui.RowIcon;
+import com.intellij.ui.icons.RowIcon;
 import com.intellij.util.Alarm;
 import com.intellij.util.IJSwingUtilities;
-import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -102,7 +88,7 @@ public abstract class AbstractQuickFixManager {
 
     AnAction showHintAction = new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         if (myDesigner != null) {
           showHint();
           showPopup();
@@ -110,7 +96,7 @@ public abstract class AbstractQuickFixManager {
       }
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         e.getPresentation().setEnabled(e.getData(CommonDataKeys.EDITOR) == null);
       }
     };
@@ -253,7 +239,7 @@ public abstract class AbstractQuickFixManager {
   //////////////////////////////////////////////////////////////////////////////////////////
 
   private class FirstStep extends BaseListPopupStep<ErrorInfo> {
-    public FirstStep(List<ErrorInfo> errorInfos) {
+    FirstStep(List<ErrorInfo> errorInfos) {
       super(null, errorInfos);
     }
 
@@ -289,7 +275,7 @@ public abstract class AbstractQuickFixManager {
   }
 
   private class SecondStep extends BaseListPopupStep<QuickFix> {
-    public SecondStep(List<QuickFix> fixList) {
+    SecondStep(List<? extends QuickFix> fixList) {
       super(null, fixList);
     }
 
@@ -311,7 +297,8 @@ public abstract class AbstractQuickFixManager {
   }
 
   private Runnable getQuickFixRunnable(final QuickFix value) {
-    return () -> myDesigner.getToolProvider().executeWithReparse(() -> ApplicationManager.getApplication().runWriteAction(value), "Run '" + value.getName() + "' QuickFix");
+    return () -> myDesigner.getToolProvider().executeWithReparse(() -> ApplicationManager.getApplication().runWriteAction(value),
+                                                                 DesignerBundle.message("run.0.quickfix", value.getName()));
   }
 
   private static final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(4, 4, 4, 4);
@@ -321,7 +308,7 @@ public abstract class AbstractQuickFixManager {
 
   private static final Icon INACTIVE_ARROW_ICON = EmptyIcon.create(AllIcons.General.ArrowDown);
 
-  private class InspectionHint extends JLabel {
+  private final class InspectionHint extends JLabel {
     private final RowIcon myInactiveIcon;
     private final RowIcon myActiveIcon;
 
@@ -329,11 +316,11 @@ public abstract class AbstractQuickFixManager {
       setOpaque(false);
       setBorder(INACTIVE_BORDER);
 
-      myActiveIcon = new RowIcon(2);
+      myActiveIcon = IconManager.getInstance().createRowIcon(2);
       myActiveIcon.setIcon(icon, 0);
       myActiveIcon.setIcon(AllIcons.General.ArrowDown, 1);
 
-      myInactiveIcon = new RowIcon(2);
+      myInactiveIcon = IconManager.getInstance().createRowIcon(2);
       myInactiveIcon.setIcon(icon, 0);
       myInactiveIcon.setIcon(INACTIVE_ARROW_ICON, 1);
 

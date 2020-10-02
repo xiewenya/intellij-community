@@ -20,6 +20,7 @@ import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.java.refactoring.LightRefactoringTestCase;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.psi.*;
+import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.inline.InlineConstantFieldHandler;
 import com.intellij.refactoring.inline.InlineConstantFieldProcessor;
 import com.intellij.testFramework.IdeaTestUtil;
@@ -70,6 +71,10 @@ public class InlineConstantFieldTest extends LightRefactoringTestCase {
     doTest();
   }
 
+  public void testQualifierJava6() {
+    doTest();
+  }
+
   public void testFinalInitializedInConstructor() {
     doTest();
   }
@@ -78,10 +83,38 @@ public class InlineConstantFieldTest extends LightRefactoringTestCase {
     doTest();
   }
 
+  public void testFieldUsedReflectively() {
+    doTestConflict("Inlined field is used reflectively");
+  }
+
+  public void testFieldInitializedWithParameter() {
+    doTestConflict("Field initializer refers to parameter <b><code>a</code></b> which is not accessible in method <b><code>Test.test()</code></b>");
+  }
+
+  public void testFieldInitializedLocalClass() {
+    doTestConflict("Field initializer refers to class <b><code>Local</code></b> which is not accessible in method <b><code>Test.test()</code></b>");
+  }
+
+  public void testFieldInitializedWithParameter1() {
+    doTest();
+  }
+
+  public void testFieldInitializedWithConstant() {
+    doTest();
+  }
+
+  public void testFieldInitializedWithLambda() {
+    doTest();
+  }
+
+  public void testFieldUsedInJavadoc() {
+    doTestConflict("Inlined field is used in javadoc");
+  }
+
   public void testMultipleInitializers() {
     configureByFile("/refactoring/inlineConstantField/" + getTestName(false) + ".java");
     PsiElement element = TargetElementUtil
-      .findTargetElement(myEditor, TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
+      .findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
     assertTrue(element instanceof PsiField);
     assertNull(InlineConstantFieldHandler.getInitializer((PsiField)element));
   }
@@ -95,12 +128,22 @@ public class InlineConstantFieldTest extends LightRefactoringTestCase {
     @NonNls String fileName = "/refactoring/inlineConstantField/" + name + ".java";
     configureByFile(fileName);
     PsiElement element = TargetElementUtil
-      .findTargetElement(myEditor, TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
-    final PsiReference ref = myFile.findReferenceAt(myEditor.getCaretModel().getOffset());
+      .findTargetElement(getEditor(), TargetElementUtil.ELEMENT_NAME_ACCEPTED | TargetElementUtil.REFERENCED_ELEMENT_ACCEPTED);
+    final PsiReference ref = getFile().findReferenceAt(getEditor().getCaretModel().getOffset());
     PsiReferenceExpression refExpr = ref instanceof PsiReferenceExpression ? (PsiReferenceExpression)ref : null;
     assertTrue(element instanceof PsiField);
     PsiField field = (PsiField)element.getNavigationElement();
     new InlineConstantFieldProcessor(field, getProject(), refExpr, inlineThisOnly || element instanceof PsiCompiledElement).run();
     checkResultByFile(fileName + ".after");
+  }
+
+  private void doTestConflict(final String conflict) {
+    try {
+      doTest();
+      fail("Conflict was not detected");
+    }
+    catch (BaseRefactoringProcessor.ConflictsInTestsException e) {
+      assertEquals(conflict, e.getMessage());
+    }
   }
 }

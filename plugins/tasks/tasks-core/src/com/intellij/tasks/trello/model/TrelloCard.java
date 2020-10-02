@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package com.intellij.tasks.trello.model;
 
 import com.google.gson.annotations.SerializedName;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.NotNull;
@@ -30,7 +31,7 @@ import java.util.Set;
 import static com.intellij.tasks.trello.model.TrelloLabel.LabelColor;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
 @SuppressWarnings("UnusedDeclaration")
 public class TrelloCard extends TrelloModel {
@@ -51,7 +52,7 @@ public class TrelloCard extends TrelloModel {
   private final List<TrelloCommentAction> comments = ContainerUtil.emptyList();
   /**
    * This field is not part of card representation downloaded from server
-   * and set explicitly in {@code com.intellij.tasks.trello.TrelloRepository}
+   * and set explicitly in {@link com.intellij.tasks.trello.TrelloRepository}
    */
   private boolean isVisible = true;
 
@@ -90,7 +91,7 @@ public class TrelloCard extends TrelloModel {
   @NotNull
   @Attribute("name")
   @Override
-  public String getName() {
+  public @NlsSafe String getName() {
     return name;
   }
 
@@ -100,7 +101,7 @@ public class TrelloCard extends TrelloModel {
   }
 
   @NotNull
-  public String getDescription() {
+  public @NlsSafe String getDescription() {
     return description;
   }
 

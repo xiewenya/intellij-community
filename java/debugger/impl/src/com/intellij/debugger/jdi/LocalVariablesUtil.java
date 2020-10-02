@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.jdi;
 
 import com.intellij.debugger.SourcePosition;
@@ -28,8 +14,11 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.MultiMap;
+import com.jetbrains.jdi.SlotLocalVariable;
+import com.jetbrains.jdi.StackFrameImpl;
 import com.sun.jdi.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.org.objectweb.asm.MethodVisitor;
 import org.jetbrains.org.objectweb.asm.Opcodes;
 
@@ -91,8 +80,8 @@ import java.util.*;
       }
       return map;
  */
-public class LocalVariablesUtil {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.jdi.LocalVariablesUtil");
+public final class LocalVariablesUtil {
+  private static final Logger LOG = Logger.getInstance(LocalVariablesUtil.class);
 
   private static final boolean ourInitializationOk;
   private static Class<?> ourSlotInfoClass;
@@ -190,25 +179,31 @@ public class LocalVariablesUtil {
   }
 
   private static Map<DecompiledLocalVariable, Value> fetchSlotValues(Map<DecompiledLocalVariable, Value> map,
-                                                                     List<DecompiledLocalVariable> vars,
+                                                                     List<? extends DecompiledLocalVariable> vars,
                                                                      StackFrame frame) throws Exception {
-    final Long frameId = ReflectionUtil.getField(frame.getClass(), frame, long.class, "id");
-    final VirtualMachine vm = frame.virtualMachine();
-    final Method stateMethod = vm.getClass().getDeclaredMethod("state");
-    stateMethod.setAccessible(true);
-
-    Object slotInfoArray = createSlotInfoArray(vars);
-
-    Object ps;
-    final Object vmState = stateMethod.invoke(vm);
-    synchronized(vmState) {
-      ps = ourEnqueueMethod.invoke(null, vm, frame.thread(), frameId, slotInfoArray);
+    final Value[] values;
+    if (frame instanceof StackFrameImpl) {
+      values = ((StackFrameImpl)frame).getSlotsValues(vars);
     }
+    else {
+      final Long frameId = ReflectionUtil.getField(frame.getClass(), frame, long.class, "id");
+      final VirtualMachine vm = frame.virtualMachine();
+      final Method stateMethod = vm.getClass().getDeclaredMethod("state");
+      stateMethod.setAccessible(true);
 
-    final Object reply = ourWaitForReplyMethod.invoke(null, vm, ps);
-    final Value[] values = ReflectionUtil.getField(reply.getClass(), reply, Value[].class, "values");
-    if (vars.size() != values.length) {
-      throw new InternalException("Wrong number of values returned from target VM");
+      Object slotInfoArray = createSlotInfoArray(vars);
+
+      Object ps;
+      final Object vmState = stateMethod.invoke(vm);
+      synchronized (vmState) {
+        ps = ourEnqueueMethod.invoke(null, vm, frame.thread(), frameId, slotInfoArray);
+      }
+
+      final Object reply = ourWaitForReplyMethod.invoke(null, vm, ps);
+      values = ReflectionUtil.getField(reply.getClass(), reply, Value[].class, "values");
+      if (vars.size() != values.length) {
+        throw new InternalException("Wrong number of values returned from target VM");
+      }
     }
     int idx = 0;
     for (DecompiledLocalVariable var : vars) {
@@ -221,22 +216,27 @@ public class LocalVariablesUtil {
     return ourInitializationOkSet;
   }
 
-  public static void setValue(StackFrame frame, int slot, Value value) throws EvaluateException {
+  public static void setValue(StackFrame frame, SlotLocalVariable variable, Value value) throws EvaluateException {
     try {
-      final Long frameId = ReflectionUtil.getField(frame.getClass(), frame, long.class, "id");
-      final VirtualMachine vm = frame.virtualMachine();
-      final Method stateMethod = vm.getClass().getDeclaredMethod("state");
-      stateMethod.setAccessible(true);
-
-      Object slotInfoArray = createSlotInfoArraySet(slot, value);
-
-      Object ps;
-      final Object vmState = stateMethod.invoke(vm);
-      synchronized (vmState) {
-        ps = ourEnqueueMethodSet.invoke(null, vm, frame.thread(), frameId, slotInfoArray);
+      if (frame instanceof StackFrameImpl) {
+        ((StackFrameImpl)frame).setSlotValue(variable, value);
       }
+      else {
+        final Long frameId = ReflectionUtil.getField(frame.getClass(), frame, long.class, "id");
+        final VirtualMachine vm = frame.virtualMachine();
+        final Method stateMethod = vm.getClass().getDeclaredMethod("state");
+        stateMethod.setAccessible(true);
 
-      ourWaitForReplyMethodSet.invoke(null, vm, ps);
+        Object slotInfoArray = createSlotInfoArraySet(variable.slot(), value);
+
+        Object ps;
+        final Object vmState = stateMethod.invoke(vm);
+        synchronized (vmState) {
+          ps = ourEnqueueMethodSet.invoke(null, vm, frame.thread(), frameId, slotInfoArray);
+        }
+
+        ourWaitForReplyMethodSet.invoke(null, vm, ps);
+      }
     }
     catch (Exception e) {
       throw new EvaluateException("Unable to set value", e);
@@ -250,19 +250,19 @@ public class LocalVariablesUtil {
     return arrayInstance;
   }
 
-  private static Object createSlotInfoArray(Collection<DecompiledLocalVariable> vars) throws Exception {
+  private static Object createSlotInfoArray(Collection<? extends DecompiledLocalVariable> vars) throws Exception {
     final Object arrayInstance = Array.newInstance(ourSlotInfoClass, vars.size());
 
     int idx = 0;
     for (DecompiledLocalVariable var : vars) {
-      final Object info = slotInfoConstructor.newInstance(var.getSlot(), (byte)var.getSignature().charAt(0));
+      final Object info = slotInfoConstructor.newInstance(var.slot(), (byte)var.signature().charAt(0));
       Array.set(arrayInstance, idx++, info);
     }
 
     return arrayInstance;
   }
 
-  private static Method getDeclaredMethodByName(Class aClass, String methodName) throws NoSuchMethodException {
+  private static Method getDeclaredMethodByName(Class<?> aClass, String methodName) throws NoSuchMethodException {
     for (Method method : aClass.getDeclaredMethods()) {
       if (methodName.equals(method.getName())) {
         method.setAccessible(true);
@@ -301,7 +301,7 @@ public class LocalVariablesUtil {
                                        if (slot >= firstLocalVariableSlot) {
                                          DecompiledLocalVariable variable = usedVars.get(slot);
                                          String typeSignature = MethodBytecodeUtil.getVarInstructionType(opcode).getDescriptor();
-                                         if (variable == null || !typeSignature.equals(variable.getSignature())) {
+                                         if (variable == null || !typeSignature.equals(variable.signature())) {
                                            variable = new DecompiledLocalVariable(slot, false, typeSignature, namesMap.get(slot));
                                            usedVars.put(slot, variable);
                                          }
@@ -313,15 +313,23 @@ public class LocalVariablesUtil {
           }
 
           List<DecompiledLocalVariable> vars = new ArrayList<>(usedVars.values());
-          vars.sort(Comparator.comparingInt(DecompiledLocalVariable::getSlot));
+          vars.sort(Comparator.comparingInt(DecompiledLocalVariable::slot));
           return vars;
         }
       }
     }
     catch (UnsupportedOperationException ignored) {
     }
+    catch (VMDisconnectedException e) {
+      throw e;
+    }
     catch (Exception e) {
-      LOG.error(e);
+      if (!vm.canBeModified()) { // do not care in read only vms
+        LOG.debug(e);
+      }
+      else {
+        LOG.warn(e);
+      }
     }
     return Collections.emptyList();
   }
@@ -367,7 +375,7 @@ public class LocalVariablesUtil {
     private final Deque<Integer> myIndexStack = new LinkedList<>();
     private boolean myReached = false;
 
-    public LocalVariableNameFinder(int startSlot, MultiMap<Integer, String> names, PsiElement element) {
+    LocalVariableNameFinder(int startSlot, MultiMap<Integer, String> names, PsiElement element) {
       myNames = names;
       myCurrentSlotIndex = startSlot;
       myElement = element;
@@ -378,7 +386,7 @@ public class LocalVariablesUtil {
     }
 
     @Override
-    public void visitElement(PsiElement element) {
+    public void visitElement(@NotNull PsiElement element) {
       if (element == myElement) {
         myReached = true;
       }
@@ -391,17 +399,16 @@ public class LocalVariablesUtil {
     public void visitLocalVariable(PsiLocalVariable variable) {
       super.visitLocalVariable(variable);
       if (!myReached) {
-        appendName(variable.getName());
-        myCurrentSlotIndex += getTypeSlotSize(variable.getType());
+        appendName(variable);
       }
     }
 
+    @Override
     public void visitSynchronizedStatement(PsiSynchronizedStatement statement) {
       if (shouldVisit(statement)) {
         myIndexStack.push(myCurrentSlotIndex);
         try {
-          appendName("<monitor>");
-          myCurrentSlotIndex++;
+          appendName("<monitor>", 1);
           super.visitSynchronizedStatement(statement);
         }
         finally {
@@ -410,8 +417,15 @@ public class LocalVariablesUtil {
       }
     }
 
-    private void appendName(String varName) {
+    private void appendName(@Nullable PsiVariable variable) {
+      if (variable != null) {
+        appendName(variable.getName(), getTypeSlotSize(variable.getType()));
+      }
+    }
+
+    private void appendName(String varName, int size) {
       myNames.putValue(myCurrentSlotIndex, varName);
+      myCurrentSlotIndex += size;
     }
 
     @Override
@@ -445,6 +459,16 @@ public class LocalVariablesUtil {
       if (shouldVisit(statement)) {
         myIndexStack.push(myCurrentSlotIndex);
         try {
+          PsiExpression value = statement.getIteratedValue();
+          if (value != null && value.getType() instanceof PsiArrayType) {
+            appendName("", 1); // array copy
+            appendName("<length>", 1);
+            appendName("<index>", 1);
+          }
+          else {
+            appendName("<iterator>", 1);
+          }
+          appendName(statement.getIterationParameter());
           super.visitForeachStatement(statement);
         }
         finally {
@@ -458,6 +482,7 @@ public class LocalVariablesUtil {
       if (shouldVisit(section)) {
         myIndexStack.push(myCurrentSlotIndex);
         try {
+          appendName(section.getParameter());
           super.visitCatchSection(section);
         }
         finally {

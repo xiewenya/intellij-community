@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.server;
 
 import com.intellij.compiler.CompilerConfiguration;
@@ -27,6 +13,7 @@ import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,10 +24,10 @@ final class AutomakeCompileContext extends UserDataHolderBase implements Compile
   private final Project myProject;
   private final ProjectCompileScope myScope;
   private final MessagesContainer myMessages;
-  private final EmptyProgressIndicator myIndicator;
+  private final ProgressIndicator myIndicator;
   private final boolean myAnnotationProcessingEnabled;
 
-  AutomakeCompileContext(Project project) {
+  AutomakeCompileContext(@NotNull Project project) {
     myProject = project;
     myScope = new ProjectCompileScope(project);
     myMessages = new MessagesContainer(project);
@@ -48,6 +35,7 @@ final class AutomakeCompileContext extends UserDataHolderBase implements Compile
     myAnnotationProcessingEnabled = CompilerConfiguration.getInstance(project).isAnnotationProcessorsEnabled();
   }
 
+  @NotNull
   @Override
   public Project getProject() {
     return myProject;
@@ -84,14 +72,13 @@ final class AutomakeCompileContext extends UserDataHolderBase implements Compile
   }
 
   @Override
-  @NotNull 
-  public CompilerMessage[] getMessages(@NotNull CompilerMessageCategory category) {
+  public CompilerMessage @NotNull [] getMessages(@NotNull CompilerMessageCategory category) {
     return myMessages.getMessages(category).toArray(CompilerMessage.EMPTY_ARRAY);
   }
 
   @Nullable
   CompilerMessage createAndAddMessage(CompilerMessageCategory category,
-                                      String message,
+                                      @Nls String message,
                                       @Nullable String url,
                                       int lineNum,
                                       int columnNum,

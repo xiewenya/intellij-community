@@ -1,85 +1,56 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
 import com.intellij.openapi.util.IconLoader.CachedImageIcon;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.registry.RegistryValue;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.ui.RestoreScaleRule;
+import com.intellij.ui.scale.JBUIScale;
+import com.intellij.ui.scale.ScaleContext;
 import com.intellij.util.IconUtil;
-import com.intellij.util.ImageLoader;
-import com.intellij.util.ui.JBUI.ScaleContext;
 import com.intellij.util.ui.paint.ImageComparator;
-import org.junit.After;
-import org.junit.Before;
+import com.intellij.util.ui.paint.ImageComparator.AASmootherComparator;
+import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.ExternalResource;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.MalformedURLException;
 
-import static com.intellij.util.ui.JBUI.ScaleType.SYS_SCALE;
-import static junit.framework.TestCase.assertTrue;
+import static com.intellij.ui.scale.ScaleType.SYS_SCALE;
+import static com.intellij.util.ui.TestScaleHelper.loadImage;
+import static com.intellij.util.ui.TestScaleHelper.overrideJreHiDPIEnabled;
 
 /**
  * Tests SVG icon painting.
  *
  * @author tav
  */
-public class SvgIconPaintTest extends TestScaleHelper {
-  private static boolean initialSvgProp;
+public class SvgIconPaintTest {
+  @ClassRule
+  public static final ExternalResource manageState = new RestoreScaleRule();
 
-  @Before
-  @Override
-  public void setState() {
-    super.setState();
-    RegistryValue rv = Registry.get("ide.svg.icon");
-    initialSvgProp = rv.asBoolean();
-    if (!initialSvgProp) rv.setValue(true);
-  }
-
-  @After
-  @Override
-  public void restoreState() {
-    super.restoreState();
-    Registry.get("ide.svg.icon").setValue(initialSvgProp);
+  @BeforeClass
+  public static void beforeClass() {
   }
 
   @Test
   public void test() throws MalformedURLException {
-    JBUI.setUserScaleFactor(2);
+    JBUIScale.setUserScaleFactor((float)2);
     overrideJreHiDPIEnabled(false);
 
     CachedImageIcon icon = new CachedImageIcon(new File(getSvgIconPath()).toURI().toURL());
     icon.updateScaleContext(ScaleContext.create(SYS_SCALE.of(1)));
     BufferedImage iconImage = ImageUtil.toBufferedImage(IconUtil.toImage(icon));
-    //save(iconImage);
-    BufferedImage goldImage = load();
 
-    ImageComparator comparator =
-      new ImageComparator(new ImageComparator.ColorAASmoother(0, 0.3f));
-    StringBuilder sb = new StringBuilder("images mismatch: ");
-    assertTrue(sb.toString(), comparator.compare(iconImage, goldImage, sb));
-  }
+    //saveImage(iconImage, getGoldImagePath()); // uncomment to save gold image
 
-  @SuppressWarnings("unused")
-  private static void save(BufferedImage bi) {
-    try {
-      javax.imageio.ImageIO.write(bi, "png", new File(getGoldImagePath()));
-    } catch (java.io.IOException e) {
-      e.printStackTrace();
-    }
-  }
+    BufferedImage goldImage = loadImage(getGoldImagePath());
 
-  private static BufferedImage load() {
-    try {
-      Image img = ImageLoader.loadFromUrl(
-        new File(getGoldImagePath()).toURI().toURL(), false, false, null, ScaleContext.createIdentity());
-      return ImageUtil.toBufferedImage(img);
-    }
-    catch (MalformedURLException e) {
-      throw new RuntimeException(e);
-    }
+    ImageComparator.compareAndAssert(
+      new AASmootherComparator(0.1, 0.1, new Color(0, 0, 0, 0)), iconImage, goldImage, null);
   }
 
   private static String getSvgIconPath() {

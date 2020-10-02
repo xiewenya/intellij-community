@@ -20,6 +20,7 @@ import com.intellij.testFramework.TestRunnerUtil;
 import com.intellij.testFramework.fixtures.*;
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl;
 import com.intellij.util.ThrowableRunnable;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -40,10 +41,11 @@ abstract class JUnit5CodeInsightTest {
     myFixture.tearDown();
   }
 
-  protected void doTest(ThrowableRunnable<Throwable> run) {
+  protected <T extends Throwable> void doTest(@NotNull ThrowableRunnable<T> run) throws T {
     TestRunnerUtil.replaceIdeEventQueueSafely();
     //init junit 5 framework
     EdtTestUtil.runInEdtAndWait(() -> {
+      myFixture.addClass("package org.junit.platform.commons.annotation; public @interface Testable {}");
       myFixture.addClass("package org.junit.jupiter.api; public @interface Test {}");
       myFixture.addClass("package org.junit.jupiter.api; public @interface Nested {}");
       myFixture.addClass("package org.junit.jupiter.api; public @interface TestFactory {}");

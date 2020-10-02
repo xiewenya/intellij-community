@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2019 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,6 @@ import java.util.List;
 
 /**
  * @author anna
- * @since 23-May-2007
  */
 public abstract class AbstractTestProxy extends CompositePrintable {
   public static final DataKey<AbstractTestProxy> DATA_KEY = DataKey.create("testProxy");
@@ -120,26 +119,6 @@ public abstract class AbstractTestProxy extends CompositePrintable {
     }
   }
 
-  /**
-   * to be deleted in 2017.1
-   */
-  @Deprecated
-  public static void flushOutput(AbstractTestProxy testProxy) {
-    testProxy.flush();
-
-    AbstractTestProxy parent = testProxy.getParent();
-    while (parent != null) {
-      final List<? extends AbstractTestProxy> children = parent.getChildren();
-      if (!testProxy.isInProgress() && testProxy.equals(children.get(children.size() - 1))) {
-        parent.flush();
-      } else {
-        break;
-      }
-      testProxy = parent;
-      parent = parent.getParent();
-    }
-  }
-
   @Override
   public int getExceptionMark() {
     if (myExceptionMark == 0 && getChildren().size() > 0) {
@@ -155,8 +134,31 @@ public abstract class AbstractTestProxy extends CompositePrintable {
   }
 
   @Nullable
+  public DiffHyperlink getLeafDiffViewerProvider() {
+    DiffHyperlink provider = getDiffViewerProvider();
+    if (provider != null) return provider;
+    if (isDefect()) {
+      for (AbstractTestProxy child : getChildren()) {
+        provider = child.getLeafDiffViewerProvider();
+        if (provider != null) return provider;
+      }
+    }
+    return null;
+  }
+
+  @Nullable
   public DiffHyperlink getDiffViewerProvider() {
     return null;
+  }
+
+  @Override
+  protected DiffHyperlink createHyperlink(String expected,
+                                          String actual,
+                                          String filePath,
+                                          final String actualFilePath, final boolean printOneLine) {
+    DiffHyperlink hyperlink = super.createHyperlink(expected, actual, filePath, actualFilePath, printOneLine);
+    hyperlink.setTestProxyName(getName());
+    return hyperlink;
   }
 
   @Nullable

@@ -2,16 +2,30 @@
 package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.Nullability;
+import com.intellij.codeInsight.NullabilityAnnotationInfo;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint;
+import com.intellij.codeInspection.util.InspectionMessage;
+import com.intellij.java.analysis.JavaAnalysisBundle;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import static com.intellij.codeInspection.dataFlow.StandardMethodContract.ParseException;
+import static com.intellij.codeInspection.dataFlow.StandardMethodContract.parseContract;
 
 /**
  * @author peter
@@ -25,29 +39,36 @@ public class ContractInspection extends AbstractBaseJavaLocalInspectionTool {
 
       @Override
       public void visitMethod(PsiMethod method) {
-        for (StandardMethodContract contract : ControlFlowAnalyzer.getMethodContracts(method)) {
-          Map<PsiElement, String> errors = ContractChecker.checkContractClause(method, contract);
-          for (Map.Entry<PsiElement, String> entry : errors.entrySet()) {
-            PsiElement element = entry.getKey();
-            holder.registerProblem(element, entry.getValue());
-          }
+        PsiAnnotation annotation = JavaMethodContractUtil.findContractAnnotation(method);
+        if (annotation == null || (!ApplicationManager.getApplication().isInternal() && AnnotationUtil.isInferredAnnotation(annotation))) {
+          return;
+        }
+        boolean ownContract = annotation.getOwner() == method.getModifierList();
+        for (StandardMethodContract contract : JavaMethodContractUtil.getMethodContracts(method)) {
+          Map<PsiElement, String> errors = ContractChecker.checkContractClause(method, contract, ownContract);
+          errors.forEach(holder::registerProblem);
         }
       }
 
       @Override
       public void visitAnnotation(PsiAnnotation annotation) {
-        if (!ControlFlowAnalyzer.ORG_JETBRAINS_ANNOTATIONS_CONTRACT.equals(annotation.getQualifiedName())) return;
+        if (!JavaMethodContractUtil.ORG_JETBRAINS_ANNOTATIONS_CONTRACT.equals(annotation.getQualifiedName())) return;
 
         PsiMethod method = PsiTreeUtil.getParentOfType(annotation, PsiMethod.class);
         if (method == null) return;
 
         String text = AnnotationUtil.getStringAttributeValue(annotation, null);
         if (StringUtil.isNotEmpty(text)) {
-          String error = checkContract(method, text);
+          ParseException error = checkContract(method, text);
           if (error != null) {
             PsiAnnotationMemberValue value = annotation.findAttributeValue(null);
             assert value != null;
-            holder.registerProblem(value, error);
+            TextRange actualRange = null;
+            if (value instanceof PsiExpression && error.getRange() != null) {
+              actualRange = ExpressionUtils
+                .findStringLiteralRange((PsiExpression)value, error.getRange().getStartOffset(), error.getRange().getEndOffset());
+            }
+            holder.registerProblem(value, actualRange, error.getMessage());
           }
         }
         checkMutationContract(annotation, method);
@@ -59,7 +80,7 @@ public class ContractInspection extends AbstractBaseJavaLocalInspectionTool {
           boolean pure = Boolean.TRUE.equals(AnnotationUtil.getBooleanAttributeValue(annotation, "pure"));
           String error;
           if (pure) {
-            error = "Pure method cannot have mutation contract";
+            error = JavaAnalysisBundle.message("inspection.contract.checker.pure.method.mutation.contract");
           } else {
             error = MutationSignature.checkSignature(mutationContract, method);
           }
@@ -74,28 +95,103 @@ public class ContractInspection extends AbstractBaseJavaLocalInspectionTool {
   }
 
   @Nullable
-  public static String checkContract(PsiMethod method, String text) {
+  public static ParseException checkContract(PsiMethod method, String text) {
     List<StandardMethodContract> contracts;
     try {
-      contracts = StandardMethodContract.parseContract(text);
+      contracts = parseContract(text);
     }
-    catch (StandardMethodContract.ParseException e) {
-      return e.getMessage();
+    catch (ParseException e) {
+      return e;
     }
-    int paramCount = method.getParameterList().getParametersCount();
-    for (int i = 0; i < contracts.size(); i++) {
-      StandardMethodContract contract = contracts.get(i);
-      if (contract.arguments.length != paramCount) {
-        return "Method takes " + paramCount + " parameters, while contract clause number " + (i + 1) + " expects " + contract.arguments.length;
+    PsiParameter[] parameters = method.getParameterList().getParameters();
+    int paramCount = parameters.length;
+    List<StandardMethodContract> possibleContracts =
+      Collections.singletonList(StandardMethodContract.trivialContract(paramCount, ContractReturnValue.returnAny()));
+    for (int clauseIndex = 0; clauseIndex < contracts.size(); clauseIndex++) {
+      StandardMethodContract contract = contracts.get(clauseIndex);
+      if (contract.getParameterCount() != paramCount) {
+        String message = JavaAnalysisBundle
+          .message("inspection.contract.checker.parameter.count.mismatch", paramCount, contract, contract.getParameterCount());
+        return ParseException.forClause(message, text, clauseIndex);
       }
-      PsiType returnType = method.getReturnType();
-      if (returnType != null && !contract.returnValue.isReturnTypeCompatible(returnType)) {
-        return "Method returns " + returnType.getPresentableText() + " but the contract specifies " + contract.returnValue;
+      for (int i = 0; i < parameters.length; i++) {
+        ValueConstraint constraint = contract.getParameterConstraint(i);
+        PsiParameter parameter = parameters[i];
+        String message = getConstraintProblem(method, contract, constraint, parameter);
+        if (message != null) {
+          return ParseException.forConstraint(message, text, clauseIndex, i);
+        }
       }
-      if (method.isConstructor() && contract.returnValue != MethodContract.ValueConstraint.THROW_EXCEPTION) {
-        return "Invalid contract return value for a constructor: " + contract.returnValue;
+      String problem = contract.getReturnValue().getMethodCompatibilityProblem(method);
+      if (problem != null) {
+        return ParseException.forReturnValue(problem, text, clauseIndex);
+      }
+      if (possibleContracts != null) {
+        if (possibleContracts.isEmpty()) {
+          return ParseException
+            .forClause(JavaAnalysisBundle.message("inspection.contract.checker.unreachable.contract.clause", contract), text, clauseIndex);
+        }
+        if (StreamEx.of(possibleContracts).allMatch(c -> c.intersect(contract) == null)) {
+          return ParseException.forClause(
+            JavaAnalysisBundle.message("inspection.contract.checker.contract.clause.never.satisfied", contract), text, clauseIndex);
+        }
+        possibleContracts = StreamEx.of(possibleContracts).flatMap(c -> c.excludeContract(contract))
+                                     .limit(DataFlowRunner.MAX_STATES_PER_BRANCH).toList();
+        if (possibleContracts.size() >= DataFlowRunner.MAX_STATES_PER_BRANCH) {
+          possibleContracts = null;
+        }
       }
     }
     return null;
+  }
+
+  @Nullable
+  private static @InspectionMessage String getConstraintProblem(PsiMethod method,
+                                                                StandardMethodContract contract,
+                                                                ValueConstraint constraint, PsiParameter parameter) {
+    PsiType type = parameter.getType();
+    switch (constraint) {
+      case NULL_VALUE: {
+        if (type instanceof PsiPrimitiveType) {
+          return JavaAnalysisBundle.message("inspection.contract.checker.primitive.parameter.nullability",
+                                            parameter.getName(), type.getPresentableText(), constraint);
+        }
+        NullabilityAnnotationInfo info = NullableNotNullManager.getInstance(method.getProject()).findEffectiveNullabilityInfo(parameter);
+        if (info != null && info.getNullability() == Nullability.NOT_NULL) {
+          if (info.isInferred() && contract.getReturnValue().isFail()) {
+            // null -> fail is ok if not-null was inferred
+            return null;
+          }
+          return JavaAnalysisBundle.message(info.isInferred()
+                                            ? "inspection.contract.checker.inferred.notnull.parameter.null"
+                                            : "inspection.contract.checker.notnull.parameter.null",
+                                            parameter.getName(), constraint);
+        }
+        return null;
+      }
+      case NOT_NULL_VALUE: {
+        if (type instanceof PsiPrimitiveType) {
+          return JavaAnalysisBundle.message("inspection.contract.checker.primitive.parameter.nullability",
+                                            parameter.getName(), type.getPresentableText(), constraint);
+        }
+        NullabilityAnnotationInfo info = NullableNotNullManager.getInstance(method.getProject()).findEffectiveNullabilityInfo(parameter);
+        if (info != null && info.getNullability() == Nullability.NOT_NULL) {
+          return JavaAnalysisBundle.message(info.isInferred()
+                                            ? "inspection.contract.checker.inferred.notnull.parameter.notnull"
+                                            : "inspection.contract.checker.notnull.parameter.notnull",
+                                            parameter.getName(), constraint);
+        }
+        return null;
+      }
+      case TRUE_VALUE:
+      case FALSE_VALUE:
+        if (!PsiType.BOOLEAN.equals(type) && !type.equalsToText(CommonClassNames.JAVA_LANG_BOOLEAN)) {
+          return JavaAnalysisBundle.message("inspection.contract.checker.boolean.condition.for.nonboolean.parameter",
+                                            parameter.getName(), type.getPresentableText());
+        }
+        return null;
+      default:
+        return null;
+    }
   }
 }

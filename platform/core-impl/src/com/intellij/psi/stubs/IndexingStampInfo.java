@@ -24,20 +24,27 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
+ * An informational object for debugging stub-mismatch related issues. Should be as small as possible since it's stored in files's attributes.
+ *
  * @author peter
  */
 class IndexingStampInfo {
   final long indexingFileStamp;
-  final long indexingContentLength;
+  final long indexingByteLength;
+  final int indexingCharLength;
+  final boolean isBinary;
 
-  IndexingStampInfo(long indexingFileStamp, long indexingContentLength) {
+  IndexingStampInfo(long indexingFileStamp, long indexingByteLength, int indexingCharLength, boolean isBinary) {
     this.indexingFileStamp = indexingFileStamp;
-    this.indexingContentLength = indexingContentLength;
+    this.indexingByteLength = indexingByteLength;
+    this.indexingCharLength = indexingCharLength;
+    this.isBinary = isBinary;
   }
 
   @Override
   public String toString() {
-    return "indexed at " + indexingFileStamp + " with document size " + indexingContentLength;
+    return "indexing timestamp = " + indexingFileStamp + ", " +
+           "binary = " + isBinary + ", byte size = " + indexingByteLength + ", char size = " + indexingCharLength;
   }
 
   public boolean isUpToDate(@Nullable Document document, @NotNull VirtualFile file, @NotNull PsiFile psi) {
@@ -47,6 +54,21 @@ class IndexingStampInfo {
       return false;
     }
 
-    return indexingFileStamp == file.getTimeStamp() && indexingContentLength == document.getTextLength();
+    boolean isFileBinary = file.getFileType().isBinary();
+    return indexingFileStamp == file.getTimeStamp() &&
+           isBinary == isFileBinary &&
+           contentLengthMatches(file.getLength(), document.getTextLength());
+  }
+
+  @SuppressWarnings("unused")
+  public boolean contentLengthMatches(long byteContentLength, int charContentLength) {
+    if (this.indexingCharLength >= 0 && charContentLength >= 0) {
+      return this.indexingCharLength == charContentLength;
+    }
+    //
+    // Due to VFS implementation reasons we cannot guarantee file.getLength() and VFS events consistency.
+    // In this case we prefer to skip this check and leave `indexingByteLength` value only for informational reasons.
+    //
+    return true; //this.indexingByteLength == byteContentLength;
   }
 }

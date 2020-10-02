@@ -15,17 +15,18 @@
  */
 package com.intellij.dvcs.ui;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.ui.LayeredIcon;
 import com.intellij.util.ui.EmptyIcon;
+import icons.DvcsImplIcons;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
-import static icons.DvcsImplIcons.*;
-
-public abstract class BranchActionGroup extends ActionGroup implements DumbAware {
+public abstract class BranchActionGroup extends ActionGroup implements DumbAware, CustomIconProvider {
 
   private boolean myIsFavorite;
   private LayeredIcon myIcon;
@@ -33,7 +34,7 @@ public abstract class BranchActionGroup extends ActionGroup implements DumbAware
 
   public BranchActionGroup() {
     super("", true);
-    setIcons(Favorite, EmptyIcon.ICON_16, FavoriteOnHover, NotFavoriteOnHover);
+    setIcons(AllIcons.Nodes.Favorite, EmptyIcon.ICON_16, AllIcons.Nodes.Favorite, AllIcons.Nodes.NotFavoriteOnHover);
   }
 
   protected void setIcons(@NotNull Icon favorite,
@@ -71,4 +72,13 @@ public abstract class BranchActionGroup extends ActionGroup implements DumbAware
   public boolean hasIncomingCommits() {return false;}
 
   public boolean hasOutgoingCommits() {return false;}
+
+  @Nullable
+  @Override
+  public Icon getRightIcon() {
+    if (hasIncomingCommits()) {
+      return hasOutgoingCommits() ? DvcsImplIcons.IncomingOutgoing : DvcsImplIcons.Incoming;
+    }
+    return hasOutgoingCommits() ? DvcsImplIcons.Outgoing : null;
+  }
 }

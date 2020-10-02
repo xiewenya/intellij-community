@@ -15,10 +15,13 @@
  */
 package com.intellij.java.psi.codeStyle.arrangement
 
+import groovy.transform.CompileStatic
+
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.EntryType.*
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Modifier.PRIVATE
 import static com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens.Modifier.PUBLIC
 
+@CompileStatic
 class JavaRearrangerSectionsTest extends AbstractJavaRearrangerTest {
 
   void "test single section"() {
@@ -603,7 +606,7 @@ class Double {
       section("//sectionClassStart", "//sectionClassEnd", rule(CLASS)),
       section("//sectionPublicFieldStart", "//sectionPublicFieldEnd", rule(FIELD, PUBLIC)),
       section("//sectionPrivateFieldStart", "//sectionPrivateFieldEnd", rule(FIELD, PRIVATE)),
-      section("//sectionPubicMethodStart", "//sectionPublicMethodEnd", rule(METHOD, PUBLIC)),
+      section("//sectionPublicMethodStart", "//sectionPublicMethodEnd", rule(METHOD, PUBLIC)),
       section("//sectionPrivateMethodStart", "//sectionPrivateMethodEnd", rule(METHOD, PRIVATE)),
     ]
 
@@ -656,7 +659,7 @@ public class SuperTest {
     private int b;
 //sectionPrivateFieldEnd
 
-//sectionPubicMethodStart
+//sectionPublicMethodStart
     public void test() {}
 
     public void testtt() {}
@@ -700,7 +703,7 @@ public class SuperTest {
     private int b;
 //sectionPrivateFieldEnd
 
-//sectionPubicMethodStart
+//sectionPublicMethodStart
     public void test() {}
 
     public void testtt() {}
@@ -748,7 +751,7 @@ public class SuperTest {
     private int b;
 //sectionPrivateFieldEnd
 
-//sectionPubicMethodStart
+//sectionPublicMethodStart
     public void test() {}
 
     public void testtt() {}

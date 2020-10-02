@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.actions;
 
@@ -21,9 +7,9 @@ import com.intellij.execution.PsiLocation;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.ConfigurationType;
-import com.intellij.execution.configurations.ConfigurationTypeUtil;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.junit.RuntimeConfigurationProducer;
+import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -37,6 +23,7 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -44,10 +31,13 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -56,11 +46,11 @@ import java.util.List;
  * @see RunConfigurationProducer
  */
 public class ConfigurationContext {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.execution.actions.ConfigurationContext");
+  private static final Logger LOG = Logger.getInstance(ConfigurationContext.class);
   private final Location<PsiElement> myLocation;
   private RunnerAndConfigurationSettings myConfiguration;
-  private boolean myInitialized = false;
-  private boolean myMultipleSelection = false;
+  private boolean myInitialized;
+  private boolean myMultipleSelection;
   private Ref<RunnerAndConfigurationSettings> myExistingConfiguration;
   private final Module myModule;
   private final RunConfiguration myRuntimeConfiguration;
@@ -72,43 +62,67 @@ public class ConfigurationContext {
 
   @NotNull
   public static ConfigurationContext getFromContext(DataContext dataContext) {
-    final ConfigurationContext context = new ConfigurationContext(dataContext);
-    final DataManager dataManager = DataManager.getInstance();
+    DataManager dataManager = DataManager.getInstance();
     ConfigurationContext sharedContext = dataManager.loadFromDataContext(dataContext, SHARED_CONTEXT);
+    Pair<Location<PsiElement>, Boolean> calculatedLocation = null;
+    Module module = null;
     if (sharedContext == null ||
         sharedContext.getLocation() == null ||
-        context.getLocation() == null ||
-        !Comparing.equal(sharedContext.getLocation().getPsiElement(), context.getLocation().getPsiElement())) {
-      sharedContext = context;
+        (calculatedLocation = calcLocation(dataContext, module = LangDataKeys.MODULE.getData(dataContext))).getFirst() == null ||
+        !Comparing.equal(sharedContext.getLocation().getPsiElement(), calculatedLocation.getFirst().getPsiElement())) {
+      if (calculatedLocation==null) {
+        module = LangDataKeys.MODULE.getData(dataContext);
+        calculatedLocation = calcLocation(dataContext, module);
+      }
+      sharedContext = new ConfigurationContext(dataContext, calculatedLocation.getFirst(), module, calculatedLocation.getSecond());
       dataManager.saveInDataContext(dataContext, SHARED_CONTEXT, sharedContext);
     }
     return sharedContext;
   }
 
-  private ConfigurationContext(final DataContext dataContext) {
-    myRuntimeConfiguration = RunConfiguration.DATA_KEY.getData(dataContext);
+  @NotNull
+  public static ConfigurationContext createEmptyContextForLocation(@NotNull Location location) {
+    return new ConfigurationContext(location);
+  }
+
+  private ConfigurationContext(final DataContext dataContext, Location<PsiElement> location, Module module, boolean multipleSelection) {
+    RunConfiguration configuration = RunConfiguration.DATA_KEY.getData(dataContext);
+    if (configuration == null) {
+      ExecutionEnvironment environment = dataContext.getData(LangDataKeys.EXECUTION_ENVIRONMENT);
+      if (environment != null) {
+        myConfiguration = environment.getRunnerAndConfigurationSettings();
+        if (myConfiguration != null) {
+          myExistingConfiguration = Ref.create(myConfiguration);
+          configuration = myConfiguration.getConfiguration();
+        }
+      }
+    }
+    myRuntimeConfiguration = configuration;
     myContextComponent = PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext);
-    myModule = LangDataKeys.MODULE.getData(dataContext);
-    @SuppressWarnings({"unchecked"})
-    final Location<PsiElement> location = (Location<PsiElement>)Location.DATA_KEY.getData(dataContext);
+    myModule = module;
+    myLocation = location;
+    myMultipleSelection = multipleSelection;
+  }
+
+  @NotNull
+  private static Pair<Location<PsiElement>,Boolean> calcLocation(@NotNull DataContext dataContext, Module module) {
+    @SuppressWarnings({"unchecked"}) Location<PsiElement> location = (Location<PsiElement>)Location.DATA_KEY.getData(dataContext);
     if (location != null) {
-      myLocation = location;
       Location<?>[] locations = Location.DATA_KEYS.getData(dataContext);
-      myMultipleSelection = locations != null && locations.length > 1;
-      return;
+      boolean myMultipleSelection = locations != null && locations.length > 1;
+      return Pair.create(location, myMultipleSelection);
     }
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
-      myLocation = null;
-      return;
+      return Pair.create(null, false);
     }
     final PsiElement element = getSelectedPsiElement(dataContext, project);
     if (element == null) {
-      myLocation = null;
-      return;
+      return Pair.create(null, false);
     }
-    myLocation = new PsiLocation<>(project, myModule, element);
+    location = new PsiLocation<>(project, module, element);
     final PsiElement[] elements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(dataContext);
+    boolean myMultipleSelection;
     if (elements != null) {
       myMultipleSelection = elements.length > 1;
     }
@@ -116,11 +130,20 @@ public class ConfigurationContext {
       final VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
       myMultipleSelection = files != null && files.length > 1;
     }
+    return Pair.create(location, myMultipleSelection);
   }
 
   public ConfigurationContext(PsiElement element) {
     myModule = ModuleUtilCore.findModuleForPsiElement(element);
     myLocation = new PsiLocation<>(element.getProject(), myModule, element);
+    myRuntimeConfiguration = null;
+    myContextComponent = null;
+  }
+
+  private ConfigurationContext(@NotNull Location location) {
+    //noinspection unchecked
+    myLocation = location;
+    myModule = location.getModule();
     myRuntimeConfiguration = null;
     myContextComponent = null;
   }
@@ -206,40 +229,58 @@ public class ConfigurationContext {
       return null;
     }
 
-    final List<RuntimeConfigurationProducer> producers = findPreferredProducers();
-    if (myRuntimeConfiguration != null) {
-      if (producers != null) {
-        for (RuntimeConfigurationProducer producer : producers) {
-          final RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(myLocation, this);
-          if (configuration != null && configuration.getConfiguration() == myRuntimeConfiguration) {
-            myExistingConfiguration.set(configuration);
-          }
-        }
-      }
-      for (RunConfigurationProducer producer : RunConfigurationProducer.getProducers(getProject())) {
-        RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(this);
-        if (configuration != null && configuration.getConfiguration() == myRuntimeConfiguration) {
-          myExistingConfiguration.set(configuration);
-        }
-      }
+    if (MultipleRunLocationsProvider.findAlternativeLocations(myLocation) != null) {
+      myExistingConfiguration.set(null);
+      return null;
     }
+
+    final List<RuntimeConfigurationProducer> producers = findPreferredProducers();
+    List<ExistingConfiguration> existingConfigurations = new ArrayList<>();
     if (producers != null) {
       for (RuntimeConfigurationProducer producer : producers) {
-        final RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(myLocation, this);
+        RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(myLocation, this);
         if (configuration != null) {
-          myExistingConfiguration.set(configuration);
+          existingConfigurations.add(new ExistingConfiguration(configuration, null));
         }
       }
     }
-    for (RunConfigurationProducer producer : RunConfigurationProducer.getProducers(getProject())) {
+    for (RunConfigurationProducer<?> producer : RunConfigurationProducer.getProducers(getProject())) {
       RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(this);
       if (configuration != null) {
-        if (!Registry.is("suggest.all.run.configurations.from.context") || configuration.equals(myConfiguration)) {
-          myExistingConfiguration.set(configuration);
-        }
+        existingConfigurations.add(new ExistingConfiguration(configuration, producer));
       }
     }
+    myExistingConfiguration.set(findPreferredConfiguration(existingConfigurations, psiElement));
     return myExistingConfiguration.get();
+  }
+
+  @Nullable
+  private RunnerAndConfigurationSettings findPreferredConfiguration(@NotNull List<ExistingConfiguration> existingConfigurations,
+                                                                    @NotNull PsiElement psiElement) {
+    for (ExistingConfiguration configuration : existingConfigurations) {
+      RunnerAndConfigurationSettings settings = configuration.getSettings();
+      if (settings.equals(myConfiguration)) {
+        return settings;
+      }
+      if (myRuntimeConfiguration != null && settings.getConfiguration() == myRuntimeConfiguration) {
+        return settings;
+      }
+    }
+    if (Registry.is("suggest.all.run.configurations.from.context")) {
+      return null;
+    }
+    List<ConfigurationFromContext> contexts = ContainerUtil.mapNotNull(existingConfigurations, configuration -> {
+      if (configuration.getProducer() == null) {
+        return null;
+      }
+      return new ConfigurationFromContextImpl(configuration.getProducer(), configuration.getSettings(), psiElement);
+    });
+    if (!contexts.isEmpty()) {
+      ConfigurationFromContext min = Collections.min(contexts, ConfigurationFromContext.COMPARATOR);
+      return min.getConfigurationSettings();
+    }
+    ExistingConfiguration first = ContainerUtil.getFirstItem(existingConfigurations);
+    return first != null ? first.getSettings() : null;
   }
 
   @Nullable
@@ -269,12 +310,13 @@ public class ConfigurationContext {
     return element;
   }
 
+  @NotNull
   public RunManager getRunManager() {
     return RunManager.getInstance(getProject());
   }
 
   public Project getProject() {
-    return myLocation.getProject();
+    return myConfiguration == null ? myLocation.getProject() : myConfiguration.getConfiguration().getProject();
   }
 
   public Module getModule() {
@@ -295,11 +337,7 @@ public class ConfigurationContext {
    */
   @Nullable
   public RunConfiguration getOriginalConfiguration(@Nullable ConfigurationType type) {
-    if (type == null) {
-      return myRuntimeConfiguration;
-    }
-    if (myRuntimeConfiguration != null
-        && ConfigurationTypeUtil.equals(myRuntimeConfiguration.getType(), type)) {
+    if (type == null || (myRuntimeConfiguration != null && myRuntimeConfiguration.getType() == type)) {
       return myRuntimeConfiguration;
     }
     return null;
@@ -316,7 +354,7 @@ public class ConfigurationContext {
    * @return true if the original run configuration is of the same type or it's undefined; false otherwise
    */
   public boolean isCompatibleWithOriginalRunConfiguration(@NotNull ConfigurationType type) {
-    return myRuntimeConfiguration == null || ConfigurationTypeUtil.equals(myRuntimeConfiguration.getType(), type);
+    return myRuntimeConfiguration == null || myRuntimeConfiguration.getType() == type;
   }
 
   @Deprecated
@@ -334,5 +372,26 @@ public class ConfigurationContext {
       myConfigurationsFromContext = PreferredProducerFind.getConfigurationsFromContext(myLocation, this, true);
     }
     return myConfigurationsFromContext;
+  }
+
+  private static final class ExistingConfiguration {
+    private final RunnerAndConfigurationSettings myConfigurationSettings;
+    private final RunConfigurationProducer<?> myProducer;
+
+    private ExistingConfiguration(@NotNull RunnerAndConfigurationSettings configurationSettings,
+                                  @Nullable RunConfigurationProducer<?> producer) {
+      myConfigurationSettings = configurationSettings;
+      myProducer = producer;
+    }
+
+    @NotNull
+    private RunnerAndConfigurationSettings getSettings() {
+      return myConfigurationSettings;
+    }
+
+    @Nullable
+    private RunConfigurationProducer<?> getProducer() {
+      return myProducer;
+    }
   }
 }

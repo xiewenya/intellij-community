@@ -16,12 +16,16 @@
 
 package com.intellij.psi.impl.smartPointers;
 
+import com.intellij.extapi.psi.ASTDelegatePsiElement;
+import com.intellij.lang.ASTNode;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -31,6 +35,7 @@ import com.intellij.psi.impl.PsiDocumentManagerBase;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.tree.IStubFileElementType;
+import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,7 +44,7 @@ import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
 
 class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx<E> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.smartPointers.SmartPsiElementPointerImpl");
+  private static final Logger LOG = Logger.getInstance(SmartPsiElementPointerImpl.class);
 
   private Reference<E> myElement;
   private final SmartPointerElementInfo myElementInfo;
@@ -81,6 +86,8 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
   @Override
   @Nullable
   public E getElement() {
+    if (getProject().isDisposed()) return null;
+
     E element = getCachedElement();
     if (element == null || !element.isValid()) {
       element = doRestoreElement();
@@ -148,7 +155,7 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
                                                                                   PsiFile containingFile,
                                                                                   boolean forInjected) {
     SmartPointerElementInfo elementInfo = doCreateElementInfo(manager.getProject(), element, containingFile, forInjected);
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
+    if (ApplicationManager.getApplication().isUnitTestMode() && !ApplicationInfoImpl.isInStressTest()) {
       PsiElement restored = elementInfo.restoreElement(manager);
       if (!element.equals(restored)) {
         // likely cause: PSI having isPhysical==true, but which can't be restored by containing file and range. To fix, make isPhysical return false
@@ -165,7 +172,7 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
     if (element instanceof PsiDirectory) {
       return new DirElementInfo((PsiDirectory)element);
     }
-    if (element instanceof PsiCompiledElement || containingFile == null || !containingFile.isPhysical() || !element.isPhysical()) {
+    if (element instanceof PsiCompiledElement || containingFile == null) {
       if (element instanceof StubBasedPsiElement && element instanceof PsiCompiledElement) {
         if (element instanceof PsiFile) {
           return new FileElementInfo((PsiFile)element);
@@ -175,11 +182,11 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
           return new ClsElementInfo(stubReference);
         }
       }
-      return new HardElementInfo(project, element);
+      return new HardElementInfo(element);
     }
 
     FileViewProvider viewProvider = containingFile.getViewProvider();
-    if (viewProvider instanceof FreeThreadedFileViewProvider) {
+    if (viewProvider instanceof FreeThreadedFileViewProvider && hasReliableRange(element, containingFile)) {
       PsiLanguageInjectionHost hostContext = InjectedLanguageManager.getInstance(containingFile.getProject()).getInjectionHost(containingFile);
       TextRange elementRange = element.getTextRange();
       if (hostContext != null && elementRange != null) {
@@ -188,14 +195,22 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
       }
     }
 
+    VirtualFile virtualFile = viewProvider.getVirtualFile();
     if (element instanceof PsiFile) {
-      return new FileElementInfo((PsiFile)element);
+      FileViewProvider restored = PsiManager.getInstance(project).findViewProvider(virtualFile);
+      return restored != null && restored.getPsi(LanguageUtil.getRootLanguage(element)) == element
+             ? new FileElementInfo((PsiFile)element)
+             : new HardElementInfo(element);
     }
 
-    Document document = FileDocumentManager.getInstance().getCachedDocument(viewProvider.getVirtualFile());
+    if (!hasReliableRange(element, containingFile)) {
+      return new HardElementInfo(element);
+    }
+
+    Document document = FileDocumentManager.getInstance().getCachedDocument(virtualFile);
     if (document != null &&
         ((PsiDocumentManagerBase)PsiDocumentManager.getInstance(project)).getSynchronizer().isDocumentAffectedByTransactions(document)) {
-      LOG.error("Smart pointers shouldn't be created during PSI changes");
+      LOG.error("Smart pointers must not be created during PSI changes");
     }
 
     SmartPointerElementInfo info = createAnchorInfo(element, containingFile);
@@ -205,17 +220,39 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
 
     TextRange elementRange = element.getTextRange();
     if (elementRange == null) {
-      return new HardElementInfo(project, element);
+      return new HardElementInfo(element);
     }
     Identikit.ByType identikit = Identikit.fromPsi(element, LanguageUtil.getRootLanguage(element));
     if (elementRange.isEmpty() && 
         identikit.findPsiElement(containingFile, elementRange.getStartOffset(), elementRange.getEndOffset()) != element) {
       // PSI has empty range, no text, but complicated structure (e.g. PSI built on C-style macro expansions). It can't be reliably
       // restored by just one offset in a file, so hold it on a hard reference
-      return new HardElementInfo(project, element);
+      return new HardElementInfo(element);
     }
+
+    if (!containingFile.isPhysical() && document == null) {
+      // there's no document whose events could be tracked and used for restoration by offset
+      return new HardElementInfo(element);
+    }
+
     ProperTextRange proper = ProperTextRange.create(elementRange);
     return new SelfElementInfo(proper, identikit, containingFile, forInjected);
+  }
+
+  // check it's not some fake PSI that overrides getContainingFile/getTextRange/isPhysical/etc and confuses everyone
+  private static boolean hasReliableRange(@NotNull PsiElement element, @NotNull PsiFile containingFile) {
+    return (element instanceof ASTDelegatePsiElement || element instanceof ASTNode) && !isFakePsiInNormalFile(element, containingFile);
+  }
+
+  private static boolean isFakePsiInNormalFile(@NotNull PsiElement element, @NotNull PsiFile containingFile) {
+    if (element.isPhysical()) return false;
+    if (containingFile.isPhysical()) return true; // non-physical PSI in physical file, suspicious
+
+    // in normal non-physical files there might also be fake PSI, so let's (expensively!) check we can find it by offset
+    // hopefully in some future we'll prohibit such fake PSI
+    TextRange range = element.getTextRange();
+    return range == null ||
+           PsiTreeUtil.findElementOfClassAtRange(containingFile, range.getStartOffset(), range.getEndOffset(), element.getClass()) != element;
   }
 
   @Nullable
@@ -245,6 +282,7 @@ class SmartPsiElementPointerImpl<E extends PsiElement> implements SmartPointerEx
 
   static boolean pointsToTheSameElementAs(@NotNull SmartPsiElementPointer pointer1, @NotNull SmartPsiElementPointer pointer2) {
     if (pointer1 == pointer2) return true;
+    ProgressManager.checkCanceled();
     if (pointer1 instanceof SmartPsiElementPointerImpl && pointer2 instanceof SmartPsiElementPointerImpl) {
       SmartPsiElementPointerImpl impl1 = (SmartPsiElementPointerImpl)pointer1;
       SmartPsiElementPointerImpl impl2 = (SmartPsiElementPointerImpl)pointer2;

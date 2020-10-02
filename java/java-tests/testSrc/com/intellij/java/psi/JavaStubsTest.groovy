@@ -16,25 +16,30 @@
 package com.intellij.java.psi
 
 import com.intellij.codeInsight.AnnotationTargetUtil
-import com.intellij.codeInspection.dataFlow.ControlFlowAnalyzer
+import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.psi.*
 import com.intellij.psi.impl.source.PsiClassImpl
+import com.intellij.psi.impl.source.PsiFieldImpl
 import com.intellij.psi.impl.source.PsiFileImpl
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.psi.search.searches.AnnotatedElementsSearch
 import com.intellij.psi.search.searches.ClassInheritorsSearch
 import com.intellij.psi.search.searches.DirectClassInheritorsSearch
+import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.PsiUtil
 import com.intellij.testFramework.PsiTestUtil
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import groovy.transform.CompileStatic
 
 import java.util.concurrent.Callable
 
-class JavaStubsTest extends LightCodeInsightFixtureTestCase {
+@CompileStatic
+class JavaStubsTest extends LightJavaCodeInsightFixtureTestCase {
 
   void "test resolve from annotation method default"() {
     def cls = myFixture.addClass("""
@@ -64,7 +69,7 @@ class JavaStubsTest extends LightCodeInsightFixtureTestCase {
       """.stripIndent())
 
     def file = cls.containingFile as PsiFileImpl
-    assert ControlFlowAnalyzer.isPure(cls.methods[0])
+    assert JavaMethodContractUtil.isPure(cls.methods[0])
     assert file.stub
     assert !file.contentsLoaded
   }
@@ -160,7 +165,8 @@ import java.lang.annotation.*;
   }
 
   void "test parameter list count"() {
-    def list = myFixture.addClass('class Cls { void foo(a) {} }').methods[0].parameterList
+    myFixture.addFileToProject('a.java', 'class Cls { void foo(a) {} }')
+    def list = myFixture.findClass('Cls').methods[0].parameterList
     assert list.parametersCount == list.parameters.size()
   }
 
@@ -178,7 +184,7 @@ import java.lang.annotation.*;
   void "test breaking and adding import does not cause stub AST mismatch"() {
     def file = myFixture.addFileToProject("a.java", "import foo.*; import bar.*; class Foo {}") as PsiJavaFile
     def another = myFixture.addClass("package zoo; public class Another {}")
-    WriteCommandAction.runWriteCommandAction(project) { 
+    WriteCommandAction.runWriteCommandAction(project) {
       file.viewProvider.document.insertString(file.text.indexOf('import'), 'x')
       PsiDocumentManager.getInstance(project).commitAllDocuments()
       file.importClass(another)
@@ -188,12 +194,12 @@ import java.lang.annotation.*;
 
   void "test removing import in broken code does not cause stub AST mismatch"() {
     def file = myFixture.addFileToProject("a.java", "import foo..module.SomeClass; class Foo {}") as PsiJavaFile
-    WriteCommandAction.runWriteCommandAction(project) { 
+    WriteCommandAction.runWriteCommandAction(project) {
       file.importList.importStatements[0].delete()
     }
     PsiTestUtil.checkStubsMatchText(file)
   }
-  
+
   void "test adding type before method call does not cause stub AST mismatch"() {
     def file = myFixture.addFileToProject("a.java", """
 class Foo {
@@ -203,7 +209,7 @@ class Foo {
   }
 }
 """) as PsiJavaFile
-    WriteCommandAction.runWriteCommandAction(project) { 
+    WriteCommandAction.runWriteCommandAction(project) {
       file.viewProvider.document.insertString(file.text.indexOf('call'), 'char ')
       PsiDocumentManager.getInstance(project).commitAllDocuments()
       PsiTestUtil.checkStubsMatchText(file)
@@ -215,8 +221,8 @@ class Foo {
     PsiFile psiFile = myFixture.addFileToProject("a.java", text)
     Document document = psiFile.getViewProvider().getDocument()
 
-    WriteCommandAction.runWriteCommandAction(project) { 
-      document.insertString(text.indexOf("return"), "class ") 
+    WriteCommandAction.runWriteCommandAction(project) {
+      document.insertString(text.indexOf("return"), "class ")
     }
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments()
     PsiTestUtil.checkStubsMatchText(psiFile)
@@ -266,7 +272,7 @@ class Foo {
     assert !((PsiFileImpl) psiFile).contentsLoaded
   }
 
-  void "test anonymous class generics"() {
+  void "test anonymous class stubs see method type parameters"() {
     PsiFileImpl file = (PsiFileImpl) myFixture.addFileToProject("A.java", """
 class A {
     <V> Object foo() {
@@ -284,6 +290,61 @@ interface I<T> {}
     assert i == anon.baseClassType.resolve()
     assert a.methods[0].typeParameters[0] == PsiUtil.resolveClassInClassTypeOnly(anon.baseClassType.parameters[0])
 
+    assert !file.contentsLoaded
+  }
+
+  void "test anonymous class stubs see local classes"() {
+    PsiFileImpl file = (PsiFileImpl) myFixture.addFileToProject("A.java", """
+class A {
+    void foo() {
+      class Local {}
+      new I<Local>(){};
+    }
+}
+
+interface I<T> {}
+""")
+
+    PsiClass i = ((PsiJavaFile) file).classes[1]
+    PsiAnonymousClass anon = assertOneElement(DirectClassInheritorsSearch.search(i).findAll()) as PsiAnonymousClass
+
+    assert !file.contentsLoaded
+
+    assert i == anon.baseClassType.resolve()
+    assert PsiUtil.resolveClassInClassTypeOnly(anon.baseClassType.parameters[0])?.name == 'Local'
+  }
+
+  void "test local class stubs see other local classes"() {
+    PsiFileImpl file = (PsiFileImpl) myFixture.addFileToProject("A.java", """
+class A {
+    void foo() {
+      class Local1 {}
+      class Local2 extends Local1 {}
+    }
+}
+""")
+
+    def cache = PsiShortNamesCache.getInstance(project)
+    def local1 = cache.getClassesByName('Local1', GlobalSearchScope.allScope(project))[0]
+    def local2 = cache.getClassesByName('Local2', GlobalSearchScope.allScope(project))[0]
+
+    assert !file.contentsLoaded
+
+    assert local1 == local2.superClass
+  }
+
+  void "test local class stubs do not load AST for inheritance checking when possible"() {
+    PsiFileImpl file = (PsiFileImpl) myFixture.addFileToProject("A.java", """
+class A {
+    void foo() {
+      class UnrelatedLocal {}
+      class Local extends A {}
+    }
+}
+""")
+
+    def local = PsiShortNamesCache.getInstance(project).getClassesByName('Local', GlobalSearchScope.allScope(project))[0]
+    assert 'A' == local.superClass.name
     assert !file.contentsLoaded
   }
 
@@ -319,4 +380,91 @@ class A {
     PsiTestUtil.checkStubsMatchText(myFixture.addFileToProject("a.java", text))
   }
 
+  void "test incomplete static import does not cause CCE"() {
+    def file = myFixture.addFileToProject('a.java', 'import static foo.bar.') as PsiJavaFile
+    assert ((PsiFileImpl)file).stub
+    assert file.node
+    def staticImport = ((PsiJavaFile)file).importList.importStaticStatements[0]
+    assert staticImport.referenceName == null
+    assert !staticImport.resolveTargetClass()
+  }
+
+  void "test adding import to broken file with type parameters"() {
+    def file = myFixture.addFileToProject("a.java", "A<B>") as PsiJavaFile
+    WriteCommandAction.runWriteCommandAction(project) {
+      file.importClass(myFixture.findClass(CommonClassNames.JAVA_UTIL_LIST))
+    }
+    PsiTestUtil.checkStubsMatchText(file)
+  }
+
+  void "test remove extends reference before dot"() {
+    def file = myFixture.addFileToProject('a.java', 'class A extends B. { int a; }')
+    WriteCommandAction.runWriteCommandAction(project) {
+      myFixture.findClass("A").extendsList.referenceElements[0].delete()
+    }
+    PsiTestUtil.checkStubsMatchText(file)
+  }
+
+  void "test remove type argument list after space"() {
+    def file = myFixture.addFileToProject('a.java', 'class A { A <B>a; }')
+    WriteCommandAction.runWriteCommandAction(project) {
+      myFixture.findClass("A").fields[0].typeElement.innermostComponentReferenceElement.parameterList.delete()
+    }
+    PsiTestUtil.checkStubsMatchText(file)
+    PsiTestUtil.checkFileStructure(file)
+  }
+
+  void "test remove modifier making a comment a class javadoc"() {
+    def file = myFixture.addFileToProject('a.java', 'import foo; final /** @deprecated */ public class A { }')
+    WriteCommandAction.runWriteCommandAction(project) {
+      myFixture.findClass("A").modifierList.children[0].delete()
+    }
+    PsiTestUtil.checkFileStructure(file)
+    PsiTestUtil.checkStubsMatchText(file)
+  }
+
+  void "test add reference into broken extends list"() {
+    def file = myFixture.addFileToProject('a.java', 'class A extends.ends Foo { int a; }')
+    WriteCommandAction.runWriteCommandAction(project) {
+      myFixture.findClass("A").extendsList.add(JavaPsiFacade.getElementFactory(project).createReferenceElementByFQClassName(CommonClassNames.JAVA_LANG_OBJECT, file.resolveScope))
+    }
+    PsiTestUtil.checkStubsMatchText(file)
+  }
+
+  void "test identifier dot before class"() {
+    def file = myFixture.addFileToProject('a.java', 'class A {{ public id.class B {}}}')
+    PsiTestUtil.checkStubsMatchText(file)
+  }
+
+  void "test removing orphan annotation"() {
+    String text = """\
+public class Foo {
+    public Foo() {
+    }
+
+    @Override
+  public void initSteps {
+  }
+}"""
+    PsiFile psiFile = myFixture.addFileToProject("a.java", text)
+    WriteCommandAction.runWriteCommandAction(project) {
+      PsiTreeUtil.findChildOfType(psiFile, PsiAnnotation).delete()
+    }
+    PsiTestUtil.checkStubsMatchText(psiFile)
+  }
+
+  void "test local record"() {
+    PsiTestUtil.checkStubsMatchText(myFixture.addFileToProject('a.java', 'class A {\n' +
+                                                                         '  void test() {\n' +
+                                                                         '    record A(String s) { }\n' +
+                                                                         '  }\n' +
+                                                                         '}\n'))
+  }
+
+  void "test field with missing initializer"() {
+    def file = myFixture.addFileToProject('a.java', 'class A { int a = ; } ')
+    def clazz = myFixture.findClass('A')
+    assert PsiFieldImpl.getDetachedInitializer(clazz.fields[0]) == null
+    assert !((PsiFileImpl) file).contentsLoaded
+  }
 }

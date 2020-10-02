@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.template.formatter;
 
-import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.formatting.Block;
 import com.intellij.formatting.FormattingModel;
 import com.intellij.formatting.FormattingModelBuilder;
@@ -31,6 +16,8 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.templateLanguages.TemplateLanguageFileViewProvider;
+import com.intellij.util.text.TextRangeUtil;
+import com.intellij.xml.psi.XmlPsiBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,13 +25,13 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-public class TemplateFormatUtil {
+public final class TemplateFormatUtil {
 
   private final static List<PsiElement> EMPTY_PSI_ELEMENT_LIST = new ArrayList<>();
-  
+
   private final static String[] IGNORABLE_ERROR_MESSAGES = {
-    XmlErrorMessages.message("xml.parsing.closing.tag.matches.nothing"),
-    XmlErrorMessages.message("xml.parsing.closing.tag.name.missing")
+    XmlPsiBundle.message("xml.parsing.closing.tag.matches.nothing"),
+    XmlPsiBundle.message("xml.parsing.closing.tag.name.missing")
   };
 
   private TemplateFormatUtil() {
@@ -70,14 +57,14 @@ public class TemplateFormatUtil {
   static List<PsiElement> findAllElementsInside(@NotNull TextRange range,
                                                 @NotNull TemplateLanguageFileViewProvider viewProvider,
                                                 boolean fromTemplate) {
-    return findAllElementsInside(range, viewProvider, viewProvider.getBaseLanguage(),
+    return findAllElementsInside(range, viewProvider,
                                  fromTemplate ? viewProvider.getBaseLanguage() : viewProvider.getTemplateDataLanguage());
   }
 
   @NotNull
   public static List<PsiElement> findAllElementsInside(TextRange range,
                                                        TemplateLanguageFileViewProvider viewProvider,
-                                                       Language templateLanguage, Language language) {
+                                                       Language language) {
     List<PsiElement> matchingElements = new ArrayList<>();
     PsiElement currElement = viewProvider.findElementAt(range.getStartOffset(), language);
     while (currElement instanceof OuterLanguageElement) {
@@ -85,25 +72,21 @@ public class TemplateFormatUtil {
     }
     if (currElement != null) {
       currElement = findTopmostElementInRange(currElement, range);
-      Pair<Integer, PsiElement> result =
-        addElementSequence(currElement, templateLanguage, range, matchingElements, templateLanguage == language);
+      Pair<Integer, PsiElement> result = addElementSequence(currElement, range, matchingElements);
       int lastOffset = result.first;
       assert lastOffset >= 0 : "Failed to process elements in range: " + range;
       if (lastOffset < range.getEndOffset()) {
-        List<PsiElement> moreElements =
-          findAllElementsInside(new TextRange(lastOffset, range.getEndOffset()), viewProvider, templateLanguage, language);
-        matchingElements.addAll(moreElements);
+        matchingElements.addAll(findAllElementsInside(new TextRange(lastOffset, range.getEndOffset()), viewProvider, language));
       }
     }
     return matchingElements;
   }
 
-  private static Pair<Integer,PsiElement> addElementSequence(PsiElement startElement, Language templateLanguage, TextRange range, List<PsiElement> targetList, boolean fromTemplate) {
+  private static Pair<Integer,PsiElement> addElementSequence(PsiElement startElement, TextRange range, List<? super PsiElement> targetList) {
     PsiElement currElement = startElement;
     int lastOffset = -1;
     while (currElement != null && (lastOffset = currElement.getTextRange().getEndOffset()) <= range.getEndOffset()) {
-      boolean isTemplateLanguage = currElement.getLanguage().is(templateLanguage);
-      if (fromTemplate == isTemplateLanguage) {
+      if (!(currElement instanceof OuterLanguageElement)) {
         targetList.add(currElement);
       }
       currElement = currElement.getNextSibling();
@@ -111,7 +94,7 @@ public class TemplateFormatUtil {
     if (currElement != null && currElement.getTextRange().intersects(range)) {
       PsiElement child = currElement.getFirstChild();
       if (child != null) {
-        addElementSequence(child, templateLanguage, range, targetList, fromTemplate);
+        addElementSequence(child, range, targetList);
       }
     }
     return new Pair<>(lastOffset, currElement);
@@ -135,7 +118,7 @@ public class TemplateFormatUtil {
     return original;
   }
 
-  static List<Block> mergeBlocks(List<Block> originalBlocks, List<Block> blocksToMerge, TextRange range)
+  static List<Block> mergeBlocks(List<Block> originalBlocks, List<? extends Block> blocksToMerge, TextRange range)
     throws FragmentedTemplateException {
     if (blocksToMerge.isEmpty()) return originalBlocks;
     List<Block> result = new ArrayList<>();
@@ -185,15 +168,15 @@ public class TemplateFormatUtil {
     return result;
   }
 
-  private static int fillGap(List<TextRange> originalRanges, List<Block> blocks, List<Block> result, int startOffset, int endOffset)
+  private static int fillGap(List<? extends TextRange> originalRanges, List<? extends Block> blocks, List<? super Block> result, int startOffset, int endOffset)
     throws FragmentedTemplateException {
     return fillGap(null, originalRanges, blocks, result, startOffset, endOffset, 0);
   }
 
   private static int fillGap(@Nullable Block parent,
-                             List<TextRange> originalRanges,
-                             List<Block> blocks,
-                             List<Block> result,
+                             List<? extends TextRange> originalRanges,
+                             List<? extends Block> blocks,
+                             List<? super Block> result,
                              int startOffset,
                              int endOffset,
                              int depth) throws
@@ -210,7 +193,7 @@ public class TemplateFormatUtil {
         lastOffset = block.getTextRange().getEndOffset();
         currRange = new TextRange(lastOffset, endOffset);
       }
-      else if (currRange.intersects(block.getTextRange()) && intersectsOneOf(block.getTextRange(), originalRanges)) {
+      else if (currRange.intersects(block.getTextRange()) && TextRangeUtil.intersectsOneOf(block.getTextRange(), originalRanges)) {
         List<Block> subBlocks = block.getSubBlocks();
         if (block instanceof TemplateLanguageBlock && ((TemplateLanguageBlock)block).containsErrorElements()) {
           throw new FragmentedTemplateException();
@@ -222,31 +205,15 @@ public class TemplateFormatUtil {
     return lastOffset;
   }
 
-  public static boolean intersectsOneOf(TextRange blockRange, List<TextRange> originalRanges) {
-    return
-      rangesContain(originalRanges, 0, originalRanges.size() - 1, blockRange.getStartOffset()) ||
-      rangesContain(originalRanges, 0, originalRanges.size() - 1, blockRange.getEndOffset());
-  }
-
-  static boolean rangesContain(List<TextRange> ranges, int startIndex, int endIndex, int offset) {
-    if (endIndex < startIndex || ranges.size() <= startIndex || ranges.size() <= endIndex) return false;
-    int startOffset = ranges.get(startIndex).getStartOffset();
-    int endOffset = ranges.get(endIndex).getEndOffset();
-    if (offset < startOffset || offset > endOffset) return false;
-    if (startIndex == endIndex) return true;
-    int midIndex = (endIndex + startIndex) / 2;
-    return rangesContain(ranges, startIndex, midIndex, offset)  || rangesContain(ranges, midIndex  + 1, endIndex, offset);
-  }
-
-  private static Block getBlockContaining(List<Block> blockList, List<TextRange> originalRanges, TextRange range) {
+  private static Block getBlockContaining(List<? extends Block> blockList, List<? extends TextRange> originalRanges, TextRange range) {
     return getBlockContaining(blockList, originalRanges, range, 0);
   }
 
   @Nullable
-  private static Block getBlockContaining(List<Block> blockList, List<TextRange> originalRanges, TextRange range, int depth) {
+  private static Block getBlockContaining(List<? extends Block> blockList, List<? extends TextRange> originalRanges, TextRange range, int depth) {
     for (Block block : blockList) {
       if (block.getTextRange().contains(range)) {
-        if (intersectsOneOf(block.getTextRange(), originalRanges)) {
+        if (TextRangeUtil.intersectsOneOf(block.getTextRange(), originalRanges)) {
           Block containingBlock = getBlockContaining(block.getSubBlocks(), originalRanges, range, depth + 1);
           if (containingBlock != null) return containingBlock;
         }
@@ -259,7 +226,7 @@ public class TemplateFormatUtil {
   /**
    * Creates a template language block for the given outer element if possible. Finds all the elements matching the current outerElement in
    * a template language PSI tree and builds a submodel for them with a composite root block.
-   * 
+   *
    * @param outerElement  The outer element for which the submodel (template language root block) is to be built.
    * @param settings      Code style settings to be used to build the submodel.
    * @param indent        The indent for the root block.

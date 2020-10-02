@@ -1,23 +1,25 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.service.resolve;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiType;
+import com.intellij.psi.ResolveState;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
 import org.jetbrains.plugins.groovy.lang.resolve.NonCodeMembersContributor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 7/23/13 4:21 PM
  */
 public class GradleScriptContributor extends NonCodeMembersContributor {
 
@@ -36,9 +38,9 @@ public class GradleScriptContributor extends NonCodeMembersContributor {
                                      @NotNull PsiScopeProcessor processor,
                                      @NotNull PsiElement place,
                                      @NotNull ResolveState state) {
-    if(!UtilKt.isResolvedInGradleScript(aClass)) return;
+    if (!UtilKt.isResolvedInGradleScript(aClass)) return;
 
-    List<String> methodInfo = ContainerUtilRt.newArrayList();
+    List<String> methodInfo = new ArrayList<>();
     for (GrMethodCall current = PsiTreeUtil.getParentOfType(place, GrMethodCall.class);
          current != null;
          current = PsiTreeUtil.getParentOfType(current, GrMethodCall.class)) {

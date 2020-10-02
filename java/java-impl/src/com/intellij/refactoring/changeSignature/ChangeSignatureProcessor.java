@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.changeSignature;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -32,32 +19,26 @@ import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
 import com.intellij.util.containers.ContainerUtil;
-import java.util.HashSet;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-
-import static com.intellij.util.ObjectUtils.assertNotNull;
+import java.util.*;
 
 /**
  * @author Jeka
- * @since Sep 17, 2001
  */
 public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.changeSignature.ChangeSignatureProcessor");
+  private static final Logger LOG = Logger.getInstance(ChangeSignatureProcessor.class);
 
   public ChangeSignatureProcessor(Project project,
                                   PsiMethod method,
                                   final boolean generateDelegate,
+                                  @Nullable // null means unchanged
                                   @PsiModifier.ModifierConstant String newVisibility,
                                   String newName,
                                   PsiType newType,
-                                  @NotNull ParameterInfoImpl[] parameterInfo) {
+                                  ParameterInfoImpl @NotNull [] parameterInfo) {
     this(project, method, generateDelegate, newVisibility, newName,
          newType != null ? CanonicalTypes.createTypeWrapper(newType) : null,
          parameterInfo, null, null, null);
@@ -66,6 +47,7 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   public ChangeSignatureProcessor(Project project,
                                   PsiMethod method,
                                   final boolean generateDelegate,
+                                  @Nullable // null means unchanged
                                   @PsiModifier.ModifierConstant String newVisibility,
                                   String newName,
                                   PsiType newType,
@@ -79,10 +61,11 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   public ChangeSignatureProcessor(Project project,
                                   PsiMethod method,
                                   boolean generateDelegate,
+                                  @Nullable // null means unchanged
                                   @PsiModifier.ModifierConstant String newVisibility,
                                   String newName,
                                   CanonicalTypes.Type newType,
-                                  @NotNull ParameterInfoImpl[] parameterInfo,
+                                  ParameterInfoImpl @NotNull [] parameterInfo,
                                   ThrownExceptionInfo[] thrownExceptions,
                                   Set<PsiMethod> propagateParametersMethods,
                                   Set<PsiMethod> propagateExceptionsMethods) {
@@ -97,21 +80,22 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
 
   private static JavaChangeInfo generateChangeInfo(PsiMethod method,
                                                    boolean generateDelegate,
+                                                   @Nullable // null means unchanged
                                                    @PsiModifier.ModifierConstant String newVisibility,
                                                    String newName,
                                                    CanonicalTypes.Type newType,
-                                                   @NotNull ParameterInfoImpl[] parameterInfo,
+                                                   ParameterInfoImpl @NotNull [] parameterInfo,
                                                    ThrownExceptionInfo[] thrownExceptions,
                                                    Set<PsiMethod> propagateParametersMethods,
                                                    Set<PsiMethod> propagateExceptionsMethods) {
     LOG.assertTrue(method.isValid());
 
     if (propagateParametersMethods == null) {
-      propagateParametersMethods = ContainerUtil.newHashSet();
+      propagateParametersMethods = new HashSet<>();
     }
 
     if (propagateExceptionsMethods == null) {
-      propagateExceptionsMethods = ContainerUtil.newHashSet();
+      propagateExceptionsMethods = new HashSet<>();
     }
 
     if (newVisibility == null) {
@@ -125,8 +109,9 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
     return javaChangeInfo;
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new ChangeSignatureViewDescriptor(getChangeInfo().getMethod());
   }
 
@@ -136,12 +121,13 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   }
 
   @Override
-  protected void refreshElements(@NotNull PsiElement[] elements) {
+  protected void refreshElements(PsiElement @NotNull [] elements) {
     boolean condition = elements.length == 1 && elements[0] instanceof PsiMethod;
     LOG.assertTrue(condition);
     getChangeInfo().updateMethod((PsiMethod) elements[0]);
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     for (ChangeSignatureUsageProcessor processor : ChangeSignatureUsageProcessor.EP_NAME.getExtensions()) {
       if (!processor.setupDefaultValues(myChangeInfo, refUsages, myProject)) return false;
@@ -151,7 +137,7 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
 
     final UsageInfo[] usagesIn = refUsages.get();
     RenameUtil.addConflictDescriptions(usagesIn, conflictDescriptions);
-    Set<UsageInfo> usagesSet = new HashSet<>(Arrays.asList(usagesIn));
+    Set<UsageInfo> usagesSet = ContainerUtil.set(usagesIn);
     RenameUtil.removeConflictUsages(usagesSet);
     if (!conflictDescriptions.isEmpty()) {
       if (ApplicationManager.getApplication().isUnitTestMode()) {
@@ -176,13 +162,13 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
     return true;
   }
 
-  private void askToRemoveCovariantOverriders(Set<UsageInfo> usages) {
+  private void askToRemoveCovariantOverriders(Set<? extends UsageInfo> usages) {
     if (PsiUtil.isLanguageLevel5OrHigher(myChangeInfo.getMethod())) {
       List<UsageInfo> covariantOverriderInfos = new ArrayList<>();
       for (UsageInfo usageInfo : usages) {
         if (usageInfo instanceof OverriderUsageInfo) {
           final OverriderUsageInfo info = (OverriderUsageInfo)usageInfo;
-          PsiMethod overrider = assertNotNull(info.getOverridingMethod());
+          PsiMethod overrider = Objects.requireNonNull(info.getOverridingMethod());
           PsiMethod baseMethod = info.getBaseMethod();
           PsiSubstitutor substitutor = calculateSubstitutor(overrider, baseMethod);
           PsiType type;
@@ -217,8 +203,8 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   }
 
   protected boolean isProcessCovariantOverriders() {
-    String message = RefactoringBundle.message("do.you.want.to.process.overriding.methods.with.covariant.return.type");
-    return Messages.showYesNoDialog(myProject, message, ChangeSignatureHandler.REFACTORING_NAME, Messages.getQuestionIcon()) == Messages.YES;
+    String message = JavaRefactoringBundle.message("do.you.want.to.process.overriding.methods.with.covariant.return.type");
+    return Messages.showYesNoDialog(myProject, message, RefactoringBundle.message("changeSignature.refactoring.name"), Messages.getQuestionIcon()) == Messages.YES;
   }
 
   public static void makeEmptyBody(final PsiElementFactory factory, final PsiMethod delegate) throws IncorrectOperationException {
@@ -235,7 +221,7 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
   @Nullable
   public static PsiCallExpression addDelegatingCallTemplate(PsiMethod delegate, String newName) throws IncorrectOperationException {
     Project project = delegate.getProject();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     PsiCodeBlock body = delegate.getBody();
     assert body != null;
     final PsiCallExpression callExpression;
@@ -262,7 +248,8 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
     return callExpression;
   }
 
-  public static PsiSubstitutor calculateSubstitutor(PsiMethod derivedMethod, PsiMethod baseMethod) {
+  @NotNull
+  static PsiSubstitutor calculateSubstitutor(@NotNull PsiMethod derivedMethod, @NotNull PsiMethod baseMethod) {
     PsiSubstitutor substitutor;
     if (derivedMethod.getManager().areElementsEquivalent(derivedMethod, baseMethod)) {
       substitutor = PsiSubstitutor.EMPTY;
@@ -270,7 +257,7 @@ public class ChangeSignatureProcessor extends ChangeSignatureProcessorBase {
     else {
       PsiClass baseClass = baseMethod.getContainingClass();
       PsiClass derivedClass = derivedMethod.getContainingClass();
-      if (baseClass != null && derivedClass != null && InheritanceUtil.isInheritorOrSelf(derivedClass, baseClass, true)) {
+      if (baseClass != null && InheritanceUtil.isInheritorOrSelf(derivedClass, baseClass, true)) {
         PsiSubstitutor superClassSubstitutor = TypeConversionUtil.getSuperClassSubstitutor(baseClass, derivedClass, PsiSubstitutor.EMPTY);
         MethodSignature superMethodSignature = baseMethod.getSignature(superClassSubstitutor);
         MethodSignature methodSignature = derivedMethod.getSignature(PsiSubstitutor.EMPTY);

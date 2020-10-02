@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.newProjectWizard;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -33,17 +19,16 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ui.JBUI;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
+import java.nio.file.Paths;
 
 /**
  * @author Dmitry Avdeev
@@ -53,20 +38,20 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
   @Nullable
   private WizardDelegate myDelegate;
 
-  public AbstractProjectWizard(String title, Project project, String defaultPath) {
+  public AbstractProjectWizard(@Nls String title, Project project, String defaultPath) {
     super(title, project);
     myWizardContext = initContext(project, defaultPath, getDisposable());
     myWizardContext.setWizard(this);
   }
 
-  public AbstractProjectWizard(String title, Project project, Component dialogParent) {
+  public AbstractProjectWizard(@NlsContexts.DialogTitle String title, Project project, Component dialogParent) {
     super(title, dialogParent);
     myWizardContext = initContext(project, null, getDisposable());
     myWizardContext.setWizard(this);
   }
 
   @Override
-  protected String addStepComponent(Component component) {
+  protected String addStepComponent(@NotNull Component component) {
     if (component instanceof JComponent) {
       ((JComponent)component).setBorder(JBUI.Borders.empty());
     }
@@ -78,7 +63,7 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
   private static WizardContext initContext(@Nullable Project project, @Nullable String defaultPath, Disposable parentDisposable) {
     WizardContext context = new WizardContext(project, parentDisposable);
     if (defaultPath != null) {
-      context.setProjectFileDirectory(defaultPath, true);
+      context.setProjectFileDirectory(Paths.get(defaultPath), true);
       context.setProjectName(defaultPath.substring(FileUtil.toSystemIndependentName(defaultPath).lastIndexOf("/") + 1));
     }
    return context;
@@ -181,7 +166,7 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
   @Override
   protected final void doOKAction() {
     if (!doFinishAction()) return;
-    
+
     super.doOKAction();
   }
 
@@ -314,6 +299,7 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
     super.doCancelAction();
   }
 
+  @Override
   protected boolean isLastStep() {
     return isLastStep(getCurrentStep());
   }

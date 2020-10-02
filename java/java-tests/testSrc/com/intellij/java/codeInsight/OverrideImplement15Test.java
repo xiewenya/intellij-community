@@ -15,6 +15,7 @@
  */
 package com.intellij.java.codeInsight;
 
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInsight.generation.JavaOverrideMethodsHandler;
 import com.intellij.codeInsight.generation.OverrideImplementExploreUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
@@ -31,8 +32,9 @@ import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.MapDataContext;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.FunctionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
@@ -44,7 +46,7 @@ import java.util.List;
 /**
  * @author ven
  */
-public class OverrideImplement15Test extends LightCodeInsightTestCase {
+public class OverrideImplement15Test extends LightJavaCodeInsightTestCase {
   private static final String BASE_DIR = "/codeInsight/overrideImplement/";
 
   @Override
@@ -54,6 +56,38 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
 
   public void testSimple() { doTest(true); }
   public void testAnnotation() { doTest(true); }
+  public void testTransformJBAnnotations() {
+    doCustomNotNullAnnotations();
+  }
+
+  public void testDoNotTransformJBAnnotationsWhenNewNonAvailable() {
+    doCustomNotNullAnnotations();
+  }
+  
+  private void doCustomNotNullAnnotations() {
+    NullableNotNullManager nullableNotNullManager = NullableNotNullManager.getInstance(getProject());
+    String defaultNotNull = nullableNotNullManager.getDefaultNotNull();
+    List<String> notNulls = nullableNotNullManager.getNotNulls();
+    String defaultNullable = nullableNotNullManager.getDefaultNullable();
+    List<String> nullables = nullableNotNullManager.getNullables();
+
+    try {
+      nullableNotNullManager.setNotNulls(ArrayUtil.append(ArrayUtil.toStringArray(notNulls),"p.NN"));
+      nullableNotNullManager.setDefaultNotNull("p.NN");
+      
+      nullableNotNullManager.setNullables(ArrayUtil.append(ArrayUtil.toStringArray(nullables),"p.N"));
+      nullableNotNullManager.setDefaultNullable("p.N");
+      doTest(true, true);
+    }
+    finally {
+      nullableNotNullManager.setDefaultNotNull(defaultNotNull);
+      nullableNotNullManager.setNotNulls(ArrayUtil.toStringArray(notNulls));
+      
+      nullableNotNullManager.setDefaultNullable(defaultNullable);
+      nullableNotNullManager.setNullables(ArrayUtil.toStringArray(nullables));
+    }
+  }
+
   public void testJavadocForChangedParamName() { doTest(true); }
   public void testThrowsListFromMethodHierarchy() { doTest(true); }
   public void testThrowsListUnrelatedMethods() { doTest(true); }
@@ -73,49 +107,31 @@ public class OverrideImplement15Test extends LightCodeInsightTestCase {
   public void testResolveTypeParamConflict() { doTest(false); }
   public void testRawInheritance() { doTest(false); }
   public void testRawInheritanceWithMethodTypeParameters() { doTest(false); }
+  public void testVoidNameSuggestion() { doTest(false); }
 
   public void testLongFinalParameterList() {
-    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject()).clone();
-    try {
-      CommonCodeStyleSettings javaSettings = codeStyleSettings.getCommonSettings(JavaLanguage.INSTANCE);
-      javaSettings.RIGHT_MARGIN = 80;
-      javaSettings.KEEP_LINE_BREAKS = true;
-      codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_PARAMETERS = true;
-      javaSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
-      CodeStyleSettingsManager.getInstance(getProject()).setTemporarySettings(codeStyleSettings);
-      doTest(false);
-    }
-    finally {
-      CodeStyleSettingsManager.getInstance(getProject()).dropTemporarySettings();
-    }
+    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject());
+    CommonCodeStyleSettings javaSettings = codeStyleSettings.getCommonSettings(JavaLanguage.INSTANCE);
+    javaSettings.RIGHT_MARGIN = 80;
+    javaSettings.KEEP_LINE_BREAKS = true;
+    JavaCodeStyleSettings.getInstance(getProject()).GENERATE_FINAL_PARAMETERS = true;
+    javaSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
+    doTest(false);
   }
 
   public void testOverridingLibraryFunctionWithConfiguredParameterPrefix() {
-    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject()).clone();
-    try {
-      codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).PARAMETER_NAME_PREFIX = "in";
-      CodeStyleSettingsManager.getInstance(getProject()).setTemporarySettings(codeStyleSettings);
-      doTest(false);
-    }
-    finally {
-      CodeStyleSettingsManager.getInstance(getProject()).dropTemporarySettings();
-    }
+    JavaCodeStyleSettings.getInstance(getProject()).PARAMETER_NAME_PREFIX = "in";
+    doTest(false);
   }
 
   public void testLongParameterList() {
-    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject()).clone();
-    try {
-      CommonCodeStyleSettings javaSettings = codeStyleSettings.getCommonSettings(JavaLanguage.INSTANCE);
-      javaSettings.RIGHT_MARGIN = 80;
-      javaSettings.KEEP_LINE_BREAKS = false;
-      codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_PARAMETERS = false;
-      javaSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
-      CodeStyleSettingsManager.getInstance(getProject()).setTemporarySettings(codeStyleSettings);
-      doTest(false);
-    }
-    finally {
-      CodeStyleSettingsManager.getInstance(getProject()).dropTemporarySettings();
-    }
+    CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(getProject());
+    CommonCodeStyleSettings javaSettings = codeStyleSettings.getCommonSettings(JavaLanguage.INSTANCE);
+    javaSettings.RIGHT_MARGIN = 80;
+    javaSettings.KEEP_LINE_BREAKS = false;
+    JavaCodeStyleSettings.getInstance(getProject()).GENERATE_FINAL_PARAMETERS = false;
+    javaSettings.METHOD_PARAMETERS_WRAP = CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM;
+    doTest(false);
   }
 
   public void testImplementedConstructorsExcluded() {

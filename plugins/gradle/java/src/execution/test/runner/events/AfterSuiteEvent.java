@@ -17,11 +17,11 @@ package org.jetbrains.plugins.gradle.execution.test.runner.events;
 
 import com.intellij.execution.testframework.sm.runner.SMTestProxy;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.gradle.execution.test.runner.GradleSMTestProxy;
 import org.jetbrains.plugins.gradle.execution.test.runner.GradleTestsExecutionConsole;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/28/14
  */
 public class AfterSuiteEvent extends AbstractTestEvent {
   public AfterSuiteEvent(GradleTestsExecutionConsole executionConsole) {
@@ -31,28 +31,34 @@ public class AfterSuiteEvent extends AbstractTestEvent {
   @Override
   public void process(@NotNull TestEventXmlView eventXml) throws TestEventXmlView.XmlParserException {
     final String testId = eventXml.getTestId();
-    final TestEventResult result = TestEventResult.fromValue(eventXml.getTestEventResultType());
+    TestEventResult result = TestEventResult.fromValue(eventXml.getTestEventResultType());
 
-    addToInvokeLater(() -> {
-      final SMTestProxy testProxy = findTestProxy(testId);
-      if (testProxy == null) return;
+    final SMTestProxy testProxy = findTestProxy(testId);
+    if (testProxy == null) return;
 
-      if (testProxy != getResultsViewer().getTestsRootNode()) {
-        switch (result) {
-          case SUCCESS:
-            testProxy.setFinished();
-            break;
-          case FAILURE:
-            testProxy.setTestFailed("", null, false);
-            break;
-          case SKIPPED:
-            testProxy.setTestIgnored(null, null);
-            break;
-          case UNKNOWN_RESULT:
-            break;
+    if (testProxy != getResultsViewer().getTestsRootNode()) {
+      if (testProxy instanceof GradleSMTestProxy) {
+        TestEventResult lastResult = ((GradleSMTestProxy)testProxy).getLastResult();
+        if (lastResult == TestEventResult.FAILURE) {
+          result = TestEventResult.FAILURE;
         }
-        getResultsViewer().onSuiteFinished(testProxy);
+        ((GradleSMTestProxy)testProxy).setLastResult(result);
       }
-    });
+      switch (result) {
+        case SUCCESS:
+          testProxy.setFinished();
+          break;
+        case FAILURE:
+          testProxy.setTestFailed("", null, false);
+          break;
+        case SKIPPED:
+          testProxy.setTestIgnored(null, null);
+          break;
+        case UNKNOWN_RESULT:
+          break;
+      }
+      getResultsViewer().onSuiteFinished(testProxy);
+      getExecutionConsole().getEventPublisher().onSuiteFinished(testProxy);
+    }
   }
 }

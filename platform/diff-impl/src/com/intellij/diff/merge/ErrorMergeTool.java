@@ -16,6 +16,7 @@
 package com.intellij.diff.merge;
 
 import com.intellij.diff.util.DiffUtil;
+import com.intellij.openapi.diff.DiffBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,17 +44,12 @@ public class ErrorMergeTool implements MergeTool {
 
     @NotNull private final JPanel myPanel;
 
-    public MyViewer(@NotNull MergeContext context, @NotNull MergeRequest request) {
+    MyViewer(@NotNull MergeContext context, @NotNull MergeRequest request) {
       myMergeContext = context;
       myMergeRequest = request;
 
       myPanel = new JPanel(new BorderLayout());
-      myPanel.add(createComponent(), BorderLayout.CENTER);
-    }
-
-    @NotNull
-    private JComponent createComponent() {
-      return DiffUtil.createMessagePanel("Can't show diff");
+      myPanel.add(DiffUtil.createMessagePanel(DiffBundle.message("error.message.cannot.show.merge")), BorderLayout.CENTER);
     }
 
     @NotNull

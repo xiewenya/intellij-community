@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.execution.ui.layout.ViewContext;
@@ -30,6 +16,8 @@ import com.intellij.ui.content.ContentManager;
 import com.intellij.ui.content.ContentManagerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Objects;
 
 /**
  * Pins any kind of tab in context: editor tab, toolwindow tab or other tabs.
@@ -51,12 +39,12 @@ public class PinActiveTabAction extends DumbAwareAction implements Toggleable {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Handler handler = getHandler(e);
     if (handler == null) return;
     boolean selected = !handler.isPinned;
     handler.setPinned(selected);
-    e.getPresentation().putClientProperty(SELECTED_PROPERTY, selected);
+    Toggleable.setSelected(e.getPresentation(), selected);
   }
 
   @Override
@@ -65,8 +53,8 @@ public class PinActiveTabAction extends DumbAwareAction implements Toggleable {
     boolean enabled = handler != null;
     boolean selected = enabled && handler.isPinned;
 
-    e.getPresentation().setIcon(ActionPlaces.isToolbarPlace(e.getPlace()) ? AllIcons.General.Pin_tab : null);
-    e.getPresentation().putClientProperty(SELECTED_PROPERTY, selected);
+    e.getPresentation().setIcon(e.isFromActionToolbar() ? AllIcons.General.Pin_tab : null);
+    Toggleable.setSelected(e.getPresentation(), selected);
 
     String text;
     // add the word "active" if the target tab is not current
@@ -112,7 +100,7 @@ public class PinActiveTabAction extends DumbAwareAction implements Toggleable {
 
   @NotNull
   private static Handler createHandler(final Content content) {
-    return new Handler(content.isPinned(), content.getManager().getSelectedContent() == content) {
+    return new Handler(content.isPinned(), Objects.requireNonNull(content.getManager()).getSelectedContent() == content) {
       @Override
       void setPinned(boolean value) {
         content.setPinned(value);
@@ -146,7 +134,7 @@ public class PinActiveTabAction extends DumbAwareAction implements Toggleable {
   @Nullable
   private static Content getToolWindowContent(@NotNull AnActionEvent e) {
     // note to future readers: TW tab "pinned" icon is shown when content.getUserData(TW.SHOW_CONTENT_ICON) is true
-    ToolWindow window = PlatformDataKeys.TOOL_WINDOW.getData(e.getDataContext());
+    ToolWindow window = e.getData(PlatformDataKeys.TOOL_WINDOW);
     Content result = window != null ? window.getContentManager().getSelectedContent() : null;
     return result != null && result.isPinnable() ? result : null;
   }

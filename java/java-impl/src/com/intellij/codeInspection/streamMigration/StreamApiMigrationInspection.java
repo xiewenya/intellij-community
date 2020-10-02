@@ -1,21 +1,18 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.streamMigration;
 
 import com.intellij.codeInsight.ExceptionUtil;
-import com.intellij.codeInsight.PsiEquivalenceUtil;
-import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.intention.impl.StreamRefactoringUtil;
-import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
-import com.intellij.codeInspection.LambdaCanBeMethodReferenceInspection;
-import com.intellij.codeInspection.ProblemHighlightType;
-import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.java.JavaFeature;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
@@ -27,6 +24,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.*;
 import one.util.streamex.StreamEx;
@@ -39,6 +37,7 @@ import javax.swing.*;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 
 import static com.intellij.codeInspection.streamMigration.OperationReductionMigration.SUM_OPERATION;
 import static com.intellij.util.ObjectUtils.tryCast;
@@ -57,8 +56,8 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
   @Override
   public JComponent createOptionsPanel() {
     MultipleCheckboxOptionsPanel panel = new MultipleCheckboxOptionsPanel(this);
-    panel.addCheckbox("Warn if only 'forEach' replacement is available", "SUGGEST_FOREACH");
-    panel.addCheckbox("Warn if the loop is trivial", "REPLACE_TRIVIAL_FOREACH");
+    panel.addCheckbox(JavaBundle.message("checkbox.warn.if.only.foreach.replacement.is.available"), "SUGGEST_FOREACH");
+    panel.addCheckbox(JavaBundle.message("checkbox.warn.if.the.loop.is.trivial"), "REPLACE_TRIVIAL_FOREACH");
     return panel;
   }
 
@@ -66,14 +65,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
   @NotNull
   @Override
   public String getGroupDisplayName() {
-    return GroupNames.LANGUAGE_LEVEL_SPECIFIC_GROUP_NAME;
-  }
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return "foreach loop can be collapsed with Stream API";
+    return InspectionsBundle.message("group.names.language.level.specific.issues.and.migration.aids");
   }
 
   @Override
@@ -92,7 +84,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder, boolean isOnTheFly) {
     PsiFile file = holder.getFile();
     VirtualFile virtualFile = file.getVirtualFile();
-    if (!PsiUtil.isLanguageLevel8OrHigher(file) || virtualFile == null ||
+    if (!JavaFeature.STREAMS.isFeatureSupported(file) || virtualFile == null ||
         !FileIndexFacade.getInstance(holder.getProject()).isInSourceContent(virtualFile)) {
       return PsiElementVisitor.EMPTY_VISITOR;
     }
@@ -305,13 +297,16 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
   }
 
   static boolean isVariableSuitableForStream(PsiVariable variable, PsiStatement statement, TerminalBlock tb) {
-    if (ReferencesSearch.search(variable).forEach(ref -> {
-      PsiExpression expression = tryCast(ref.getElement(), PsiExpression.class);
-      return expression == null ||
-             !PsiUtil.isAccessedForWriting(expression) ||
-             tb.operations().anyMatch(op -> op.isWriteAllowed(variable, expression));
-    })) {
-      return true;
+    PsiElement block = PsiUtil.getVariableCodeBlock(variable, statement);
+    if (block != null) {
+      Predicate<PsiElement> notAllowedWrite = e -> {
+        if (!(e instanceof PsiReferenceExpression)) return false;
+        PsiReferenceExpression ref = (PsiReferenceExpression)e;
+        return PsiUtil.isAccessedForWriting(ref) &&
+               ref.isReferenceTo(variable) &&
+               tb.operations().noneMatch(op -> op.isWriteAllowed(variable, ref));
+      };
+      if (PsiTreeUtil.processElements(block, notAllowedWrite.negate()::test)) return true;
     }
     return HighlightControlFlowUtil.isEffectivelyFinal(variable, statement, null);
   }
@@ -375,7 +370,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     private final ProblemsHolder myHolder;
     private final boolean myIsOnTheFly;
 
-    public StreamApiMigrationVisitor(ProblemsHolder holder, boolean isOnTheFly) {
+    StreamApiMigrationVisitor(ProblemsHolder holder, boolean isOnTheFly) {
       myHolder = holder;
       myIsOnTheFly = isOnTheFly;
     }
@@ -414,7 +409,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
       }
       ProblemHighlightType highlightType =
         migration.isShouldWarn() ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING : ProblemHighlightType.INFORMATION;
-      String message = "Can be replaced with '" + migration.getReplacement() + "' call";
+      String message = JavaBundle.message("inspection.stream.api.migration.can.be.replaced.with.call", migration.getReplacement());
       TextRange range = getRange(migration.isShouldWarn(), statement, myIsOnTheFly);
       myHolder.registerProblem(statement, message, highlightType, range.shiftRight(-statement.getTextOffset()), fixes);
     }
@@ -480,8 +475,8 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     }
     Collection<PsiStatement> exitPoints = tb.findExitPoints(controlFlow);
     if (exitPoints == null) return null;
-    boolean onlyNonLabeledContinue = StreamEx.of(exitPoints)
-      .allMatch(statement -> statement instanceof PsiContinueStatement && ((PsiContinueStatement)statement).getLabelIdentifier() == null);
+    boolean onlyNonLabeledContinue = ContainerUtil.and(
+      exitPoints, statement -> statement instanceof PsiContinueStatement && ((PsiContinueStatement)statement).getLabelIdentifier() == null);
     if (onlyNonLabeledContinue && nonFinalVariables.isEmpty()) {
       boolean shouldWarn = suggestForeach &&
                            (replaceTrivialForEach ||
@@ -542,25 +537,27 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
   private static BaseStreamApiMigration findMigrationForReturn(PsiStatement statement, TerminalBlock tb, boolean replaceTrivialForEach) {
     boolean shouldWarn = replaceTrivialForEach || tb.hasOperations();
     PsiReturnStatement returnStatement = (PsiReturnStatement)tb.getSingleStatement();
-    PsiExpression value = returnStatement.getReturnValue();
+    if (returnStatement == null) return null;
+    PsiExpression value = PsiUtil.skipParenthesizedExprDown(returnStatement.getReturnValue());
     PsiReturnStatement nextReturnStatement = ControlFlowUtils.getNextReturnStatement(statement);
-    if (nextReturnStatement != null &&
-        (ExpressionUtils.isLiteral(value, Boolean.TRUE) || ExpressionUtils.isLiteral(value, Boolean.FALSE))) {
-      boolean foundResult = (boolean)((PsiLiteralExpression)value).getValue();
-      String methodName;
-      if (foundResult) {
-        methodName = "anyMatch";
-      }
-      else {
-        methodName = "noneMatch";
-        FilterOp lastFilter = tb.getLastOperation(FilterOp.class);
-        if (lastFilter != null && (lastFilter.isNegated() ^ BoolUtils.isNegation(lastFilter.getExpression()))) {
-          methodName = "allMatch";
+    if (nextReturnStatement != null && value instanceof PsiLiteralExpression) {
+      Boolean foundResult = tryCast(((PsiLiteralExpression)value).getValue(), Boolean.class);
+      if (foundResult != null) {
+        String methodName;
+        if (foundResult) {
+          methodName = "anyMatch";
         }
-      }
-      if (nextReturnStatement.getParent() == statement.getParent() ||
-          ExpressionUtils.isLiteral(nextReturnStatement.getReturnValue(), !foundResult)) {
-        return new MatchMigration(shouldWarn, methodName);
+        else {
+          methodName = "noneMatch";
+          FilterOp lastFilter = tb.getLastOperation(FilterOp.class);
+          if (lastFilter != null && (lastFilter.isNegated() ^ BoolUtils.isNegation(lastFilter.getExpression()))) {
+            methodName = "allMatch";
+          }
+        }
+        if (nextReturnStatement.getParent() == statement.getParent() ||
+            ExpressionUtils.isLiteral(nextReturnStatement.getReturnValue(), !foundResult)) {
+          return new MatchMigration(shouldWarn, methodName);
+        }
       }
     }
     if (!VariableAccessUtils.variableIsUsed(tb.getVariable(), value)) {
@@ -632,7 +629,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     if (arrayType == null || !StreamApiUtil.isSupportedStreamElement(arrayType.getComponentType())) return null;
     PsiExpression dimension = ArrayUtil.getFirstElement(initializer.getArrayDimensions());
     if (dimension == null) return null;
-    PsiExpression bound = loop.myBound;
+    PsiExpression bound = PsiUtil.skipParenthesizedExprDown(loop.myBound);
     if (!isArrayLength(arrayVariable, dimension, bound)) return null;
     if (VariableAccessUtils.variableIsUsed(arrayVariable, assignment.getRExpression())) return null;
     return arrayVariable;
@@ -640,7 +637,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
 
   private static boolean isArrayLength(PsiLocalVariable arrayVariable, PsiExpression dimension, PsiExpression bound) {
     if (ExpressionUtils.isReferenceTo(ExpressionUtils.getArrayFromLengthExpression(bound), arrayVariable)) return true;
-    if (PsiEquivalenceUtil.areElementsEquivalent(dimension, bound)) return true;
+    if (EquivalenceChecker.getCanonicalPsiEquivalence().expressionsAreEquivalent(dimension, bound)) return true;
     if (bound instanceof PsiMethodCallExpression) {
       PsiExpression qualifier = ((PsiMethodCallExpression)bound).getMethodExpression().getQualifierExpression();
       if (qualifier != null && CollectionUtils.isCollectionOrMapSize(dimension, qualifier)) return true;
@@ -853,7 +850,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
 
     @Override
     String createReplacement(CommentTracker ct) {
-      return ".limit(" + getLimitExpression(ct) + ")";
+      return ".limit(" + JavaPsiMathUtil.add(myExpression, myDelta, ct) + ")";
     }
 
     PsiLocalVariable getCounterVariable() {
@@ -874,19 +871,6 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     @Override
     boolean isWriteAllowed(PsiVariable variable, PsiExpression reference) {
       return variable == myCounterVariable && PsiTreeUtil.isAncestor(myCounter, reference, false);
-    }
-
-    private String getLimitExpression(CommentTracker ct) {
-      if (myDelta == 0) {
-        return ct.text(myExpression);
-      }
-      if (myExpression instanceof PsiLiteralExpression) {
-        Object value = ((PsiLiteralExpression)myExpression).getValue();
-        if (value instanceof Integer || value instanceof Long) {
-          return String.valueOf(((Number)value).longValue() + myDelta);
-        }
-      }
-      return ct.text(myExpression, ParenthesesUtils.ADDITIVE_PRECEDENCE) + "+" + myDelta;
     }
   }
 
@@ -931,7 +915,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     }
   }
 
-  static class BufferedReaderLines extends StreamSource {
+  static final class BufferedReaderLines extends StreamSource {
     private static final CallMatcher BUFFERED_READER_READ_LINE =
       CallMatcher.instanceCall("java.io.BufferedReader", "readLine").parameterCount(0);
 
@@ -957,7 +941,10 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     @Override
     boolean isWriteAllowed(PsiVariable variable, PsiExpression reference) {
       if (myVariable == variable) {
-        if (reference.getParent() == PsiTreeUtil.getParentOfType(myExpression, PsiAssignmentExpression.class)) return true;
+        if (PsiUtil.skipParenthesizedExprUp(reference.getParent()) ==
+            PsiTreeUtil.getParentOfType(myExpression, PsiAssignmentExpression.class)) {
+          return true;
+        }
         PsiForStatement forStatement = PsiTreeUtil.getParentOfType(variable, PsiForStatement.class);
         if (forStatement != null && forStatement == PsiTreeUtil.getParentOfType(myVariable, PsiForStatement.class)) {
           return PsiTreeUtil.isAncestor(forStatement.getUpdate(), reference, false) ||
@@ -988,17 +975,16 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
       if (!JavaTokenType.NE.equals(binOp.getOperationTokenType())) return null;
       PsiExpression operand = ExpressionUtils.getValueComparedWithNull(binOp);
       if (operand == null) return null;
-      PsiAssignmentExpression assignment = ExpressionUtils.getAssignment(PsiUtil.skipParenthesizedExprDown(operand));
+      PsiAssignmentExpression assignment = ExpressionUtils.getAssignment(operand);
       if (assignment == null) return null;
-      PsiMethodCallExpression readerCall = tryCast(assignment.getRExpression(), PsiMethodCallExpression.class);
+      PsiMethodCallExpression readerCall =
+        tryCast(PsiUtil.skipParenthesizedExprDown(assignment.getRExpression()), PsiMethodCallExpression.class);
       if (!BUFFERED_READER_READ_LINE.test(readerCall)) return null;
       PsiExpression reader = readerCall.getMethodExpression().getQualifierExpression();
 
       PsiLocalVariable lineVar = ExpressionUtils.resolveLocalVariable(assignment.getLExpression());
       if (lineVar == null) return null;
-      if (!ReferencesSearch.search(lineVar).forEach(ref -> {
-        return PsiTreeUtil.isAncestor(loopStatement, ref.getElement(), true);
-      })) {
+      if (ReferencesSearch.search(lineVar).anyMatch(ref -> !PsiTreeUtil.isAncestor(loopStatement, ref.getElement(), true))) {
         return null;
       }
       return new BufferedReaderLines(loopStatement, lineVar, reader, false);
@@ -1034,14 +1020,12 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
       if (declarations.length != 1) return null;
       PsiLocalVariable lineVar = tryCast(declarations[0], PsiLocalVariable.class);
       if (lineVar == null) return null;
-      if (!ReferencesSearch.search(lineVar).forEach(ref -> {
-        return PsiTreeUtil.isAncestor(forLoop, ref.getElement(), true);
-      })) {
+      if (ReferencesSearch.search(lineVar).anyMatch(ref -> !PsiTreeUtil.isAncestor(forLoop, ref.getElement(), true))) {
         return null;
       }
-      PsiMethodCallExpression maybeReadLines = tryCast(lineVar.getInitializer(), PsiMethodCallExpression.class);
+      PsiMethodCallExpression maybeReadLines = tryCast(PsiUtil.skipParenthesizedExprDown(lineVar.getInitializer()), PsiMethodCallExpression.class);
       if (!BUFFERED_READER_READ_LINE.test(maybeReadLines)) return null;
-      PsiExpression reader = maybeReadLines.getMethodExpression().getQualifierExpression();
+      PsiExpression reader = PsiUtil.skipParenthesizedExprDown(maybeReadLines.getMethodExpression().getQualifierExpression());
       PsiReferenceExpression readerRef = tryCast(reader, PsiReferenceExpression.class);
       if (readerRef == null) return null;
       PsiVariable readerVar = tryCast(readerRef.resolve(), PsiVariable.class);
@@ -1057,7 +1041,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
       PsiExpressionStatement updateStmt = tryCast(forLoop.getUpdate(), PsiExpressionStatement.class);
       if (updateStmt == null) return null;
       PsiExpression readNewLineExpr = ExpressionUtils.getAssignmentTo(updateStmt.getExpression(), lineVar);
-      PsiMethodCallExpression readNewLineCall = tryCast(readNewLineExpr, PsiMethodCallExpression.class);
+      PsiMethodCallExpression readNewLineCall = tryCast(PsiUtil.skipParenthesizedExprDown(readNewLineExpr), PsiMethodCallExpression.class);
       if (!BUFFERED_READER_READ_LINE.test(readNewLineCall)) return null;
       if (!ExpressionUtils.isReferenceTo(readNewLineCall.getMethodExpression().getQualifierExpression(), readerVar)) return null;
       return new BufferedReaderLines(forLoop, lineVar, reader, false);
@@ -1075,7 +1059,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     }
   }
 
-  static class ArrayStream extends StreamSource {
+  static final class ArrayStream extends StreamSource {
     private ArrayStream(PsiLoopStatement loop, PsiVariable variable, PsiExpression expression) {
       super(loop, variable, expression);
     }
@@ -1119,7 +1103,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     }
   }
 
-  static class CollectionStream extends StreamSource {
+  static final class CollectionStream extends StreamSource {
 
     private CollectionStream(PsiLoopStatement loop, PsiVariable variable, PsiExpression expression) {
       super(loop, variable, expression);
@@ -1156,7 +1140,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     }
   }
 
-  static class CountingLoopSource extends StreamSource {
+  static final class CountingLoopSource extends StreamSource {
     final PsiExpression myBound;
     final boolean myIncluding;
 
@@ -1209,7 +1193,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
     @Nullable
     public static CountingLoopSource from(PsiForStatement forStatement) {
       CountingLoop loop = CountingLoop.from(forStatement);
-      if (loop == null) return null;
+      if (loop == null || loop.isDescending()) return null;
       return new CountingLoopSource(forStatement, loop.getCounter(), loop.getInitializer(), loop.getBound(), loop.isIncluding());
     }
   }
@@ -1305,7 +1289,7 @@ public class StreamApiMigrationInspection extends AbstractBaseJavaLocalInspectio
 
     @Override
     StreamEx<PsiExpression> expressions() {
-      return StreamEx.of(myInitializer, myExpression);
+      return StreamEx.of(myInitializer, myExpression, myCondition).nonNull();
     }
 
     @Override

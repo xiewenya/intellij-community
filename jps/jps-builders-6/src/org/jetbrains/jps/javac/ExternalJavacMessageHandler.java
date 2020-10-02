@@ -21,9 +21,12 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.incremental.BinaryContent;
 
 import javax.tools.Diagnostic;
+import javax.tools.JavaFileManager;
 import javax.tools.JavaFileObject;
+import javax.tools.StandardLocation;
 import java.io.File;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Locale;
 
@@ -45,6 +48,10 @@ public class ExternalJavacMessageHandler {
     myEncodingName = encodingName;
   }
 
+  public DiagnosticOutputConsumer getDiagnosticSink() {
+    return myDiagnosticSink;
+  }
+
   public boolean handleMessage(MessageLite message) {
     try {
       final JavacRemoteProto.Message msg = (JavacRemoteProto.Message)message;
@@ -53,11 +60,11 @@ public class ExternalJavacMessageHandler {
       if (messageType == JavacRemoteProto.Message.Type.RESPONSE) {
         final JavacRemoteProto.Message.Response response = msg.getResponse();
         final JavacRemoteProto.Message.Response.Type responseType = response.getResponseType();
-  
+
         if (responseType == JavacRemoteProto.Message.Response.Type.BUILD_MESSAGE) {
           final JavacRemoteProto.Message.Response.CompileMessage compileMessage = response.getCompileMessage();
           final JavacRemoteProto.Message.Response.CompileMessage.Kind messageKind = compileMessage.getKind();
-  
+
           if (messageKind == JavacRemoteProto.Message.Response.CompileMessage.Kind.STD_OUT) {
             if (compileMessage.hasText()) {
               myDiagnosticSink.outputLineAvailable(compileMessage.getText());
@@ -68,17 +75,17 @@ public class ExternalJavacMessageHandler {
             final JavaFileObject srcFileObject = sourceUri != null? new DummyJavaFileObject(URI.create(sourceUri)) : null;
             myDiagnosticSink.report(new DummyDiagnostic(convertKind(messageKind), srcFileObject, compileMessage));
           }
-  
+
           return false;
         }
-  
+
         if (responseType == JavacRemoteProto.Message.Response.Type.OUTPUT_OBJECT) {
           final JavacRemoteProto.Message.Response.OutputObject outputObject = response.getOutputObject();
           final JavacRemoteProto.Message.Response.OutputObject.Kind kind = outputObject.getKind();
-  
+
           final String outputRoot = outputObject.hasOutputRoot()? outputObject.getOutputRoot() : null;
           final File outputRootFile = outputRoot != null? new File(outputRoot) : null;
-  
+
           final BinaryContent fileObjectContent;
           final ByteString content = outputObject.hasContent()? outputObject.getContent() : null;
           if (content != null) {
@@ -88,9 +95,14 @@ public class ExternalJavacMessageHandler {
           else {
             fileObjectContent = null;
           }
-  
-          final String sourceUri = outputObject.hasSourceUri()? outputObject.getSourceUri() : null;
-          final URI srcUri = sourceUri != null? URI.create(sourceUri) : null;
+
+          final JavaFileManager.Location location = outputObject.hasLocation()? StandardLocation.locationFor(outputObject.getLocation()) : null;
+
+          Collection<URI> sources = new ArrayList<URI>();
+          for (String uri : outputObject.getSourceUriList()) {
+            sources.add(URI.create(uri));
+          }
+
           final OutputFileObject fileObject = new OutputFileObject(
             null,
             outputRootFile,
@@ -98,30 +110,22 @@ public class ExternalJavacMessageHandler {
             new File(outputObject.getFilePath()),
             convertKind(kind),
             outputObject.hasClassName()? outputObject.getClassName() : null,
-            srcUri,
-            myEncodingName, fileObjectContent
+            sources,
+            myEncodingName, fileObjectContent, location,
+            outputObject.getIsGenerated()
           );
-  
+
           myOutputSink.save(fileObject);
           return false;
         }
-        
+
         if (responseType == JavacRemoteProto.Message.Response.Type.SRC_FILE_LOADED) {
           final JavacRemoteProto.Message.Response.OutputObject outputObject = response.getOutputObject();
           final File file = new File(outputObject.getFilePath());
           myDiagnosticSink.javaFileLoaded(file);
           return false;
         }
-  
-        if (responseType == JavacRemoteProto.Message.Response.Type.CLASS_DATA) {
-          final JavacRemoteProto.Message.Response.ClassData data = response.getClassData();
-          final String className = data.getClassName();
-          final Collection<String> imports = data.getImportStatementList();
-          final Collection<String> staticImports = data.getStaticImportList();
-          myDiagnosticSink.registerImports(className, imports, staticImports);
-          return false;
-        }
-  
+
         if (responseType == JavacRemoteProto.Message.Response.Type.CUSTOM_OUTPUT_OBJECT) {
           final JavacRemoteProto.Message.Response.OutputObject outputObject = response.getOutputObject();
           final String pluginId = outputObject.getFilePath();
@@ -137,7 +141,7 @@ public class ExternalJavacMessageHandler {
           }
           return true;
         }
-  
+
         throw new Exception("Unsupported response type: " + responseType.name());
       }
 
@@ -194,44 +198,53 @@ public class ExternalJavacMessageHandler {
     private final JavaFileObject mySrcFileObject;
     private final JavacRemoteProto.Message.Response.CompileMessage myCompileMessage;
 
-    public DummyDiagnostic(final Kind messageKind, JavaFileObject srcFileObject, JavacRemoteProto.Message.Response.CompileMessage compileMessage) {
+    DummyDiagnostic(final Kind messageKind, JavaFileObject srcFileObject, JavacRemoteProto.Message.Response.CompileMessage compileMessage) {
       myMessageKind = messageKind;
       mySrcFileObject = srcFileObject;
       myCompileMessage = compileMessage;
     }
 
+    @Override
     public Kind getKind() {
       return myMessageKind;
     }
 
+    @Override
     public JavaFileObject getSource() {
       return mySrcFileObject;
     }
 
+    @Override
     public long getPosition() {
       return myCompileMessage.hasProblemLocationOffset()? myCompileMessage.getProblemLocationOffset() : -1;
     }
 
+    @Override
     public long getStartPosition() {
       return myCompileMessage.hasProblemBeginOffset()? myCompileMessage.getProblemBeginOffset() : -1;
     }
 
+    @Override
     public long getEndPosition() {
       return myCompileMessage.hasProblemEndOffset()? myCompileMessage.getProblemEndOffset() : -1;
     }
 
+    @Override
     public long getLineNumber() {
       return myCompileMessage.hasLine()? myCompileMessage.getLine() : -1;
     }
 
+    @Override
     public long getColumnNumber() {
       return myCompileMessage.hasColumn()? myCompileMessage.getColumn() : -1;
     }
 
+    @Override
     public String getCode() {
       return null;
     }
 
+    @Override
     public String getMessage(Locale locale) {
       return myCompileMessage.hasText()? myCompileMessage.getText() : null;
     }

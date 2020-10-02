@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.filters;
 
 import com.intellij.openapi.application.ReadAction;
@@ -20,24 +6,24 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.Trinity;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.ui.UIUtil;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author gregsh
  */
-public class ExceptionExFilterFactory implements ExceptionFilterFactory {
+public final class ExceptionExFilterFactory implements ExceptionFilterFactory {
   @NotNull
   @Override
   public Filter create(@NotNull GlobalSearchScope searchScope) {
@@ -47,11 +33,12 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
   private static class MyFilter implements Filter, FilterMixin {
     private final ExceptionInfoCache myCache;
 
-    public MyFilter(@NotNull final GlobalSearchScope scope) {
+    MyFilter(@NotNull final GlobalSearchScope scope) {
       myCache = new ExceptionInfoCache(scope);
     }
 
-    public Result applyFilter(final String line, final int textEndOffset) {
+    @Override
+    public Result applyFilter(@NotNull final String line, final int textEndOffset) {
       return null;
     }
 
@@ -64,9 +51,9 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
     public void applyHeavyFilter(@NotNull final Document copiedFragment,
                                  final int startOffset,
                                  int startLineNumber,
-                                 @NotNull final Consumer<AdditionalHighlight> consumer) {
-      Map<String, Trinity<TextRange, TextRange, TextRange>> visited = new THashMap<>();
-      final Trinity<TextRange, TextRange, TextRange> emptyInfo = Trinity.create(null, null, null);
+                                 @NotNull final Consumer<? super AdditionalHighlight> consumer) {
+      Map<String, ExceptionWorker.ParsedLine> visited = new HashMap<>();
+      ExceptionWorker.ParsedLine emptyInfo = new ExceptionWorker.ParsedLine(TextRange.EMPTY_RANGE, TextRange.EMPTY_RANGE, TextRange.EMPTY_RANGE, null, -1);
 
       final ExceptionWorker worker = new ExceptionWorker(myCache);
       for (int i = 0; i < copiedFragment.getLineCount(); i++) {
@@ -75,11 +62,11 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
 
         String lineText = copiedFragment.getText(new TextRange(lineStartOffset, lineEndOffset));
         if (!lineText.contains(".java:")) continue;
-        Trinity<TextRange, TextRange, TextRange> info = visited.get(lineText);
+        ExceptionWorker.ParsedLine info = visited.get(lineText);
         if (info == emptyInfo) continue;
 
         if (info == null) {
-          info = ReadAction.compute(() -> doparse(emptyInfo, worker, lineEndOffset, lineText));
+          info = ReadAction.compute(() -> DumbService.isDumb(worker.getProject()) ? null : doParse(worker, lineEndOffset, lineText));
           visited.put(lineText, info == null ? emptyInfo : info);
           if (info == null) {
             continue;
@@ -87,7 +74,7 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
         }
         int off = startOffset + lineStartOffset;
         final Color color = UIUtil.getInactiveTextColor();
-        consumer.consume(new AdditionalHighlight(off + info.first.getStartOffset(), off + info.second.getEndOffset()) {
+        consumer.consume(new AdditionalHighlight(off + info.classFqnRange.getStartOffset(), off + info.methodNameRange.getEndOffset()) {
           @NotNull
           @Override
           public TextAttributes getTextAttributes(@Nullable TextAttributes source) {
@@ -97,9 +84,7 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
       }
     }
 
-    private Trinity<TextRange, TextRange, TextRange> doparse(Trinity<TextRange, TextRange, TextRange> emptyInfo,
-                                                             ExceptionWorker worker,
-                                                             int lineEndOffset, String lineText) {
+    private static ExceptionWorker.ParsedLine doParse(@NotNull ExceptionWorker worker, int lineEndOffset, @NotNull String lineText) {
       Result result = worker.execute(lineText, lineEndOffset);
       if (result == null) return null;
       HyperlinkInfo hyperlinkInfo = result.getHyperlinkInfo();
@@ -117,8 +102,7 @@ public class ExceptionExFilterFactory implements ExceptionFilterFactory {
       PsiTryStatement parent = PsiTreeUtil.getParentOfType(element, PsiTryStatement.class, true, PsiClass.class);
       PsiCodeBlock tryBlock = parent != null? parent.getTryBlock() : null;
       if (tryBlock == null || !tryBlock.getTextRange().contains(offset)) return null;
-      Trinity<TextRange, TextRange, TextRange> info = worker.getInfo();
-      return info;
+      return worker.getInfo();
     }
 
     @NotNull

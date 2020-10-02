@@ -5,10 +5,12 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
+import org.jetbrains.annotations.Nullable
 
 @CompileStatic
 class TraceFileUploader {
     private final String myServerUrl
+    private final String myServerAuthToken
 
     private static final String UTF_8 = "UTF-8"
     private static final int MB = 1024 * 1024
@@ -23,8 +25,9 @@ class TraceFileUploader {
         }
     }
 
-    TraceFileUploader(@NotNull String serverUrl) {
+    TraceFileUploader(@NotNull String serverUrl, @Nullable String token) {
         myServerUrl = fixServerUrl(serverUrl)
+        myServerAuthToken = token
     }
 
     protected void log(String message) {
@@ -70,10 +73,12 @@ class TraceFileUploader {
             log("Uploading metadata: " + metadataContent)
             final byte[] content = metadataContent.getBytes(UTF_8)
 
+            conn.setRequestProperty("User-Agent", "TraceFileUploader")
             conn.setRequestProperty("Connection", "Keep-Alive")
             conn.setRequestProperty("Accept", "text/plain;charset=UTF-8")
             conn.setRequestProperty("Accept-Charset", UTF_8)
             conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8")
+            if (myServerAuthToken != null) conn.setRequestProperty("Authorization", "Bearer " + myServerAuthToken)
             conn.setRequestProperty("Content-Length", String.valueOf(content.length))
             conn.setFixedLengthStreamingMode(content.length)
 
@@ -108,9 +113,11 @@ class TraceFileUploader {
             conn.setUseCaches(false)
             conn.setRequestMethod("POST")
 
+            conn.setRequestProperty("User-Agent", "TraceFileUploader")
             conn.setRequestProperty("Connection", "Keep-Alive")
             conn.setRequestProperty("Accept-Charset", UTF_8)
             conn.setRequestProperty("Content-Type", "application/octet-stream")
+            if (myServerAuthToken != null) conn.setRequestProperty("Authorization", "Bearer " + myServerAuthToken)
             conn.setRequestProperty("Content-Length", String.valueOf(file.length()))
             conn.setFixedLengthStreamingMode(file.length())
 

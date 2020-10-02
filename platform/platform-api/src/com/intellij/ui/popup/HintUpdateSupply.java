@@ -18,6 +18,7 @@ package com.intellij.ui.popup;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.ui.popup.JBPopup;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.ui.ListUtil;
@@ -69,7 +70,7 @@ public abstract class HintUpdateSupply {
       CommonDataKeys.PSI_ELEMENT.getData(DataManager.getInstance().getDataContext(component)));
   }
 
-  public static void installHintUpdateSupply(@NotNull final JComponent component, final Function<Object, PsiElement> provider) {
+  public static void installHintUpdateSupply(@NotNull final JComponent component, final Function<Object, ? extends PsiElement> provider) {
     HintUpdateSupply supply = new HintUpdateSupply(component) {
       @Nullable
       @Override
@@ -166,6 +167,7 @@ public abstract class HintUpdateSupply {
   public void registerHint(JBPopup hint) {
     hideHint();
     myHint = hint;
+    Disposer.register(hint, () -> myHint = null);
   }
 
   public void hideHint() {

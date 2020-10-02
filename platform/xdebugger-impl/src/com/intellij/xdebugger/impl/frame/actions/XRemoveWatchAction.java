@@ -24,12 +24,9 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class XRemoveWatchAction extends XWatchesTreeActionBase {
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     XDebuggerTree tree = XDebuggerTree.getTree(e);
     boolean enabled = tree != null && !getSelectedNodes(tree, WatchNodeImpl.class).isEmpty();
     if (ActionPlaces.DEBUGGER_TOOLBAR.equals(e.getPlace())) {

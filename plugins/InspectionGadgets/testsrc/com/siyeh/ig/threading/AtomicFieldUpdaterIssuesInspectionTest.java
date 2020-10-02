@@ -2,13 +2,13 @@
 package com.siyeh.ig.threading;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
+import com.siyeh.ig.LightJavaInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class AtomicFieldUpdaterIssuesInspectionTest extends LightInspectionTestCase {
+public class AtomicFieldUpdaterIssuesInspectionTest extends LightJavaInspectionTestCase {
 
   public void testAllGood() {
     doTest("import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;" +
@@ -152,6 +152,23 @@ public class AtomicFieldUpdaterIssuesInspectionTest extends LightInspectionTestC
            "class X {" +
            "  private static final AtomicReferenceFieldUpdater updater = " +
            "    AtomicReferenceFieldUpdater.newUpdater(PackageLocalOther.class, String.class, \"s\");" +
+           "}");
+  }
+
+  public void testAccessibleAnonymousCtor() {
+    doTest("import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;\n" +
+           "\n" +
+           "class Test {\n" +
+           "  private volatile int field;\n" +
+           "\n" +
+           "  static class Holder {\n" +
+           "    Holder(AtomicIntegerFieldUpdater<Test> obj) {}\n" +
+           "  }\n" +
+           "\n" +
+           "  void test() {\n" +
+           "    new Holder(AtomicIntegerFieldUpdater.newUpdater(Test.class, \"field\"));\n" +
+           "    new Holder(AtomicIntegerFieldUpdater.newUpdater(Test.class, \"field\")) {};\n" +
+           "  }\n" +
            "}");
   }
 

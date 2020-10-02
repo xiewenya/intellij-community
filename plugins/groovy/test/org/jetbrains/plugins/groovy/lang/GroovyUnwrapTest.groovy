@@ -16,29 +16,16 @@
 package org.jetbrains.plugins.groovy.lang
 
 import com.intellij.codeInsight.unwrap.UnwrapHandler
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.editor.Editor
-import com.intellij.psi.PsiFile
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 
 /**
  * @author Sergey Evdokimov
  */
-class GroovyUnwrapTest extends LightCodeInsightFixtureTestCase {
+class GroovyUnwrapTest extends LightJavaCodeInsightFixtureTestCase {
 
   private void assertUnwrapped(String codeBefore, String expectedCodeAfter) {
     myFixture.configureByText("A.groovy", codeBefore)
-
-    UnwrapHandler h = new UnwrapHandler() {
-      @Override
-      protected void selectOption(List<AnAction> options, Editor editor, PsiFile file) {
-        if (options.isEmpty()) return
-        options.get(0).actionPerformed(null)
-      }
-    }
-
-    h.invoke(project, myFixture.editor, myFixture.file)
-
+    new UnwrapHandler().invoke(project, myFixture.editor, myFixture.file)
     myFixture.checkResult(expectedCodeAfter)
   }
 

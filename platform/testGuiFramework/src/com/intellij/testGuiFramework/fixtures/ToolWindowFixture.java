@@ -22,7 +22,8 @@ import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.impl.StripeButton;
-import com.intellij.testGuiFramework.framework.GuiTestUtil;
+import com.intellij.testGuiFramework.framework.Timeouts;
+import com.intellij.testGuiFramework.impl.GuiTestUtilKt;
 import com.intellij.ui.content.Content;
 import org.fest.swing.core.GenericTypeMatcher;
 import org.fest.swing.core.Robot;
@@ -58,11 +59,16 @@ public abstract class ToolWindowFixture {
     pause(new Condition("Find tool window with ID '" + toolWindowId + "'") {
       @Override
       public boolean test() {
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(toolWindowId);
-        toolWindowRef.set(toolWindow);
-        return toolWindow != null;
+        try {
+          ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(toolWindowId);
+          toolWindowRef.set(toolWindow);
+          return toolWindow != null;
+        }
+        catch (Exception e) {
+          return false;
+        }
       }
-    }, GuiTestUtil.SHORT_TIMEOUT);
+    }, Timeouts.INSTANCE.getMinutes02());
     myRobot = robot;
     myToolWindow = toolWindowRef.get();
   }
@@ -84,8 +90,9 @@ public abstract class ToolWindowFixture {
           }
           return false;
         }
-      }, GuiTestUtil.SHORT_TIMEOUT);
-    } catch (WaitTimedOutError e) {
+      }, Timeouts.INSTANCE.getMinutes02());
+    }
+    catch (WaitTimedOutError e) {
       throw new ComponentLookupException("Cannot find content with " + displayName);
     }
     return contentRef.get();
@@ -123,7 +130,7 @@ public abstract class ToolWindowFixture {
 
   @Nullable
   protected Content getContent(@NotNull final TextMatcher displayNameMatcher) {
-    return getContent(displayNameMatcher, GuiTestUtil.SHORT_TIMEOUT);
+    return getContent(displayNameMatcher, Timeouts.INSTANCE.getMinutes02());
   }
 
   @Nullable
@@ -152,7 +159,7 @@ public abstract class ToolWindowFixture {
   }
 
   private void activateAndWaitUntilIsVisible() {
-    activateAndWaitUntilIsVisible(GuiTestUtil.SHORT_TIMEOUT);
+    activateAndWaitUntilIsVisible(Timeouts.INSTANCE.getMinutes02());
   }
 
   private void activateAndWaitUntilIsVisible(@NotNull Timeout timeout) {
@@ -163,9 +170,9 @@ public abstract class ToolWindowFixture {
     waitUntilIsVisible(Timeout.timeout(budget));
   }
 
-  @NotNull
-  private Content[] getContents() {
-    return myToolWindow.getContentManager().getContents();
+  public Content @NotNull [] getContents() {
+    //noinspection ConstantConditions
+    return GuiTestUtilKt.INSTANCE.computeOnEdt(() -> myToolWindow.getContentManager().getContents());
   }
 
   protected boolean isActive() {
@@ -196,11 +203,11 @@ public abstract class ToolWindowFixture {
       public boolean test() {
         return callback.finished;
       }
-    }, GuiTestUtil.SHORT_TIMEOUT);
+    }, Timeouts.INSTANCE.getMinutes02());
   }
 
   protected void waitUntilIsVisible() {
-    waitUntilIsVisible(GuiTestUtil.THIRTY_SEC_TIMEOUT);
+    waitUntilIsVisible(Timeouts.INSTANCE.getSeconds30());
   }
 
   protected void waitUntilIsVisible(@NotNull Timeout timeout) {
@@ -215,7 +222,7 @@ public abstract class ToolWindowFixture {
     }, timeout);
   }
 
-  private boolean isVisible() {
+  public boolean isVisible() {
     //noinspection ConstantConditions
     return execute(new GuiQuery<Boolean>() {
       @Override
@@ -235,16 +242,20 @@ public abstract class ToolWindowFixture {
       protected void executeInEDT() throws Throwable {
         Stream<Content> contentStream = Arrays.stream(myToolWindow.getContentManager().getContents());
         Optional<Content> contentOptional = contentStream.filter(content -> content.getTabName().equals(tabName)).findAny();
-        if (!contentOptional.isPresent()) throw new ComponentLookupException("Unable to find content with tab name: \"" + tabName +
-                                                                             "\" for ToolWindow with id: \"" + myToolWindowId + "\"");
+        if (contentOptional.isEmpty()) {
+          throw new ComponentLookupException("Unable to find content with tab name: \"" + tabName +
+                                             "\" for ToolWindow with id: \"" + myToolWindowId + "\"");
+        }
         Content content = contentOptional.get();
-        if(Objects.equals(myToolWindow.getContentManager().getSelectedContent(), content)) return; // no need to select already selected content
+        if (Objects.equals(myToolWindow.getContentManager().getSelectedContent(), content)) {
+          return; // no need to select already selected content
+        }
         myToolWindow.getContentManager().setSelectedContent(content);
       }
     });
   }
 
-  public static void clickToolwindowButton(String toolWindowStripeButtonName, Robot robot){
+  public static void clickToolwindowButton(String toolWindowStripeButtonName, Robot robot) {
     final StripeButton stripeButton = robot.finder().find(new GenericTypeMatcher<StripeButton>(StripeButton.class) {
       @Override
       protected boolean isMatching(@NotNull StripeButton button) {
@@ -254,7 +265,7 @@ public abstract class ToolWindowFixture {
     robot.click(stripeButton);
   }
 
-  public static void showToolwindowStripes(Robot robot){
+  public static void showToolwindowStripes(Robot robot) {
     if (UISettings.getInstance().getHideToolStripes()) {
       final JLabel toolwindowsWidget = robot.finder().find(new GenericTypeMatcher<JLabel>(JLabel.class) {
         @Override

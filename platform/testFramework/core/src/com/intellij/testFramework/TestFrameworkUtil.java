@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.idea.Bombed;
@@ -15,7 +16,7 @@ import java.util.Calendar;
 import java.util.Date;
 
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
-public class TestFrameworkUtil {
+public final class TestFrameworkUtil {
   public static final boolean SKIP_HEADLESS = GraphicsEnvironment.isHeadless();
   public static final boolean SKIP_SLOW = Boolean.getBoolean("skip.slow.tests.locally");
 
@@ -30,12 +31,12 @@ public class TestFrameworkUtil {
     return instance.getTime();
   }
 
-  public static boolean bombExplodes(Bombed bombedAnnotation) {
+  public static boolean bombExplodes(@NotNull Bombed bombedAnnotation) {
     Date now = new Date();
     return now.after(raidDate(bombedAnnotation));
   }
 
-  public static boolean canRunTest(@NotNull Class testCaseClass) {
+  public static boolean canRunTest(@NotNull Class<?> testCaseClass) {
     if (!SKIP_SLOW && !SKIP_HEADLESS) {
       return true;
     }
@@ -55,9 +56,9 @@ public class TestFrameworkUtil {
   }
 
   @TestOnly
-  public static boolean isJUnit4TestClass(@NotNull Class aClass) {
+  public static boolean isJUnit4TestClass(@NotNull Class<?> aClass, boolean allowAbstract) {
     int modifiers = aClass.getModifiers();
-    if ((modifiers & Modifier.ABSTRACT) != 0) return false;
+    if (!allowAbstract && (modifiers & Modifier.ABSTRACT) != 0) return false;
     if ((modifiers & Modifier.PUBLIC) == 0) return false;
     if (aClass.getAnnotation(RunWith.class) != null) return true;
     for (Method method : aClass.getMethods()) {

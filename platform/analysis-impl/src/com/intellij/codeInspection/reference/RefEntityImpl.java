@@ -17,27 +17,24 @@
 package com.intellij.codeInspection.reference;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.BitUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-abstract class RefEntityImpl implements RefEntity {
-  private volatile RefEntityImpl myOwner;
+public abstract class RefEntityImpl extends UserDataHolderBase implements RefEntity, WritableRefEntity {
+  private volatile WritableRefEntity myOwner;
   protected List<RefEntity> myChildren;  // guarded by this
   private final String myName;
-  private Map<Key, Object> myUserMap;    // guarded by this
   protected long myFlags; // guarded by this
   protected final RefManagerImpl myManager;
 
-  RefEntityImpl(@NotNull String name, @NotNull RefManager manager) {
+  protected RefEntityImpl(@NotNull String name, @NotNull RefManager manager) {
     myManager = (RefManagerImpl)manager;
     myName = myManager.internName(name);
   }
@@ -61,14 +58,16 @@ abstract class RefEntityImpl implements RefEntity {
   }
 
   @Override
-  public RefEntity getOwner() {
+  public WritableRefEntity getOwner() {
     return myOwner;
   }
 
-  protected void setOwner(@Nullable final RefEntityImpl owner) {
+  @Override
+  public void setOwner(@Nullable final WritableRefEntity owner) {
     myOwner = owner;
   }
 
+  @Override
   public synchronized void add(@NotNull final RefEntity child) {
     List<RefEntity> children = myChildren;
     if (children == null) {
@@ -78,10 +77,11 @@ abstract class RefEntityImpl implements RefEntity {
     ((RefEntityImpl)child).setOwner(this);
   }
 
-  protected synchronized void removeChild(@NotNull final RefEntity child) {
+  @Override
+  public synchronized void removeChild(@NotNull final RefEntity child) {
     if (myChildren != null) {
       myChildren.remove(child);
-      ((RefEntityImpl)child).setOwner(null);
+      ((WritableRefEntity)child).setOwner(null);
     }
   }
 
@@ -89,40 +89,9 @@ abstract class RefEntityImpl implements RefEntity {
     return getName();
   }
 
- @Override
- @Nullable
-  public <T> T getUserData(@NotNull Key<T> key){
-    synchronized(this){
-      if (myUserMap == null) return null;
-      //noinspection unchecked
-      return (T)myUserMap.get(key);
-    }
-  }
-
   @Override
   public void accept(@NotNull final RefVisitor refVisitor) {
     ApplicationManager.getApplication().runReadAction(() -> refVisitor.visitElement(this));
-  }
-
-  @Override
-  public <T> void putUserData(@NotNull Key<T> key, T value){
-    synchronized(this){
-      Map<Key, Object> userMap = myUserMap;
-      if (userMap == null){
-        if (value == null) return;
-        myUserMap = userMap = new THashMap<>();
-      }
-      if (value != null){
-        //noinspection unchecked
-        userMap.put(key, value);
-      }
-      else{
-        userMap.remove(key);
-        if (userMap.isEmpty()){
-          myUserMap = null;
-        }
-      }
-    }
   }
 
   public synchronized boolean checkFlag(long mask) {

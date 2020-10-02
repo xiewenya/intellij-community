@@ -1,8 +1,11 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.gotoByName;
 
+import com.google.common.util.concurrent.UncheckedTimeoutException;
+import com.intellij.diagnostic.PerformanceWatcher;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.ui.UISettings;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -12,17 +15,22 @@ import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.statistics.StatisticsInfo;
 import com.intellij.psi.statistics.StatisticsManager;
 import com.intellij.ui.ScreenUtil;
+import com.intellij.util.concurrency.Semaphore;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
@@ -33,18 +41,20 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.intellij.ide.actions.searcheverywhere.ClassSearchEverywhereContributor.pathToAnonymousClass;
+
 public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNamePopupComponent, Disposable {
   public static final Key<ChooseByNamePopup> CHOOSE_BY_NAME_POPUP_IN_PROJECT_KEY = new Key<>("ChooseByNamePopup");
-  public static final Key<String> CURRENT_SEARCH_PATTERN = new Key<String>("ChooseByNamePattern");
+  public static final Key<String> CURRENT_SEARCH_PATTERN = new Key<>("ChooseByNamePattern");
 
-  private Component myOldFocusOwner = null;
-  private boolean myShowListForEmptyPattern = false;
+  private Component myOldFocusOwner;
+  private boolean myShowListForEmptyPattern;
   private final boolean myMayRequestCurrentWindow;
   private final ChooseByNamePopup myOldPopup;
   private ActionMap myActionMap;
   private InputMap myInputMap;
-  private String myAdText;
-  private final MergingUpdateQueue myRepaintQueue = new MergingUpdateQueue("ChooseByNamePopup repaint", 50, true, myList);
+  private @NlsContexts.PopupAdvertisement String myAdText;
+  private final MergingUpdateQueue myRepaintQueue = new MergingUpdateQueue("ChooseByNamePopup repaint", 50, true, myList, this);
 
   protected ChooseByNamePopup(@Nullable final Project project,
                               @NotNull ChooseByNameModel model,
@@ -59,9 +69,9 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
       myOldFocusOwner = oldPopup.myPreviouslyFocusedComponent;
     }
     myMayRequestCurrentWindow = mayRequestOpenInCurrentWindow;
-    myAdText = myMayRequestCurrentWindow ? "Press " +
-                                           KeymapUtil.getKeystrokeText(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_MASK)) +
-                                           " to open in current window" : null;
+    myAdText = myMayRequestCurrentWindow ? LangBundle.message("popup.advertisement.press.to.open.in.current.window",
+                                                              KeymapUtil.getKeystrokeText(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_MASK)))
+                                         : null;
   }
 
   public String getEnteredText() {
@@ -148,9 +158,6 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
 
     // calculate maximal size for the popup window
     Rectangle screen = ScreenUtil.getScreenRectangle(location);
-    screen.width -= location.x - screen.x;
-    screen.height -= location.y - screen.y;
-
     if (preferredScrollPaneSize.width > screen.width) {
       preferredScrollPaneSize.width = screen.width;
       if (model.getSize() <= myList.getVisibleRowCount()) {
@@ -162,6 +169,9 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
       }
     }
     if (preferredScrollPaneSize.height > screen.height) preferredScrollPaneSize.height = screen.height;
+
+    location.x = Math.min(location.x, screen.x + screen.width - preferredScrollPaneSize.width);
+    location.y = Math.min(location.y, screen.y + screen.height - preferredScrollPaneSize.height);
 
     String adText = getAdText();
     if (myDropdownPopup == null) {
@@ -317,19 +327,27 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
 
   private static final Pattern patternToDetectLinesAndColumns = Pattern.compile("(.+?)" + // name, non-greedy matching
                                                                                 "(?::|@|,| |#|#L|\\?l=| on line | at line |:?\\(|:?\\[)" + // separator
-                                                                                "(\\d+)(?:(?:\\D)(\\d+)?)?" + // line + column
+                                                                                "(\\d+)?(?:\\W(\\d+)?)?" + // line + column
                                                                                 "[)\\]]?" // possible closing paren/brace
   );
-  public static final Pattern patternToDetectAnonymousClasses = Pattern.compile("([\\.\\w]+)((\\$[\\d]+)*(\\$)?)");
+  public static final Pattern patternToDetectAnonymousClasses = Pattern.compile("([.\\w]+)((\\$[\\d]+)*(\\$)?)");
   private static final Pattern patternToDetectMembers = Pattern.compile("(.+)(#)(.*)");
+  private static final Pattern patternToDetectSignatures = Pattern.compile("(.+#.*)\\(.*\\)");
 
+  //space character in the end of pattern forces full matches search
+  private static final String fullMatchSearchSuffix = " ";
+
+  @NotNull
   @Override
-  public String transformPattern(String pattern) {
+  public String transformPattern(@NotNull String pattern) {
     final ChooseByNameModel model = getModel();
     return getTransformedPattern(pattern, model);
   }
 
-  public static String getTransformedPattern(String pattern, ChooseByNameModel model) {
+  @NotNull
+  public static String getTransformedPattern(@NotNull String pattern, @NotNull ChooseByNameModel model) {
+    String rawPattern = pattern;
+
     Pattern regex = null;
     if (StringUtil.containsAnyChar(pattern, ":,;@[( #") || pattern.contains(" line ") || pattern.contains("?l=")) { // quick test if reg exp should be used
       regex = patternToDetectLinesAndColumns;
@@ -337,7 +355,7 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
 
     if (model instanceof GotoClassModel2 || model instanceof GotoSymbolModel2) {
       if (pattern.indexOf('#') != -1) {
-        regex = patternToDetectMembers;
+        regex = model instanceof GotoClassModel2 ? patternToDetectMembers : patternToDetectSignatures;
       }
 
       if (pattern.indexOf('$') != -1) {
@@ -350,6 +368,10 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
       if (matcher.matches()) {
         pattern = matcher.group(1);
       }
+    }
+
+    if (rawPattern.endsWith(fullMatchSearchSuffix)) {
+      pattern += fullMatchSearchSuffix;
     }
 
     return pattern;
@@ -379,19 +401,8 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
 
   @Nullable
   public String getPathToAnonymous() {
-    final Matcher matcher = patternToDetectAnonymousClasses.matcher(getTrimmedText());
-    if (matcher.matches()) {
-      String path = matcher.group(2);
-      if (path != null) {
-        path = path.trim();
-        if (path.endsWith("$") && path.length() >= 2) {
-          path = path.substring(0, path.length() - 2);
-        }
-        if (!path.isEmpty()) return path;
-      }
-    }
-
-    return null;
+    Matcher matcher = patternToDetectAnonymousClasses.matcher(getTrimmedText());
+    return pathToAnonymousClass(matcher);
   }
 
   public int getColumnPosition() {
@@ -417,11 +428,12 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
     myActionMap.put(aActionName, aAction);
   }
 
+  @NlsContexts.PopupAdvertisement
   public String getAdText() {
     return myAdText;
   }
 
-  public void setAdText(final String adText) {
+  public void setAdText(final @NlsContexts.PopupAdvertisement String adText) {
     myAdText = adText;
   }
 
@@ -439,7 +451,7 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
     myRepaintQueue.queue(new Update(this) {
       @Override
       public void run() {
-        ChooseByNamePopup.this.repaintListImmediate();
+        repaintListImmediate();
       }
     });
   }
@@ -455,4 +467,26 @@ public class ChooseByNamePopup extends ChooseByNameBase implements ChooseByNameP
       myProject.putUserData(CHOOSE_BY_NAME_POPUP_IN_PROJECT_KEY, null);
     }
   }
+
+  @NotNull
+  @TestOnly
+  public List<Object> calcPopupElements(@NotNull String text, boolean checkboxState) {
+    List<Object> elements = ContainerUtil.newArrayList("empty");
+    Semaphore semaphore = new Semaphore(1);
+    scheduleCalcElements(text, checkboxState, ModalityState.NON_MODAL, SelectMostRelevant.INSTANCE, set -> {
+      elements.clear();
+      elements.addAll(set);
+      semaphore.up();
+    });
+    long start = System.currentTimeMillis();
+    while (!semaphore.waitFor(10) && System.currentTimeMillis() - start < 20_000) {
+      UIUtil.dispatchAllInvocationEvents();
+    }
+    if (!semaphore.waitFor(10)) {
+      PerformanceWatcher.dumpThreadsToConsole("Thread dump:");
+      throw new UncheckedTimeoutException("Too long background calculation");
+    }
+    return elements;
+  }
+
 }

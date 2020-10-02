@@ -104,7 +104,7 @@ public class MavenEffectivePomDumper {
 
     effectivePom = addMavenNamespace(sWriter.toString(), true);
 
-    writeComment(writer, "Effective POM for project \'" + project.getId() + "\'");
+    writeComment(writer, "Effective POM for project '" + project.getId() + "'");
 
     writer.writeMarkup(effectivePom);
   }
@@ -240,6 +240,7 @@ public class MavenEffectivePomDumper {
     /**
      * {@inheritDoc}
      */
+    @Override
     public Set keySet() {
       Set keynames = super.keySet();
       Vector list = new Vector(keynames);

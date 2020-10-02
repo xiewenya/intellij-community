@@ -16,17 +16,24 @@
 package org.jetbrains.yaml.breadcrumbs;
 
 import com.intellij.lang.Language;
+import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
-import com.intellij.xml.breadcrumbs.BreadcrumbsInfoProvider;
+import com.intellij.ui.breadcrumbs.BreadcrumbsProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.yaml.YAMLBundle;
 import org.jetbrains.yaml.YAMLLanguage;
+import org.jetbrains.yaml.YAMLUtil;
 import org.jetbrains.yaml.psi.*;
 
+import javax.swing.*;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionEvent;
+import java.util.Collections;
 import java.util.List;
 
-public class YAMLBreadcrumbsInfoProvider extends BreadcrumbsInfoProvider {
+public class YAMLBreadcrumbsInfoProvider implements BreadcrumbsProvider {
   private final static Language[] LANGUAGES = new Language[]{YAMLLanguage.INSTANCE};
   
   private final static int SCALAR_MAX_LENGTH = 20;
@@ -75,6 +82,24 @@ public class YAMLBreadcrumbsInfoProvider extends BreadcrumbsInfoProvider {
     return null;
   }
   
+  @NotNull
+  @Override
+  public List<? extends Action> getContextActions(@NotNull PsiElement element) {
+    if (!(element instanceof YAMLKeyValue || element instanceof YAMLSequenceItem)) {
+      return Collections.emptyList();
+    }
+    String configName = YAMLUtil.getConfigFullName((YAMLPsiElement)element);
+    if (configName.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return Collections.singletonList(new AbstractAction(YAMLBundle.message("YAMLBreadcrumbsInfoProvider.copy.key.to.clipboard")) {
+      @Override
+      public void actionPerformed(ActionEvent event) {
+        CopyPasteManager.getInstance().setContents(new StringSelection(configName));
+      }
+    });
+  }
+
   @NotNull
   private static String getIndexOf(@NotNull List<?> list, Object o) {
     return String.valueOf(1 + list.indexOf(o)) + '/' + list.size();

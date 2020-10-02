@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.navigation;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -21,19 +7,22 @@ import com.intellij.codeInsight.generation.actions.PresentableCodeInsightActionH
 import com.intellij.codeInsight.navigation.actions.GotoSuperAction;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.util.MethodCellRenderer;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.idea.ActionsBundle;
+import com.intellij.java.JavaBundle;
+import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.fileEditor.FileEditorManager;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.FindSuperElementsHelper;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class JavaGotoSuperHandler implements PresentableCodeInsightActionHandler {
   @Override
@@ -49,8 +38,9 @@ public class JavaGotoSuperHandler implements PresentableCodeInsightActionHandler
       if (containingFile == null) return;
       final VirtualFile virtualFile = containingFile.getVirtualFile();
       if (virtualFile == null) return;
-      OpenFileDescriptor descriptor = new OpenFileDescriptor(project, virtualFile, superElement.getTextOffset());
-      FileEditorManager.getInstance(project).openTextEditor(descriptor, true);
+      Navigatable descriptor =
+        PsiNavigationSupport.getInstance().createNavigatable(project, virtualFile, superElement.getTextOffset());
+      descriptor.navigate(true);
     }
     else if (superElements[0] instanceof PsiMethod) {
       boolean showMethodNames = !PsiUtil.allMethodsHaveSameSignature((PsiMethod[])superElements);
@@ -61,13 +51,12 @@ public class JavaGotoSuperHandler implements PresentableCodeInsightActionHandler
                                           new MethodCellRenderer(showMethodNames));
     }
     else {
-      NavigationUtil.getPsiElementPopup(superElements, CodeInsightBundle.message("goto.super.class.chooser.title"))
+      NavigationUtil.getPsiElementPopup(superElements, JavaBundle.message("goto.super.class.chooser.title"))
         .showInBestPositionFor(editor);
     }
   }
 
-  @NotNull
-  private PsiElement[] findSuperElements(@NotNull PsiFile file, int offset) {
+  private PsiElement @NotNull [] findSuperElements(@NotNull PsiFile file, int offset) {
     PsiElement element = getElement(file, offset);
     if (element == null) return PsiElement.EMPTY_ARRAY;
 
@@ -98,16 +87,21 @@ public class JavaGotoSuperHandler implements PresentableCodeInsightActionHandler
 
   @Override
   public void update(@NotNull Editor editor, @NotNull PsiFile file, Presentation presentation) {
+    update(editor, file, presentation, null);
+  }
+
+  @Override
+  public void update(@NotNull Editor editor, @NotNull PsiFile file, Presentation presentation, @Nullable String actionPlace) {
     final PsiElement element = getElement(file, editor.getCaretModel().getOffset());
     final PsiElement containingElement = PsiTreeUtil.getParentOfType(element, PsiFunctionalExpression.class, PsiMember.class);
+    boolean useShortName = actionPlace != null && (ActionPlaces.MAIN_MENU.equals(actionPlace) || ActionPlaces.isPopupPlace(actionPlace));
     if (containingElement instanceof PsiClass) {
-      presentation.setText(ActionsBundle.actionText("GotoSuperClass"));
-      presentation.setDescription(ActionsBundle.actionDescription("GotoSuperClass"));
+      presentation.setText(JavaBundle.message(useShortName ? "action.GotoSuperClass.MainMenu.text" : "action.GotoSuperClass.text"));
+      presentation.setDescription(JavaBundle.message("action.GotoSuperClass.description"));
     }
     else {
-      presentation.setText(ActionsBundle.actionText("GotoSuperMethod"));
+      presentation.setText(ActionsBundle.actionText(useShortName ? "GotoSuperMethod.MainMenu" : "GotoSuperMethod"));
       presentation.setDescription(ActionsBundle.actionDescription("GotoSuperMethod"));
     }
-    
   }
 }

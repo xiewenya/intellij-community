@@ -18,6 +18,8 @@ package com.intellij.openapi.vcs.actions;
 import com.intellij.application.options.colors.ColorAndFontSettingsListener;
 import com.intellij.application.options.colors.PreviewPanel;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.diff.DiffBundle;
+import com.intellij.openapi.diff.LineStatusMarkerDrawUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.TextAnnotationGutterProvider;
@@ -30,7 +32,7 @@ import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.markup.ActiveGutterRenderer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vcs.ex.LineStatusMarkerRenderer;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.ex.Range;
 import com.intellij.openapi.vcs.ex.Range.InnerRange;
 import com.intellij.util.EventDispatcher;
@@ -48,7 +50,7 @@ class VcsPreviewPanel implements PreviewPanel {
 
   private final EditorEx myEditor;
 
-  public VcsPreviewPanel() {
+  VcsPreviewPanel() {
     DocumentImpl document = new DocumentImpl("", true);
     myEditor = (EditorEx)EditorFactory.getInstance().createViewer(document);
     myEditor.getGutterComponentEx().setForceShowRightFreePaintersArea(true);
@@ -74,26 +76,33 @@ class VcsPreviewPanel implements PreviewPanel {
     EditorColorsScheme colorsScheme = myEditor.getColorsScheme();
 
     StringBuilder sb = new StringBuilder();
-    sb.append(
-      "Deleted line below\n\n" +
-      "Modified line\n\n" +
-      "Added line\n\n" +
-      "Line with modified whitespaces\n\n" +
-      "Added line\n" +
-      "Line with modified whitespaces and deletion after\n"
-    );
+    String nn = "\n\n";
+    String n = "\n";
+    sb.append(VcsBundle.message("vcs.preview.panel.deleted.line.below")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.modified.line")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.added.line")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.line.with.modified.whitespaces")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.added.line")).append(n)
+      .append(VcsBundle.message("vcs.preview.panel.line.with.modified.whitespaces.and.deletion.after")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.deleted.ignored.line.below")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.modified.ignored.line")).append(nn)
+      .append(VcsBundle.message("vcs.preview.panel.added.ignored.line")).append(nn);
     int additionalLines = Math.max(0, AnnotationsSettings.getInstance().getOrderedColors(colorsScheme).size() - StringUtil.countNewLines(sb));
-    sb.append(StringUtil.repeat("\n", additionalLines));
+    sb.append(StringUtil.repeat(n, additionalLines));
 
     myEditor.getDocument().setText(sb);
     myEditor.getMarkupModel().removeAllHighlighters();
     myEditor.getGutterComponentEx().closeAllAnnotations();
 
-    addHighlighter(new Range(1, 1, 0, 1), EditorColors.DELETED_LINES_COLOR);
-    addHighlighter(createModifiedRange(2, Range.MODIFIED), EditorColors.MODIFIED_LINES_COLOR);
-    addHighlighter(createModifiedRange(4, Range.INSERTED), EditorColors.ADDED_LINES_COLOR);
-    addHighlighter(createModifiedRange(6, Range.EQUAL), EditorColors.WHITESPACES_MODIFIED_LINES_COLOR);
-    addHighlighter(createModifiedRange(8, Range.INSERTED, Range.EQUAL, Range.DELETED), EditorColors.WHITESPACES_MODIFIED_LINES_COLOR);
+    addHighlighter(new Range(1, 1, 0, 1), false, EditorColors.DELETED_LINES_COLOR);
+    addHighlighter(createModifiedRange(2, Range.MODIFIED), false, EditorColors.MODIFIED_LINES_COLOR);
+    addHighlighter(createModifiedRange(4, Range.INSERTED), false, EditorColors.ADDED_LINES_COLOR);
+    addHighlighter(createModifiedRange(6, Range.EQUAL), false, EditorColors.WHITESPACES_MODIFIED_LINES_COLOR);
+    addHighlighter(createModifiedRange(8, Range.INSERTED, Range.EQUAL, Range.DELETED), false, EditorColors.WHITESPACES_MODIFIED_LINES_COLOR);
+
+    addHighlighter(new Range(12, 12, 0, 1), true, EditorColors.IGNORED_DELETED_LINES_BORDER_COLOR);
+    addHighlighter(createModifiedRange(13, Range.MODIFIED), true, EditorColors.IGNORED_MODIFIED_LINES_BORDER_COLOR);
+    addHighlighter(new Range(15, 16, 0, 0), true, EditorColors.IGNORED_ADDED_LINES_BORDER_COLOR);
 
     List<Color> annotationColors = AnnotationsSettings.getInstance().getOrderedColors(colorsScheme);
     List<Integer> anchorIndexes = AnnotationsSettings.getInstance().getAnchorIndexes(colorsScheme);
@@ -122,22 +131,28 @@ class VcsPreviewPanel implements PreviewPanel {
     return new Range(currentLine, currentLine + currentInnerLine, 0, 1, innerRanges);
   }
 
-  private void addHighlighter(@NotNull Range range, @NotNull ColorKey colorKey) {
-    RangeHighlighter highlighter = LineStatusMarkerRenderer.createRangeHighlighter(range, myEditor.getMarkupModel());
+  private void addHighlighter(@NotNull Range range, boolean isIgnored, @NotNull ColorKey colorKey) {
+    RangeHighlighter highlighter = LineStatusMarkerDrawUtil.createTooltipRangeHighlighter(range, myEditor.getMarkupModel());
     highlighter.setLineMarkerRenderer(new ActiveGutterRenderer() {
       @Override
-      public void paint(Editor editor, Graphics g, Rectangle r) {
-        LineStatusMarkerRenderer.paintRange(g, myEditor, range, 0);
+      public void paint(@NotNull Editor editor, @NotNull Graphics g, @NotNull Rectangle r) {
+        LineStatusMarkerDrawUtil.paintRange(g, myEditor, range, 0, isIgnored);
       }
 
       @Override
-      public boolean canDoAction(MouseEvent e) {
-        return LineStatusMarkerRenderer.isInsideMarkerArea(e);
+      public boolean canDoAction(@NotNull MouseEvent e) {
+        return LineStatusMarkerDrawUtil.isInsideMarkerArea(e);
       }
 
       @Override
-      public void doAction(Editor editor, MouseEvent e) {
+      public void doAction(@NotNull Editor editor, @NotNull MouseEvent e) {
         myDispatcher.getMulticaster().selectionInPreviewChanged(colorKey.getExternalName());
+      }
+
+      @NotNull
+      @Override
+      public String getAccessibleName() {
+        return DiffBundle.message("vcs.marker.changed.line");
       }
     });
   }
@@ -152,10 +167,10 @@ class VcsPreviewPanel implements PreviewPanel {
   }
 
   private static class MyTextAnnotationGutterProvider implements TextAnnotationGutterProvider {
-    @NotNull private final List<Color> myBackgroundColors;
+    @NotNull private final List<? extends Color> myBackgroundColors;
     @NotNull private final List<Integer> myAnchorIndexes;
 
-    public MyTextAnnotationGutterProvider(@NotNull List<Color> backgroundColors, @NotNull List<Integer> anchorIndexes) {
+    MyTextAnnotationGutterProvider(@NotNull List<? extends Color> backgroundColors, @NotNull List<Integer> anchorIndexes) {
       myBackgroundColors = backgroundColors;
       myAnchorIndexes = anchorIndexes;
     }
@@ -165,7 +180,7 @@ class VcsPreviewPanel implements PreviewPanel {
     public String getLineText(int line, Editor editor) {
       if (line < myBackgroundColors.size()) {
         int anchorIndex = myAnchorIndexes.indexOf(line);
-        String text = "Annotation background";
+        String text = VcsBundle.message("annotation.background");
         if (anchorIndex != -1) text += " #" + (anchorIndex + 1);
         return text;
       }

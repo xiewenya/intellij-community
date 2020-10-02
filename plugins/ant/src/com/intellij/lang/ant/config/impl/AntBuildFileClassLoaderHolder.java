@@ -25,18 +25,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AntBuildFileClassLoaderHolder extends ClassLoaderHolder {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.config.impl.AntBuildFileClassLoaderHolder");
+  private static final Logger LOG = Logger.getInstance(AntBuildFileClassLoaderHolder.class);
 
   public AntBuildFileClassLoaderHolder(AbstractProperty.AbstractPropertyContainer options) {
     super(options);
   }
 
+  @Override
   protected ClassLoader buildClasspath() {
     final ArrayList<File> files = new ArrayList<>();
     for (final AntClasspathEntry entry : AntBuildFileImpl.ADDITIONAL_CLASSPATH.get(myOptions)) {
       entry.addFilesTo(files);
     }
-    
+
     final AntInstallation antInstallation = AntBuildFileImpl.RUN_WITH_ANT.get(myOptions);
     final ClassLoader parentLoader = (antInstallation != null) ? antInstallation.getClassLoader() : null;
     if (parentLoader != null && files.size() == 0) {

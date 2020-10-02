@@ -1,32 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup.util;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.IdeBundle;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.*;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.speedSearch.FilteringListModel;
-import com.intellij.util.ArrayUtil;
+import com.intellij.ui.speedSearch.ListWithFilter;
+import com.intellij.ui.speedSearch.SpeedSearch;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.Consumer;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,8 +30,7 @@ import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.awt.event.*;
 
-public class MasterDetailPopupBuilder implements MasterController {
-
+public final class MasterDetailPopupBuilder implements MasterController {
   private static final Color BORDER_COLOR = Gray._135;
 
   private final Project myProject;
@@ -49,11 +41,12 @@ public class MasterDetailPopupBuilder implements MasterController {
   private DetailView myDetailView;
   private JLabel myPathLabel;
   private JBPopup myPopup;
+  private SpeedSearch mySpeedSearch;
 
   private String myDimensionServiceKey = null;
   private boolean myAddDetailViewToEast = true;
   private ActionGroup myActions = null;
-  private Consumer<IPopupChooserBuilder> myPopupTuner = null;
+  private Consumer<? super IPopupChooserBuilder> myPopupTuner = null;
   private Runnable myDoneRunnable = null;
 
   public MasterDetailPopupBuilder(Project project) {
@@ -71,20 +64,20 @@ public class MasterDetailPopupBuilder implements MasterController {
         if (e.getKeyCode() == KeyEvent.VK_DELETE) {
           removeSelectedItems();
         }
-        else if (e.getModifiersEx() == 0) {
+        else if (e.getModifiersEx() == 0 && !mySpeedSearch.isHoldingFilter()) {
           myDelegate.handleMnemonic(e, myProject, myPopup);
         }
       }
     });
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         chooseItems(true);
       }
     }.registerCustomShortcutSet(CommonShortcuts.ENTER, list);
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         chooseItems(true);
       }
     }.registerCustomShortcutSet(CommonShortcuts.DOUBLE_CLICK_1, list);
@@ -180,7 +173,7 @@ public class MasterDetailPopupBuilder implements MasterController {
   }
 
   @NotNull
-  public MasterDetailPopupBuilder setPopupTuner(@Nullable Consumer<IPopupChooserBuilder> tuner) {
+  public MasterDetailPopupBuilder setPopupTuner(@Nullable Consumer<? super IPopupChooserBuilder> tuner) {
     myPopupTuner = tuner;
     return this;
   }
@@ -238,8 +231,8 @@ public class MasterDetailPopupBuilder implements MasterController {
       setUseDimensionServiceForXYLocation(myDimensionServiceKey != null).
       setSettingButton(toolBar).
       setSouthComponent(footerPanel).
-      setItemChoosenCallback(itemCallback);
-      //setFilteringEnabled(o -> ((ItemWrapper)o).speedSearchText());
+      setItemChoosenCallback(itemCallback).
+      setFilteringEnabled(o -> ((ItemWrapper)o).speedSearchText());
 
     if (myPopupTuner != null) {
       myPopupTuner.consume(builder);
@@ -253,12 +246,13 @@ public class MasterDetailPopupBuilder implements MasterController {
         }
       };
 
-      if ((SystemInfo.isMacOSLion || SystemInfo.isMacOSMountainLion) && !UIUtil.isUnderDarcula()) {
-        final JButton done = new JButton("Done");
+      if (SystemInfoRt.isMac && !StartupUiUtil.isUnderDarcula()) {
+        JButton done = new JButton(LangBundle.message("button.done"));
         done.setOpaque(false);
         done.setMnemonic('o');
         done.addActionListener(actionListener);
         builder.setCommandButton(new ActiveComponent.Adapter() {
+          @NotNull
           @Override
           public JComponent getComponent() {
             return done;
@@ -266,7 +260,8 @@ public class MasterDetailPopupBuilder implements MasterController {
         });
       }
       else {
-        IconButton close = new IconButton("Close", AllIcons.Actions.Close, AllIcons.Actions.CloseHovered);
+        IconButton close = new IconButton(LangBundle.message("button.close"),
+                                          AllIcons.Actions.Close, AllIcons.Actions.CloseHovered);
         builder.setCommandButton(new InplaceButton(close, actionListener));
       }
     }
@@ -279,18 +274,19 @@ public class MasterDetailPopupBuilder implements MasterController {
     myPopup = builder.createPopup();
 
     builder.getScrollPane().setBorder(IdeBorderFactory.createBorder(SideBorder.RIGHT));
+    mySpeedSearch = ((ListWithFilter)builder.getPreferableFocusComponent()).getSpeedSearch();
 
-    myPopup.addListener(new JBPopupListener.Adapter() {
+    myPopup.addListener(new JBPopupListener() {
       @Override
-      public void onClosed(LightweightWindowEvent event) {
+      public void onClosed(@NotNull LightweightWindowEvent event) {
         myDetailView.clearEditor();
       }
     });
 
     if (myDoneRunnable != null) {
-      new AnAction("Done") {
+      new AnAction(IdeBundle.messagePointer("action.Anonymous.text.done")) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           myDoneRunnable.run();
         }
       }.registerCustomShortcutSet(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK, myPopup.getContent());
@@ -311,7 +307,7 @@ public class MasterDetailPopupBuilder implements MasterController {
 
   @Override
   public ItemWrapper[] getSelectedItems() {
-    Object[] values = ArrayUtil.EMPTY_OBJECT_ARRAY;
+    Object[] values = ArrayUtilRt.EMPTY_OBJECT_ARRAY;
     if (myChooserComponent instanceof JList) {
       //noinspection deprecation
       values = ((JList)myChooserComponent).getSelectedValues();
@@ -333,7 +329,7 @@ public class MasterDetailPopupBuilder implements MasterController {
 
 
   public interface Delegate {
-    @Nullable
+    @Nullable @NlsContexts.PopupTitle
     String getTitle();
 
     void handleMnemonic(KeyEvent e, Project project, JBPopup popup);
@@ -348,7 +344,7 @@ public class MasterDetailPopupBuilder implements MasterController {
     void removeSelectedItemsInTree();
   }
 
-  private static class ListItemRenderer extends JPanel implements ListCellRenderer {
+  private static final class ListItemRenderer extends JPanel implements ListCellRenderer {
     private final Project myProject;
     private final ColoredListCellRenderer myRenderer;
     private final Delegate myDelegate;
@@ -387,7 +383,7 @@ public class MasterDetailPopupBuilder implements MasterController {
   }
 
   private class MyPopupChooserBuilder extends PopupChooserBuilder {
-    public MyPopupChooserBuilder(@NotNull JList list) {
+    MyPopupChooserBuilder(@NotNull JList list) {
       super(list);
     }
 

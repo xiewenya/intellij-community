@@ -25,8 +25,6 @@ public class RemoveUnusedVariableTest extends LightQuickFixParameterizedTestCase
     enableInspectionTool(new UnusedDeclarationInspection());
   }
 
-  public void test() { doAllTests(); }
-
   @Override
   protected String getBasePath() {
     return "/codeInsight/daemonCodeAnalyzer/quickFix/removeUnusedVariable";

@@ -37,18 +37,21 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.pom.Navigatable;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.ui.components.JBLoadingPanel;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
 public abstract class ThreesideDiffViewer<T extends EditorHolder> extends ListenerDiffViewerBase {
   @NotNull protected final SimpleDiffPanel myPanel;
   @NotNull protected final ThreesideContentPanel myContentPanel;
+  @NotNull protected final JBLoadingPanel myLoadingPanel;
 
   @NotNull private final List<T> myHolders;
 
@@ -59,11 +62,14 @@ public abstract class ThreesideDiffViewer<T extends EditorHolder> extends Listen
 
     myHolders = createEditorHolders(factory);
 
-    List<JComponent> titlePanel = createTitles();
     myFocusTrackerSupport = new FocusTrackerSupport.Threeside(myHolders);
-    myContentPanel = new ThreesideContentPanel(myHolders, titlePanel);
+    myContentPanel = new ThreesideContentPanel.Holders(myHolders);
+    myContentPanel.setTitles(createTitles());
 
-    myPanel = new SimpleDiffPanel(myContentPanel, this, context);
+    myLoadingPanel = new JBLoadingPanel(new BorderLayout(), this, 300);
+    myLoadingPanel.add(myContentPanel, BorderLayout.CENTER);
+
+    myPanel = new SimpleDiffPanel(myLoadingPanel, this, context);
   }
 
   @Override
@@ -73,21 +79,21 @@ public abstract class ThreesideDiffViewer<T extends EditorHolder> extends Listen
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void onDispose() {
     destroyEditorHolders();
     super.onDispose();
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void processContextHints() {
     super.processContextHints();
     myFocusTrackerSupport.processContextHints(myRequest, myContext);
   }
 
   @Override
-  @CalledInAwt
+  @RequiresEdt
   protected void updateContextHints() {
     super.updateContextHints();
     myFocusTrackerSupport.updateContextHints(myRequest, myContext);
@@ -113,7 +119,7 @@ public abstract class ThreesideDiffViewer<T extends EditorHolder> extends Listen
 
   @NotNull
   protected List<JComponent> createTitles() {
-    return DiffUtil.createSyncHeightComponents(DiffUtil.createSimpleTitles(myRequest));
+    return DiffUtil.createSimpleTitles(myRequest);
   }
 
   //
@@ -154,7 +160,7 @@ public abstract class ThreesideDiffViewer<T extends EditorHolder> extends Listen
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (DiffDataKeys.CURRENT_CONTENT.is(dataId)) {
       return getCurrentSide().select(myRequest.getContents());
     }
@@ -242,7 +248,7 @@ public abstract class ThreesideDiffViewer<T extends EditorHolder> extends Listen
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       DiffRequest request = createRequest();
       DiffManager.getInstance().showDiff(myProject, request, new DiffDialogHints(null, myPanel));
     }

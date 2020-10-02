@@ -37,12 +37,6 @@ public class ClassInheritanceDepthInspection
   private static final int CLASS_INHERITANCE_LIMIT = 2;
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("class.too.deep.display.name");
-  }
-
-  @Override
   protected int getDefaultLimit() {
     return CLASS_INHERITANCE_LIMIT;
   }
@@ -85,7 +79,7 @@ public class ClassInheritanceDepthInspection
       registerClassError(aClass, Integer.valueOf(inheritanceDepth));
     }
 
-    private int getInheritanceDepth(PsiClass aClass, Set<PsiClass> visited) {
+    private int getInheritanceDepth(PsiClass aClass, Set<? super PsiClass> visited) {
       if (visited.contains(aClass)) {
         return 0;
       }

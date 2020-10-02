@@ -22,9 +22,6 @@ import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ThrowableRunnable;
 
-/**
- * @author cdr
- */
 @SkipSlowTestLocally
 public class RecursiveVisitorTest extends LightDaemonAnalyzerTestCase {
   public void testHugeConcatenationVisitingPerformance() throws IncorrectOperationException {
@@ -35,7 +32,7 @@ public class RecursiveVisitorTest extends LightDaemonAnalyzerTestCase {
     }
     text.append(";");
     final PsiElement expression =
-      JavaPsiFacade.getInstance(getProject()).getElementFactory().createStatementFromText(text.toString(), null);
+      JavaPsiFacade.getElementFactory(getProject()).createStatementFromText(text.toString(), null);
     final int[] n = {0};
     PlatformTestUtil.startPerformanceTest(getTestName(false), 100, new ThrowableRunnable() {
       @Override
@@ -62,7 +59,7 @@ public class RecursiveVisitorTest extends LightDaemonAnalyzerTestCase {
     }
     text.append(";");
     final PsiElement expression =
-      JavaPsiFacade.getInstance(getProject()).getElementFactory().createStatementFromText(text.toString(), null);
+      JavaPsiFacade.getElementFactory(getProject()).createStatementFromText(text.toString(), null);
     final int[] n = {0};
     PlatformTestUtil.startPerformanceTest(getTestName(false), 200, new ThrowableRunnable() {
       @Override

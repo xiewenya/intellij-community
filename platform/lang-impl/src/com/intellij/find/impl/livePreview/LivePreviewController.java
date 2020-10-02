@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.impl.livePreview;
 
 import com.intellij.find.*;
@@ -6,11 +6,13 @@ import com.intellij.find.impl.FindResultImpl;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.SelectionModel;
-import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.BulkAwareDocumentListener;
 import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.editor.event.SelectionEvent;
 import com.intellij.openapi.editor.event.SelectionListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
@@ -31,7 +33,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   private final Alarm myLivePreviewAlarm;
   protected SearchResults mySearchResults;
   private LivePreview myLivePreview;
-  private final boolean myReplaceDenied = false;
+  private static final boolean myReplaceDenied = false;
   private boolean mySuppressUpdate;
 
   private boolean myTrackingDocument;
@@ -39,7 +41,12 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
 
   private boolean myListeningSelection;
 
-  private final SelectionListener mySelectionListener = e -> smartUpdate();
+  private final SelectionListener mySelectionListener = new SelectionListener() {
+    @Override
+    public void selectionChanged(@NotNull SelectionEvent e) {
+      smartUpdate();
+    }
+  };
   private boolean myDisposed;
 
   public void setTrackingSelection(boolean b) {
@@ -56,9 +63,9 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   }
 
 
-  private final DocumentListener myDocumentListener = new DocumentListener() {
+  private final DocumentListener myDocumentListener = new BulkAwareDocumentListener.Simple() {
     @Override
-    public void documentChanged(final DocumentEvent e) {
+    public void afterDocumentChange(@NotNull final Document document) {
       if (!myTrackingDocument) {
         myChanged = true;
         return;
@@ -73,7 +80,6 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
 
   private void smartUpdate() {
     if (myLivePreview == null) return;
-    myLivePreview.inSmartUpdate();
     FindModel findModel = mySearchResults.getFindModel();
     if (findModel != null) {
       updateInBackground(findModel, false);
@@ -100,10 +106,6 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
     myLivePreviewAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, parentDisposable);
   }
 
-  public int getUserActivityDelay() {
-    return myUserActivityDelay;
-  }
-
   public void setUserActivityDelay(int userActivityDelay) {
     myUserActivityDelay = userActivityDelay;
   }
@@ -113,11 +115,11 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
     myLivePreviewAlarm.cancelAllRequests();
     final FindModel copy = new FindModel();
     copy.copyFrom(findModel);
-
+    mySearchResults.setUpdating(true);
+    if (myComponent != null) {
+      myComponent.getComponent().updateActions();
+    }
     Runnable request = () -> {
-      if (myDisposed) return;
-      Project project = mySearchResults.getProject();
-      if (project != null && project.isDisposed()) return;
       mySearchResults.updateThreadSafe(copy, allowedToChangedEditorSelection, null, stamp)
         .doWhenRejected(() -> updateInBackground(findModel, allowedToChangedEditorSelection));
     };
@@ -130,28 +132,19 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   }
 
   @Override
-  public String getStringToReplace(@NotNull Editor editor, @Nullable FindResult findResult) {
+  public String getStringToReplace(@NotNull Editor editor, @Nullable FindResult findResult) throws FindManager.MalformedReplacementStringException {
     if (findResult == null) {
       return null;
     }
     String foundString = editor.getDocument().getText(findResult);
     CharSequence documentText = editor.getDocument().getImmutableCharSequence();
     FindModel currentModel = mySearchResults.getFindModel();
-    String stringToReplace = null;
 
-    if (currentModel != null) {
-      if (currentModel.isReplaceState()) {
-        FindManager findManager = FindManager.getInstance(mySearchResults.getProject());
-        try {
-          stringToReplace = findManager.getStringToReplace(foundString, currentModel,
-                                                           findResult.getStartOffset(), documentText);
-        }
-        catch (FindManager.MalformedReplacementStringException e) {
-          return null;
-        }
-      }
+    if (currentModel != null && currentModel.isReplaceState()) {
+      FindManager findManager = FindManager.getInstance(mySearchResults.getProject());
+      return findManager.getStringToReplace(foundString, currentModel, findResult.getStartOffset(), documentText);
     }
-    return stringToReplace;
+    return null;
   }
 
   @Nullable
@@ -167,7 +160,6 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
                                           replacement,
                                           true,
                                           new ArrayList<>());
-    myLivePreview.inSmartUpdate();
     mySearchResults.updateThreadSafe(findModel, true, result, mySearchResults.getStamp());
     return result;
   }
@@ -208,7 +200,13 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   public boolean canReplace() {
     if (mySearchResults != null && mySearchResults.getCursor() != null && !isReplaceDenied()) {
 
-      final String replacement = getStringToReplace(getEditor(), mySearchResults.getCursor());
+      final String replacement;
+      try {
+        replacement = getStringToReplace(getEditor(), mySearchResults.getCursor());
+      }
+      catch (FindManager.MalformedReplacementStringException e) {
+        return false;
+      }
       return replacement != null;
     }
     return false;
@@ -218,7 +216,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
     return mySearchResults.getEditor();
   }
 
-  public void performReplace() {
+  public void performReplace() throws FindManager.MalformedReplacementStringException {
     mySuppressUpdate = true;
     String replacement = getStringToReplace(getEditor(), mySearchResults.getCursor());
     if (replacement == null) {
@@ -284,6 +282,7 @@ public class LivePreviewController implements LivePreview.Delegate, FindUtil.Rep
   public void off() {
     if (myDisposed) return;
 
+    mySearchResults.clear();
     setTrackingDocument(false);
     setLivePreview(null);
     setTrackingSelection(false);

@@ -1,31 +1,17 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.evaluation;
 
 import com.intellij.codeInsight.completion.CompletionService;
 import com.intellij.codeInsight.completion.JavaCompletionUtil;
 import com.intellij.debugger.DebuggerManagerEx;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.codeinsight.RuntimeTypeEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilder;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerSession;
-import com.intellij.debugger.ui.DebuggerExpressionComboBox;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
@@ -50,10 +36,12 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
     return SingletonHolder.ourInstance;
   }
 
+  @Override
   public JavaCodeFragment createPresentationCodeFragment(final TextWithImports item, final PsiElement context, final Project project) {
     return createCodeFragment(item, context, project);
   }
 
+  @Override
   public JavaCodeFragment createCodeFragment(TextWithImports item, PsiElement context, final Project project) {
     final JavaCodeFragmentFactory factory = JavaCodeFragmentFactory.getInstance(project);
     final String text = item.getText();
@@ -87,10 +75,7 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
       }
 
       if (parameters.getInvocationCount() <= 1 && JavaCompletionUtil.mayHaveSideEffects(expression)) {
-        final CompletionService service = CompletionService.getCompletionService();
-        if (parameters.getInvocationCount() < 2) {
-          service.setAdvertisementText("Invoke completion once more to see runtime type variants");
-        }
+        CompletionService.getCompletionService().setAdvertisementText(JavaDebuggerBundle.message("invoke.completion.once.more"));
         return null;
       }
 
@@ -121,13 +106,15 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
     return fragment;
   }
 
+  @Override
   public boolean isContextAccepted(PsiElement contextElement) {
     return true; // default factory works everywhere debugger can stop
   }
 
+  @Override
   @NotNull
   public LanguageFileType getFileType() {
-    return StdFileTypes.JAVA;
+    return JavaFileType.INSTANCE;
   }
 
   @Override
@@ -138,6 +125,6 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
   public static final Key<String> KEY = Key.create("DefaultCodeFragmentFactory.KEY");
 
   public static boolean isDebuggerFile(PsiFile file) {
-    return file.getUserData(KEY) != null || file.getUserData(DebuggerExpressionComboBox.KEY) != null;
+    return KEY.isIn(file);
   }
 }

@@ -3,7 +3,7 @@ public class ImplicitCallToSuper {
   <warning descr="Implicit call to 'super()'">ImplicitCallToSuper</warning>() {}
 }
 class A {
-  <error descr="Illegal type: 'void'">void</error> () {}
+  <error descr="Identifier expected">void</error> () {}
 }
 class B {
   B() {
@@ -14,4 +14,11 @@ class B {
     System.out.println(i);
     System.out.println(i);
   }
+}
+enum X {
+  ;
+  X() {}
+}
+record Y() {
+  public Y() {}
 }

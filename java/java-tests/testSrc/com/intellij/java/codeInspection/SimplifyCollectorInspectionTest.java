@@ -20,19 +20,11 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.SimplifyCollectorInspection;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * @author Tagir Valeev
- */
 public class SimplifyCollectorInspectionTest extends LightQuickFixParameterizedTestCase {
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[]{new SimplifyCollectorInspection()};
-  }
-
-  public void test() {
-    doAllTests();
   }
 
   @Override

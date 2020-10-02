@@ -2,11 +2,17 @@
 package com.jetbrains.python.inspections;
 
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.packaging.PyPackageManager;
+import com.jetbrains.python.packaging.PyRequirement;
 import com.jetbrains.python.psi.LanguageLevel;
-import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.PythonSdkUtil;
+import com.jetbrains.python.sdk.pipenv.PipenvKt;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 /**
  * @author vlan
@@ -21,7 +27,7 @@ public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    final Sdk sdk = PythonSdkType.findPythonSdk(myFixture.getModule());
+    final Sdk sdk = PythonSdkUtil.findPythonSdk(myFixture.getModule());
     assertNotNull(sdk);
     PyPackageManager.getInstance(sdk).refreshAndGetPackages(true);
   }
@@ -81,5 +87,41 @@ public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
     myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
     myFixture.configureFromTempProjectFile("a.py");
     configureInspection();
+  }
+
+  // PY-30803
+  public void testPipEnvEnvironmentMarkers() {
+    myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
+    final VirtualFile pipFileLock = myFixture.findFileInTempDir("Pipfile.lock");
+    assertNotNull(pipFileLock);
+    final PyPackageManager packageManager = PyPackageManager.getInstance(getProjectDescriptor().getSdk());
+    final List<PyRequirement> requirements = PipenvKt.getPipFileLockRequirements(pipFileLock, packageManager);
+    final List<String> names = StreamEx.of(requirements).map(PyRequirement::getName).toList();
+    assertNotEmpty(names);
+    assertContainsElements(names, "atomicwrites", "attrs", "more-itertools", "pluggy", "py", "pytest", "six");
+    assertDoesntContain(names, "pathlib2");
+  }
+
+  // PY-41106
+  public void testSuppressingRequirementWithExtras() {
+    myFixture.configureByText("requirements.txt", "<warning descr=\"Package requirement 'pkg[extras]' is not satisfied\">pkg[extras]</warning>");
+
+    final PyPackageRequirementsInspection inspection = new PyPackageRequirementsInspection();
+    myFixture.enableInspections(inspection);
+    myFixture.checkHighlighting(isWarning(), isInfo(), isWeakWarning());
+
+    myFixture.launchAction(myFixture.findSingleIntention("Ignore requirement"));
+    assertContainsElements(inspection.ignoredPackages, "pkg");
+  }
+
+  // PY-41106
+  public void testIgnoredRequirementWithExtras() {
+    myFixture.configureByText("requirements.txt", "pkg[extras]");
+
+    final PyPackageRequirementsInspection inspection = new PyPackageRequirementsInspection();
+    inspection.ignoredPackages.add("pkg");
+
+    myFixture.enableInspections(inspection);
+    myFixture.checkHighlighting(isWarning(), isInfo(), isWeakWarning());
   }
 }

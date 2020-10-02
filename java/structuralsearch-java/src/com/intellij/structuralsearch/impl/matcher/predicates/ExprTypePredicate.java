@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.predicates;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -20,6 +6,8 @@ import com.intellij.psi.*;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.util.SmartList;
 import gnu.trove.THashSet;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.List;
@@ -30,22 +18,26 @@ import java.util.Set;
  * @author Maxim.Mossienko
  */
 public class ExprTypePredicate extends MatchPredicate {
-  private final RegExpPredicate delegate;
-  private final boolean withinHierarchy;
+  private final RegExpPredicate myDelegate;
+  private final boolean myWithinHierarchy;
   private final boolean needsTypeParameters;
   private final boolean needsFullyQualified;
   private final boolean needsArrayType;
+  private final boolean myCaseSensitive;
+  private final List<String> myTypes;
 
-  public ExprTypePredicate(String type, String baseName, boolean _withinHierarchy, boolean caseSensitiveMatch, boolean target) {
-    delegate = new RegExpPredicate(type, caseSensitiveMatch, baseName, false, target);
-    withinHierarchy = _withinHierarchy;
+  public ExprTypePredicate(@NotNull String type, String baseName, boolean withinHierarchy, boolean caseSensitiveMatch, boolean target, boolean regex) {
+    myDelegate = regex ? new RegExpPredicate(type, caseSensitiveMatch, baseName, false, target) : null;
+    myWithinHierarchy = withinHierarchy;
     needsTypeParameters = type.indexOf('<') >= 0;
     needsFullyQualified = type.indexOf('.') >= 0;
     needsArrayType = type.indexOf('[') >= 0;
+    myCaseSensitive = caseSensitiveMatch;
+    myTypes = regex ? null : StringUtil.split(type, "|");
   }
 
   @Override
-  public boolean match(PsiElement match, int start, int end, MatchContext context) {
+  public boolean match(@NotNull PsiElement match, int start, int end, @NotNull MatchContext context) {
     if (match instanceof PsiIdentifier) {
       // since we pickup tokens
       match = match.getParent();
@@ -61,8 +53,12 @@ public class ExprTypePredicate extends MatchPredicate {
     return type != null && doMatchWithTheType(type, context, match, null);
   }
 
-  protected PsiType evalType(PsiExpression match, MatchContext context) {
-    if (match instanceof PsiReferenceExpression) {
+  protected PsiType evalType(@NotNull PsiExpression match, @NotNull MatchContext context) {
+    if (match instanceof PsiFunctionalExpression) {
+      final PsiFunctionalExpression functionalExpression = (PsiFunctionalExpression)match;
+      return functionalExpression.getFunctionalInterfaceType();
+    }
+    else if (match instanceof PsiReferenceExpression) {
       final PsiElement parent = match.getParent();
       if (parent instanceof PsiMethodCallExpression) {
         return ((PsiMethodCallExpression)parent).getType();
@@ -71,14 +67,14 @@ public class ExprTypePredicate extends MatchPredicate {
     return match.getType();
   }
 
-  private boolean doMatchWithTheType(final PsiType type, MatchContext context, PsiElement matchedNode, Set<PsiType> visited) {
+  private boolean doMatchWithTheType(@NotNull PsiType type, @NotNull MatchContext context, @NotNull PsiElement matchedNode, @Nullable Set<? super PsiType> visited) {
     final List<String> permutations = getTextPermutations(type);
     for (String permutation : permutations) {
-      if (delegate.doMatch(permutation, context, matchedNode)) {
+      if (myDelegate == null ? doMatch(permutation) : myDelegate.doMatch(permutation, context, matchedNode)) {
         return true;
       }
     }
-    if (withinHierarchy) {
+    if (myWithinHierarchy) {
       if (visited == null) {
         visited = new THashSet<>();
         visited.add(type);
@@ -90,6 +86,10 @@ public class ExprTypePredicate extends MatchPredicate {
       }
     }
     return false;
+  }
+
+  private boolean doMatch(String text) {
+    return myTypes.stream().anyMatch(type -> myCaseSensitive ? type.equals(text) : type.equalsIgnoreCase(text));
   }
 
   private List<String> getTextPermutations(PsiType type) {
@@ -140,7 +140,7 @@ public class ExprTypePredicate extends MatchPredicate {
     return result;
   }
 
-  private static void addWithoutTypeParameters(String typeText, String suffix, List<String> result) {
+  private static void addWithoutTypeParameters(String typeText, String suffix, List<? super String> result) {
     final int lt = typeText.indexOf("<");
     if (lt >= 0) {
       result.add(typeText.substring(0, lt) + suffix);

@@ -1,13 +1,11 @@
-/*
- * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.java.compiler;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.compiler.CompilerDirectHierarchyInfo;
 import com.intellij.compiler.CompilerReferenceService;
 import com.intellij.compiler.backwardRefs.CompilerReferenceServiceImpl;
-import com.intellij.openapi.fileTypes.StdFileTypes;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -17,12 +15,14 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.intellij.util.containers.ContainerUtil;
+import one.util.streamex.MoreCollectors;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @SkipSlowTestLocally
 public class CompilerReferencesTest extends CompilerReferencesTestBase {
@@ -35,15 +35,16 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   public void setUp() throws Exception {
     super.setUp();
     installCompiler();
+    myFixture.setTestDataPath(getTestDataPath() + getName() + "/");
   }
 
   public void testIsNotReady() {
-    myFixture.configureByFile(getName() + "/Foo.java");
+    myFixture.configureByFile("Foo.java");
     assertNull(getReferentFilesForElementUnderCaret());
   }
 
   public void testSimpleUsagesInFullyCompiledProject() {
-    myFixture.configureByFiles(getName() + "/Foo.java", getName() + "/Bar.java", getName() + "/Baz.java", getName() + "/FooImpl.java");
+    myFixture.configureByFiles("Foo.java", "Bar.java", "Baz.java", "FooImpl.java");
     rebuildProject();
 
     final Set<VirtualFile> referents = getReferentFilesForElementUnderCaret();
@@ -56,7 +57,7 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   }
 
   public void testLambda() {
-    myFixture.configureByFiles(getName() + "/Foo.java", getName() + "/FooImpl.java", getName() + "/Bar.java", getName() + "/BarRef.java");
+    myFixture.configureByFiles("Foo.java", "FooImpl.java", "Bar.java", "BarRef.java");
     rebuildProject();
     final CompilerDirectHierarchyInfo funExpressions = getFunctionalExpressionsForElementUnderCaret();
     List<PsiFunctionalExpression> funExprs = funExpressions.getHierarchyChildren().map(PsiFunctionalExpression.class::cast).collect(Collectors.toList());
@@ -64,7 +65,7 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   }
 
   public void testInnerFunExpressions() {
-    myFixture.configureByFiles(getName() + "/Foo.java");
+    myFixture.configureByFiles("Foo.java");
     rebuildProject();
     List<PsiFunctionalExpression> funExpressions =
       getFunExpressionsFor(myFixture.getJavaFacade().findClass(CommonClassNames.JAVA_LANG_RUNNABLE))
@@ -87,7 +88,7 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   }
 
   public void testHierarchy() {
-    myFixture.configureByFiles(getName() + "/Foo.java", getName() + "/FooImpl.java", getName() + "/Bar.java", getName() + "/Baz.java", getName() + "/Test.java");
+    myFixture.configureByFiles("Foo.java", "FooImpl.java", "Bar.java", "Baz.java", "Test.java");
     rebuildProject();
     CompilerDirectHierarchyInfo directInheritorInfo = getHierarchyForElementUnderCaret();
 
@@ -103,15 +104,45 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   }
 
   public void testHierarchyOfLibClass() {
-    myFixture.configureByFiles(getName() + "/Foo.java");
+    myFixture.configureByFiles("Foo.java");
     rebuildProject();
     CompilerDirectHierarchyInfo directInheritorInfo = getDirectInheritorsFor(myFixture.getJavaFacade().findClass(CommonClassNames.JAVA_UTIL_LIST));
     PsiClass inheritor = assertOneElement(directInheritorInfo.getHierarchyChildren().map(PsiClass.class::cast).collect(Collectors.toList()));
     assertEquals("Foo.ListImpl", inheritor.getQualifiedName());
   }
 
+
+  public void testNestedAnonymousInheritors() {
+    myFixture.configureByFiles("Anonymouses.java",
+                               "Foo1.java",
+                               "Foo2.java",
+                               "Foo3.java",
+                               "Foo4.java",
+                               "Foo5.java",
+                               "Foo6.java");
+    rebuildProject();
+
+    PsiClass[] classes = IntStream
+      .range(1, 7)
+      .mapToObj(idx -> "Foo" + idx)
+      .map(className -> myFixture.findClass(className))
+      .toArray(PsiClass[]::new);
+
+    assertSize(6, classes);
+    for (PsiClass aClass : classes) {
+      PsiClass inheritor = getDirectInheritorsFor(aClass)
+        .getHierarchyChildren()
+        .map(PsiClass.class::cast)
+        .collect(MoreCollectors.onlyOne())
+        .orElse(null);
+      PsiAnonymousClass anonymousInheritor = assertInstanceOf(inheritor, PsiAnonymousClass.class);
+      PsiClass superFromReference = PsiUtil.resolveClassInType(anonymousInheritor.getBaseClassType());
+      assertEquals(superFromReference, aClass);
+    }
+  }
+
   public void testExtensionRename() {
-    VirtualFile file = myFixture.configureByFiles(getName() + "/Bar.java", getName() + "/Foo.txt")[1].getVirtualFile();
+    VirtualFile file = myFixture.configureByFiles("Bar.java", "Foo.txt")[1].getVirtualFile();
     rebuildProject();
     assertOneElement(getReferentFilesForElementUnderCaret());
     myFixture.renameElement(getPsiManager().findFile(file), "Foo.java");
@@ -120,11 +151,11 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
     final CompilerReferenceServiceImpl compilerReferenceService = (CompilerReferenceServiceImpl) CompilerReferenceService
       .getInstance(myFixture.getProject());
     compilerReferenceService.getScopeWithoutCodeReferences(foo);
-    assertOneElement(compilerReferenceService.getDirtyScopeHolder().getAllDirtyModulesForTest());
+    assertOneElement(compilerReferenceService.getAllDirtyModulesForTest());
   }
 
   public void testReverseExtensionRename() {
-    VirtualFile file = myFixture.configureByFiles(getName() + "/Bar.java", getName() + "/Foo.java")[1].getVirtualFile();
+    VirtualFile file = myFixture.configureByFiles("Bar.java", "Foo.java")[1].getVirtualFile();
     rebuildProject();
     assertSize(2, getReferentFilesForElementUnderCaret());
     myFixture.renameElement(getPsiManager().findFile(file), "Foo.txt");
@@ -150,13 +181,13 @@ public class CompilerReferencesTest extends CompilerReferencesTestBase {
   private CompilerDirectHierarchyInfo getDirectInheritorsFor(PsiClass classAtCaret) {
     return CompilerReferenceService.getInstance(myFixture.getProject()).getDirectInheritors(classAtCaret,
                                                                                             assertInstanceOf(classAtCaret.getUseScope(), GlobalSearchScope.class),
-                                                                                            StdFileTypes.JAVA);
+                                                                                            JavaFileType.INSTANCE);
   }
 
   private CompilerDirectHierarchyInfo getFunExpressionsFor(PsiClass classAtCaret) {
     return CompilerReferenceService.getInstance(myFixture.getProject()).getFunExpressions(classAtCaret,
                                                                                           assertInstanceOf(classAtCaret.getUseScope(), GlobalSearchScope.class),
-                                                                                          StdFileTypes.JAVA);
+                                                                                          JavaFileType.INSTANCE);
   }
 
   private Set<VirtualFile> getReferentFilesForElementUnderCaret() {

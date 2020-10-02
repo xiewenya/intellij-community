@@ -1,3 +1,4 @@
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.difftool.properties;
 
 import com.intellij.diff.DiffContentFactory;
@@ -11,12 +12,13 @@ import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.fragments.LineFragmentImpl;
 import com.intellij.diff.requests.ContentDiffRequest;
+import com.intellij.diff.requests.ProxySimpleDiffRequest;
+import com.intellij.diff.tools.util.BaseSyncScrollable;
 import com.intellij.diff.tools.util.DiffSplitter;
 import com.intellij.diff.tools.util.SyncScrollSupport;
 import com.intellij.diff.tools.util.side.TwosideTextDiffViewer;
 import com.intellij.diff.util.*;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorSettings;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -26,14 +28,13 @@ import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.markup.SeparatorPlacement;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.util.EmptyRunnable;
-import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.HashMap;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -44,13 +45,12 @@ import org.jetbrains.idea.svn.properties.PropertyValue;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
-  @NotNull private final WrapperRequest myWrapperRequest;
+public final class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
+  private static final @NonNls String HELP_ID = "topicId758145";
+
   @NotNull private final List<DiffChange> myDiffChanges;
 
   private boolean myFirstRediff = true;
@@ -62,13 +62,14 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
 
   @NotNull
   public static SvnPropertiesDiffViewer create(@NotNull DiffContext context, @NotNull SvnPropertiesDiffRequest request, boolean embedded) {
-    Pair<WrapperRequest, List<DiffChange>> pair = convertRequest(request, embedded);
+    Pair<ContentDiffRequest, List<DiffChange>> pair = convertRequest(request, embedded);
     return new SvnPropertiesDiffViewer(context, pair.first, pair.second);
   }
 
-  private SvnPropertiesDiffViewer(@NotNull DiffContext context, @NotNull WrapperRequest request, @NotNull List<DiffChange> diffChanges) {
+  private SvnPropertiesDiffViewer(@NotNull DiffContext context,
+                                  @NotNull ContentDiffRequest request,
+                                  @NotNull List<DiffChange> diffChanges) {
     super(context, request);
-    myWrapperRequest = request;
     myDiffChanges = diffChanges;
 
     for (EditorEx editor : getEditors()) {
@@ -146,7 +147,6 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   }
 
   private void setupHighlighting(@NotNull DiffChange change, @NotNull Side side) {
-    PropertyRecord record = change.getRecord();
     List<? extends LineFragment> fragments = change.getFragments();
     assert fragments != null;
 
@@ -189,7 +189,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   private class MyDividerPainter implements DiffSplitter.Painter, DiffDividerDrawUtil.DividerPaintable {
     @NotNull private final JBLabel myLabel;
 
-    public MyDividerPainter() {
+    MyDividerPainter() {
       myLabel = new JBLabel();
       myLabel.setFont(UIUtil.getLabelFont());
       myLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -304,15 +304,19 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       public int transfer(@NotNull Side side, int line) {
         return line;
       }
+
+      @NotNull
+      @Override
+      public Range getRange(@NotNull Side baseSide, int line) {
+        return BaseSyncScrollable.idRange(line);
+      }
     };
   }
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
-    if (PlatformDataKeys.HELP_ID.is(dataId)) {
-      return "topicId758145";
-    }
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (PlatformDataKeys.HELP_ID.is(dataId)) return HELP_ID;
     return super.getData(dataId);
   }
 
@@ -321,7 +325,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   //
 
   @NotNull
-  private static Pair<WrapperRequest, List<DiffChange>> convertRequest(@NotNull SvnPropertiesDiffRequest request, boolean embedded) {
+  private static Pair<ContentDiffRequest, List<DiffChange>> convertRequest(@NotNull SvnPropertiesDiffRequest request, boolean embedded) {
     List<PropertyRecord> records = collectRecords(request);
 
     StringBuilder builder1 = new StringBuilder();
@@ -353,10 +357,14 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       diffChanges.add(new DiffChange(record, start, totalLines, start, totalLines));
     }
 
-    Document document1 = new DocumentImpl(builder1);
-    Document document2 = new DocumentImpl(builder2);
+    DocumentContent content1 = DiffContentFactory.getInstance().create(null, new DocumentImpl(builder1));
+    DocumentContent content2 = DiffContentFactory.getInstance().create(null, new DocumentImpl(builder2));
+    List<DiffContent> contents = Arrays.asList(content1, content2);
+    List<String> titles = embedded ? Arrays.asList(null, null) : request.getContentTitles();
 
-    return Pair.create(new WrapperRequest(request, document1, document2, embedded), diffChanges);
+    ProxySimpleDiffRequest proxyRequest = new ProxySimpleDiffRequest(request.getTitle(), contents, titles, request);
+    proxyRequest.putUserData(DiffUserDataKeys.FORCE_READ_ONLY, true);
+    return Pair.create(proxyRequest, diffChanges);
   }
 
   @NotNull
@@ -396,7 +404,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
     return null;
   }
 
-  @Nullable
+  @NotNull
   private static PropertyRecord createRecord(@NotNull String name, @Nullable PropertyValue value1, @Nullable PropertyValue value2) {
     assert value1 != null || value2 != null;
 
@@ -414,66 +422,12 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   // Helpers
   //
 
-  private static class WrapperRequest extends ContentDiffRequest {
-    @NotNull SvnPropertiesDiffRequest myRequest;
-    @NotNull DocumentContent myContent1;
-    @NotNull DocumentContent myContent2;
-    private final boolean myEmbedded;
-
-    public WrapperRequest(@NotNull SvnPropertiesDiffRequest request,
-                          @NotNull Document document1,
-                          @NotNull Document document2,
-                          boolean embedded) {
-      myRequest = request;
-      myContent1 = DiffContentFactory.getInstance().create(null, document1);
-      myContent2 = DiffContentFactory.getInstance().create(null, document2);
-      myEmbedded = embedded;
-
-      putUserData(DiffUserDataKeys.FORCE_READ_ONLY, true);
-    }
-
-    @NotNull
-    public SvnPropertiesDiffRequest getPropertiesRequest() {
-      return myRequest;
-    }
-
-    @NotNull
-    @Override
-    public List<DiffContent> getContents() {
-      return ContainerUtil.list(myContent1, myContent2);
-    }
-
-    @NotNull
-    @Override
-    public List<String> getContentTitles() {
-      return myEmbedded ? ContainerUtil.list(null, null) : myRequest.getContentTitles();
-    }
-
-    @Nullable
-    @Override
-    public String getTitle() {
-      return myRequest.getTitle();
-    }
-
-    @Override
-    public <T> T getUserData(@NotNull Key<T> key) {
-      return myRequest.getUserData(key);
-    }
-
-    @Override
-    public <T> void putUserData(@NotNull Key<T> key, @Nullable T value) {
-      myRequest.putUserData(key, value);
-    }
-  }
-
   private static class PropertyRecord {
     @NotNull private final String myName;
     @Nullable private final String myBefore;
     @Nullable private final String myAfter;
 
-    public PropertyRecord(@NotNull String name,
-                          @Nullable String before,
-                          @Nullable String after) {
+    PropertyRecord(@NotNull String name, @Nullable String before, @Nullable String after) {
       assert before != null || after != null;
 
       myName = name;
@@ -481,8 +435,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       myAfter = after;
     }
 
-    @NotNull
-    public String getName() {
+    public @NlsSafe @NotNull String getName() {
       return myName;
     }
 
@@ -506,7 +459,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
 
     @Nullable private List<? extends LineFragment> myFragments;
 
-    public DiffChange(@NotNull PropertyRecord record, int startLine1, int endLine1, int startLine2, int endLine2) {
+    DiffChange(@NotNull PropertyRecord record, int startLine1, int endLine1, int startLine2, int endLine2) {
       myRecord = record;
       myStartLine1 = startLine1;
       myEndLine1 = endLine1;

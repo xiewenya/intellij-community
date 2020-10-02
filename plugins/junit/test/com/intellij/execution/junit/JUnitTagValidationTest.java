@@ -2,9 +2,9 @@
 package com.intellij.execution.junit;
 
 import com.intellij.psi.PsiElementFactory;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 
-public class JUnitTagValidationTest extends LightCodeInsightFixtureTestCase {
+public class JUnitTagValidationTest extends LightJavaCodeInsightFixtureTestCase {
   /**
    * {@link TestTags#parseAsJavaExpression(java.lang.String[])}
    */
@@ -12,5 +12,6 @@ public class JUnitTagValidationTest extends LightCodeInsightFixtureTestCase {
     PsiElementFactory factory = myFixture.getJavaFacade().getElementFactory();
     factory.createExpressionFromText("1+2", null);
     factory.createExpressionFromText("!1+2", null);
+    factory.createExpressionFromText("!1+ 2", null);
   }
 }

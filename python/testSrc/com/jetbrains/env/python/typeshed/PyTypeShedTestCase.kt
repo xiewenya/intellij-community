@@ -15,28 +15,25 @@
  */
 package com.jetbrains.env.python.typeshed
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
-import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.OrderRootType
-import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.psi.stubs.StubUpdatingIndex
-import com.intellij.testFramework.EdtTestUtil
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl
-import com.intellij.util.ThrowableRunnable
+import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.indexing.FileBasedIndex
 import com.jetbrains.env.PyEnvTaskRunner
 import com.jetbrains.env.PyEnvTestCase
 import com.jetbrains.python.psi.LanguageLevel
-import com.jetbrains.python.sdk.PySdkUtil
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUpdater
+import com.jetbrains.python.sdk.PythonSdkUtil
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
+import com.jetbrains.python.sdk.pythonSdk
 import com.jetbrains.python.tools.sdkTools.PySdkTools
 import org.junit.After
 import org.junit.Before
@@ -64,36 +61,34 @@ abstract class PyTypeShedTestCase(protected val path: String, protected val sdkP
     val newSdk = if (cachedSdk == null) createSdk(sdkPath, project) else null
     val sdk = cachedSdk ?: newSdk ?: return
     sdkCache[sdkPath] = sdk
-    val skeletonsDir = PySdkUtil.findSkeletonsDir(sdk)
+    val skeletonsDir = PythonSdkUtil.findSkeletonsDir(sdk)
     if (skeletonsDir == null || skeletonsDir.children?.isEmpty() ?: true) {
       PySdkTools.generateTempSkeletonsOrPackages(sdk, true, module)
     }
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable {
+    runInEdtAndWait {
       SdkConfigurationUtil.addSdk(sdk)
-      ApplicationManager.getApplication().runWriteAction {
-        ProjectRootManager.getInstance(project).projectSdk = sdk
-      }
-      ModuleRootModificationUtil.setModuleSdk(module, sdk)
-    })
+      project.pythonSdk = sdk
+      module.pythonSdk = sdk
+    }
   }
 
   private fun createSdk(sdkPath: String, project: Project): Sdk? {
     val sdkFile = StandardFileSystems.local().findFileByPath(sdkPath) ?: return null
     var sdkVar: Sdk? = null
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable {
+    runInEdtAndWait {
       sdkVar = SdkConfigurationUtil.setupSdk(emptyArray(), sdkFile, PythonSdkType.getInstance(), true, null, null)
-    })
+    }
     val sdk = sdkVar ?: return null
     val modificator = sdk.sdkModificator
-    val paths = PythonSdkType.getSysPathsFromScript(sdkPath)
+    val paths = PythonSdkType.getSysPathsFromScript(sdk)
     PythonSdkUpdater.filterRootPaths(sdk, paths, project).forEach {
       modificator.addRoot(it, OrderRootType.CLASSES)
     }
-    EdtTestUtil.runInEdtAndWait(ThrowableRunnable {
+    runInEdtAndWait {
       modificator.commitChanges()
       val index = FileBasedIndex.getInstance()
       index.requestRebuild(StubUpdatingIndex.INDEX_ID)
-    })
+    }
     return sdk
   }
 
@@ -110,7 +105,7 @@ abstract class PyTypeShedTestCase(protected val path: String, protected val sdkP
       return getPythonRoots()
         .asSequence()
         .filter { PyEnvTaskRunner.isSuitableForTags(loadEnvTags(it), tags) }
-        .map { PythonSdkType.getPythonExecutable(it) }
+        .map { PythonSdkUtil.getPythonExecutable(it) }
         .filterNotNull()
         .toList()
     }

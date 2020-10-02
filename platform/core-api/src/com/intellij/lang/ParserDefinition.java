@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang;
 
 import com.intellij.lexer.Lexer;
@@ -8,6 +8,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IFileElementType;
 import com.intellij.psi.tree.TokenSet;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -60,7 +61,8 @@ public interface ParserDefinition {
    * Returns the set of token types which are treated as comments by the PSI builder.
    * Tokens of those types are automatically skipped by PsiBuilder. Also, To Do patterns
    * are searched in the text of tokens of those types.
-   * This token set shouldn't contain types of non-leaf comment inner elements.
+   * For composite comment elements it should contain only the root element type
+   * (for example {@link com.intellij.psi.impl.source.tree.JavaDocElementType#DOC_COMMENT}).
    *
    * @return the set of comment token types.
    */
@@ -112,14 +114,38 @@ public interface ParserDefinition {
    * @param left  the first token to check.
    * @param right the second token to check.
    * @return the spacing requirements.
-   * @since 6.0
    */
-  SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode left, ASTNode right);
+  default SpaceRequirements spaceExistenceTypeBetweenTokens(ASTNode left, ASTNode right) {
+    //noinspection deprecation
+    return spaceExistanceTypeBetweenTokens(left, right);
+  }
+
+  /**
+   * @deprecated Override {@link ParserDefinition#spaceExistenceTypeBetweenTokens(ASTNode, ASTNode)} instead
+   */
+  @Deprecated
+  default SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode left, ASTNode right) {
+    return SpaceRequirements.MAY;
+  }
+
+  /**
+   * @return new node for the white space iff {@code originalSpaceNode} can be replaced with new one with text from
+   * {@code newWhiteSpaceSequence} for the language or null.
+   * @apiNote {@code newWhiteSpaceSequence} is guaranteed to contain only {@link Character#isWhitespace spaces}. Parser definition is
+   * selected by platform using language from parent element of the whitespace. Keep in mind that original space may not only be part of
+   * your language file, but in multi-psi file as a part of the templating file, part of the file injected into other element, part of
+   * lazy-parseable element in other language, part of derived language. Some of these cases may require additional logic.
+   * @see com.intellij.lang.ASTFactory#leaf(com.intellij.psi.tree.IElementType, CharSequence)
+   */
+  @ApiStatus.Experimental
+  default ASTNode reparseSpace(@NotNull ASTNode originalSpaceNode, @NotNull CharSequence newWhiteSpaceSequence) {
+    return null;
+  }
 
   /**
    * Requirements for spacing between tokens.
    *
-   * @see ParserDefinition#spaceExistanceTypeBetweenTokens
+   * @see ParserDefinition#spaceExistenceTypeBetweenTokens
    */
   enum SpaceRequirements {
     /** Whitespace between tokens is optional. */

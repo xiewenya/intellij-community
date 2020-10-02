@@ -25,18 +25,12 @@ import org.intellij.lang.xpath.xslt.XsltSupport;
 import org.intellij.lang.xpath.xslt.psi.XsltElementFactory;
 import org.intellij.lang.xpath.xslt.psi.XsltVariable;
 import org.intellij.lang.xpath.xslt.validation.XsltValidator;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 public class UnusedElementInspection extends XsltInspection {
 
-    @Nls
-    @NotNull
-    public String getDisplayName() {
-        return "Unused Variable/Parameter";
-    }
-
+  @Override
     @NonNls
     @NotNull
     public String getShortName() {
@@ -53,7 +47,7 @@ public class UnusedElementInspection extends XsltInspection {
     private static class MyVisitor extends XmlElementVisitor {
         private final ProblemsHolder myHolder;
 
-        public MyVisitor(ProblemsHolder holder) {
+        MyVisitor(ProblemsHolder holder) {
             myHolder = holder;
         }
 
@@ -72,7 +66,7 @@ public class UnusedElementInspection extends XsltInspection {
             if (name == null || name.length() == 0) {
                 return;
             }
-            
+
             XsltValidator.checkUnusedVariable(variable, myHolder);
         }
     }

@@ -92,11 +92,11 @@ public abstract class CodeInsightUtilCore extends FileModificationService {
     return elementInRange;
   }
 
-  public static boolean parseStringCharacters(@NotNull String chars, @NotNull StringBuilder outChars, @Nullable int[] sourceOffsets) {
-    return parseStringCharacters(chars, outChars, sourceOffsets, '"', '\'');
+  public static boolean parseStringCharacters(@NotNull String chars, @NotNull StringBuilder outChars, int @Nullable [] sourceOffsets) {
+    return parseStringCharacters(chars, outChars, sourceOffsets, true, true, '"', '\'');
   }
 
-  public static boolean parseStringCharacters(@NotNull String chars, @NotNull StringBuilder outChars, @Nullable int[] sourceOffsets, @NotNull char... endChars) {
+  public static boolean parseStringCharacters(@NotNull String chars, @NotNull StringBuilder outChars, int @Nullable [] sourceOffsets, boolean slashMustBeEscaped, boolean exitOnEscapingWrongSymbol, char @NotNull ... endChars) {
     assert sourceOffsets == null || sourceOffsets.length == chars.length()+1;
     if (chars.indexOf('\\') < 0) {
       outChars.append(chars);
@@ -140,6 +140,13 @@ public abstract class CodeInsightUtilCore extends FileModificationService {
 
         case'r':
           outChars.append('\r');
+          break;
+
+        case's':
+          outChars.append(' ');
+          break;
+
+        case '\n':
           break;
 
         case'\\':
@@ -207,12 +214,21 @@ public abstract class CodeInsightUtilCore extends FileModificationService {
           if (CharArrayUtil.indexOf(endChars, c, 0, endChars.length) != -1) {
             outChars.append(c);
           }
+          else if (!exitOnEscapingWrongSymbol) {
+            if (!slashMustBeEscaped) {
+              outChars.append('\\');
+              if (sourceOffsets != null) {
+                sourceOffsets[outChars.length() - outOffset] = index - 1;
+              }
+            }
+            outChars.append(c);
+          }
           else {
             return false;
           }
       }
       if (sourceOffsets != null) {
-        sourceOffsets[outChars.length()-outOffset] = index;
+        sourceOffsets[outChars.length() - outOffset] = index;
       }
     }
     return true;

@@ -1,10 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.externalSystem.test.ExternalSystemTestCase;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -12,25 +12,25 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.*;
-import com.intellij.openapi.roots.impl.libraries.ProjectLibraryTable;
 import com.intellij.openapi.roots.libraries.Library;
+import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TestDialog;
-import com.intellij.openapi.util.AsyncResult;
+import com.intellij.openapi.ui.TestDialogManager;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.testFramework.IdeaTestUtil;
-import com.intellij.util.Consumer;
-import com.intellij.util.PathUtil;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.testFramework.RunAll;
+import com.intellij.util.containers.ContainerUtil;
 import org.intellij.lang.annotations.Language;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.idea.maven.execution.*;
 import org.jetbrains.idea.maven.model.MavenArtifact;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
@@ -43,10 +43,13 @@ import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class MavenImportingTestCase extends MavenTestCase {
   protected MavenProjectsTree myProjectsTree;
+  protected MavenProjectResolver myProjectResolver;
   protected MavenProjectsManager myProjectsManager;
 
   @Override
@@ -63,17 +66,18 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    try {
-      JavaAwareProjectJdkTableImpl.removeInternalJdkInTests();
-      Messages.setTestDialog(TestDialog.DEFAULT);
-      removeFromLocalRepository("test");
-      ExternalSystemTestCase.deleteBuildSystemDirectory();
-    }
-    finally {
-      myProjectsManager = null;
-      myProjectsTree = null;
-      super.tearDown();
-    }
+    RunAll.runAll(
+      () -> WriteAction.runAndWait(() -> JavaAwareProjectJdkTableImpl.removeInternalJdkInTests()),
+      () -> TestDialogManager.setTestDialog(TestDialog.DEFAULT),
+      () -> removeFromLocalRepository("test"),
+      () -> ExternalSystemTestCase.deleteBuildSystemDirectory(),
+      () -> {
+        myProjectsManager = null;
+        myProjectsTree = null;
+        myProjectResolver = null;
+      },
+      () -> super.tearDown()
+    );
   }
 
   @Override
@@ -91,6 +95,12 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
       actualNames.add(m.getName());
     }
 
+    assertUnorderedElementsAreEqual(actualNames, expectedNames);
+  }
+
+  protected void assertRootProjects(String... expectedNames) {
+    List<MavenProject> rootProjects = myProjectsTree.getRootProjects();
+    List<String> actualNames = ContainerUtil.map(rootProjects, it -> it.getMavenId().getArtifactId());
     assertUnorderedElementsAreEqual(actualNames, expectedNames);
   }
 
@@ -176,10 +186,8 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     assertEquals(testOutput, getAbsolutePath(e.getCompilerOutputUrlForTests()));
   }
 
-  private static String getAbsolutePath(String path) {
-    path = VfsUtil.urlToPath(path);
-    path = PathUtil.getCanonicalPath(path);
-    return FileUtil.toSystemIndependentName(path);
+  private static @NotNull String getAbsolutePath(@Nullable String path) {
+    return path == null ? "" : FileUtil.toSystemIndependentName(FileUtil.toCanonicalPath(VirtualFileManager.extractPath(path)));
   }
 
   protected void assertProjectOutput(String module) {
@@ -303,7 +311,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   public void assertProjectLibraries(String... expectedNames) {
     List<String> actualNames = new ArrayList<>();
-    for (Library each : ProjectLibraryTable.getInstance(myProject).getLibraries()) {
+    for (Library each : LibraryTablesRegistrar.getInstance().getLibraryTable(myProject).getLibraries()) {
       String name = each.getName();
       actualNames.add(name == null ? "<unnamed>" : name);
     }
@@ -356,7 +364,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     return ModuleRootManager.getInstance(getModule(module));
   }
 
-  protected void importProject(@NotNull @Language(value = "xml", prefix = "<project>", suffix = "</project>") String xml) {
+  protected void importProject(@NotNull @Language(value = "XML", prefix = "<project>", suffix = "</project>") String xml) {
     createProjectPom(xml);
     importProject();
   }
@@ -365,8 +373,12 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     importProjectWithProfiles();
   }
 
+  protected void importProjectWithErrors() {
+    doImportProjects(Collections.singletonList(myProjectPom), false);
+  }
+
   protected void importProjectWithProfiles(String... profiles) {
-    doImportProjects(true, Collections.singletonList(myProjectPom), profiles);
+    doImportProjects(Collections.singletonList(myProjectPom), true, profiles);
   }
 
   protected void importProject(VirtualFile file) {
@@ -374,37 +386,27 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void importProjects(VirtualFile... files) {
-    doImportProjects(true, Arrays.asList(files));
+    doImportProjects(Arrays.asList(files), true);
   }
 
-  protected void importProjectWithMaven3(@NonNls String xml) {
-    createProjectPom(xml);
-    importProjectWithMaven3();
+  protected void importProjectsWithErrors(VirtualFile... files) {
+    doImportProjects(Arrays.asList(files), false);
   }
 
-  protected void importProjectWithMaven3() {
-    importProjectWithMaven3WithProfiles();
-  }
-
-  protected void importProjectWithMaven3WithProfiles(String... profiles) {
-    doImportProjects(false, Collections.singletonList(myProjectPom), profiles);
-  }
-
-  private void doImportProjects(boolean useMaven2, final List<VirtualFile> files, String... profiles) {
-    MavenServerManager.getInstance().setUseMaven2(useMaven2);
+  protected void doImportProjects(final List<VirtualFile> files, boolean failOnReadingError, String... profiles) {
     initProjectsManager(false);
 
     readProjects(files, profiles);
 
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
       myProjectsManager.waitForResolvingCompletion();
       myProjectsManager.scheduleImportInTests(files);
       myProjectsManager.importProjects();
     });
 
-    for (MavenProject each : myProjectsTree.getProjects()) {
-      if (each.hasReadingProblems()) {
-        System.out.println(each + " has problems: " + each.getProblems());
+    if (failOnReadingError) {
+      for (MavenProject each : myProjectsTree.getProjects()) {
+        assertFalse("Failed to import Maven project: " + each.getProblems(), each.hasReadingProblems());
       }
     }
   }
@@ -422,7 +424,10 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   protected void initProjectsManager(boolean enableEventHandling) {
     myProjectsManager.initForTests();
     myProjectsTree = myProjectsManager.getProjectsTreeForTests();
-    if (enableEventHandling) myProjectsManager.listenForExternalChanges();
+    myProjectResolver = new MavenProjectResolver(myProjectsTree);
+    if (enableEventHandling) {
+      myProjectsManager.enableAutoImportInTests();
+    }
   }
 
   protected void scheduleResolveAll() {
@@ -430,7 +435,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void waitForReadingCompletion() {
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
       try {
         myProjectsManager.waitForReadingCompletion();
       }
@@ -454,7 +459,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   }
 
   protected void resolveDependenciesAndImport() {
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+    ApplicationManager.getApplication().invokeAndWait(() -> {
       myProjectsManager.waitForResolvingCompletion();
       myProjectsManager.performScheduledImportInTests();
     });
@@ -463,7 +468,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
   protected void resolveFoldersAndImport() {
     myProjectsManager.scheduleFoldersResolveForAllProjects();
     myProjectsManager.waitForFoldersResolvingCompletion();
-    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> myProjectsManager.performScheduledImportInTests());
+    ApplicationManager.getApplication().invokeAndWait(() -> myProjectsManager.performScheduledImportInTests());
   }
 
   protected void resolvePlugins() {
@@ -478,8 +483,8 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
                                                                      List<MavenArtifact> artifacts) {
     final MavenArtifactDownloader.DownloadResult[] unresolved = new MavenArtifactDownloader.DownloadResult[1];
 
-    AsyncResult<MavenArtifactDownloader.DownloadResult> result = new AsyncResult<>();
-    result.doWhenDone((Consumer<MavenArtifactDownloader.DownloadResult>)unresolvedArtifacts -> unresolved[0] = unresolvedArtifacts);
+    AsyncPromise<MavenArtifactDownloader.DownloadResult> result = new AsyncPromise<>();
+    result.onSuccess(unresolvedArtifacts -> unresolved[0] = unresolvedArtifacts);
 
     myProjectsManager.scheduleArtifactsDownloading(projects, artifacts, true, true, result);
     myProjectsManager.waitForArtifactsDownloadingCompletion();
@@ -491,14 +496,18 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
     myProjectsManager.waitForPostImportTasksCompletion();
   }
 
-  protected void executeGoal(String relativePath, String goal) {
+  protected void executeGoal(String relativePath, String goal) throws Exception {
     VirtualFile dir = myProjectRoot.findFileByRelativePath(relativePath);
 
-    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), (String)null, Arrays.asList(goal), Collections.emptyList());
+    MavenRunnerParameters rp = new MavenRunnerParameters(true, dir.getPath(), (String)null, Collections.singletonList(goal), Collections.emptyList());
     MavenRunnerSettings rs = new MavenRunnerSettings();
-    MavenExecutor e = new MavenExternalExecutor(myProject, rp, getMavenGeneralSettings(), rs, new SoutMavenConsole());
-
-    e.execute(new EmptyProgressIndicator());
+    Semaphore wait = new Semaphore(1);
+    wait.acquire();
+    MavenRunner.getInstance(myProject).run(rp, rs, () -> {
+      wait.release();
+    });
+    boolean tryAcquire = wait.tryAcquire(10, TimeUnit.SECONDS);
+    assertTrue( "Maven execution failed", tryAcquire);
   }
 
   protected void removeFromLocalRepository(String relativePath) {
@@ -526,7 +535,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   protected static AtomicInteger configConfirmationForYesAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(message -> {
+    TestDialogManager.setTestDialog(message -> {
       counter.getAndIncrement();
       return Messages.YES;
     });
@@ -535,7 +544,7 @@ public abstract class MavenImportingTestCase extends MavenTestCase {
 
   protected static AtomicInteger configConfirmationForNoAnswer() {
     final AtomicInteger counter = new AtomicInteger();
-    Messages.setTestDialog(message -> {
+    TestDialogManager.setTestDialog(message -> {
       counter.getAndIncrement();
       return Messages.NO;
     });

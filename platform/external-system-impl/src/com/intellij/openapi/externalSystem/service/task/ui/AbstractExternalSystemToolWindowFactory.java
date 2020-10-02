@@ -1,10 +1,12 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.task.ui;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager;
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl;
+import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.view.ExternalProjectsViewImpl;
 import com.intellij.openapi.project.DumbAware;
@@ -20,7 +22,6 @@ import javax.swing.*;
 
 /**
  * @author Denis Zhdanov
- * @since 5/13/13 4:15 PM
  */
 public abstract class AbstractExternalSystemToolWindowFactory implements ToolWindowFactory, DumbAware {
 
@@ -31,25 +32,32 @@ public abstract class AbstractExternalSystemToolWindowFactory implements ToolWin
   }
 
   @Override
+  public boolean isApplicable(@NotNull Project project) {
+    ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(myExternalSystemId);
+    AbstractExternalSystemSettings<?, ?, ?> settings = manager == null ? null : manager.getSettingsProvider().fun(project);
+    return settings != null && !settings.getLinkedProjectsSettings().isEmpty();
+  }
+
+  @Override
   public void createToolWindowContent(@NotNull final Project project, @NotNull final ToolWindow toolWindow) {
     toolWindow.setTitle(myExternalSystemId.getReadableName());
     ContentManager contentManager = toolWindow.getContentManager();
 
     contentManager.addContent(new ContentImpl(createInitializingLabel(), "", false));
 
-    ExternalProjectsManager.getInstance(project).runWhenInitialized(
-      () -> ApplicationManager.getApplication().invokeLater(() -> {
-        final ExternalProjectsViewImpl projectsView = new ExternalProjectsViewImpl(project, (ToolWindowEx)toolWindow, myExternalSystemId);
-        ExternalProjectsManagerImpl.getInstance(project).registerView(projectsView);
-        ContentImpl tasksContent = new ContentImpl(projectsView, ExternalSystemBundle.message("tool.window.title.projects"), true);
-        contentManager.removeAllContents(true);
-        contentManager.addContent(tasksContent);
-      }, project.getDisposed()));
+    ExternalProjectsManager.getInstance(project).runWhenInitialized(() -> {
+      final ExternalProjectsViewImpl projectsView = new ExternalProjectsViewImpl(project, (ToolWindowEx)toolWindow, myExternalSystemId);
+      ExternalProjectsManagerImpl.getInstance(project).registerView(projectsView);
+      ContentImpl tasksContent = new ContentImpl(projectsView, "", true);
+      contentManager.removeAllContents(true);
+      contentManager.addContent(tasksContent);
+    });
   }
 
   @NotNull
   private JLabel createInitializingLabel() {
-    JLabel label = new JLabel("Initializing " + myExternalSystemId.getReadableName() + " projects data...", SwingConstants.CENTER);
+    JLabel label =
+      new JLabel(ExternalSystemBundle.message("initializing.0.projects.data", myExternalSystemId.getReadableName()), SwingConstants.CENTER);
     label.setOpaque(true);
     return label;
   }

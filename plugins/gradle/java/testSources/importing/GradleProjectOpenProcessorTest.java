@@ -1,35 +1,35 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.importing;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.ScopeToolState;
 import com.intellij.ide.impl.ProjectUtil;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.externalSystem.autoimport.AutoImportProjectTracker;
 import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataImportListener;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
+import com.intellij.openapi.project.ExternalStorageConfigurationManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerListener;
-import com.intellij.openapi.project.impl.ProjectLifecycleListener;
-import com.intellij.openapi.projectRoots.ProjectJdkTable;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
-import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.projectRoots.JavaSdk;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.EdtTestUtilKt;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.util.SmartList;
-import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.concurrency.AsyncPromise;
+import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
+import org.jetbrains.plugins.gradle.settings.GradleSettings;
+import org.jetbrains.plugins.gradle.settings.TestRunner;
 import org.jetbrains.plugins.gradle.util.GradleConstants;
 import org.junit.Test;
 import org.junit.runners.Parameterized;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
@@ -40,13 +40,8 @@ import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.exe
 
 /**
  * @author Vladislav.Soroka
- * @since 3/20/2017
  */
-@SuppressWarnings("JUnit4AnnotatedMethodInJUnit3TestCase")
 public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
-
-  private final List<Sdk> removedSdks = new SmartList<>();
-
   /**
    * Needed only to reuse stuff in GradleImportingTestCase#setUp().
    */
@@ -57,34 +52,16 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
   }
 
   @Override
-  public void setUp() throws Exception {
-    super.setUp();
-    WriteAction.runAndWait(() -> {
-      for (Sdk sdk : ProjectJdkTable.getInstance().getAllJdks()) {
-        if (GRADLE_JDK_NAME.equals(sdk.getName())) continue;
-        ProjectJdkTable.getInstance().removeJdk(sdk);
-        removedSdks.add(sdk);
-      }
-    });
-  }
-
-  @Override
-  public void tearDown() throws Exception {
-    try {
-      WriteAction.runAndWait(() -> {
-        for (Sdk sdk : removedSdks) {
-          SdkConfigurationUtil.addSdk(sdk);
-        }
-        removedSdks.clear();
-      });
-    }
-    finally {
-      super.tearDown();
+  protected void collectAllowedRoots(List<String> roots) {
+    super.collectAllowedRoots(roots);
+    for (String javaHome : JavaSdk.getInstance().suggestHomePaths()) {
+      roots.add(javaHome);
+      roots.addAll(collectRootsInside(javaHome));
     }
   }
 
   @Test
-  public void testGradleSettingsFileModification() throws IOException {
+  public void testGradleSettingsFileModification() throws Exception {
     VirtualFile foo = createProjectSubDir("foo");
     createProjectSubFile("foo/build.gradle", "apply plugin: 'java'");
     createProjectSubFile("foo/.idea/modules.xml",
@@ -112,16 +89,16 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
                          "  </component>\n" +
                          "</module>");
 
-    Project fooProject = executeOnEdt(() -> ProjectUtil.openProject(foo.getPath(), null, true));
+    Project fooProject = PlatformTestUtil.loadAndOpenProject(foo.toNioPath());
+    AutoImportProjectTracker.getInstance(fooProject).enableAutoImportInTests();
 
     try {
-      assertTrue(fooProject.isOpen());
-      edt(() -> UIUtil.dispatchAllInvocationEvents());
+      EdtTestUtil.runInEdtAndWait(() -> PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue());
       assertModules(fooProject, "foo", "bar");
 
-      Semaphore semaphore = new Semaphore(1);
+      AsyncPromise<?> promise = new AsyncPromise<>();
       final MessageBusConnection myBusConnection = fooProject.getMessageBus().connect();
-      myBusConnection.subscribe(ProjectDataImportListener.TOPIC, path -> semaphore.up());
+      myBusConnection.subscribe(ProjectDataImportListener.TOPIC, path -> promise.setResult(null));
       createProjectSubFile("foo/.idea/gradle.xml",
                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                            "<project version=\"4\">\n" +
@@ -143,9 +120,37 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
                            "</project>");
       edt(() -> UIUtil.dispatchAllInvocationEvents());
       edt(() -> PlatformTestUtil.saveProject(fooProject));
-      assert semaphore.waitFor(TimeUnit.SECONDS.toMillis(10));
+      edt(() -> PlatformTestUtil.waitForPromise(promise, TimeUnit.MINUTES.toMillis(1)));
       assertTrue("The module has not been linked",
                  ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, getModule(fooProject, "foo")));
+    }
+    finally {
+      edt(() -> closeProject(fooProject));
+    }
+    assertFalse(fooProject.isOpen());
+    assertTrue(fooProject.isDisposed());
+  }
+
+  @Test
+  public void testDefaultGradleSettings() throws IOException {
+    VirtualFile foo = createProjectSubDir("foo");
+    createProjectSubFile("foo/build.gradle", "apply plugin: 'java'");
+    createProjectSubFile("foo/settings.gradle", "");
+    Project fooProject = executeOnEdt(() -> ProjectUtil.openOrImport(foo.toNioPath()));
+
+    try {
+      assertTrue(fooProject.isOpen());
+      edt(() -> UIUtil.dispatchAllInvocationEvents());
+      assertTrue("The module has not been linked",
+                 ExternalSystemApiUtil.isExternalSystemAwareModule(GradleConstants.SYSTEM_ID, getModule(fooProject, "foo")));
+      assertTrue(ExternalStorageConfigurationManager.getInstance(fooProject).isEnabled());
+      assertTrue(GradleSettings.getInstance(fooProject).getStoreProjectFilesExternally());
+      GradleProjectSettings fooSettings = GradleSettings.getInstance(fooProject).getLinkedProjectSettings(foo.getPath());
+      assertTrue(fooSettings.isResolveModulePerSourceSet());
+      assertTrue(fooSettings.isResolveExternalAnnotations());
+      assertTrue(fooSettings.getDelegatedBuild());
+      assertEquals(TestRunner.GRADLE, fooSettings.getTestRunner());
+      assertTrue(fooSettings.isUseQualifiedModuleNames());
     }
     finally {
       edt(() -> closeProject(fooProject));
@@ -173,26 +178,16 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
                          "    <version value=\"1.0\" />\n" +
                          "  </settings>\n" +
                          "</component>");
-
-    // run forceLoadSchemes before project startup activities
-    // because one of them can define default inspection profile and forceLoadSchemes will do nothing later
-    MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect(myProject);
-    connection.subscribe(ProjectLifecycleListener.TOPIC, new ProjectLifecycleListener() {
-      @Override
-      public void beforeProjectLoaded(@NotNull Project project) {
-        MessageBusConnection busConnection = project.getMessageBus().connect();
-        busConnection.subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
-          @Override
-          public void projectOpened(Project project) {
-            ProjectInspectionProfileManager.getInstance(project).forceLoadSchemes();
-          }
-        });
-      }
-    });
+    FileUtil.copyDir(new File(getProjectPath(), "gradle"), new File(getProjectPath(), "foo/gradle"));
 
     Project fooProject = null;
     try {
-      fooProject = executeOnEdt(() -> ProjectUtil.openOrImport(foo.getPath(), null, true));
+      fooProject = EdtTestUtilKt.runInEdtAndGet(() -> {
+        final Project project = ProjectUtil.openOrImport(foo.toNioPath());
+        ProjectInspectionProfileManager.getInstance(project).forceLoadSchemes();
+        UIUtil.dispatchAllInvocationEvents();
+        return project;
+      });
       assertTrue(fooProject.isOpen());
       InspectionProfileImpl currentProfile = getCurrentProfile(fooProject);
       assertEquals("myInspections", currentProfile.getName());
@@ -203,7 +198,6 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
       // assertModules(fooProject, "foo", "foo_main", "foo_test");
     }
     finally {
-      connection.disconnect();
       if (fooProject != null) {
         Project finalFooProject = fooProject;
         edt(() -> closeProject(finalFooProject));
@@ -231,8 +225,7 @@ public class GradleProjectOpenProcessorTest extends GradleImportingTestCase {
 
   private static void closeProject(final Project project) {
     if (project != null && !project.isDisposed()) {
-      ProjectManager.getInstance().closeProject(project);
-      ApplicationManager.getApplication().runWriteAction(() -> Disposer.dispose(project));
+      PlatformTestUtil.forceCloseProjectWithoutSaving(project);
     }
   }
 }

@@ -1,57 +1,61 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
+import com.intellij.configurationStore.XmlSerializer;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.actions.DebuggerAction;
-import com.intellij.debugger.engine.DebugProcess;
-import com.intellij.debugger.engine.DebugProcessImpl;
-import com.intellij.debugger.engine.StackFrameContext;
+import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.CodeFragmentKind;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.TextWithImports;
 import com.intellij.debugger.engine.evaluation.TextWithImportsImpl;
-import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilder;
-import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
+import com.intellij.debugger.impl.attach.PidRemoteConnection;
 import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeExpression;
-import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.render.BatchEvaluator;
+import com.intellij.debugger.ui.tree.render.NodeRenderer;
 import com.intellij.execution.ExecutionException;
+import com.intellij.execution.configurations.RemoteConnection;
+import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiJavaParserFacadeImpl;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.rt.execution.CommandLineWrapper;
+import com.intellij.util.SmartList;
+import com.intellij.util.io.URLUtil;
 import com.intellij.util.net.NetUtils;
-import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
-import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionState;
-import com.sun.jdi.InternalException;
-import com.sun.jdi.ObjectCollectedException;
-import com.sun.jdi.VMDisconnectedException;
-import com.sun.jdi.Value;
+import com.sun.jdi.*;
 import com.sun.jdi.connect.Connector;
 import com.sun.jdi.connect.IllegalConnectorArgumentsException;
 import com.sun.jdi.connect.ListeningConnector;
+import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   public static final Key<PsiType> PSI_TYPE_KEY = Key.create("PSI_TYPE_KEY");
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.DebuggerUtilsImpl");
+  private static final Logger LOG = Logger.getInstance(DebuggerUtilsImpl.class);
 
   @Override
   public PsiExpression substituteThis(PsiExpression expressionWithThis, PsiExpression howToEvaluateThis, Value howToEvaluateThisValue, StackFrameContext context)
@@ -60,22 +64,12 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   }
 
   @Override
-  public EvaluatorBuilder getEvaluatorBuilder() {
-    return EvaluatorBuilderImpl.getInstance();
-  }
-
-  @Override
-  public DebuggerTreeNode getSelectedNode(DataContext context) {
-    return DebuggerAction.getSelectedNode(context);
-  }
-
-  @Override
   public DebuggerContextImpl getDebuggerContext(DataContext context) {
     return DebuggerAction.getDebuggerContext(context);
   }
 
   @Override
-  @SuppressWarnings({"HardCodedStringLiteral"})
+  @SuppressWarnings("HardCodedStringLiteral")
   public Element writeTextWithImports(TextWithImports text) {
     Element element = new Element("TextWithImports");
 
@@ -85,7 +79,7 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   }
 
   @Override
-  @SuppressWarnings({"HardCodedStringLiteral"})
+  @SuppressWarnings("HardCodedStringLiteral")
   public TextWithImports readTextWithImports(Element element) {
     LOG.assertTrue("TextWithImports".equals(element.getName()));
 
@@ -106,7 +100,7 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
       Element element = JDOMExternalizerUtil.writeOption(root, name);
       XExpression expression = TextWithImportsImpl.toXExpression(value);
       if (expression != null) {
-        XmlSerializer.serializeInto(new XExpressionState(expression), element, new SkipDefaultValuesSerializationFilters());
+        XmlSerializer.serializeObjectInto(new XExpressionState(expression), element);
       }
     }
   }
@@ -121,7 +115,7 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
       Element option = JDOMExternalizerUtil.readOption(root, name);
       if (option != null) {
         XExpressionState state = new XExpressionState();
-        XmlSerializer.deserializeInto(state, option);
+        XmlSerializer.deserializeInto(option, state);
         return TextWithImportsImpl.fromXExpression(state.toXExpression());
       }
     }
@@ -166,7 +160,7 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   }
 
   @Override
-  public PsiClass chooseClassDialog(String title, Project project) {
+  public PsiClass chooseClassDialog(@NlsContexts.DialogTitle String title, Project project) {
     TreeClassChooser dialog = TreeClassChooserFactory.getInstance(project).createAllProjectScopeChooser(title);
     dialog.showDialog();
     return dialog.getSelected();
@@ -218,11 +212,11 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
     return Boolean.TRUE.equals(debugProcess.getUserData(BatchEvaluator.REMOTE_SESSION_KEY));
   }
 
-  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<T, E> supplier, T defaultValue) throws E {
+  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<? extends T, ? extends E> supplier, T defaultValue) throws E {
     return suppressExceptions(supplier, defaultValue, true, null);
   }
 
-  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<T, E> supplier,
+  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<? extends T, ? extends E> supplier,
                                                               T defaultValue,
                                                               boolean ignorePCE,
                                                               Class<E> rethrow) throws E {
@@ -247,16 +241,112 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
     return defaultValue;
   }
 
-  public static <T> T runInReadActionWithWriteActionPriorityWithRetries(@NotNull Computable<T> action) {
-    if (ApplicationManagerEx.getApplicationEx().holdsReadLock()) {
-      return action.compute();
+  public static String getConnectionDisplayName(RemoteConnection connection) {
+    if (connection instanceof PidRemoteConnection) {
+      return "pid " + ((PidRemoteConnection)connection).getPid();
     }
-    Ref<T> res = Ref.create();
-    while (true) {
-      if (ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(() -> res.set(action.compute()))) {
-        return res.get();
+    String addressDisplayName = JavaDebuggerBundle.getAddressDisplayName(connection);
+    String transportName = JavaDebuggerBundle.getTransportName(connection);
+    return JavaDebuggerBundle.message("string.connection", addressDisplayName, transportName);
+  }
+
+  public static boolean instanceOf(@Nullable ReferenceType type, @NotNull ReferenceType superType) {
+    if (type == null) {
+      return false;
+    }
+    if (superType.equals(type) || CommonClassNames.JAVA_LANG_OBJECT.equals(superType.name())) {
+      return true;
+    }
+    return supertypes(type).anyMatch(t -> instanceOf(t, superType));
+  }
+
+  public static Stream<? extends ReferenceType> supertypes(ReferenceType type) {
+    if (type instanceof InterfaceType) {
+      return ((InterfaceType)type).superinterfaces().stream();
+    } else if (type instanceof ClassType) {
+      return StreamEx.<ReferenceType>ofNullable(((ClassType)type).superclass()).prepend(((ClassType)type).interfaces());
+    }
+    return StreamEx.empty();
+  }
+
+  public static byte @Nullable [] readBytesArray(Value bytesArray) {
+    if (bytesArray instanceof ArrayReference) {
+      List<Value> values = ((ArrayReference)bytesArray).getValues();
+      byte[] res = new byte[values.size()];
+      int idx = 0;
+      for (Value value : values) {
+        if (value instanceof ByteValue) {
+          res[idx++] = ((ByteValue)value).value();
+        }
+        else {
+          return null;
+        }
       }
-      ProgressIndicatorUtils.yieldToPendingWriteActions();
+      return res;
     }
+    return null;
+  }
+
+  @Override
+  protected Location getLocation(SuspendContext context) {
+    return ((SuspendContextImpl)context).getLocation();
+  }
+
+  @NotNull
+  public static String getIdeaRtPath() {
+    if (PluginManagerCore.isRunningFromSources()) {
+      Class<?> aClass = CommandLineWrapper.class;
+      try {
+        String resourcePath = aClass.getName().replace('.', '/') + ".class";
+        Enumeration<URL> urls = aClass.getClassLoader().getResources(resourcePath);
+        while (urls.hasMoreElements()) {
+          URL url = urls.nextElement();
+          // prefer dir
+          if (url.getProtocol().equals(URLUtil.FILE_PROTOCOL)) {
+            String path = URLUtil.urlToFile(url).getPath();
+            String testPath = path.replace('\\', '/');
+            String testResourcePath = resourcePath.replace('\\', '/');
+            if (StringUtilRt.endsWithIgnoreCase(testPath, testResourcePath)) {
+              return path.substring(0, path.length() - resourcePath.length() - 1);
+            }
+          }
+        }
+      }
+      catch (IOException e) {
+        LOG.error(e);
+      }
+    }
+    return JavaSdkUtil.getIdeaRtJarPath();
+  }
+
+  public static <T> List<List<T>> partition(List<T> list, int size) {
+    List<List<T>> res = new ArrayList<>();
+    int loaded = 0, total = list.size();
+    while (loaded < total) {
+      int chunkSize = Math.min(size, total - loaded);
+      res.add(list.subList(loaded, loaded + chunkSize));
+      loaded += chunkSize;
+    }
+    return res;
+  }
+
+  @NotNull
+  public static CompletableFuture<List<NodeRenderer>> getApplicableRenderers(List<NodeRenderer> renderers, Type type) {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    CompletableFuture<Boolean>[] futures = renderers.stream().map(r -> r.isApplicableAsync(type)).toArray(CompletableFuture[]::new);
+    return CompletableFuture.allOf(futures).thenApply(__ -> {
+      List<NodeRenderer> res = new SmartList<>();
+      for (int i = 0; i < futures.length; i++) {
+        try {
+          if (futures[i].join()) {
+            res.add(renderers.get(i));
+          }
+        }
+        catch (Exception e) {
+          LOG.debug(e);
+        }
+      }
+      return res;
+    });
   }
 }

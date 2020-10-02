@@ -1,10 +1,10 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.psi.*;
 import com.intellij.psi.scope.ElementClassHint;
 import com.intellij.psi.scope.PsiScopeProcessor;
@@ -18,7 +18,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration;
@@ -48,9 +48,9 @@ import static org.jetbrains.plugins.groovy.lang.resolve.bindings.BindingsKt.proc
  */
 public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, PsiModifiableCodeBlock {
 
-  private static final Logger LOG = Logger.getInstance("org.jetbrains.plugins.groovy.lang.psi.impl.GroovyFileImpl");
+  private static final Logger LOG = Logger.getInstance(GroovyFileImpl.class);
 
-  private static final String SYNTHETIC_PARAMETER_NAME = "args";
+  @NlsSafe private static final String SYNTHETIC_PARAMETER_NAME = "args";
 
   private volatile Boolean myScript;
   private volatile GroovyScriptClass myScriptClass;
@@ -84,7 +84,7 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
       return null;
     }
 
-    ASTNode node = calcTreeElement().findChildByType(GroovyElementTypes.PACKAGE_DEFINITION);
+    ASTNode node = calcTreeElement().findChildByType(GroovyStubElementTypes.PACKAGE_DEFINITION);
     return node != null ? (GrPackageDefinition)node.getPsi() : null;
   }
 
@@ -142,10 +142,10 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
   public GrImportStatement[] getImportStatements() {
     final StubElement<?> stub = getStub();
     if (stub != null) {
-      return stub.getChildrenByType(GroovyElementTypes.IMPORT_STATEMENT, GrImportStatement.ARRAY_FACTORY);
+      return stub.getChildrenByType(GroovyStubElementTypes.IMPORT, GrImportStatement.ARRAY_FACTORY);
     }
 
-    return calcTreeElement().getChildrenAsPsiElements(GroovyElementTypes.IMPORT_STATEMENT, GrImportStatement.ARRAY_FACTORY);
+    return calcTreeElement().getChildrenAsPsiElements(GroovyStubElementTypes.IMPORT, GrImportStatement.ARRAY_FACTORY);
   }
 
   @Override
@@ -311,7 +311,6 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
   }
 
   @Override
-  @SuppressWarnings({"CloneDoesntDeclareCloneNotSupportedException"})
   protected GroovyFileImpl clone() {
     GroovyFileImpl clone = (GroovyFileImpl)super.clone();
     clone.myContext = myContext;
@@ -329,8 +328,7 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
   }
 
   @Override
-  @NotNull
-  public PsiClass[] getClasses() {
+  public PsiClass @NotNull [] getClasses() {
     final PsiClass[] declaredDefs = super.getClasses();
     if (!isScript()) return declaredDefs;
     final PsiClass scriptClass = getScriptClass();
@@ -352,9 +350,8 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
     return this;
   }
 
-  @NotNull
   @Override
-  public GrVariableDeclaration[] getScriptDeclarations(boolean topLevelOnly) {
+  public GrVariableDeclaration @NotNull [] getScriptDeclarations(boolean topLevelOnly) {
     return PsiImplUtilKt.getScriptDeclarations(this, topLevelOnly);
   }
 
@@ -368,8 +365,10 @@ public class GroovyFileImpl extends GroovyFileBaseImpl implements GroovyFile, Ps
     return !isScript() || PsiTreeUtil.getParentOfType(place, GrTypeDefinition.class, GrVariableDeclaration.class) != null;
   }
 
-  protected GroovyFileImports getImports() {
-    return GroovyImports.getImports(this);
+  @NotNull
+  @Override
+  public GroovyFileImports getImports() {
+    return GroovyImports.getFileImports(this);
   }
 
   @Override

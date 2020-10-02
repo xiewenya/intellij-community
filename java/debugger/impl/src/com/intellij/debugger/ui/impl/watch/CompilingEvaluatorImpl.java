@@ -99,7 +99,7 @@ public class CompilingEvaluatorImpl extends CompilingEvaluator {
         Set<File> sources = Collections.singleton(sourceFile);
 
         myCompiledClasses =
-          compilerManager.compileJavaCode(options, platformClasspath, classpath, Collections.emptyList(), sourcePath, sources, srcDir);
+          compilerManager.compileJavaCode(options, platformClasspath, classpath, Collections.emptyList(), Collections.emptyList(), sourcePath, sources, srcDir);
       }
       catch (CompilationException e) {
         StringBuilder res = new StringBuilder("Compilation failed:\n");
@@ -141,16 +141,17 @@ public class CompilingEvaluatorImpl extends CompilingEvaluator {
   @Nullable
   public static ExpressionEvaluator create(@NotNull Project project,
                                            @Nullable PsiElement psiContext,
-                                           @NotNull Function<PsiElement, PsiCodeFragment> fragmentFactory)
+                                           @NotNull Function<? super PsiElement, ? extends PsiCodeFragment> fragmentFactory)
     throws EvaluateException {
     if (Registry.is("debugger.compiling.evaluator") && psiContext != null) {
       return ApplicationManager.getApplication().runReadAction((ThrowableComputable<ExpressionEvaluator, EvaluateException>)() -> {
         try {
           XDebugSession currentSession = XDebuggerManager.getInstance(project).getCurrentSession();
           JavaSdkVersion javaVersion = getJavaVersion(currentSession);
+          PsiElement physicalContext = findPhysicalContext(psiContext);
           ExtractLightMethodObjectHandler.ExtractedData data = ExtractLightMethodObjectHandler.extractLightMethodObject(
             project,
-            findPhysicalContext(psiContext),
+            physicalContext != null ? physicalContext : psiContext,
             fragmentFactory.apply(psiContext),
             getGeneratedClassName(),
             javaVersion);
@@ -167,14 +168,10 @@ public class CompilingEvaluatorImpl extends CompilingEvaluator {
     return null;
   }
 
-  @NotNull
+  @Nullable
   private static PsiElement findPhysicalContext(@NotNull PsiElement element) {
-    while (!element.isPhysical()) {
-      PsiElement context = element.getContext();
-      if (context == null) {
-        break;
-      }
-      element = context;
+    while (element != null && !element.isPhysical()) {
+      element = element.getContext();
     }
     return element;
   }

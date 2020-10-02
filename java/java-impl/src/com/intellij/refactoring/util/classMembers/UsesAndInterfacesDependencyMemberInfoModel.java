@@ -27,6 +27,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class UsesAndInterfacesDependencyMemberInfoModel<T extends PsiMember, M extends MemberInfoBase<T>> extends DelegatingMemberInfoModel<T, M> {
   public static final InterfaceContainmentVerifier DEFAULT_CONTAINMENT_VERIFIER = new InterfaceContainmentVerifier() {
+                      @Override
                       public boolean checkedInterfacesContain(PsiMethod psiMethod) {
                         return false;
                       }
@@ -35,7 +36,8 @@ public class UsesAndInterfacesDependencyMemberInfoModel<T extends PsiMember, M e
   public UsesAndInterfacesDependencyMemberInfoModel(PsiClass aClass, @Nullable PsiClass superClass, boolean recursive,
                                                     @NotNull final InterfaceContainmentVerifier interfaceContainmentVerifier) {
     super(new ANDCombinedMemberInfoModel<>(
-      new UsesDependencyMemberInfoModel<T, PsiClass, M>(aClass, superClass, recursive) {
+      new UsesDependencyMemberInfoModel<>(aClass, superClass, recursive) {
+        @Override
         public int checkForProblems(@NotNull M memberInfo) {
           final int problem = super.checkForProblems(memberInfo);
           if (problem == OK) return OK;

@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.codeStyle;
 
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.util.Trinity;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsContexts.TabTitle;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
@@ -28,31 +15,35 @@ import com.intellij.ui.OptionGroup;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.fields.IntegerField;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashMap;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.lang.reflect.Field;
-import java.util.*;
 import java.util.List;
+import java.util.*;
+
+import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizableOptions.getInstance;
 
 public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel {
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.application.options.codeStyle.CodeStyleBlankLinesPanel");
+  private static final Logger LOG = Logger.getInstance(CodeStyleBlankLinesPanel.class);
 
   private final List<IntOption> myOptions = new ArrayList<>();
   private final Set<String> myAllowedOptions = new HashSet<>();
   private boolean myAllOptionsAllowed = false;
   private boolean myIsFirstUpdate = true;
-  private final Map<String, String> myRenamedFields = new THashMap<>();
+  private final Map<String, @NlsContexts.Label String> myRenamedFields = new THashMap<>();
 
-  private final MultiMap<String, Trinity<Class<? extends CustomCodeStyleSettings>, String, String>> myCustomOptions
-    = new MultiMap<>();
+  private final MultiMap<String, IntOption> myCustomOptions = new MultiMap<>();
 
   private final JPanel myPanel = new JPanel(new GridBagLayout());
 
@@ -70,8 +61,12 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
     Map<CodeStyleSettingPresentation.SettingsGroup, List<CodeStyleSettingPresentation>> settings = CodeStyleSettingPresentation
       .getStandardSettings(getSettingsType());
 
-    OptionGroup keepBlankLinesOptionsGroup = createOptionsGroup(BLANK_LINES_KEEP, settings.get(new CodeStyleSettingPresentation.SettingsGroup(BLANK_LINES_KEEP)));
-    OptionGroup blankLinesOptionsGroup = createOptionsGroup(BLANK_LINES, settings.get(new CodeStyleSettingPresentation.SettingsGroup(BLANK_LINES)));
+    OptionGroup keepBlankLinesOptionsGroup =
+      createOptionsGroup(getInstance().BLANK_LINES_KEEP, settings.get(new CodeStyleSettingPresentation.SettingsGroup(
+        getInstance().BLANK_LINES_KEEP)));
+    OptionGroup blankLinesOptionsGroup =
+      createOptionsGroup(getInstance().BLANK_LINES, settings.get(new CodeStyleSettingPresentation.SettingsGroup(
+        getInstance().BLANK_LINES)));
     if (keepBlankLinesOptionsGroup != null) {
       keepBlankLinesOptionsGroup.setAnchor(keepBlankLinesOptionsGroup.findAnchor());
       optionsPanel.add(keepBlankLinesOptionsGroup.createPanel(),
@@ -116,38 +111,25 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
   }
 
   @Nullable
-  private OptionGroup createOptionsGroup(@NotNull String groupName, @NotNull List<CodeStyleSettingPresentation> settings) {
+  private OptionGroup createOptionsGroup(@NotNull @NlsContexts.BorderTitle String groupName, @NotNull List<? extends CodeStyleSettingPresentation> settings) {
     OptionGroup optionGroup = new OptionGroup(groupName);
-
+    final List<IntOption> groupOptions = new SmartList<>();
     for (CodeStyleSettingPresentation setting: settings) {
-      createOption(optionGroup, setting.getUiName(), setting.getFieldName());
+      if (myAllOptionsAllowed || myAllowedOptions.contains(setting.getFieldName())) {
+        groupOptions.add(new IntOption(setting.getUiName(), setting.getFieldName()));
+      }
     }
-    initCustomOptions(optionGroup, groupName);
-
+    groupOptions.addAll(myCustomOptions.get(groupName));
+    sortOptions(groupOptions).forEach(option -> addToOptionGroup(optionGroup, option));
+    myOptions.addAll(groupOptions);
     if (optionGroup.getComponents().length == 0) return null;
 
     return optionGroup;
   }
 
-  private void initCustomOptions(OptionGroup optionGroup, String groupName) {
-    for (Trinity<Class<? extends CustomCodeStyleSettings>, String, String> each : myCustomOptions.get(groupName)) {
-      doCreateOption(optionGroup, each.third, new IntOption(each.third, each.first, each.second), each.second);
-    }
-  }
-
-  private void createOption(OptionGroup optionGroup, String title, String fieldName) {
-    if (myAllOptionsAllowed || myAllowedOptions.contains(fieldName)) {
-      doCreateOption(optionGroup, title, new IntOption(title, fieldName), fieldName);
-    }
-  }
-
-  private void doCreateOption(OptionGroup optionGroup, String title, IntOption option, String fieldName) {
-    String renamed = myRenamedFields.get(fieldName);
-    if (renamed != null) title = renamed;
-
-    JBLabel l = new JBLabel(title);
-    optionGroup.add(l, option.myIntField);
-    myOptions.add(option);
+  private void addToOptionGroup(OptionGroup optionGroup, IntOption option) {
+    String label = myRenamedFields.getOrDefault(option.getOptionName(), option.myLabel);
+    optionGroup.add(new JBLabel(label), option.myIntField);
   }
 
   @Override
@@ -207,23 +189,24 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
   }
 
   @Override
-  public void showCustomOption(Class<? extends CustomCodeStyleSettings> settingsClass,
-                               String fieldName,
-                               String title,
-                               String groupName, Object... options) {
+  public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                               @NonNls @NotNull String fieldName,
+                               @NlsContexts.Label @NotNull String title,
+                               @Nls @Nullable String groupName,
+                               Object... options) {
     showCustomOption(settingsClass, fieldName, title, groupName, null, null, options);
   }
 
   @Override
-  public void showCustomOption(Class<? extends CustomCodeStyleSettings> settingsClass,
-                               String fieldName,
-                               String title,
-                               String groupName,
+  public void showCustomOption(@NotNull Class<? extends CustomCodeStyleSettings> settingsClass,
+                               @NonNls @NotNull String fieldName,
+                               @NlsContexts.Label @NotNull String title,
+                               @Nls @Nullable String groupName,
                                @Nullable OptionAnchor anchor,
-                               @Nullable String anchorFieldName,
+                               @NonNls @Nullable String anchorFieldName,
                                Object... options) {
     if (myIsFirstUpdate) {
-      myCustomOptions.putValue(groupName, Trinity.create(settingsClass, fieldName, title));
+      myCustomOptions.putValue(groupName, new IntOption(title, settingsClass, fieldName,anchor, anchorFieldName));
     }
 
     for (IntOption option : myOptions) {
@@ -234,7 +217,7 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
   }
 
   @Override
-  public void renameStandardOption(String fieldName, String newTitle) {
+  public void renameStandardOption(@NonNls @NotNull String fieldName, @NlsContexts.Label @NotNull String newTitle) {
     if (myIsFirstUpdate) {
       myRenamedFields.put(fieldName, newTitle);
     }
@@ -243,23 +226,30 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
     }
   }
 
-  private class IntOption {
+  private final class IntOption extends OrderedOption {
+    private final @NlsContexts.Label String myLabel;
     private final IntegerField myIntField;
     private final Field myTarget;
     private Class<? extends CustomCodeStyleSettings> myTargetClass;
     private int myCurrValue = Integer.MAX_VALUE;
 
-    private IntOption(@NotNull String title, String fieldName) {
-      this(title, CommonCodeStyleSettings.class, fieldName, false);
+    private IntOption(@NlsContexts.Label @NotNull String label, String fieldName) {
+      this(label, CommonCodeStyleSettings.class, fieldName, false);
     }
 
-    private IntOption(@NotNull String title, Class<? extends CustomCodeStyleSettings> targetClass, String fieldName) {
-      this(title, targetClass, fieldName, false);
+    private IntOption(@NlsContexts.Label @NotNull String label, Class<? extends CustomCodeStyleSettings> targetClass, String fieldName, @Nullable OptionAnchor anchor, @Nullable String anchorOptionName) {
+      this(label, targetClass, fieldName, false, anchor, anchorOptionName);
       myTargetClass = targetClass;
     }
 
-    @SuppressWarnings("unused") // dummy is used to distinguish constructors
-    private IntOption(@NotNull String title, Class<?> fieldClass, String fieldName, boolean dummy) {
+    // dummy is used to distinguish constructors
+    private IntOption(@NlsContexts.Label @NotNull String label, Class<?> fieldClass, String fieldName, boolean dummy) {
+      this(label, fieldClass, fieldName, dummy, null, null);
+    }
+
+    private IntOption(@NlsContexts.Label @NotNull String label, Class<?> fieldClass, String fieldName, boolean dummy, @Nullable OptionAnchor anchor, @Nullable String anchorOptionName) {
+      super(fieldName, anchor, anchorOptionName);
+      myLabel = label;
       try {
         myTarget = fieldClass.getField(fieldName);
       }
@@ -268,7 +258,6 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
       }
       myIntField = new IntegerField(null, 0, 10);
       myIntField.setColumns(6);
-      myIntField.setName(title);
       myIntField.setMinimumSize(new Dimension(30, myIntField.getMinimumSize().height));
     }
 
@@ -326,7 +315,7 @@ public class CodeStyleBlankLinesPanel extends CustomizableLanguageCodeStylePanel
   }
 
   @Override
-  protected String getTabTitle() {
+  protected @TabTitle @NotNull String getTabTitle() {
     return ApplicationBundle.message("title.blank.lines");
   }
 }

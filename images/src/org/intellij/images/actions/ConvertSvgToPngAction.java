@@ -17,10 +17,13 @@ package org.intellij.images.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.SVGLoader;
 import org.intellij.images.fileTypes.impl.SvgFileType;
+import org.jetbrains.annotations.NotNull;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -32,23 +35,25 @@ import java.io.IOException;
  * @author Konstantin Bulenkov
  */
 public class ConvertSvgToPngAction extends DumbAwareAction {
+  private final static Logger LOG = Logger.getInstance(ConvertSvgToPngAction.class);
+
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     VirtualFile svgFile = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE);
     try {
       Image image = SVGLoader.load(new File(svgFile.getPath()).toURI().toURL(), 1f);
       String path = svgFile.getPath();
       ImageIO.write((BufferedImage)image, "png", new File(path + ".png"));
     }
-    catch (IOException e1) {
-      e1.printStackTrace();
+    catch (IOException ex) {
+      LOG.error(ex);
     }
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     VirtualFile file = e.getData(CommonDataKeys.VIRTUAL_FILE);
-    boolean enabled = file != null && file.getFileType() == SvgFileType.INSTANCE;
+    boolean enabled = file != null && FileTypeRegistry.getInstance().isFileOfType(file, SvgFileType.INSTANCE);
     e.getPresentation().setEnabledAndVisible(enabled);
   }
 }

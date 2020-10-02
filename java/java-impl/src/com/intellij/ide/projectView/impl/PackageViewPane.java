@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.projectView.impl;
 
@@ -20,7 +20,10 @@ import com.intellij.ide.util.DeleteHandler;
 import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.ide.util.treeView.AbstractTreeUpdater;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.java.JavaBundle;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.LangDataKeys;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.OrderEntry;
@@ -34,6 +37,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiPackage;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.PlatformUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
@@ -42,10 +46,9 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.TreePath;
 import java.util.*;
 
-import static com.intellij.openapi.application.Experiments.isFeatureEnabled;
+import static com.intellij.openapi.module.ModuleGrouperKt.isQualifiedModuleNamesEnabled;
 
 public class PackageViewPane extends AbstractProjectViewPSIPane {
   @NonNls public static final String ID = "PackagesPane";
@@ -55,14 +58,16 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     super(project);
   }
 
+  @NotNull
   @Override
   public String getTitle() {
-    return IdeBundle.message("title.packages");
+    return JavaBundle.message("title.packages");
   }
 
+  @NotNull
   @Override
   public Icon getIcon() {
-    return AllIcons.General.PackagesTab;
+    return AllIcons.Nodes.CopyOfFolder;
   }
 
   @Override
@@ -71,13 +76,15 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     return ID;
   }
 
+  @NotNull
   @Override
-  protected PsiElement getPSIElement(@Nullable final Object element) {
-    if (element instanceof PackageElement) {
-      PsiPackage aPackage = ((PackageElement)element).getPackage();
-      return aPackage != null && aPackage.isValid() ? aPackage : null;
+  public List<PsiElement> getElementsFromNode(@Nullable Object node) {
+    Object o = getValueFromNode(node);
+    if (o instanceof PackageElement) {
+      PsiPackage aPackage = ((PackageElement)o).getPackage();
+      return ContainerUtil.createMaybeSingletonList(aPackage.isValid() ? aPackage : null);
     }
-    return super.getPSIElement(element);
+    return super.getElementsFromNode(node);
   }
 
   @Override
@@ -89,7 +96,7 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
   }
 
   @Override
-  public Object getData(final String dataId) {
+  public Object getData(@NotNull final String dataId) {
     if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
       final PackageElement selectedPackageElement = getSelectedPackageElement();
       if (selectedPackageElement != null) {
@@ -110,22 +117,14 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
 
   @Nullable
   private PackageElement getSelectedPackageElement() {
-    PackageElement result = null;
-    TreePath path = getSelectedPath();
-    if (path != null) {
-      Object o = TreeUtil.getUserObject(path.getLastPathComponent());
-      if (o instanceof AbstractTreeNode) {
-        Object selected = ((AbstractTreeNode)o).getValue();
-        result = selected instanceof PackageElement ? (PackageElement)selected : null;
-      }
-    }
-    return result;
+    AbstractTreeNode node = TreeUtil.getLastUserObject(AbstractTreeNode.class, getSelectedPath());
+    Object selected = node == null ? null : node.getValue();
+    return selected instanceof PackageElement ? (PackageElement)selected : null;
   }
 
-  @NotNull
   @Override
-  public PsiDirectory[] getSelectedDirectories() {
-    List<PsiDirectory> directories = ContainerUtil.newArrayList();
+  public PsiDirectory @NotNull [] getSelectedDirectories() {
+    List<PsiDirectory> directories = new ArrayList<>();
     for (PackageElementNode node : getSelectedNodes(PackageElementNode.class)) {
       PackageElement packageElement = node.getValue();
       PsiPackage aPackage = packageElement != null ? packageElement.getPackage() : null;
@@ -154,72 +153,37 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     return super.getSelectedDirectories();
   }
 
-  private final class ShowLibraryContentsAction extends ToggleAction {
-    private ShowLibraryContentsAction() {
-      super(IdeBundle.message("action.show.libraries.contents"), IdeBundle.message("action.show.hide.library.contents"),
-            AllIcons.ObjectBrowser.ShowLibraryContents);
-    }
-
-    @Override
-    public boolean isSelected(AnActionEvent event) {
-      return ProjectView.getInstance(myProject).isShowLibraryContents(getId());
-    }
-
-    @Override
-    public void setSelected(AnActionEvent event, boolean flag) {
-      final ProjectViewImpl projectView = (ProjectViewImpl)ProjectView.getInstance(myProject);
-      projectView.setShowLibraryContents(flag, getId());
-    }
-
-    @Override
-    public void update(AnActionEvent e) {
-      super.update(e);
-      final Presentation presentation = e.getPresentation();
-      final ProjectViewImpl projectView = (ProjectViewImpl)ProjectView.getInstance(myProject);
-      presentation.setVisible(projectView.getCurrentProjectViewPane() == PackageViewPane.this);
-    }
-  }
-
+  @NotNull
   @Override
-  public void addToolbarActions(DefaultActionGroup actionGroup) {
-    actionGroup.addAction(new ShowModulesAction(myProject){
-      @NotNull
-      @Override
-      protected String getId() {
-        return PackageViewPane.this.getId();
-      }
-    }).setAsSecondary(true);
-    actionGroup.addAction(createFlattenModulesAction(() -> true)).setAsSecondary(true);
-    actionGroup.addAction(new ShowLibraryContentsAction()).setAsSecondary(true);
-  }
-
-  @Override
-  protected AbstractTreeUpdater createTreeUpdater(AbstractTreeBuilder treeBuilder) {
+  protected AbstractTreeUpdater createTreeUpdater(@NotNull AbstractTreeBuilder treeBuilder) {
     return new PackageViewTreeUpdater(treeBuilder);
   }
 
+  @NotNull
   @Override
   public SelectInTarget createSelectInTarget() {
     return new PackagesPaneSelectInTarget(myProject);
   }
 
+  @NotNull
   @Override
   protected ProjectAbstractTreeStructureBase createStructure() {
     return new ProjectTreeStructure(myProject, ID){
       @Override
-      protected AbstractTreeNode createRoot(final Project project, ViewSettings settings) {
+      protected AbstractTreeNode createRoot(@NotNull final Project project, @NotNull ViewSettings settings) {
         return new PackageViewProjectNode(project, settings);
       }
 
       @Override
-      public boolean isToBuildChildrenInBackground(Object element) {
+      public boolean isToBuildChildrenInBackground(@NotNull Object element) {
         return Registry.is("ide.projectView.PackageViewTreeStructure.BuildChildrenInBackground");
       }
     };
   }
 
+  @NotNull
   @Override
-  protected ProjectViewTree createTree(DefaultTreeModel treeModel) {
+  protected ProjectViewTree createTree(@NotNull DefaultTreeModel treeModel) {
     return new ProjectViewTree(treeModel) {
       public String toString() {
         return getTitle() + " " + super.toString();
@@ -237,18 +201,22 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     return 1;
   }
 
+  private Project getProject() {
+    return myProject;
+  }
+
   private final class PackageViewTreeUpdater extends AbstractTreeUpdater {
     private PackageViewTreeUpdater(final AbstractTreeBuilder treeBuilder) {
       super(treeBuilder);
     }
 
     @Override
-    public boolean addSubtreeToUpdateByElement(Object element) {
+    public boolean addSubtreeToUpdateByElement(@NotNull Object element) {
       // should convert PsiDirectories into PackageElements
       if (element instanceof PsiDirectory) {
         PsiDirectory dir = (PsiDirectory)element;
         final PsiPackage aPackage = JavaDirectoryService.getInstance().getPackage(dir);
-        if (ProjectView.getInstance(myProject).isShowModules(getId())) {
+        if (ProjectView.getInstance(getProject()).isShowModules(getId())) {
           Module[] modules = getModulesFor(dir);
           boolean rv = false;
           for (Module module : modules) {
@@ -265,7 +233,7 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     }
 
     private boolean addPackageElementToUpdate(final PsiPackage aPackage, Module module) {
-      final ProjectTreeStructure packageTreeStructure = (ProjectTreeStructure)myTreeStructure;
+      final ProjectTreeStructure packageTreeStructure = (ProjectTreeStructure)getTreeStructure();
       PsiPackage packageToUpdateFrom = aPackage;
       if (!packageTreeStructure.isFlattenPackages() && packageTreeStructure.isHideEmptyMiddlePackages()) {
         // optimization: this check makes sense only if flattenPackages == false && HideEmptyMiddle == true
@@ -283,9 +251,10 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
       return addedOk;
     }
 
+    @NotNull
     private Object getTreeElementToUpdateFrom(PsiPackage packageToUpdateFrom, Module module) {
       if (packageToUpdateFrom == null || !packageToUpdateFrom.isValid() || "".equals(packageToUpdateFrom.getQualifiedName())) {
-        return module == null ? myTreeStructure.getRootElement() : module;
+        return module == null ? getTreeStructure().getRootElement() : module;
       }
       else {
         return new PackageElement(module, packageToUpdateFrom, false);
@@ -293,14 +262,14 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
     }
 
     private Module[] getModulesFor(PsiDirectory dir) {
-      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(myProject).getFileIndex();
+      final ProjectFileIndex fileIndex = ProjectRootManager.getInstance(getProject()).getFileIndex();
       final VirtualFile vFile = dir.getVirtualFile();
       final Set<Module> modules = new HashSet<>();
       final Module module = fileIndex.getModuleForFile(vFile);
       if (module != null) {
         modules.add(module);
       }
-      if (fileIndex.isInLibrarySource(vFile) || fileIndex.isInLibraryClasses(vFile)) {
+      if (fileIndex.isInLibrary(vFile)) {
         final List<OrderEntry> orderEntries = fileIndex.getOrderEntriesForFile(vFile);
         if (orderEntries.isEmpty()) {
           return Module.EMPTY_ARRAY;
@@ -324,7 +293,7 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
 
     @Override
     public void deleteElement(@NotNull DataContext dataContext) {
-      List<PsiDirectory> allElements = Arrays.asList(getSelectedDirectories());
+      PsiDirectory[] allElements = getSelectedDirectories();
       List<PsiElement> validElements = new ArrayList<>();
       for (PsiElement psiElement : allElements) {
         if (psiElement != null && psiElement.isValid()) validElements.add(psiElement);
@@ -333,7 +302,7 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
 
       LocalHistoryAction a = LocalHistory.getInstance().startAction(IdeBundle.message("progress.deleting"));
       try {
-        DeleteHandler.deletePsiElement(elements, myProject);
+        DeleteHandler.deletePsiElement(elements, getProject());
       }
       finally {
         a.finish();
@@ -342,7 +311,22 @@ public class PackageViewPane extends AbstractProjectViewPSIPane {
   }
 
   @Override
-  protected BaseProjectTreeBuilder createBuilder(DefaultTreeModel model) {
+  protected BaseProjectTreeBuilder createBuilder(@NotNull DefaultTreeModel model) {
     return null;
+  }
+
+  @Override
+  public boolean supportsFlattenModules() {
+    return PlatformUtils.isIntelliJ() && isQualifiedModuleNamesEnabled(myProject) && ProjectView.getInstance(myProject).isShowModules(ID);
+  }
+
+  @Override
+  public boolean supportsShowLibraryContents() {
+    return true;
+  }
+
+  @Override
+  public boolean supportsShowModules() {
+    return PlatformUtils.isIntelliJ();
   }
 }

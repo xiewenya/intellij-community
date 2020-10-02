@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class DebuggerTree
@@ -6,8 +6,8 @@
  */
 package com.intellij.debugger.ui.impl.watch;
 
-import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.DebuggerInvocationUtil;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.SuspendContextImpl;
@@ -15,9 +15,9 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
-import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.PrioritizedTask;
 import com.intellij.debugger.jdi.*;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.settings.ThreadsViewSettings;
@@ -30,13 +30,13 @@ import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.render.ArrayRenderer;
 import com.intellij.debugger.ui.tree.render.ChildrenBuilder;
 import com.intellij.debugger.ui.tree.render.ClassRenderer;
-import com.intellij.debugger.ui.tree.render.NodeRenderer;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleTextAttributes;
@@ -140,7 +140,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (DATA_KEY.is(dataId)) {
       return this;
     }
@@ -302,7 +302,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     expandPath(new TreePath(message.getPath()));
   }
 
-  public void showMessage(String messageText) {
+  public void showMessage(@NlsContexts.Label String messageText) {
     showMessage(new MessageDescriptor(messageText));
   }
 
@@ -324,17 +324,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     }
     myDebuggerContext = context;
     saveState();
-    process.getManagerThread().schedule(new DebuggerCommandImpl() {
-      @Override
-      protected void action() {
-        getNodeFactory().setHistoryByContext(context);
-      }
-      @Override
-      public Priority getPriority() {
-        return Priority.NORMAL;
-      }
-    });
-
+    process.getManagerThread().schedule(PrioritizedTask.Priority.NORMAL, () -> getNodeFactory().setHistoryByContext(context));
     build(context);
   }
 
@@ -357,24 +347,6 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   @Override
   public JComponent createToolTip(MouseEvent e) {
     return myEditedNode != null ? null : super.createToolTip(e);
-  }
-
-  protected abstract static class RefreshDebuggerTreeCommand extends SuspendContextCommandImpl {
-    private final DebuggerContextImpl myDebuggerContext;
-
-    @Override
-    public Priority getPriority() {
-      return Priority.NORMAL;
-    }
-
-    public RefreshDebuggerTreeCommand(DebuggerContextImpl context) {
-      super(context.getSuspendContext());
-      myDebuggerContext = context;
-    }
-
-    public final DebuggerContextImpl getDebuggerContext() {
-      return myDebuggerContext;
-    }
   }
 
   public DebuggerContextImpl getDebuggerContext() {
@@ -502,7 +474,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
       catch (InternalException e) {
         if (e.errorCode() == JvmtiError.INVALID_SLOT) {
           myChildren.add(
-            myNodeManager.createMessageNode(new MessageDescriptor(DebuggerBundle.message("error.corrupt.debug.info", e.getMessage()))));
+            myNodeManager.createMessageNode(new MessageDescriptor(JavaDebuggerBundle.message("error.corrupt.debug.info", e.getMessage()))));
         }
         else {
           throw e;
@@ -523,7 +495,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   private class BuildValueNodeCommand extends BuildNodeCommand implements ChildrenBuilder {
-    public BuildValueNodeCommand(DebuggerTreeNodeImpl node) {
+    BuildValueNodeCommand(DebuggerTreeNodeImpl node) {
       super(node);
     }
 
@@ -531,20 +503,22 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     public void threadAction(@NotNull SuspendContextImpl suspendContext) {
       final DebuggerTreeNodeImpl node = getNode();
       ValueDescriptorImpl descriptor = (ValueDescriptorImpl)node.getDescriptor();
-      try {
-        final NodeRenderer renderer = descriptor.getRenderer(suspendContext.getDebugProcess());
-        renderer.buildChildren(descriptor.getValue(), this, getDebuggerContext().createEvaluationContext());
-      }
-      catch (ObjectCollectedException e) {
-        final String message = e.getMessage();
-        DebuggerInvocationUtil.swingInvokeLater(getProject(), () -> {
-          node.removeAllChildren();
-          node.add(getNodeFactory().createMessageNode(
-            new MessageDescriptor(DebuggerBundle.message("error.cannot.build.node.children.object.collected", message)))
-          );
-          node.childrenChanged(false);
+      descriptor.getRenderer(suspendContext.getDebugProcess())
+        .thenAccept(renderer -> {
+          try {
+            renderer.buildChildren(descriptor.getValue(), this, getDebuggerContext().createEvaluationContext());
+          }
+          catch (ObjectCollectedException e) {
+            final String message = e.getMessage();
+            DebuggerInvocationUtil.swingInvokeLater(getProject(), () -> {
+              node.removeAllChildren();
+              node.add(getNodeFactory().createMessageNode(
+                new MessageDescriptor(JavaDebuggerBundle.message("error.cannot.build.node.children.object.collected", message)))
+              );
+              node.childrenChanged(false);
+            });
+          }
         });
-      }
     }
 
     @Override
@@ -567,7 +541,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     public void initChildrenArrayRenderer(ArrayRenderer renderer, int arrayLength) {}
 
     @Override
-    public void setChildren(final List<DebuggerTreeNode> children) {
+    public void setChildren(final List<? extends DebuggerTreeNode> children) {
       for (DebuggerTreeNode child : children) {
         if (child instanceof DebuggerTreeNodeImpl) {
           myChildren.add(((DebuggerTreeNodeImpl)child));
@@ -605,7 +579,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   private class BuildStaticNodeCommand extends BuildNodeCommand {
-    public BuildStaticNodeCommand(DebuggerTreeNodeImpl node) {
+    BuildStaticNodeCommand(DebuggerTreeNodeImpl node) {
       super(node);
     }
 
@@ -628,7 +602,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
   }
 
   private class BuildThreadCommand extends BuildNodeCommand {
-    public BuildThreadCommand(DebuggerTreeNodeImpl threadNode) {
+    BuildThreadCommand(DebuggerTreeNodeImpl threadNode) {
       super(threadNode, ((ThreadDescriptorImpl)threadNode.getDescriptor()).getThreadReference());
     }
 
@@ -673,7 +647,7 @@ public abstract class DebuggerTree extends DebuggerTreeBase implements DataProvi
     private final DebuggerTreeNodeImpl myNode;
     protected final List<DebuggerTreeNodeImpl> myChildren = new LinkedList<>();
 
-    public BuildThreadGroupCommand(DebuggerTreeNodeImpl node) {
+    BuildThreadGroupCommand(DebuggerTreeNodeImpl node) {
       myNode = node;
     }
 

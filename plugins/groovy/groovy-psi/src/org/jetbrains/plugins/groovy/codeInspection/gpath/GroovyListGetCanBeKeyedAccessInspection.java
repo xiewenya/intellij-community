@@ -22,9 +22,9 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyFix;
@@ -39,16 +39,9 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyListGetCanBeKeyedAccessInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Call to List.get can be keyed access";
-  }
-
-  @Override
   @Nullable
   protected String buildErrorString(Object... args) {
-    return "Call to '#ref' can be keyed access #loc";
+    return GroovyBundle.message("inspection.message.call.to.ref.can.be.keyed.access");
   }
 
   @NotNull
@@ -67,7 +60,7 @@ public class GroovyListGetCanBeKeyedAccessInspection extends BaseInspection {
     @Override
     @NotNull
     public String getFamilyName() {
-      return "Replace with keyed access";
+      return GroovyBundle.message("intention.family.name.replace.with.keyed.access");
     }
 
     @Override

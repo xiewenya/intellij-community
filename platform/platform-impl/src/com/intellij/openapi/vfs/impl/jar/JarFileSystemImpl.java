@@ -1,45 +1,33 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.impl.jar;
 
+import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.IntegrityCheckCapableFileSystem;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.impl.ArchiveHandler;
+import com.intellij.openapi.vfs.impl.ZipHandlerBase;
 import com.intellij.openapi.vfs.newvfs.VfsImplUtil;
 import com.intellij.util.SystemProperties;
-import com.intellij.concurrency.ConcurrentCollectionFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Set;
 
-public class JarFileSystemImpl extends JarFileSystem {
+public class JarFileSystemImpl extends JarFileSystem implements IntegrityCheckCapableFileSystem {
   private final Set<String> myNoCopyJarPaths;
   private final File myNoCopyJarDir;
 
   public JarFileSystemImpl() {
     boolean noCopy = SystemProperties.getBooleanProperty("idea.jars.nocopy", !SystemInfo.isWindows);
-    //noinspection deprecation
     myNoCopyJarPaths = noCopy ? null : ConcurrentCollectionFactory.createConcurrentSet(FileUtil.PATH_HASHING_STRATEGY);
 
     // to prevent platform .jar files from copying
@@ -85,23 +73,18 @@ public class JarFileSystemImpl extends JarFileSystem {
     return super.extractPresentableUrl(StringUtil.trimEnd(path, JAR_SEPARATOR));
   }
 
-  @NotNull
+  @Nullable
   @Override
   protected String normalize(@NotNull String path) {
-    final int jarSeparatorIndex = path.indexOf(JAR_SEPARATOR);
-    if (jarSeparatorIndex > 0) {
-      final String root = path.substring(0, jarSeparatorIndex);
-      return FileUtil.normalize(root) + path.substring(jarSeparatorIndex);
-    }
-    return super.normalize(path);
+    int separatorIndex = path.indexOf(JAR_SEPARATOR);
+    return separatorIndex > 0 ? FileUtil.normalize(path.substring(0, separatorIndex)) + path.substring(separatorIndex) : null;
   }
 
   @NotNull
   @Override
-  protected String extractRootPath(@NotNull String path) {
-    final int jarSeparatorIndex = path.indexOf(JAR_SEPARATOR);
-    assert jarSeparatorIndex >= 0 : "Path passed to JarFileSystem must have jar separator '!/': " + path;
-    return path.substring(0, jarSeparatorIndex + JAR_SEPARATOR.length());
+  protected String extractRootPath(@NotNull String normalizedPath) {
+    int separatorIndex = normalizedPath.indexOf(JAR_SEPARATOR);
+    return separatorIndex > 0 ? normalizedPath.substring(0, separatorIndex + JAR_SEPARATOR.length()) : "";
   }
 
   @NotNull
@@ -119,7 +102,7 @@ public class JarFileSystemImpl extends JarFileSystem {
   @NotNull
   @Override
   protected ArchiveHandler getHandler(@NotNull VirtualFile entryFile) {
-    boolean useNewJarHandler = Registry.is("vfs.use.new.jar.handler") && SystemInfo.isWindows;
+    boolean useNewJarHandler = SystemInfo.isWindows && Registry.is("vfs.use.new.jar.handler");
     return VfsImplUtil.getHandler(this, entryFile, useNewJarHandler ? BasicJarHandler::new : JarHandler::new);
   }
 
@@ -148,7 +131,13 @@ public class JarFileSystemImpl extends JarFileSystem {
   }
 
   @TestOnly
-  public void cleanupForNextTest() {
+  public static void cleanupForNextTest() {
     BasicJarHandler.closeOpenedZipReferences();
+  }
+
+  @Override
+  public long getEntryCrc(@NotNull VirtualFile file) throws IOException {
+    ArchiveHandler handler = getHandler(file);
+    return ((ZipHandlerBase)handler).getEntryCrc(getRelativePath(file));
   }
 }

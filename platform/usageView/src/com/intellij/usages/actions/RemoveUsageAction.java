@@ -30,32 +30,29 @@ import java.util.Arrays;
  */
 public class RemoveUsageAction extends AnAction {
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(getUsages(e).length > 0);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     process(getUsages(e), e.getData(UsageView.USAGE_VIEW_KEY));
   }
 
-  private static void process(@NotNull Usage[] usages, @NotNull UsageView usageView) {
+  private static void process(Usage @NotNull [] usages, @NotNull UsageView usageView) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (usages.length == 0) return;
     Arrays.sort(usages, UsageViewImpl.USAGE_COMPARATOR);
     final Usage nextToSelect = getNextToSelect(usageView, usages[usages.length - 1]);
 
-    for (Usage usage : usages) {
-      usageView.removeUsage(usage);
-    }
+    usageView.removeUsagesBulk(Arrays.asList(usages));
 
     if (nextToSelect != null) {
       usageView.selectUsages(new Usage[]{nextToSelect});
     }
   }
 
-  @NotNull
-  private static Usage[] getUsages(AnActionEvent context) {
+  private static Usage @NotNull [] getUsages(AnActionEvent context) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     UsageView usageView = context.getData(UsageView.USAGE_VIEW_KEY);
     if (usageView == null) return Usage.EMPTY_ARRAY;

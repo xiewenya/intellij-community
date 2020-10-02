@@ -2,111 +2,237 @@
 package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
+import com.intellij.codeInspection.dataFlow.types.DfConstantType;
+import com.intellij.codeInspection.dataFlow.types.DfReferenceType;
+import com.intellij.codeInspection.dataFlow.types.DfType;
+import com.intellij.codeInspection.dataFlow.types.DfTypes;
 import com.intellij.codeInspection.dataFlow.value.*;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.codeInspection.util.OptionalUtil;
+import com.intellij.java.analysis.JavaAnalysisBundle;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.TypeConversionUtil;
+import com.intellij.util.ObjectUtils;
+import com.siyeh.ig.callMatcher.CallMatcher;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.MethodUtils;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.siyeh.ig.psiutils.TypeUtils;
+import org.jetbrains.annotations.*;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.Objects;
 
-import static com.intellij.codeInspection.dataFlow.MethodContract.ValueConstraint.*;
+import static com.intellij.codeInspection.dataFlow.ContractReturnValue.returnFalse;
+import static com.intellij.codeInspection.dataFlow.ContractReturnValue.returnTrue;
+import static com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint.NULL_VALUE;
+import static com.intellij.psi.CommonClassNames.*;
 
 /**
  * Represents a method which is handled as a field in DFA.
  *
  * @author Tagir Valeev
  */
-public enum SpecialField {
-  ARRAY_LENGTH(null, "length", true, LongRangeSet.indexRange()) {
+public enum SpecialField implements VariableDescriptor {
+  ARRAY_LENGTH("length", "special.field.array.length", true) {
     @Override
-    public boolean isMyAccessor(PsiModifierListOwner accessor) {
-      return accessor instanceof PsiField && "length".equals(((PsiField)accessor).getName()) &&
-             JavaPsiFacade.getElementFactory(accessor.getProject()).getArrayClass(PsiUtil.getLanguageLevel(accessor)) ==
-             ((PsiField)accessor).getContainingClass();
+    boolean isMyQualifierType(PsiType type) {
+      return type instanceof PsiArrayType;
     }
 
     @Override
-    DfaValue fromInitializer(DfaValueFactory factory, PsiExpression initializer) {
+    boolean isMyAccessor(PsiMember accessor) {
+      return accessor instanceof PsiField && "length".equals(accessor.getName()) && PsiUtil.isArrayClass(accessor.getContainingClass());
+    }
+
+    @NotNull
+    @Override
+    DfType fromInitializer(PsiExpression initializer) {
       if (initializer instanceof PsiArrayInitializerExpression) {
-        return factory.getInt(((PsiArrayInitializerExpression)initializer).getInitializers().length);
+        return DfTypes.intValue(((PsiArrayInitializerExpression)initializer).getInitializers().length);
       }
       if (initializer instanceof PsiNewExpression) {
         PsiArrayInitializerExpression arrayInitializer = ((PsiNewExpression)initializer).getArrayInitializer();
         if (arrayInitializer != null) {
-          return factory.getInt(arrayInitializer.getInitializers().length);
+          return DfTypes.intValue(arrayInitializer.getInitializers().length);
         }
         PsiExpression[] dimensions = ((PsiNewExpression)initializer).getArrayDimensions();
         if (dimensions.length > 0) {
           Object length = ExpressionUtils.computeConstantExpression(dimensions[0]);
           if (length instanceof Integer) {
-            return factory.getInt(((Integer)length).intValue());
+            return DfTypes.intValue(((Integer)length).intValue());
           }
         }
       }
-      return null;
-    }
-
-    @Nullable
-    @Override
-    PsiModifierListOwner getCanonicalOwner(@Nullable PsiModifierListOwner qualifier, @Nullable PsiClass psiClass) {
-      if (qualifier == null) return null;
-      PsiClass arrayClass = JavaPsiFacade.getElementFactory(qualifier.getProject())
-        .getArrayClass(PsiUtil.getLanguageLevel(qualifier));
-      return arrayClass.findFieldByName("length", false);
-    }
-
-    @Override
-    public String toString() {
-      return "Array.length";
+      return DfTypes.TOP;
     }
   },
-  STRING_LENGTH(CommonClassNames.JAVA_LANG_STRING, "length", true, LongRangeSet.indexRange()) {
+  STRING_LENGTH("length", "special.field.string.length", true) {
+    @NotNull
     @Override
-    DfaValue fromInitializer(DfaValueFactory factory, PsiExpression initializer) {
-      Object value = ExpressionUtils.computeConstantExpression(initializer);
-      if(value instanceof String) {
-        return factory.getInt(((String)value).length());
+    DfType fromInitializer(PsiExpression initializer) {
+      return fromConstant(ExpressionUtils.computeConstantExpression(initializer));
+    }
+
+    @Override
+    boolean isMyQualifierType(PsiType type) {
+      return TypeUtils.isJavaLangString(type);
+    }
+
+    @Override
+    boolean isMyAccessor(PsiMember accessor) {
+      if (!(accessor instanceof PsiMethod) || !"length".equals(accessor.getName()) || !((PsiMethod)accessor).getParameterList().isEmpty()) {
+        return false;
       }
-      return null;
+      PsiClass containingClass = accessor.getContainingClass();
+      return containingClass != null && JAVA_LANG_STRING.equals(containingClass.getQualifiedName());
+    }
+
+    @NotNull
+    @Override
+    public DfType fromConstant(@Nullable Object obj) {
+      return obj instanceof String ? DfTypes.intValue(((String)obj).length()) : DfTypes.TOP;
+    }
+  },
+  COLLECTION_SIZE("size", "special.field.collection.size", false) {
+    private final CallMatcher SIZE_METHODS = CallMatcher.anyOf(CallMatcher.instanceCall(JAVA_UTIL_COLLECTION, "size").parameterCount(0),
+                                                               CallMatcher.instanceCall(JAVA_UTIL_MAP, "size").parameterCount(0));
+    private final CallMatcher MAP_COLLECTIONS = CallMatcher.instanceCall(JAVA_UTIL_MAP, "keySet", "entrySet", "values")
+      .parameterCount(0);
+
+    @Override
+    boolean isMyQualifierType(PsiType type) {
+      PsiClass psiClass = PsiUtil.resolveClassInClassTypeOnly(type);
+      if (psiClass == null) return false;
+      return !InheritanceUtil.processSupers(psiClass, true, cls -> {
+        String qualifiedName = cls.getQualifiedName();
+        return !JAVA_UTIL_MAP.equals(qualifiedName) && !JAVA_UTIL_COLLECTION.equals(qualifiedName);
+      });
     }
 
     @Override
-    public DfaValue fromConstant(DfaValueFactory factory, @NotNull Object obj) {
-      return obj instanceof String ? factory.getInt(((String)obj).length()) : null;
+    boolean isMyAccessor(PsiMember accessor) {
+      return accessor instanceof PsiMethod && SIZE_METHODS.methodMatches((PsiMethod)accessor);
+    }
+
+    @NotNull
+    @Override
+    public DfType fromConstant(@Nullable Object obj) {
+      if (obj instanceof PsiField && DfaUtil.isEmptyCollectionConstantField((PsiVariable)obj)) {
+        return DfTypes.intValue(0);
+      }
+      return super.fromConstant(obj);
+    }
+
+    @NotNull
+    @Override
+    public DfaValue createValue(@NotNull DfaValueFactory factory, @Nullable DfaValue qualifier, boolean forAccessor) {
+      if (qualifier instanceof DfaVariableValue) {
+        DfaVariableValue var = (DfaVariableValue)qualifier;
+        PsiModifierListOwner owner = var.getPsiVariable();
+        if (var.getQualifier() != null && owner instanceof PsiMethod && MAP_COLLECTIONS.methodMatches((PsiMethod)owner)) {
+          return super.createValue(factory, var.getQualifier(), forAccessor);
+        }
+      }
+      return super.createValue(factory, qualifier, forAccessor);
     }
   },
-  COLLECTION_SIZE(CommonClassNames.JAVA_UTIL_COLLECTION, "size", false, LongRangeSet.indexRange()),
-  MAP_SIZE(CommonClassNames.JAVA_UTIL_MAP, "size", false, LongRangeSet.indexRange());
+  UNBOX("value", "special.field.unboxed.value", true) {
+    private final CallMatcher UNBOXING_CALL = CallMatcher.anyOf(
+      CallMatcher.exactInstanceCall(JAVA_LANG_INTEGER, "intValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_LONG, "longValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_SHORT, "shortValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_BYTE, "byteValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_CHARACTER, "charValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_BOOLEAN, "booleanValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_FLOAT, "floatValue").parameterCount(0),
+      CallMatcher.exactInstanceCall(JAVA_LANG_DOUBLE, "doubleValue").parameterCount(0)
+    );
 
-  private final String myClassName;
-  private final String myMethodName;
+    @Override
+    public PsiPrimitiveType getType(DfaVariableValue variableValue) {
+      return PsiPrimitiveType.getUnboxedType(variableValue.getType());
+    }
+
+    @NotNull
+    @Override
+    public DfType getDefaultValue(boolean forAccessor) {
+      return DfTypes.TOP;
+    }
+
+    @NotNull
+    @Override
+    public DfaValue createValue(@NotNull DfaValueFactory factory, @Nullable DfaValue qualifier, boolean forAccessor) {
+      if (qualifier instanceof DfaBoxedValue) {
+        return ((DfaBoxedValue)qualifier).getWrappedValue();
+      }
+      return super.createValue(factory, qualifier, forAccessor);
+    }
+
+    @Override
+    boolean isMyQualifierType(PsiType type) {
+      return TypeConversionUtil.isPrimitiveWrapper(type);
+    }
+
+    @Override
+    boolean isMyAccessor(PsiMember accessor) {
+      return accessor instanceof PsiMethod && UNBOXING_CALL.methodMatches((PsiMethod)accessor);
+    }
+  },
+  OPTIONAL_VALUE("value", "special.field.optional.value", true) {
+    @Override
+    public PsiType getType(DfaVariableValue variableValue) {
+      PsiType optionalType = variableValue.getType();
+      PsiType type = OptionalUtil.getOptionalElementType(optionalType);
+      if (type instanceof PsiPrimitiveType) {
+        return ((PsiPrimitiveType)type).getBoxedType(Objects.requireNonNull(((PsiClassType)optionalType).resolve()));
+      }
+      return type;
+    }
+
+    @NotNull
+    @Override
+    public DfType getDefaultValue(boolean forAccessor) {
+      return (forAccessor ? DfaNullability.NOT_NULL : DfaNullability.NULLABLE).asDfType();
+    }
+
+    @Override
+    boolean isMyQualifierType(PsiType type) {
+      return TypeUtils.isOptional(type);
+    }
+
+    @Override
+    public String getPresentationText(@NotNull DfType dfType, @Nullable PsiType type) {
+      if (dfType == DfTypes.NULL) {
+        return JavaAnalysisBundle.message("dftype.presentation.empty.optional");
+      }
+      if ((!dfType.isSuperType(DfTypes.NULL))) {
+        return JavaAnalysisBundle.message("dftype.presentation.present.optional");
+      }
+      return "";
+    }
+
+    @Override
+    boolean isMyAccessor(PsiMember accessor) {
+      return accessor instanceof PsiMethod && OptionalUtil.OPTIONAL_GET.methodMatches((PsiMethod)accessor);
+    }
+  };
+
+  private static final SpecialField[] VALUES = values();
+  private final String myTitle;
+  private final @PropertyKey(resourceBundle = JavaAnalysisBundle.BUNDLE) String myTitleKey;
   private final boolean myFinal;
-  private final LongRangeSet myRange;
 
-  SpecialField(String className, String methodName, boolean isFinal, LongRangeSet range) {
-    myClassName = className;
-    myMethodName = methodName;
+  SpecialField(String title, @PropertyKey(resourceBundle = JavaAnalysisBundle.BUNDLE) String titleKey, boolean isFinal) {
+    myTitle = title;
+    myTitleKey = titleKey;
     myFinal = isFinal;
-    myRange = range;
   }
 
-  public boolean isFinal() {
+  @Override
+  public boolean isStable() {
     return myFinal;
   }
-
-  public LongRangeSet getRange() {
-    return myRange;
-  }
-
-  public String getMethodName() {
-    return myMethodName;
-  }
+  
+  abstract boolean isMyQualifierType(PsiType type);
 
   /**
    * Checks whether supplied accessor (field or method) can be used to read this special field
@@ -114,27 +240,31 @@ public enum SpecialField {
    * @param accessor accessor to test to test
    * @return true if supplied accessor can be used to read this special field
    */
-  public boolean isMyAccessor(PsiModifierListOwner accessor) {
-    return accessor instanceof PsiMethod && MethodUtils.methodMatches((PsiMethod)accessor, myClassName, null, myMethodName);
+  abstract boolean isMyAccessor(PsiMember accessor);
+
+  public @Nls String getPresentationText(@NotNull DfType dfType, @Nullable PsiType type) {
+    if (getDefaultValue(false).equals(dfType)) {
+      return "";
+    }
+    return dfType.toString();
   }
 
   /**
-   * Returns a canonical accessor which can be used to read this special field
-   *
-   * @param qualifier a qualifier accessor (if known)
-   * @param psiClass a class for which the canonical method should be resolved
-   * @return a canonical accessor representing this special field or null if cannot be determined.
+   * Finds a special field which corresponds to given accessor (method or field)
+   * @param accessor accessor to find a special field for
+   * @return found special field or null if accessor cannot be used to access a special field
    */
+  @Contract("null -> null")
   @Nullable
-  PsiModifierListOwner getCanonicalOwner(@Nullable PsiModifierListOwner qualifier, @Nullable PsiClass psiClass) {
-    if (psiClass == null) return null;
-    if (!myClassName.equals(psiClass.getQualifiedName())) {
-      PsiClass myClass = JavaPsiFacade.getInstance(psiClass.getProject()).findClass(myClassName, psiClass.getResolveScope());
-      if (!InheritanceUtil.isInheritorOrSelf(psiClass, myClass, true)) return null;
-      psiClass = myClass;
+  public static SpecialField findSpecialField(PsiElement accessor) {
+    if (!(accessor instanceof PsiMember)) return null;
+    PsiMember member = (PsiMember)accessor;
+    for (SpecialField sf : VALUES) {
+      if (sf.isMyAccessor(member)) {
+        return sf;
+      }
     }
-    PsiMethod[] methods = psiClass.findMethodsByName(myMethodName, false);
-    return methods.length == 1 ? methods[0] : null;
+    return null;
   }
 
   /**
@@ -144,7 +274,15 @@ public enum SpecialField {
    * @param qualifier a known qualifier value
    * @return a DfaValue which represents this special field
    */
-  public DfaValue createValue(DfaValueFactory factory, DfaValue qualifier) {
+  @Override
+  @NotNull
+  public final DfaValue createValue(@NotNull DfaValueFactory factory, @Nullable DfaValue qualifier) {
+    return createValue(factory, qualifier, false);
+  }
+
+  @NotNull
+  @Override
+  public DfaValue createValue(@NotNull DfaValueFactory factory, @Nullable DfaValue qualifier, boolean forAccessor) {
     if (qualifier instanceof DfaVariableValue) {
       DfaVariableValue variableValue = (DfaVariableValue)qualifier;
       PsiModifierListOwner psiVariable = variableValue.getPsiVariable();
@@ -154,57 +292,147 @@ public enum SpecialField {
           psiVariable.hasModifierProperty(PsiModifier.FINAL)) {
         PsiExpression initializer = ((PsiField)psiVariable).getInitializer();
         if (initializer != null) {
-          DfaValue value = fromInitializer(factory, initializer);
-          if (value != null) {
-            return value;
+          DfType dfType = fromInitializer(initializer);
+          if (dfType != DfTypes.TOP) {
+            return factory.fromDfType(dfType);
           }
         }
       }
-      PsiModifierListOwner owner =
-        getCanonicalOwner(psiVariable, PsiUtil.resolveClassInClassTypeOnly(variableValue.getVariableType()));
-      if (owner != null) {
-        return factory.getVarFactory().createVariableValue(owner, PsiType.INT, false, variableValue);
-      }
+      return VariableDescriptor.super.createValue(factory, qualifier, forAccessor);
     }
-    if(qualifier instanceof DfaConstValue) {
-      Object obj = ((DfaConstValue)qualifier).getValue();
-      if(obj != null) {
-        DfaValue value = fromConstant(factory, obj);
-        if(value != null) {
-          return value;
-        }
-      }
-    }
-    return factory.getFactValue(DfaFactType.RANGE, myRange);
+    DfType dfType = qualifier == null ? DfTypes.TOP : getFromQualifier(qualifier.getDfType());
+    return factory.fromDfType(dfType.meet(getDefaultValue(forAccessor)));
   }
 
-  DfaValue fromInitializer(DfaValueFactory factory, PsiExpression initializer) {
-    return null;
+  /**
+   * Returns a dfType that describes any possible value this special field may have
+   *
+   * @param forAccessor if true, the default value for accessor result should be returned 
+   *                    (may differ from internal representation of value) 
+   * @return a dfType for the default value
+   */
+  @NotNull
+  public DfType getDefaultValue(boolean forAccessor) {
+    return DfTypes.intRange(LongRangeSet.indexRange());
   }
 
-  DfaValue fromConstant(DfaValueFactory factory, @NotNull Object obj) {
-    return null;
+  @Override
+  public PsiType getType(DfaVariableValue variableValue) {
+    return PsiType.INT;
+  }
+
+  @NotNull
+  DfType fromInitializer(PsiExpression initializer) {
+    return DfTypes.TOP;
+  }
+
+  @NotNull
+  public DfType fromConstant(@Nullable Object obj) {
+    return DfTypes.TOP;
   }
 
   /**
    * @return a list of method contracts which equivalent to checking this special field for zero
    */
-  public List<MethodContract> getEmptyContracts() {
+  public MethodContract[] getEmptyContracts() {
     ContractValue thisValue = ContractValue.qualifier().specialField(this);
-    return Arrays
-      .asList(MethodContract.singleConditionContract(thisValue, DfaRelationValue.RelationType.EQ, ContractValue.zero(), TRUE_VALUE),
-              MethodContract.trivialContract(FALSE_VALUE));
+    return new MethodContract[]{
+      MethodContract.singleConditionContract(thisValue, RelationType.EQ, ContractValue.zero(), returnTrue()),
+      MethodContract.trivialContract(returnFalse())};
   }
 
-  public List<MethodContract> getEqualsContracts() {
-    return Arrays.asList(new StandardMethodContract(new MethodContract.ValueConstraint[]{NULL_VALUE}, FALSE_VALUE),
+  public MethodContract[] getEqualsContracts() {
+    return new MethodContract[]{new StandardMethodContract(new StandardMethodContract.ValueConstraint[]{NULL_VALUE}, returnFalse()),
                          MethodContract.singleConditionContract(
-                           ContractValue.qualifier().specialField(this), DfaRelationValue.RelationType.NE,
-                           ContractValue.argument(0).specialField(this), FALSE_VALUE));
+                           ContractValue.qualifier().specialField(this), RelationType.NE,
+                           ContractValue.argument(0).specialField(this), returnFalse())};
+  }
+
+  /**
+   * @param fieldValue dfType of the special field value
+   * @return a dfType that represents a value having this special field restricted to the supplied dfType
+   */
+  @NotNull
+  public DfType asDfType(@NotNull DfType fieldValue) {
+    DfType defaultType = this == OPTIONAL_VALUE ? DfTypes.OBJECT_OR_NULL : getDefaultValue(false);
+    DfType clamped = fieldValue.meet(defaultType);
+    if (clamped.equals(defaultType)) return DfTypes.NOT_NULL_OBJECT;
+    if (clamped.equals(DfTypes.BOTTOM)) return DfTypes.BOTTOM;
+    return DfTypes.customObject(TypeConstraints.TOP, DfaNullability.NOT_NULL, Mutability.UNKNOWN, this, clamped);
+  }
+
+  /**
+   * @param fieldValue dfType of the special field value
+   * @param exactResultType exact PSI type of the result
+   * @return a dfType that represents a value having this special field restricted to the supplied dfType
+   */
+  @NotNull
+  public DfType asDfType(@NotNull DfType fieldValue, @Nullable PsiType exactResultType) {
+    DfType dfType = asDfType(fieldValue);
+    if (exactResultType == null) {
+      return dfType;
+    }
+    if (this == STRING_LENGTH && DfConstantType.isConst(fieldValue, 0)) {
+      return DfTypes.constant("", exactResultType);
+    }
+    return dfType.meet(TypeConstraints.exact(exactResultType).asDfType());
+  }
+
+  /**
+   * Returns a DfType from given DfType qualifier if it's bound to this special field
+   * @param dfType of the qualifier
+   * @return en extracted DfType
+   */
+  @NotNull
+  public DfType getFromQualifier(@NotNull DfType dfType) {
+    if (dfType == DfTypes.TOP) return DfTypes.TOP;
+    if (!(dfType instanceof DfReferenceType)) return DfTypes.BOTTOM;
+    SpecialField sf = ((DfReferenceType)dfType).getSpecialField();
+    if (sf == null) return DfTypes.TOP;
+    if (sf != this) return DfTypes.BOTTOM;
+    return ((DfReferenceType)dfType).getSpecialFieldType();
+  }
+
+  /**
+   * Returns a special field which corresponds to given qualifier type
+   * (currently it's assumed that only one special field may exist for given qualifier type)
+   * 
+   * @param type a qualifier type
+   * @return a special field; null if no special field is available for given type
+   */
+  @Contract("null -> null")
+  @Nullable
+  public static SpecialField fromQualifierType(PsiType type) {
+    if (type == null) return null;
+    for (SpecialField value : VALUES) {
+      if (value.isMyQualifierType(type)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns a special field which corresponds to given qualifier
+   *
+   * @param value a qualifier value
+   * @return a special field; null if no special field is detected to be related to given qualifier
+   */
+  @Nullable
+  public static SpecialField fromQualifier(@NotNull DfaValue value) {
+    DfReferenceType dfType = ObjectUtils.tryCast(value.getDfType(), DfReferenceType.class);
+    if (dfType != null && dfType.getSpecialField() != null) {
+      return dfType.getSpecialField();
+    }
+    return fromQualifierType(value.getType());
+  }
+  
+  public @NotNull @Nls String getPresentationName() {
+    return JavaAnalysisBundle.message(myTitleKey);
   }
 
   @Override
   public String toString() {
-    return StringUtil.getShortName(myClassName)+"."+myMethodName+"()";
+    return myTitle;
   }
 }

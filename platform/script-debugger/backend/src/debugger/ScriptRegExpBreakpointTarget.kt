@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.debugger
 
-class ScriptRegExpBreakpointTarget(private val regExp: String, val language: String? = null) : BreakpointTarget() {
-  override fun <R> accept(visitor: BreakpointTarget.Visitor<R>): R {
+class ScriptRegExpBreakpointTarget(private val regExp: String) : BreakpointTarget() {
+  override fun <R> accept(visitor: Visitor<R>): R {
     if (visitor is ScriptRegExpSupportVisitor<*>) {
       return (visitor as ScriptRegExpSupportVisitor<R>).visitRegExp(this)
     }
@@ -25,7 +11,7 @@ class ScriptRegExpBreakpointTarget(private val regExp: String, val language: Str
     }
   }
 
-  override fun toString() = regExp
+  override fun toString(): String = regExp
 
   override fun equals(other: Any?): Boolean {
     if (this === other) {
@@ -37,5 +23,5 @@ class ScriptRegExpBreakpointTarget(private val regExp: String, val language: Str
     return regExp == (other as ScriptRegExpBreakpointTarget).regExp
   }
 
-  override fun hashCode() = regExp.hashCode()
+  override fun hashCode(): Int = regExp.hashCode()
 }

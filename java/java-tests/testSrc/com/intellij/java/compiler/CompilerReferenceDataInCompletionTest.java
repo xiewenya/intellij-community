@@ -25,7 +25,6 @@ import com.intellij.psi.PsiMember;
 import com.intellij.psi.PsiMethod;
 import com.intellij.testFramework.SkipSlowTestLocally;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
@@ -36,6 +35,7 @@ public class CompilerReferenceDataInCompletionTest extends CompilerReferencesTes
   @Override
   public void setUp() throws Exception {
     super.setUp();
+    myFixture.setTestDataPath(getTestDataPath() + getName());
     installCompiler();
   }
 
@@ -83,28 +83,28 @@ public class CompilerReferenceDataInCompletionTest extends CompilerReferencesTes
     });
   }
 
-  private void doTestConstructorCompletionOrdering(@NotNull String[] files,
+  private void doTestConstructorCompletionOrdering(String @NotNull [] files,
                                                    @NotNull String phraseToComplete,
                                                    String... expectedOrder) {
     doTestCompletion(files, phraseToComplete, expectedOrder, m -> m instanceof PsiClass && ArrayUtil.contains(m.getName(), expectedOrder));
   }
 
-  private void doTestMemberCompletionOrdering(@NotNull String[] files, String... expectedOrder) {
+  private void doTestMemberCompletionOrdering(String @NotNull [] files, String... expectedOrder) {
     doTestCompletion(files, "foo.", expectedOrder, m -> "Foo".equals(m.getContainingClass().getName()));
   }
 
-  private void doTestStaticMemberCompletionOrdering(@NotNull String[] files, String... expectedOrder) {
+  private void doTestStaticMemberCompletionOrdering(String @NotNull [] files, String... expectedOrder) {
     doTestCompletion(files, "", expectedOrder, (PsiMember m) -> {
       PsiClass aClass = m.getContainingClass();
       return aClass != null && "Foo".equals(aClass.getName());
     });
   }
 
-  private void doTestCompletion(@NotNull String[] files,
+  private void doTestCompletion(String @NotNull [] files,
                                 @NotNull String phraseToComplete,
-                                @NotNull String[] expectedOrder,
+                                String @NotNull [] expectedOrder,
                                 @NotNull Predicate<PsiMember> resultFilter) {
-    myFixture.configureByFiles(ContainerUtil.map2Array(files, String.class, f -> getName() + "/" + f));
+    myFixture.configureByFiles(files);
     myFixture.type(phraseToComplete);
     final int offset = myFixture.getCaretOffset();
     final LookupElement[] completionVariantsBeforeCompilation = myFixture.complete(CompletionType.BASIC);

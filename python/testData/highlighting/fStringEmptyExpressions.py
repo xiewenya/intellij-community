@@ -1,10 +1,10 @@
-f'<error descr="Empty expression fragments are not allowed inside f-strings">{}</error>'
-f'<error descr="'}' is expected">{</error>'
-<error descr="Missing closing quote [']">f'<error descr="'}' is expected">{</error></error>
-f'<error descr="Empty expression fragments are not allowed inside f-strings">{!</error>r}'
-f'<error descr="Empty expression fragments are not allowed inside f-strings">{:</error>2.3}'
-f'{42:2.<error descr="Empty expression fragments are not allowed inside f-strings">{}</error>}'
-f'<error descr="Empty expression fragments are not allowed inside f-strings">{  }</error>'
-f'{42:<error descr="Empty expression fragments are not allowed inside f-strings">{ }</error>}'
-f'<error descr="'}' is expected"><error descr="Empty expression fragments are not allowed inside f-strings">{  :</error>{  </error>'
-f'<error descr="Empty expression fragments are not allowed inside f-strings">{    !</error>r:<error descr="Empty expression fragments are not allowed inside f-strings">{   :</error>42}}'
+f'{<error descr="Expression expected">}</error>'
+f'{<error descr="'}' expected"><error descr="Expression expected">'</error></error>
+f'{<EOLError descr="Type conversion, ':' or '}' expected"></EOLError><EOLError descr="Expression expected"></EOLError><EOLError descr="' expected"></EOLError>
+f'{<error descr="Expression expected">!</error>r}'
+f'{<error descr="Expression expected">:</error>2.3}'
+f'{42:2.{<error descr="Expression expected">}</error>}'
+f'{<error descr="Expression expected">  </error>}'
+f'{42:{<error descr="Expression expected"> </error>}}'
+f'{<error descr="Expression expected">  </error>:{<error descr="Expression expected">  </error><error descr="'}' expected">'</error>
+f'{<error descr="Expression expected">    </error>!r:{<error descr="Expression expected">   </error>:42}}'

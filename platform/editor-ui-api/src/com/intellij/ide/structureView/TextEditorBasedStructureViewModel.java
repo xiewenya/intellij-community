@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.structureView;
 
 import com.intellij.ide.util.treeView.smartTree.*;
@@ -32,7 +18,6 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -47,7 +32,7 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
   private final Editor myEditor;
   private final PsiFile myPsiFile;
   private final List<FileEditorPositionListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
-  private final List<ModelListener> myModelListeners = new ArrayList<>(2);
+  private final List<ModelListener> myModelListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final CaretListener myEditorCaretListener;
   private Disposable myEditorCaretListenerDisposable;
 
@@ -58,7 +43,7 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
    * @param psiFile the file for which the structure view model is requested.
    */
   protected TextEditorBasedStructureViewModel(@NotNull PsiFile psiFile) {
-    this(PsiEditorUtil.Service.getInstance().findEditorByPsiElement(psiFile), psiFile);
+    this(PsiEditorUtil.findEditor(psiFile), psiFile);
   }
 
   /**
@@ -76,7 +61,7 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
 
     myEditorCaretListener = new CaretListener() {
       @Override
-      public void caretPositionChanged(CaretEvent e) {
+      public void caretPositionChanged(@NotNull CaretEvent e) {
         if (e.getEditor().equals(myEditor)) {
           for (FileEditorPositionListener listener : myListeners) {
             listener.onCurrentElementChanged();
@@ -126,7 +111,7 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
   @Override
   public Object getCurrentEditorElement() {
     if (myEditor == null) return null;
-    
+
     PsiFile file = getPsiFile();
     if (!file.isValid()) return null;
 
@@ -178,8 +163,7 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
    *
    * @return the list of classes
    */
-  @NotNull
-  protected Class[] getSuitableClasses() {
+  protected Class @NotNull [] getSuitableClasses() {
     return ArrayUtil.EMPTY_CLASS_ARRAY;
   }
 
@@ -188,20 +172,17 @@ public abstract class TextEditorBasedStructureViewModel implements StructureView
   }
 
   @Override
-  @NotNull
-  public Grouper[] getGroupers() {
+  public Grouper @NotNull [] getGroupers() {
     return Grouper.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public Sorter[] getSorters() {
+  public Sorter @NotNull [] getSorters() {
     return Sorter.EMPTY_ARRAY;
   }
 
   @Override
-  @NotNull
-  public Filter[] getFilters() {
+  public Filter @NotNull [] getFilters() {
     return Filter.EMPTY_ARRAY;
   }
 

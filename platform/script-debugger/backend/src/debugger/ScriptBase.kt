@@ -19,20 +19,21 @@ import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.util.Url
 import org.jetbrains.concurrency.Promise
 import org.jetbrains.debugger.sourcemap.SourceMap
+import kotlin.math.max
 
 abstract class ScriptBase(override val type: Script.Type,
                           override val url: Url,
                           line: Int,
                           override val column: Int,
-                          override val endLine: Int) : UserDataHolderBase(), Script {
-  override val line = Math.max(line, 0)
+                          override val endLine: Int,
+                          override val vm: Vm) : UserDataHolderBase(), Script {
+  override val line: Int = max(line, 0)
 
   @SuppressWarnings("UnusedDeclaration")
-  private @Volatile var source: Promise<String>? = null
+  @Volatile
+  private var source: Promise<String>? = null
 
   override var sourceMap: SourceMap? = null
 
-  override fun toString() = "[url=$url, lineRange=[$line;$endLine]]"
-
-  override val isWorker: Boolean = false
+  override fun toString(): String = "[url=$url, lineRange=[$line;$endLine]]"
 }

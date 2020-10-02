@@ -16,57 +16,77 @@
 package com.intellij.openapi.vcs.impl;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Arrays;
+import java.util.Objects;
 
 public class BackgroundableActionLock {
   @NotNull private final Project myProject;
-  @NotNull private final Object[] myKeys;
+  private final Object @NotNull [] myKeys;
 
-  BackgroundableActionLock(@NotNull Project project, @NotNull final Object[] keys) {
+  BackgroundableActionLock(@NotNull Project project, final Object @NotNull [] keys) {
     myProject = project;
     myKeys = keys;
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public boolean isLocked() {
     return isLocked(myProject, myKeys);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void lock() {
     lock(myProject, myKeys);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   public void unlock() {
     unlock(myProject, myKeys);
   }
 
 
   @NotNull
-  public static BackgroundableActionLock getLock(@NotNull Project project, @NotNull Object... keys) {
+  public static BackgroundableActionLock getLock(@NotNull Project project, Object @NotNull ... keys) {
     return new BackgroundableActionLock(project, keys);
   }
 
-  @CalledInAwt
-  public static boolean isLocked(@NotNull Project project, @NotNull Object... keys) {
+  @RequiresEdt
+  public static boolean isLocked(@NotNull Project project, Object @NotNull ... keys) {
     return getManager(project).isBackgroundTaskRunning(keys);
   }
 
-  @CalledInAwt
-  public static void lock(@NotNull Project project, @NotNull Object... keys) {
+  @RequiresEdt
+  public static void lock(@NotNull Project project, Object @NotNull ... keys) {
     getManager(project).startBackgroundTask(keys);
   }
 
-  @CalledInAwt
-  public static void unlock(@NotNull Project project, @NotNull Object... keys) {
+  @RequiresEdt
+  public static void unlock(@NotNull Project project, Object @NotNull ... keys) {
+    if (project.isDisposed()) return;
     getManager(project).stopBackgroundTask(keys);
   }
 
   @NotNull
   private static ProjectLevelVcsManagerImpl getManager(@NotNull Project project) {
-    return (ProjectLevelVcsManagerImpl)ProjectLevelVcsManager.getInstance(project);
+    return ProjectLevelVcsManagerImpl.getInstanceImpl(project);
+  }
+
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    BackgroundableActionLock lock = (BackgroundableActionLock)o;
+    return myProject.equals(lock.myProject) &&
+           Arrays.equals(myKeys, lock.myKeys);
+  }
+
+  @Override
+  public int hashCode() {
+    int result = Objects.hash(myProject);
+    result = 31 * result + Arrays.hashCode(myKeys);
+    return result;
   }
 }

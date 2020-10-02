@@ -16,7 +16,6 @@
 
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.FileModificationService;
@@ -30,11 +29,11 @@ import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateBuilderFactory;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
 import com.intellij.codeInsight.template.TemplateEditingAdapter;
-import com.intellij.ide.scratch.ScratchFileType;
+import com.intellij.codeInspection.util.IntentionName;
+import com.intellij.ide.scratch.ScratchUtil;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.CaretModel;
@@ -46,25 +45,32 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.search.searches.DirectClassInheritorsSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.Processor;
+import com.intellij.util.containers.SmartHashSet;
+import com.siyeh.ig.psiutils.SealedUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+
+import static com.intellij.util.ObjectUtils.tryCast;
 
 public class CreateSubclassAction extends BaseIntentionAction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.ImplementAbstractClassAction");
-  private String myText = CodeInsightBundle.message("intention.implement.abstract.class.default.text");
+  private static final Logger LOG = Logger.getInstance(CreateSubclassAction.class);
+  private @IntentionName String myText = JavaBundle.message("intention.implement.abstract.class.default.text");
 
   @Override
   @NotNull
@@ -75,7 +81,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
   @Override
   @NotNull
   public String getFamilyName() {
-    return CodeInsightBundle.message("intention.implement.abstract.class.family");
+    return JavaBundle.message("intention.implement.abstract.class.family");
   }
 
   @Override
@@ -89,7 +95,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
       return false;
     }
     VirtualFile virtualFile = PsiUtilCore.getVirtualFile(psiClass);
-    if (virtualFile == null || virtualFile.getFileType() == ScratchFileType.INSTANCE) {
+    if (virtualFile == null || ScratchUtil.isScratch(virtualFile)) {
       return false;
     }
     if (!isSupportedLanguage(psiClass)) return false;
@@ -117,7 +123,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
       }
     }
 
-    if (shouldCreateInnerClass(psiClass) && !file.getManager().isInProject(file)) {
+    if (shouldCreateInnerClass(psiClass) && !canModify(file)) {
       return false;
     }
 
@@ -129,11 +135,11 @@ public class CreateSubclassAction extends BaseIntentionAction {
     return aClass.getLanguage() == JavaLanguage.INSTANCE;
   }
 
-  protected static String getTitle(PsiClass psiClass) {
+  protected static @NlsContexts.Command String getTitle(PsiClass psiClass) {
     return psiClass.isInterface()
              ? CodeInsightBundle.message("intention.implement.abstract.class.interface.text")
              : psiClass.hasModifierProperty(PsiModifier.ABSTRACT)
-               ? CodeInsightBundle.message("intention.implement.abstract.class.default.text")
+               ? JavaBundle.message("intention.implement.abstract.class.default.text")
                : CodeInsightBundle.message("intention.implement.abstract.class.subclass.text");
   }
 
@@ -151,8 +157,34 @@ public class CreateSubclassAction extends BaseIntentionAction {
     createTopLevelClass(psiClass);
   }
 
-  private boolean shouldCreateInnerClass(PsiClass psiClass) {
+  private static boolean shouldCreateInnerClass(PsiClass psiClass) {
     return psiClass.hasModifierProperty(PsiModifier.PRIVATE) && psiClass.getContainingClass() != null;
+  }
+
+  public static void createSameFileClass(String newClassName, PsiClass psiClass) {
+    String actionTitle = getTitle(psiClass);
+    Project project = psiClass.getProject();
+    WriteCommandAction.writeCommandAction(project).withName(actionTitle).withGroupId(actionTitle).run(() -> {
+      final PsiJavaFile containingFile = tryCast(psiClass.getContainingFile(), PsiJavaFile.class);
+      LOG.assertTrue(containingFile != null);
+
+      PsiClass[] classes = containingFile.getClasses();
+      int nClasses = classes.length;
+      LOG.assertTrue(nClasses > 0);
+
+      final PsiTypeParameterList oldTypeParameterList = psiClass.getTypeParameterList();
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+      PsiClass newClass = factory.createClass(newClassName);
+      PsiModifierList modifiers = newClass.getModifierList();
+      LOG.assertTrue(modifiers != null);
+      modifiers.setModifierProperty(PsiModifier.PUBLIC, false);
+      newClass = (PsiClass)containingFile.addAfter(newClass, classes[nClasses - 1]);
+
+      PsiIdentifier newClassIdentifier = newClass.getNameIdentifier();
+      LOG.assertTrue(newClassIdentifier != null);
+      startTemplate(oldTypeParameterList, project, psiClass, newClass, false);
+      CodeInsightUtil.positionCursor(project, containingFile, newClassIdentifier);
+    });
   }
 
   public static void createInnerClass(final PsiClass aClass) {
@@ -171,8 +203,28 @@ public class CreateSubclassAction extends BaseIntentionAction {
   protected void createTopLevelClass(PsiClass psiClass) {
     final CreateClassDialog dlg = chooseSubclassToCreate(psiClass);
     if (dlg != null) {
-      createSubclass(psiClass, dlg.getTargetDirectory(), dlg.getClassName());
+      PsiDirectory targetDirectory = dlg.getTargetDirectory();
+      PsiJavaFile containingFile = tryCast(psiClass.getContainingFile(), PsiJavaFile.class);
+      boolean inSamePackage = containingFile != null && containingFile.getPackageName().equals(targetDirectory.getName());
+      if (inSamePackage && hasOnlySameFileInheritors(psiClass)) {
+        createSameFileClass(dlg.getClassName(), psiClass);
+      } else {
+        createSubclass(psiClass, targetDirectory, dlg.getClassName());
+      }
     }
+  }
+
+  private static boolean hasOnlySameFileInheritors(PsiClass psiClass) {
+    if (!psiClass.hasModifierProperty(PsiModifier.SEALED) || psiClass.getPermitsList() != null) return false;
+    Ref<Boolean> hasInheritors = Ref.create(false);
+    boolean hasOnlySameFileInheritors = DirectClassInheritorsSearch.search(psiClass).forEach((Processor<? super PsiClass>) inheritor -> {
+      if (inheritor.getContainingFile() != psiClass.getContainingFile()) {
+        return false;
+      }
+      hasInheritors.set(true);
+      return true;
+    });
+    return hasOnlySameFileInheritors && hasInheritors.get();
   }
 
   @Nullable
@@ -230,9 +282,9 @@ public class CreateSubclassAction extends BaseIntentionAction {
       }
       catch (final IncorrectOperationException e) {
         ApplicationManager.getApplication().invokeLater(
-          () -> Messages.showErrorDialog(project, CodeInsightBundle.message("intention.error.cannot.create.class.message", className) +
+          () -> Messages.showErrorDialog(project, JavaBundle.message("intention.error.cannot.create.class.message", className) +
                                                   "\n" + e.getLocalizedMessage(),
-                                         CodeInsightBundle.message("intention.error.cannot.create.class.title")));
+                                         JavaBundle.message("intention.error.cannot.create.class.title")));
         return;
       }
       startTemplate(oldTypeParameterList, project, psiClass, targetClass[0], false);
@@ -253,7 +305,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
                                     final PsiClass psiClass,
                                     final PsiClass targetClass,
                                     final boolean includeClassName) {
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
     PsiJavaCodeReferenceElement ref = elementFactory.createClassReferenceElement(psiClass);
     try {
       if (psiClass.isInterface()) {
@@ -261,6 +313,15 @@ public class CreateSubclassAction extends BaseIntentionAction {
       }
       else {
         ref = (PsiJavaCodeReferenceElement)targetClass.getExtendsList().add(ref);
+      }
+      if (psiClass.hasModifierProperty(PsiModifier.SEALED) && psiClass.getContainingFile() != targetClass.getContainingFile()) {
+        String createdClassName = Objects.requireNonNull(targetClass.getQualifiedName());
+        SmartHashSet<String> missingInheritors = new SmartHashSet<>();
+        missingInheritors.add(createdClassName);
+        if (psiClass.getPermitsList() == null) {
+          missingInheritors.addAll(SealedUtils.findSameFileInheritors(psiClass));
+        }
+        SealedUtils.fillPermitsList(psiClass, missingInheritors);
       }
       if (psiClass.hasTypeParameters() || includeClassName) {
         final Editor editor = CodeInsightUtil.positionCursorAtLBrace(project, targetClass.getContainingFile(), targetClass);
@@ -296,7 +357,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
           editor.getDocument().deleteString(textRange.getStartOffset(), textRange.getEndOffset());
           CreateFromUsageBaseFix.startTemplate(editor, template, project, new TemplateEditingAdapter() {
             @Override
-            public void templateFinished(Template template, boolean brokenOff) {
+            public void templateFinished(@NotNull Template template, boolean brokenOff) {
               try {
                 LOG.assertTrue(startClassOffset.isValid(), startClassOffset);
                 final PsiClass aTargetClass;
@@ -311,7 +372,7 @@ public class CreateSubclassAction extends BaseIntentionAction {
                   LOG.assertTrue(aTargetClass != null, psiElement);
                 }
                 if (!brokenOff) {
-                  TransactionGuard.getInstance().submitTransactionAndWait(() -> chooseAndImplement(psiClass, project, aTargetClass, editor));
+                  chooseAndImplement(psiClass, project, aTargetClass, editor);
                 }
               }
               finally {
@@ -359,6 +420,11 @@ public class CreateSubclassAction extends BaseIntentionAction {
                                                                    substitutor,
                                                                    baseConstructors, constructors, targetClass);
       editor.getCaretModel().moveToOffset(offset);
+    }
+
+    if (psiClass.hasModifierProperty(PsiModifier.SEALED)) {
+      PsiIdentifier targetNameIdentifier = Objects.requireNonNull(targetClass.getNameIdentifier());
+      editor.getCaretModel().moveToOffset(targetNameIdentifier.getTextRange().getStartOffset());
     }
 
     if (showChooser) OverrideImplementUtil.chooseAndImplementMethods(project, editor, targetClass);

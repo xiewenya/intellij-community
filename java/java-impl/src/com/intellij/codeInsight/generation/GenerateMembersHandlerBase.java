@@ -22,6 +22,7 @@ import com.intellij.codeInsight.template.TemplateEditingAdapter;
 import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.ide.util.MemberChooser;
+import com.intellij.java.JavaBundle;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -30,9 +31,9 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
-import com.intellij.openapi.editor.actions.EnterAction;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -45,14 +46,15 @@ import org.jetbrains.java.generate.exception.GenerateCodeException;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public abstract class GenerateMembersHandlerBase implements CodeInsightActionHandler, ContextAwareActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateMembersHandlerBase");
+  private static final Logger LOG = Logger.getInstance(GenerateMembersHandlerBase.class);
 
-  private final String myChooserTitle;
+  private final @NlsContexts.DialogTitle String myChooserTitle;
   protected boolean myToCopyJavaDoc;
 
-  public GenerateMembersHandlerBase(String chooserTitle) {
+  public GenerateMembersHandlerBase(@NlsContexts.DialogTitle String chooserTitle) {
     myChooserTitle = chooserTitle;
   }
 
@@ -118,7 +120,6 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     final PsiElement lBrace = aClass.getLBrace();
     if (textBeforeCaret.trim().length() > 0 && StringUtil.isEmptyOrSpaces(afterCaret) &&
         (lBrace == null || lBrace.getTextOffset() < offset) && !editor.getSelectionModel().hasSelection()) {
-      WriteAction.run(() -> EnterAction.insertNewLineAtCaret(editor));
       PsiDocumentManager.getInstance(project).commitDocument(document);
       offset = editor.getCaretModel().getOffset();
       col = editor.getCaretModel().getLogicalPosition().column;
@@ -143,10 +144,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
       final List<PsiElement> elements = new ArrayList<>();
       for (GenerationInfo member : newMembers) {
         if (!(member instanceof TemplateGenerationInfo)) {
-          final PsiMember psiMember = member.getPsiMember();
-          if (psiMember != null) {
-            elements.add(psiMember);
-          }
+          ContainerUtil.addIfNotNull(elements, member.getPsiMember());
         }
       }
 
@@ -164,19 +162,25 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
       runTemplates(project, editor, templates, 0);
     }
     else if (!newMembers.isEmpty()){
-      newMembers.get(0).positionCaret(editor, false);
+      notifyOnSuccess(editor, members, newMembers);
     }
   }
 
-  protected String getNothingFoundMessage() {
-    return "Nothing found to insert";
+  protected void notifyOnSuccess(Editor editor,
+                                 ClassMember[] members,
+                                 List<? extends GenerationInfo> generatedMembers) {
+    generatedMembers.get(0).positionCaret(editor, false);
   }
 
-  private static void runTemplates(final Project myProject, final Editor editor, final List<TemplateGenerationInfo> templates, final int index) {
+  protected @NlsContexts.HintText String getNothingFoundMessage() {
+    return JavaBundle.message("generate.members.nothing.to.insert");
+  }
+
+  private static void runTemplates(final Project myProject, final Editor editor, final List<? extends TemplateGenerationInfo> templates, final int index) {
     TemplateGenerationInfo info = templates.get(index);
     final Template template = info.getTemplate();
 
-    final PsiElement element = info.getPsiMember();
+    PsiElement element = Objects.requireNonNull(info.getPsiMember());
     final TextRange range = element.getTextRange();
     WriteAction.run(() -> editor.getDocument().deleteString(range.getStartOffset(), range.getEndOffset()));
     int offset = range.getStartOffset();
@@ -184,7 +188,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
     TemplateManager.getInstance(myProject).startTemplate(editor, template, new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
         if (index + 1 < templates.size()){
           ApplicationManager.getApplication().invokeLater(() -> WriteCommandAction.runWriteCommandAction(myProject, ()->
               runTemplates(myProject, editor, templates, index + 1)
@@ -195,23 +199,20 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
   }
 
 
-  @Nullable
-  protected ClassMember[] chooseOriginalMembers(PsiClass aClass, Project project) {
+  protected ClassMember @Nullable [] chooseOriginalMembers(PsiClass aClass, Project project) {
     ClassMember[] allMembers = getAllOriginalMembers(aClass);
     return chooseMembers(allMembers, false, false, project, null);
   }
 
-  @Nullable
-  protected ClassMember[] chooseOriginalMembers(PsiClass aClass, Project project, Editor editor) {
+  protected ClassMember @Nullable [] chooseOriginalMembers(PsiClass aClass, Project project, Editor editor) {
     return chooseOriginalMembers(aClass, project);
   }
 
-  @Nullable
-  protected ClassMember[] chooseMembers(ClassMember[] members,
-                                        boolean allowEmptySelection,
-                                        boolean copyJavadocCheckbox,
-                                        Project project,
-                                        @Nullable Editor editor) {
+  protected ClassMember @Nullable [] chooseMembers(ClassMember[] members,
+                                                   boolean allowEmptySelection,
+                                                   boolean copyJavadocCheckbox,
+                                                   Project project,
+                                                   @Nullable Editor editor) {
     MemberChooser<ClassMember> chooser = createMembersChooser(members, allowEmptySelection, copyJavadocCheckbox, project);
     if (editor != null) {
       final int offset = editor.getCaretModel().getOffset();
@@ -219,13 +220,11 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
       ClassMember preselection = null;
       for (ClassMember member : members) {
         if (member instanceof PsiElementClassMember) {
-          final PsiDocCommentOwner owner = ((PsiElementClassMember)member).getElement();
-          if (owner != null) {
-            final TextRange textRange = owner.getTextRange();
-            if (textRange != null && textRange.contains(offset)) {
-              preselection = member;
-              break;
-            }
+          final PsiDocCommentOwner owner = ((PsiElementClassMember<?>)member).getElement();
+          final TextRange textRange = owner.getTextRange();
+          if (textRange != null && textRange.contains(offset)) {
+            preselection = member;
+            break;
           }
         }
       }
@@ -244,13 +243,14 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
                                                             boolean allowEmptySelection,
                                                             boolean copyJavadocCheckbox,
                                                             Project project) {
-    MemberChooser<ClassMember> chooser = new MemberChooser<ClassMember>(members, allowEmptySelection, true, project, getHeaderPanel(project), getOptionControls()) {
-      @Nullable
-      @Override
-      protected String getHelpId() {
-        return GenerateMembersHandlerBase.this.getHelpId();
-      }
-    };
+    MemberChooser<ClassMember> chooser =
+      new MemberChooser<>(members, allowEmptySelection, true, project, getHeaderPanel(project), getOptionControls()) {
+        @Nullable
+        @Override
+        protected String getHelpId() {
+          return GenerateMembersHandlerBase.this.getHelpId();
+        }
+      };
     chooser.setTitle(myChooserTitle);
     chooser.setCopyJavadocVisible(copyJavadocCheckbox);
     return chooser;
@@ -261,8 +261,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     return null;
   }
 
-  @Nullable
-  protected JComponent[] getOptionControls() {
+  protected JComponent @Nullable [] getOptionControls() {
     return null;
   }
 

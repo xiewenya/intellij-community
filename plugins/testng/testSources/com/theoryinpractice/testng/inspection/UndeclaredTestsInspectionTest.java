@@ -17,7 +17,7 @@
 package com.theoryinpractice.testng.inspection;
 
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.InspectionTestCase;
+import com.intellij.testFramework.JavaInspectionTestCase;
 import com.intellij.util.ui.UIUtil;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NonNls;
@@ -26,13 +26,14 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-public class UndeclaredTestsInspectionTest extends InspectionTestCase {
+public class UndeclaredTestsInspectionTest extends JavaInspectionTestCase {
 
   @Override
   public String getName() {
     return "test";
   }
 
+  @Override
   @BeforeMethod
   protected void setUp() {
     UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
@@ -45,6 +46,7 @@ public class UndeclaredTestsInspectionTest extends InspectionTestCase {
     });
   }
 
+  @Override
   @AfterMethod
   protected void tearDown() {
     UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
@@ -57,6 +59,7 @@ public class UndeclaredTestsInspectionTest extends InspectionTestCase {
     });
   }
 
+  @Override
   @NonNls
   protected String getTestDataPath() {
     return PluginPathManager.getPluginHomePath("testng") + "/testData/inspection";

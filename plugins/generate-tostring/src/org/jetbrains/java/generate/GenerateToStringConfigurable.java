@@ -15,6 +15,7 @@
  */
 package org.jetbrains.java.generate;
 
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
@@ -37,8 +38,9 @@ public class GenerateToStringConfigurable implements Configurable {
     myProject = project;
   }
 
+  @Override
   public String getDisplayName() {
-      return "Settings";
+    return JavaBundle.message("configurable.GenerateToStringConfigurable.display.name");
   }
 
   @Override
@@ -46,14 +48,17 @@ public class GenerateToStringConfigurable implements Configurable {
       return "editing.altInsert.tostring.settings";
   }
 
+  @Override
   public JComponent createComponent() {
       return configUI = new ConfigUI(GenerateToStringContext.getConfig(), myProject);
   }
 
+  @Override
   public boolean isModified() {
       return ! GenerateToStringContext.getConfig().equals(configUI.getConfig());
   }
 
+  @Override
   public void apply() throws ConfigurationException {
       Config config = configUI.getConfig();
       GenerateToStringContext.setConfig(config); // update context
@@ -61,10 +66,12 @@ public class GenerateToStringConfigurable implements Configurable {
       if (log.isDebugEnabled()) log.debug("Config updated:\n" + config);
   }
 
+  @Override
   public void reset() {
       configUI.setConfig(GenerateToStringContext.getConfig());
   }
 
+  @Override
   public void disposeUIResources() {
       configUI = null;
   }

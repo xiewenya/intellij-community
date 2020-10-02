@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.jetbrains.python.fixtures.PyLexerTestCase;
@@ -158,9 +144,10 @@ public class PythonLexerTest extends PyLexerTestCase {
   public void _testWithKeyword() {
     // processing of 'from __future__ import' is now done on parser level, so a pure lexer test won't handle
     // this correctly
-    doTest("from __future__ import with_statement\nwith x as y", new String[] { "Py:FROM_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER",
+    doTest("from __future__ import with_statement\nwith x as y", "Py:FROM_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE",
+           "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER",
            "Py:STATEMENT_BREAK", "Py:LINE_BREAK",
-           "Py:WITH_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:AS_KEYWORD", "Py:SPACE", "Py:IDENTIFIER" });
+           "Py:WITH_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:SPACE", "Py:AS_KEYWORD", "Py:SPACE", "Py:IDENTIFIER");
   }
 
   public void testBackslashBeforeEmptyLine() {
@@ -388,11 +375,81 @@ public class PythonLexerTest extends PyLexerTestCase {
     doTest("10_000_000J", "Py:IMAGINARY_LITERAL", "Py:STATEMENT_BREAK");
   }
 
-  public void testFStringLiterals() {
-    doTest("s = f'{x}'", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
-    doTest("s = rf\"{x}\"", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
-    doTest("s = fr'''{x}\n'''", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:TRIPLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
-    doTest("s = f\"\"\"{x}\n\"\"\"", "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:TRIPLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+
+  public void testFStringMatchingQuoteRecoveryInsideContentOfNestedStringLiteral() {
+    doTest("s = f'{ur\"foo'bar\"}'", 
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:SINGLE_QUOTED_STRING", "Py:FSTRING_END", 
+           "Py:IDENTIFIER", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringMatchingQuoteRecoveryQuoteOfNestedStringLiteralWithPrefix() {
+    doTest("s = f'{ur'foo'}'",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_END", 
+           "Py:IDENTIFIER", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringMatchingQuoteRecoveryQuoteOfNestedStringLiteralWithoutPrefix() {
+    doTest("s = f'{'foo'}'",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:FSTRING_END",
+           "Py:IDENTIFIER", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+  }
+
+  public void testNoStatementBreakInsideFragmentOfMultilineFString() {
+    doTest("s = f'''{1 + \n" +
+           "2}'''",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:INTEGER_LITERAL", "Py:SPACE", "Py:PLUS", "Py:LINE_BREAK", 
+           "Py:INTEGER_LITERAL", "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+  }
+
+  public void testStatementBreakInsideFragmentOfSingleLineFString() {
+    doTest("s = f'{1 +\n" +
+           "    2}'",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:INTEGER_LITERAL", "Py:SPACE", "Py:PLUS", "Py:STATEMENT_BREAK", 
+           "Py:LINE_BREAK", "Py:INDENT", "Py:INTEGER_LITERAL", "Py:RBRACE", "Py:SINGLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringUnmatchedQuotesAsTextParts() {
+    doTest("s = f'foo\"bar'", 
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringUnmatchedLineBreaksAsTextParts() {
+    doTest("s = f'''foo\n" +
+           "bar'''",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringNamedUnicodeEscapes() {
+    doTest("s = f'\\N{LATIN SMALL LETTER A}'", 
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+    doTest("s = f'\\N{LATIN SMALL LETTER A'",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+    doTest("s = f'\\N{'",
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+  }
+
+  public void testFStringBackslashEscapedBraces() {
+    doTest("s = f'foo\\{x}'", 
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_TEXT",
+           "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_END", 
+           "Py:FSTRING_END", "Py:STATEMENT_BREAK");
+    doTest("s = f'{x:foo\\{y}bar\\}'", 
+           "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", 
+           "Py:FSTRING_START", "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", 
+           "Py:FSTRING_FRAGMENT_FORMAT_START", "Py:FSTRING_TEXT",
+           "Py:FSTRING_FRAGMENT_START", "Py:IDENTIFIER", "Py:FSTRING_FRAGMENT_END", 
+           "Py:FSTRING_TEXT",
+           "Py:FSTRING_FRAGMENT_END", "Py:FSTRING_END", "Py:STATEMENT_BREAK");
   }
 
   // PY-21697
@@ -429,6 +486,20 @@ public class PythonLexerTest extends PyLexerTestCase {
            "\"\"\"\n",
            "Py:IDENTIFIER", "Py:SPACE", "Py:EQ", "Py:SPACE", "Py:TRIPLE_QUOTED_STRING",
            "Py:STATEMENT_BREAK", "Py:LINE_BREAK", "Py:TRIPLE_QUOTED_STRING", "Py:STATEMENT_BREAK");
+  }
+
+  // PY-40757
+  public void testVerticalTab() {
+    doTest("\u000Bimport math",
+           "BAD_CHARACTER", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:STATEMENT_BREAK");
+  }
+
+  // PY-40757
+  public void testVerticalTabAfterComment() {
+    doTest("# comment\n" +
+           "\u000Bimport math",
+           "Py:END_OF_LINE_COMMENT", "Py:LINE_BREAK",
+           "BAD_CHARACTER", "Py:IMPORT_KEYWORD", "Py:SPACE", "Py:IDENTIFIER", "Py:STATEMENT_BREAK");
   }
 
   private static void doTest(String text, String... expectedTokens) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,9 +40,6 @@ public class AutoBoxingInspection extends BaseInspection {
   @SuppressWarnings({"PublicField"})
   public boolean ignoreAddedToCollection = false;
 
-  /**
-   * @noinspection StaticCollection
-   */
   @NonNls static final Map<String, String> s_boxingClasses = new HashMap<>(8);
 
   static {
@@ -54,12 +51,6 @@ public class AutoBoxingInspection extends BaseInspection {
     s_boxingClasses.put("double", CommonClassNames.JAVA_LANG_DOUBLE);
     s_boxingClasses.put("boolean", CommonClassNames.JAVA_LANG_BOOLEAN);
     s_boxingClasses.put("char", CommonClassNames.JAVA_LANG_CHARACTER);
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("auto.boxing.display.name");
   }
 
   @Override
@@ -128,7 +119,7 @@ public class AutoBoxingInspection extends BaseInspection {
       if (shortcutReplace(expression, classToConstruct)) {
         return;
       }
-      final PsiExpression strippedExpression = ParenthesesUtils.stripParentheses(expression);
+      final PsiExpression strippedExpression = PsiUtil.skipParenthesizedExprDown(expression);
       if (strippedExpression == null) {
         return;
       }
@@ -213,6 +204,12 @@ public class AutoBoxingInspection extends BaseInspection {
   private class AutoBoxingVisitor extends BaseInspectionVisitor {
 
     @Override
+    public void visitSwitchExpression(PsiSwitchExpression expression) {
+      super.visitSwitchExpression(expression);
+      checkExpression(expression);
+    }
+
+    @Override
     public void visitArrayAccessExpression(PsiArrayAccessExpression expression) {
       super.visitArrayAccessExpression(expression);
       checkExpression(expression);
@@ -293,7 +290,7 @@ public class AutoBoxingInspection extends BaseInspection {
           return;
         }
         final PsiType functionalInterfaceReturnType = LambdaUtil.getFunctionalInterfaceReturnType(methodReferenceExpression);
-        if (functionalInterfaceReturnType == null || ClassUtils.isPrimitive(functionalInterfaceReturnType) ||
+        if (functionalInterfaceReturnType == null || TypeConversionUtil.isPrimitiveAndNotNull(functionalInterfaceReturnType) ||
             !functionalInterfaceReturnType.isAssignableFrom(boxedType)) {
           return;
         }

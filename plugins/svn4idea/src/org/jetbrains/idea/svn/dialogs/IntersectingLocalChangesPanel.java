@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.dialogs;
 
 import com.intellij.ide.DataManager;
@@ -8,13 +8,10 @@ import com.intellij.openapi.actionSystem.CommonShortcuts;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MultiLineLabelUI;
 import com.intellij.openapi.util.BooleanGetter;
+import com.intellij.openapi.util.NlsContexts.TabTitle;
 import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode;
-import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNodeRenderer;
-import com.intellij.openapi.vcs.changes.ui.NoneChangesGroupingPolicy;
-import com.intellij.openapi.vcs.changes.ui.TreeModelBuilder;
+import com.intellij.openapi.vcs.changes.ui.*;
 import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.TreeUIHelper;
 import com.intellij.ui.components.JBLabel;
@@ -35,17 +32,17 @@ import java.util.Objects;
 import static com.intellij.openapi.vcs.changes.ChangesUtil.getNavigatableArray;
 import static com.intellij.util.ContentsUtil.addContent;
 import static com.intellij.util.containers.UtilKt.stream;
+import static org.jetbrains.idea.svn.SvnBundle.message;
 
-public class IntersectingLocalChangesPanel {
-
+public final class IntersectingLocalChangesPanel {
   @NotNull private final BorderLayoutPanel myPanel;
-  @NotNull private final List<FilePath> myFiles;
+  @NotNull private final List<? extends FilePath> myFiles;
   @NotNull private final Project myProject;
 
-  public IntersectingLocalChangesPanel(@NotNull Project project, @NotNull List<FilePath> files, @NotNull String text) {
+  public IntersectingLocalChangesPanel(@NotNull Project project, @NotNull List<? extends FilePath> files) {
     myProject = project;
     myFiles = files;
-    myPanel = createPanel(createLabel(text), createTree());
+    myPanel = createPanel(createLabel(), createTree());
   }
 
   @NotNull
@@ -75,7 +72,7 @@ public class IntersectingLocalChangesPanel {
 
   @NotNull
   private SimpleTree createTree() {
-    SimpleTree tree = new SimpleTree(TreeModelBuilder.buildFromFilePaths(myProject, new NoneChangesGroupingPolicy.Factory(), myFiles)) {
+    SimpleTree tree = new SimpleTree(TreeModelBuilder.buildFromFilePaths(myProject, NoneChangesGroupingFactory.INSTANCE, myFiles)) {
       @Override
       protected void configureUiHelper(@NotNull TreeUIHelper helper) {
         super.configureUiHelper(helper);
@@ -91,8 +88,8 @@ public class IntersectingLocalChangesPanel {
   }
 
   @NotNull
-  private static JBLabel createLabel(@NotNull String text) {
-    JBLabel label = new JBLabel(text) {
+  private static JBLabel createLabel() {
+    JBLabel label = new JBLabel(message("label.merge.local.changes.intersection")) {
       @Override
       public Dimension getPreferredSize() {
         Dimension size = super.getPreferredSize();
@@ -106,14 +103,12 @@ public class IntersectingLocalChangesPanel {
     return label;
   }
 
-  @SuppressWarnings("SameParameterValue")
   public static void showInVersionControlToolWindow(@NotNull Project project,
-                                                    @NotNull String title,
-                                                    @NotNull List<FilePath> files,
-                                                    @NotNull String prompt) {
-    IntersectingLocalChangesPanel intersectingPanel = new IntersectingLocalChangesPanel(project, files, prompt);
+                                                    @TabTitle @NotNull String title,
+                                                    @NotNull List<? extends FilePath> files) {
+    IntersectingLocalChangesPanel intersectingPanel = new IntersectingLocalChangesPanel(project, files);
     Content content = ContentFactory.SERVICE.getInstance().createContent(intersectingPanel.myPanel, title, true);
-    ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.VCS);
+    ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ChangesViewContentManager.TOOLWINDOW_ID);
 
     addContent(toolWindow.getContentManager(), content, true);
     toolWindow.activate(null);

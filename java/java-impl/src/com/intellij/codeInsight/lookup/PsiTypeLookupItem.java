@@ -1,56 +1,42 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.lookup;
 
 import com.intellij.codeInsight.completion.*;
+import com.intellij.codeInsight.editorActions.TabOutScopesTracker;
 import com.intellij.diagnostic.AttachmentFactory;
-import com.intellij.diagnostic.LogMessageEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.util.ClassConditionKey;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.DebugUtil;
-import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.psi.impl.source.PsiClassReferenceType;
 import com.intellij.psi.util.PsiFormatUtil;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author peter
  */
-public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
-  private static final InsertHandler<PsiTypeLookupItem> DEFAULT_IMPORT_FIXER = new InsertHandler<PsiTypeLookupItem>() {
+public final class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
+  private static final InsertHandler<PsiTypeLookupItem> DEFAULT_IMPORT_FIXER = new InsertHandler<>() {
     @Override
-    public void handleInsert(InsertionContext context, PsiTypeLookupItem item) {
+    public void handleInsert(@NotNull InsertionContext context, @NotNull PsiTypeLookupItem item) {
       if (item.getObject() instanceof PsiClass) {
         addImportForItem(context, (PsiClass)item.getObject());
       }
     }
   };
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.lookup.PsiTypeLookupItem");
+  private static final Logger LOG = Logger.getInstance(PsiTypeLookupItem.class);
   public static final ClassConditionKey<PsiTypeLookupItem> CLASS_CONDITION_KEY = ClassConditionKey.create(PsiTypeLookupItem.class);
   private final boolean myDiamond;
   private final int myBracketsCount;
@@ -113,8 +99,17 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
   }
 
   @Override
-  public void handleInsert(InsertionContext context) {
+  public void handleInsert(@NotNull InsertionContext context) {
+    SmartPsiElementPointer<PsiElement> pointer = null;
+    if (getObject() instanceof PsiElement) {
+      PsiElement psiElement = (PsiElement)getObject();
+      pointer = SmartPointerManager.getInstance(context.getProject()).createSmartPsiElementPointer(psiElement);
+    }
     myImportFixer.handleInsert(context, this);
+    // restore PSI element tucked in this.myObject and possibly made invalid by import fixer
+    if (pointer != null) {
+      setObject(pointer.getElement());
+    }
 
     PsiElement position = context.getFile().findElementAt(context.getStartOffset());
     if (position != null) {
@@ -123,24 +118,23 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
       JavaCompletionUtil.shortenReference(context.getFile(), genericsStart - 1);
     }
 
-    int tail = context.getTailOffset();
+    int targetOffset = context.getTailOffset();
     String braces = StringUtil.repeat("[]", getBracketsCount());
     Editor editor = context.getEditor();
     if (!braces.isEmpty()) {
       if (myAddArrayInitializer) {
-        context.getDocument().insertString(tail, braces + "{}");
-        editor.getCaretModel().moveToOffset(tail + braces.length() + 1);
+        context.getDocument().insertString(targetOffset, braces + "{}");
+        targetOffset += braces.length() + 1;
       } else {
-        context.getDocument().insertString(tail, braces);
-        editor.getCaretModel().moveToOffset(tail + 1);
+        context.getDocument().insertString(targetOffset, braces);
+        targetOffset++;
         if (context.getCompletionChar() == '[') {
           context.setAddCompletionChar(false);
         }
       }
+      TabOutScopesTracker.getInstance().registerEmptyScope(editor, targetOffset);
     }
-    else {
-      editor.getCaretModel().moveToOffset(tail);
-    }
+    editor.getCaretModel().moveToOffset(targetOffset);
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
 
     InsertHandler handler = getInsertHandler();
@@ -150,6 +144,7 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
     }
   }
 
+  @NotNull
   public String calcGenerics(@NotNull PsiElement context, InsertionContext insertionContext) {
     if (insertionContext.getCompletionChar() == '<') {
       return "";
@@ -229,9 +224,9 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
         if (name != null) {
           PsiClass resolved = JavaPsiFacade.getInstance(psiClass.getProject()).getResolveHelper().resolveReferencedClass(name, context);
           String[] allStrings;
-          if (!psiClass.getManager().areElementsEquivalent(resolved, psiClass) && !PsiUtil.isInnerClass(psiClass)) {
+          if (!psiClass.getManager().areElementsEquivalent(resolved, psiClass)) {
             // inner class name should be shown qualified if its not accessible by single name
-            allStrings = ArrayUtil.toStringArray(JavaCompletionUtil.getAllLookupStrings(psiClass));
+            allStrings = ArrayUtilRt.toStringArray(JavaCompletionUtil.getAllLookupStrings(psiClass));
           } else {
             allStrings = new String[]{name};
           }
@@ -274,7 +269,7 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
       assert object instanceof PsiType;
 
       if (!(object instanceof PsiPrimitiveType)) {
-        presentation.setIcon(DefaultLookupItemRenderer.getRawIcon(this, presentation.isReal()));
+        presentation.setIcon(DefaultLookupItemRenderer.getRawIcon(this));
       }
 
       presentation.setItemText(((PsiType)object).getCanonicalText());
@@ -308,21 +303,37 @@ public class PsiTypeLookupItem extends LookupItem implements TypedLookupItem {
 
     int startOffset = context.getStartOffset();
     int tail = context.getTailOffset();
-    int newTail = JavaCompletionUtil.insertClassReference(aClass, file, startOffset, tail);
-    if (newTail > context.getDocument().getTextLength() || newTail < 0) {
-      LOG.error(LogMessageEx.createEvent("Invalid offset after insertion ",
-                                         "offset=" + newTail + "\n" +
-                                         "start=" + startOffset + "\n" +
-                                         "tail=" + tail + "\n" +
-                                         "file.length=" + file.getTextLength() + "\n" +
-                                         "document=" + context.getDocument() + "\n" +
-                                         DebugUtil.currentStackTrace(),
-                                         AttachmentFactory.createAttachment(context.getDocument())));
-      return;
 
+    PsiJavaCodeReferenceElement ref =
+      PsiTreeUtil.findElementOfClassAtOffset(file, tail - 1, PsiJavaCodeReferenceElement.class, false);
+    boolean goneDeeper = false;
+    while (ref != null) {
+      PsiElement qualifier = ref.getQualifier();
+      PsiClass outer = aClass.getContainingClass();
+      if (!(qualifier instanceof PsiJavaCodeReferenceElement) || !Objects.equals(aClass.getName(), ref.getReferenceName()) || outer == null) break;
+
+      goneDeeper = true;
+      ref = (PsiJavaCodeReferenceElement)qualifier;
+      aClass = outer;
     }
-    context.setTailOffset(newTail);
-    JavaCompletionUtil.shortenReference(file, context.getStartOffset());
-    PostprocessReformattingAspect.getInstance(context.getProject()).doPostponedFormatting();
+
+    int newTail = JavaCompletionUtil.insertClassReference(aClass, file,
+                                                          goneDeeper ? ref.getTextRange().getStartOffset() : startOffset,
+                                                          goneDeeper ? ref.getTextRange().getEndOffset() : tail);
+    if (newTail > context.getDocument().getTextLength() || newTail < 0) {
+      LOG.error("Invalid offset after insertion\n" +
+                "offset=" + newTail + "\n" +
+                "start=" + startOffset + "\n" +
+                "tail=" + tail + "\n" +
+                "file.length=" + file.getTextLength() + "\n" +
+                "document=" + context.getDocument() + "\n" +
+                new Throwable(),
+                AttachmentFactory.createAttachment(context.getDocument()));
+      return;
+    }
+
+    if (!goneDeeper) {
+      context.setTailOffset(newTail);
+    }
   }
 }

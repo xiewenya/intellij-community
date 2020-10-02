@@ -25,12 +25,9 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class XEditWatchAction extends XWatchesTreeActionBase {
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     XDebuggerTree tree = XDebuggerTree.getTree(e);
     e.getPresentation().setEnabledAndVisible(tree != null && getSelectedNodes(tree, WatchNodeImpl.class).size() == 1);
   }

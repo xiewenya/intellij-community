@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.maven.importing;
 
+import com.intellij.openapi.externalSystem.autoimport.ProjectNotificationAware;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.idea.maven.dom.MavenDomTestCase;
 
@@ -34,6 +35,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m1/customName.xml</module>" +
@@ -56,6 +58,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>customName.xml</module>" +
@@ -78,6 +81,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m1/customPom.xml</module>" +
@@ -98,6 +102,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     createProjectSubFile("m1/customPom.xml", createPomXml(
                   "<artifactId>m1</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<parent>" +
                   "  <groupId>test</groupId>" +
@@ -123,6 +128,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m1/customPom.xml</module>" +
@@ -162,11 +168,10 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
                   "  </dependency>" +
                   "</dependencies>"));
 
-    getMavenImporterSettings().setImportAutomatically(true);
-
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>" +
+                  "<packaging>pom</packaging>" +
 
                   "<modules>" +
                   "  <module>m1/customName.xml</module>" +
@@ -175,7 +180,7 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
     myProjectsManager.performScheduledImportInTests();
     assertFalse(myProjectsManager.hasScheduledImportsInTests());
 
-    myProjectsManager.listenForExternalChanges();
+    myProjectsManager.enableAutoImportInTests();
     VirtualFile m1 = createProjectSubFile("m1/customName.xml", createPomXml(
                   "<artifactId>m1</artifactId>" +
                   "<version>1</version>" +
@@ -196,8 +201,9 @@ public class CustomPomFileNameTest extends MavenDomTestCase {
                   "</dependencies>"));
     type(m1, '1');
 
-    waitForReadingCompletion();
-    myProjectsManager.waitForResolvingCompletion();
+    assertTrue(ProjectNotificationAware.getInstance(myProject).isNotificationVisible());
+
+    importProject();
     assertTrue(myProjectsManager.hasScheduledImportsInTests());
   }
 }

@@ -1,45 +1,33 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.jarRepository;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.JavaUiBundle;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileChooser.FileChooserDialog;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ComboboxWithBrowseButton;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.AsyncProcessIcon;
 import com.intellij.xml.util.XmlStringUtil;
+import gnu.trove.THashMap;
 import org.eclipse.aether.version.InvalidVersionSpecificationException;
 import org.eclipse.aether.version.Version;
 import org.jetbrains.annotations.NonNls;
@@ -65,16 +53,15 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class RepositoryAttachDialog extends DialogWrapper {
   @NonNls private static final String PROPERTY_DOWNLOAD_TO_PATH = "Downloaded.Files.Path";
   @NonNls private static final String PROPERTY_DOWNLOAD_TO_PATH_ENABLED = "Downloaded.Files.Path.Enabled";
   @NonNls private static final String PROPERTY_ATTACH_JAVADOC = "Repository.Attach.JavaDocs";
   @NonNls private static final String PROPERTY_ATTACH_SOURCES = "Repository.Attach.Sources";
+  @NonNls private static final String PROPERTY_ATTACH_ANNOTATIONS = "Repository.Attach.Annotations";
   @NotNull private final Mode myMode;
 
   public enum Mode { SEARCH, DOWNLOAD }
@@ -93,12 +80,13 @@ public class RepositoryAttachDialog extends DialogWrapper {
   private JBCheckBox myIncludeTransitiveDepsCheckBox;
   private JPanel mySearchOptionsPanel;
   private JBCheckBox myIncludeTransitiveDependenciesForSearchCheckBox;
+  private JBCheckBox myAnnotationsCheckBox;
 
   private final JComboBox myCombobox;
 
-  private final Map<String, RepositoryArtifactDescription> myCoordinates = ContainerUtil.newTroveMap();
-  private final List<String> myShownItems = ContainerUtil.newArrayList();
-  private final String myDefaultDownloadFolder;
+  private final Map<String, RepositoryArtifactDescription> myCoordinates = new THashMap<>();
+  private final List<String> myShownItems = new ArrayList<>();
+  private final @NlsSafe String myDefaultDownloadFolder;
 
   private String myFilterString;
   private boolean myInUpdate;
@@ -106,17 +94,16 @@ public class RepositoryAttachDialog extends DialogWrapper {
   public RepositoryAttachDialog(@NotNull Project project, final @Nullable String initialFilter, @NotNull Mode mode) {
     super(project, true);
     myMode = mode;
-    setTitle(mode == Mode.DOWNLOAD ? "Download Library from Maven Repository" : "Search Library in Maven Repositories");
+    setTitle(mode == Mode.DOWNLOAD ? JavaUiBundle.message("dialog.title.download.library.from.maven.repository")
+                                   : JavaUiBundle.message("dialog.title.search.library.in.maven.repositories"));
     myProject = project;
     myProgressIcon.suspend();
-    myCaptionLabel.setText(
-      XmlStringUtil.wrapInHtml(StringUtil.escapeXml("keyword or class name to search by or exact Maven coordinates, " +
-                                                    "i.e. 'spring', 'Logger' or 'ant:ant-junit:1.6.5'")
-      ));
+    final String text = JavaUiBundle.message("repository.attach.dialog.caption.label");
+    myCaptionLabel.setText(XmlStringUtil.wrapInHtml(StringUtil.escapeXmlEntities(text)));
     myInfoLabel.setPreferredSize(
       new Dimension(myInfoLabel.getFontMetrics(myInfoLabel.getFont()).stringWidth("Showing: 1000"), myInfoLabel.getPreferredSize().height));
 
-    myComboComponent.setButtonIcon(AllIcons.Actions.Menu_find);
+    myComboComponent.setButtonIcon(AllIcons.Actions.Find);
     myComboComponent.getButton().addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -133,7 +120,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     }
     textField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (myProgressIcon.isDisposed()) return;
           ApplicationManager.getApplication().invokeLater(() -> {
@@ -166,7 +153,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
 
     PropertiesComponent storage = PropertiesComponent.getInstance(myProject);
     myDownloadToCheckBox.setSelected(storage.isTrueValue(PROPERTY_DOWNLOAD_TO_PATH_ENABLED));
-    myDirectoryField.setText(StringUtil.notNullize(StringUtil.nullize(storage.getValue(PROPERTY_DOWNLOAD_TO_PATH)), myDefaultDownloadFolder));
+    myDirectoryField.setText(getDownloadPath(storage));
     myDirectoryField.setEnabled(myDownloadToCheckBox.isSelected());
     myDownloadToCheckBox.addActionListener(new ActionListener() {
       @Override
@@ -176,16 +163,23 @@ public class RepositoryAttachDialog extends DialogWrapper {
     });
     myJavaDocCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_JAVADOC));
     mySourcesCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_SOURCES));
+    mySourcesCheckBox.setSelected(storage.isTrueValue(PROPERTY_ATTACH_ANNOTATIONS));
 
     final FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
     descriptor.putUserData(FileChooserDialog.PREFER_LAST_OVER_TO_SELECT, Boolean.TRUE);
-    myDirectoryField.addBrowseFolderListener(ProjectBundle.message("file.chooser.directory.for.downloaded.libraries.title"),
-                                             ProjectBundle.message("file.chooser.directory.for.downloaded.libraries.description"), null,
+    myDirectoryField.addBrowseFolderListener(JavaUiBundle.message("file.chooser.directory.for.downloaded.libraries.title"),
+                                             JavaUiBundle.message("file.chooser.directory.for.downloaded.libraries.description"), null,
                                              descriptor);
     updateInfoLabel();
     myDownloadOptionsPanel.setVisible(mode == Mode.DOWNLOAD);
     mySearchOptionsPanel.setVisible(mode == Mode.SEARCH);
     init();
+  }
+
+  private @NlsSafe String getDownloadPath(@NotNull final PropertiesComponent storage) {
+    final String value = storage.getValue(PROPERTY_DOWNLOAD_TO_PATH);
+    if (Strings.isNotEmpty(value)) return value;
+    return myDefaultDownloadFolder;
   }
 
   private static void handleMavenDependencyInsertion(DocumentEvent e, JTextField textField) {
@@ -220,6 +214,10 @@ public class RepositoryAttachDialog extends DialogWrapper {
     return mySourcesCheckBox.isSelected();
   }
 
+  public boolean getAttachExternalAnnotations() {
+    return myAnnotationsCheckBox.isSelected();
+  }
+
   public boolean getIncludeTransitiveDependencies() {
     return myMode == Mode.DOWNLOAD ? myIncludeTransitiveDepsCheckBox.isSelected() : myIncludeTransitiveDependenciesForSearchCheckBox.isSelected();
   }
@@ -240,7 +238,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     final int caret = field.getCaretPosition();
     myFilterString = field.getText();
 
-    if (!force && Comparing.equal(myFilterString, prevFilter)) return;
+    if (!force && Objects.equals(myFilterString, prevFilter)) return;
     int prevSize = myShownItems.size();
     myShownItems.clear();
 
@@ -274,7 +272,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     for (String coord : myShownItems) {
       items.add(new LibItem(coord));
     }
-    Collections.sort(items, (o1, o2) -> Comparing.compare(o1, o2));
+    items.sort((o1, o2) -> Comparing.compare(o1, o2));
     myShownItems.clear();
     for (LibItem it : items) {
       myShownItems.add(it.coord);
@@ -300,7 +298,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     final Version ver;
     final String coord;
 
-    public LibItem(String coord) {
+    LibItem(String coord) {
       this.coord = coord;
       final JpsMavenRepositoryLibraryDescriptor desc = new JpsMavenRepositoryLibraryDescriptor(coord);
       prefix = desc.getGroupId() + ":" + desc.getArtifactId();
@@ -347,18 +345,18 @@ public class RepositoryAttachDialog extends DialogWrapper {
   }
 
   private void updateInfoLabel() {
-    myInfoLabel.setText("<html>Found: " + myCoordinates.size() + "<br>Showing: " + myCombobox.getModel().getSize() + "</html>");
+    myInfoLabel.setText(JavaUiBundle.message("info.text.found.0.br.showing.1", myCoordinates.size(), myCombobox.getModel().getSize()));
   }
 
   @Override
   protected ValidationInfo doValidate() {
     if (!isValidCoordinateSelected()) {
-      return new ValidationInfo("Please enter valid coordinate, discover it or select one from the list", myCombobox);
+      return new ValidationInfo(JavaUiBundle.message("error.message.please.enter.valid.coordinate.discover.it.or.select.one.from.the.list"), myCombobox);
     }
     else if (myDownloadToCheckBox.isSelected()) {
       final File dir = new File(myDirectoryField.getText());
       if (!dir.exists() && !dir.mkdirs() || !dir.isDirectory()) {
-        return new ValidationInfo("Please enter valid library files path", myDirectoryField.getTextField());
+        return new ValidationInfo(JavaUiBundle.message("error.message.please.enter.valid.library.files.path"), myDirectoryField.getTextField());
       }
     }
     return super.doValidate();
@@ -369,6 +367,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     return null;
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     return myPanel;
   }
@@ -384,6 +383,7 @@ public class RepositoryAttachDialog extends DialogWrapper {
     storage.setValue(PROPERTY_DOWNLOAD_TO_PATH, downloadPath, myDefaultDownloadFolder);
     storage.setValue(PROPERTY_ATTACH_JAVADOC, String.valueOf(myJavaDocCheckBox.isSelected()));
     storage.setValue(PROPERTY_ATTACH_SOURCES, String.valueOf(mySourcesCheckBox.isSelected()));
+    storage.setValue(PROPERTY_ATTACH_ANNOTATIONS, String.valueOf(myAnnotationsCheckBox.isSelected()));
     super.dispose();
   }
 
@@ -397,9 +397,26 @@ public class RepositoryAttachDialog extends DialogWrapper {
     return text.split(":").length == 3;
   }
 
-  public String getCoordinateText() {
-    final JTextField field = (JTextField)myCombobox.getEditor().getEditorComponent();
-    return field.getText();
+  private String getCoordinateText() {
+    String text = getFullCoordinateText();
+    List<String> parts = StringUtil.split(text, ":");
+    return parts.size() == 4 ? parts.get(0) + ":" + parts.get(1) + ":" + parts.get(3) : text;
+  }
+
+  @NotNull
+  private String getPackaging() {
+    List<String> parts = StringUtil.split(getFullCoordinateText(), ":");
+    return parts.size() == 4 ? parts.get(2) : JpsMavenRepositoryLibraryDescriptor.DEFAULT_PACKAGING;
+  }
+
+  private String getFullCoordinateText() {
+    return ((JTextField)myCombobox.getEditor().getEditorComponent()).getText().trim();
+  }
+
+  @NotNull
+  public JpsMavenRepositoryLibraryDescriptor getSelectedLibraryDescriptor() {
+    return new JpsMavenRepositoryLibraryDescriptor(getCoordinateText(), getPackaging(),
+                                                   getIncludeTransitiveDependencies(), Collections.emptyList());
   }
 
   private void createUIComponents() {

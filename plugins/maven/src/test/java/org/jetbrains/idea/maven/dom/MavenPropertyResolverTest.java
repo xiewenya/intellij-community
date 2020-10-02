@@ -22,6 +22,7 @@ import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
+import org.jetbrains.idea.maven.model.MavenConstants;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,18 +57,27 @@ public class MavenPropertyResolverTest extends MavenImportingTestCase {
   }
 
   public void testResolvingProjectParentAttributes() {
-    importProject("<groupId>test</groupId>" +
-                  "<artifactId>project</artifactId>" +
-                  "<version>1</version>" +
+    VirtualFile modulePom
+      = createModulePom("test",
+                        "<groupId>test</groupId>" +
+                        "<artifactId>project</artifactId>" +
+                        "<version>1</version>" +
 
-                  "<parent>" +
-                  "  <groupId>parent.test</groupId>" +
+                        "<parent>" +
+                        "  <groupId>parent.test</groupId>" +
+                        "  <artifactId>parent.project</artifactId>" +
+                        "  <version>parent.1</version>" +
+                        "</parent>");
+    importProject("  <groupId>parent.test</groupId>" +
                   "  <artifactId>parent.project</artifactId>" +
                   "  <version>parent.1</version>" +
-                  "</parent>");
 
-    assertEquals("parent.test", resolve("${project.parent.groupId}", myProjectPom));
-    assertEquals("parent.test", resolve("${pom.parent.groupId}", myProjectPom));
+                  "<modules>" +
+                  "  <module>test</module>" +
+                  "</modules>");
+
+    assertEquals("parent.test", resolve("${project.parent.groupId}", modulePom));
+    assertEquals("parent.test", resolve("${pom.parent.groupId}", modulePom));
   }
 
   public void testResolvingAbsentProperties() {
@@ -93,6 +103,7 @@ public class MavenPropertyResolverTest extends MavenImportingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<properties>" +
                      " <parentProp>parent.value</parentProp>" +
@@ -163,7 +174,7 @@ public class MavenPropertyResolverTest extends MavenImportingTestCase {
 
                      "</properties>");
 
-    importProject();
+    importProjectWithErrors();
     assertEquals("${prop1}", resolve("${prop1}", myProjectPom));
     assertEquals("${prop3}", resolve("${prop3}", myProjectPom));
     assertEquals("${prop5}", resolve("${prop5}", myProjectPom));
@@ -287,7 +298,44 @@ public class MavenPropertyResolverTest extends MavenImportingTestCase {
                          new Properties(), "^"));
   }
 
+  public void testMavenConfigProperties() throws IOException {
+    createProjectSubFile(MavenConstants.MAVEN_CONFIG_RELATIVE_PATH, "-Dprop=value");
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<version>1</version>");
+
+    assertEquals("foo value bar",
+                 resolve(getModule("project"), "foo ${prop} bar", new Properties(), "/"));
+  }
+
+  public void testChainResolvePropertiesForFileWhichIsNotAProjectPom() throws IOException {
+    VirtualFile file = createProjectSubFile("../some.pom",
+                                            "<project>" +
+                                            "    <parent>" +
+                                            "        <groupId>org.example</groupId>" +
+                                            "        <artifactId>parent-id</artifactId>" +
+                                            "        <version>1.1</version>" +
+                                            "    </parent>" +
+                                            "    <artifactId>child</artifactId>" +
+                                            "    <properties>" +
+                                            "        <first>one</first>" +
+                                            "        <second>${first}</second>" +
+                                            "        <third>${second}${parent.version}</third>" +
+                                            "    </properties>" +
+                                            "</project>");
+
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<version>1</version>");
+
+    assertEquals("one", resolve("${first}", file));
+    assertEquals("one", resolve("${second}", file));
+    assertEquals("one1.1", resolve("${third}", file));
+    assertEquals("parent-id", resolve("${parent.artifactId}", file));
+  }
+
   private String resolve(String text, VirtualFile f) {
     return MavenPropertyResolver.resolve(text, MavenDomUtil.getMavenDomProjectModel(myProject, f));
   }
 }
+

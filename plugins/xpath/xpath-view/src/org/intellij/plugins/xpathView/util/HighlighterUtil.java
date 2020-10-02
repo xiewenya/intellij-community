@@ -15,6 +15,7 @@
  */
 package org.intellij.plugins.xpathView.util;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.highlighting.HighlightManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
@@ -24,17 +25,16 @@ import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.containers.ContainerUtil;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.intellij.plugins.xpathView.Config;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class HighlighterUtil {
+public final class HighlighterUtil {
     private static final Key<List<RangeHighlighter>> HIGHLIGHTERS_KEY = Key.create("XPATH_HIGHLIGHTERS");
 
     private HighlighterUtil() {
@@ -92,9 +92,8 @@ public class HighlighterUtil {
         return false;
     }
 
-    @SuppressWarnings({"unchecked", "RawUseOfParameterizedType"})
     private static boolean purgeInvalidHighlighters(Editor editor, List<RangeHighlighter> hl) {
-        final Set set = ContainerUtil.newIdentityTroveSet(Arrays.asList(editor.getMarkupModel().getAllHighlighters()));
+        final Set<RangeHighlighter> set = new ReferenceOpenHashSet<>(editor.getMarkupModel().getAllHighlighters());
         boolean hasHighlighter = false;
         for (Iterator<RangeHighlighter> iterator = hl.iterator(); iterator.hasNext();) {
             final RangeHighlighter h = iterator.next();
@@ -109,8 +108,7 @@ public class HighlighterUtil {
 
     public static List<RangeHighlighter> getHighlighters(Editor editor) {
         if (!hasHighlighters(editor)) {
-            //noinspection unchecked
-            return Collections.emptyList();
+          return Collections.emptyList();
         } else {
             return editor.getUserData(HIGHLIGHTERS_KEY);
         }
@@ -164,12 +162,9 @@ public class HighlighterUtil {
         }
         // have to use html/preformatted or else the tooltip gets formatted totally weird.
 
-        final CodeStyleSettingsManager instance = CodeStyleSettingsManager.getInstance(element.getProject());
-        final int tabSize = instance.getCurrentSettings().getTabSize(FileTypeManager.getInstance().getFileTypeByExtension("xml"));
+        final int tabSize = CodeStyle.getSettings(element.getProject()).getTabSize(FileTypeManager.getInstance().getFileTypeByExtension("xml"));
         final char[] spaces = new char[tabSize];
-        for (int i = 0; i < spaces.length; i++) {
-            spaces[i] = ' ';
-        }
+        Arrays.fill(spaces, ' ');
 
         final int textOffset = element.getTextOffset();
         final int lineStartOffset = e.logicalPositionToOffset(new LogicalPosition(e.offsetToLogicalPosition(textOffset).line, 0));

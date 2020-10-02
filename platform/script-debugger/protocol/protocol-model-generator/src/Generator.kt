@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.protocolModelGenerator
 
 import com.intellij.openapi.util.text.StringUtil
@@ -91,7 +92,9 @@ internal class Generator(outputDir: String, private val rootPackage: String, req
         continue
       }
 
-      val fileUpdater = fileSet.createFileUpdater("${StringUtil.nullize(domain.domain()) ?: "protocol"}.kt")
+      val domainName = StringUtil.nullize(domain.domain())
+      val filePath = if (domainName != null) "${domainName.toLowerCase()}/$domainName.kt" else "protocol.kt"
+      val fileUpdater = fileSet.createFileUpdater(filePath)
       val out = fileUpdater.out
 
       out.append("// Generated source").newLine().append("package ").append(getPackageName(rootPackage, domain.domain())).newLine().newLine()
@@ -228,10 +231,10 @@ internal class Generator(outputDir: String, private val rootPackage: String, req
   }
 }
 
-val READER_INTERFACE_NAME = "ProtocolResponseReader"
+const val READER_INTERFACE_NAME: String = "ProtocolResponseReader"
 
 private val INCLUDED_DOMAINS = arrayOf("CSS", "Debugger", "DOM", "Inspector", "Log", "Network", "Page", "Runtime", "ServiceWorker",
-                                       "Tracing", "Target", "Overlay", "Console", "DOMDebugger", "HeapProfiler")
+                                       "Tracing", "Target", "Overlay", "Console", "DOMDebugger", "Profiler", "HeapProfiler", "NodeWorker")
 
 fun generateMethodNameSubstitute(originalName: String, out: TextOutput): String {
   if (originalName != "this") {
@@ -256,7 +259,7 @@ fun <R> switchByType(typedObject: ItemDescriptor, visitor: TypeVisitor<R>): R {
   val typeName = typedObject.type
   return when (typeName) {
     BOOLEAN_TYPE -> visitor.visitBoolean()
-    STRING_TYPE -> if (typedObject.enum == null) visitor.visitString() else visitor.visitEnum(typedObject.enum!!)
+    STRING_TYPE, BINARY_TYPE -> if (typedObject.enum == null) visitor.visitString() else visitor.visitEnum(typedObject.enum!!)
     INTEGER_TYPE, "int" -> visitor.visitInteger()
     NUMBER_TYPE -> visitor.visitNumber()
     ARRAY_TYPE -> visitor.visitArray(typedObject.items!!)

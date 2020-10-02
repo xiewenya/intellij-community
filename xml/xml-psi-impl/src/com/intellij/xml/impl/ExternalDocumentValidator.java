@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.impl;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInsight.daemon.Validator;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.codeInspection.util.InspectionMessage;
 import com.intellij.ide.highlighter.XHtmlFileType;
 import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.lang.Language;
@@ -56,7 +43,7 @@ import java.util.List;
  * @author maxim
  */
 public class ExternalDocumentValidator {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.xml.impl.ExternalDocumentValidator");
+  private static final Logger LOG = Logger.getInstance(ExternalDocumentValidator.class);
   private static final Key<SoftReference<ExternalDocumentValidator>> validatorInstanceKey = Key.create("validatorInstance");
 
   public static final @NonNls String INSPECTION_SHORT_NAME = "CheckXmlFileWithXercesValidator";
@@ -83,12 +70,12 @@ public class ExternalDocumentValidator {
   @NonNls
   private static final String ATTRIBUTE_MESSAGE_PREFIX = "cvc-attribute.";
 
-  private static class ValidationInfo {
+  private static final class ValidationInfo {
     final PsiElement element;
-    final String message;
+    final @InspectionMessage String message;
     final Validator.ValidationHost.ErrorType type;
 
-    private ValidationInfo(PsiElement element, String message, Validator.ValidationHost.ErrorType type) {
+    private ValidationInfo(PsiElement element, @InspectionMessage String message, Validator.ValidationHost.ErrorType type) {
       this.element = element;
       this.message = message;
       this.type = type;
@@ -118,10 +105,6 @@ public class ExternalDocumentValidator {
     final List<ValidationInfo> results = new LinkedList<>();
 
     myHost = new Validator.ValidationHost() {
-      @Override
-      public void addMessage(PsiElement context, String message, int type) {
-        addMessage(context, message, type==ERROR?ErrorType.ERROR : type==WARNING?ErrorType.WARNING : ErrorType.INFO);
-      }
 
       @Override
       public void addMessage(final PsiElement context, final String message, @NotNull final ErrorType type) {
@@ -131,6 +114,8 @@ public class ExternalDocumentValidator {
     };
 
     myHandler.setErrorReporter(new ErrorReporter(myHandler) {
+
+      int unsupportedSchemeAt = -1;
       @Override
       public boolean isStopOnUndeclaredResource() {
         return true;
@@ -163,7 +148,7 @@ public class ExternalDocumentValidator {
             if (elementText.equals("</")) {
               currentElement = currentElement.getNextSibling();
             }
-            else if (elementText.equals(">") || elementText.equals("=")) {
+            else if (elementText.equals(">") || elementText.equals("/>") || elementText.equals("=")) {
               currentElement = currentElement.getPrevSibling();
             }
 
@@ -177,6 +162,21 @@ public class ExternalDocumentValidator {
             }
             String messageId = endIndex != -1 ? localizedMessage.substring(0, endIndex ):"";
             localizedMessage = localizedMessage.substring(endIndex + 1).trim();
+
+            if ("cvc-elt.1.a".equals(messageId)) {
+              XmlTag tag = PsiTreeUtil.getParentOfType(currentElement, XmlTag.class);
+              if (tag != null && tag.getNamespace().isEmpty()) {
+                // "Cannot find the declaration of element" is not helpful without schema
+                return;
+              }
+            } else if ("SchemeUnsupported".equals(messageId)) {
+              unsupportedSchemeAt = offset;
+              return;
+            } else if (unsupportedSchemeAt == offset &&
+                       ("An 'include' failed, and no 'fallback' element was found.".equals(localizedMessage) ||
+                       (e.getLocalizedMessage().startsWith("Include operation failed, reverting to fallback.")))) {
+              return;
+            }
 
             if (localizedMessage.startsWith(CANNOT_FIND_DECLARATION_ERROR_PREFIX) ||
                 localizedMessage.startsWith(ELEMENT_ERROR_PREFIX) ||
@@ -301,16 +301,16 @@ public class ExternalDocumentValidator {
     return parentOfType;
   }
 
-  private static void addAllInfos(Validator.ValidationHost host,List<ValidationInfo> highlightInfos) {
+  private static void addAllInfos(Validator.ValidationHost host, List<? extends ValidationInfo> highlightInfos) {
     for (ValidationInfo info : highlightInfos) {
       host.addMessage(info.element, info.message, info.type);
     }
   }
 
-  private PsiElement addProblemToTagName(PsiElement currentElement,
-                                     final PsiElement originalElement,
-                                     final String localizedMessage,
-                                     final ValidateXmlActionHandler.ProblemType problemType) {
+  private void addProblemToTagName(PsiElement currentElement,
+                                   final PsiElement originalElement,
+                                   final @InspectionMessage String localizedMessage,
+                                   final ValidateXmlActionHandler.ProblemType problemType) {
     currentElement = PsiTreeUtil.getParentOfType(currentElement,XmlTag.class,false);
     if (currentElement==null) {
       currentElement = PsiTreeUtil.getParentOfType(originalElement,XmlElementDecl.class,false);
@@ -323,8 +323,6 @@ public class ExternalDocumentValidator {
     if (currentElement!=null) {
       myHost.addMessage(currentElement,localizedMessage, getProblemType(problemType));
     }
-
-    return currentElement;
   }
 
   private static void assertValidElement(PsiElement currentElement, PsiElement originalElement, String message) {

@@ -16,16 +16,16 @@
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.ide.impl.dataRules.GetDataRule;
-import com.intellij.openapi.ListSelection;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.vcs.VcsDataKeys;
+import com.intellij.openapi.ListSelection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class VcsChangesSelectionRule implements GetDataRule {
   @Nullable
   @Override
-  public Object getData(DataProvider dataProvider) {
+  public Object getData(@NotNull DataProvider dataProvider) {
     return getChangesSelection(dataProvider);
   }
 

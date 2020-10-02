@@ -1,39 +1,28 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.containers;
 
 import com.intellij.util.concurrency.AtomicFieldUpdater;
 import org.jetbrains.annotations.NotNull;
-import sun.misc.Unsafe;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.concurrent.locks.LockSupport;
 
 /**
- * Adapted from java.util.concurrent.ConcurrentHashMap to int keys
+ * Adapted from Doug Lea ConcurrentHashMap (see http://gee.cs.oswego.edu/dl/concurrency-interest/index.html) to int keys
+ * with following additions/changes:
+ * - added hashing strategy argument
+ * - added cacheOrGet convenience method
+ * - Null values are NOT allowed
  * @author Doug Lea
  * @param <V> the type of mapped values
- * Use {@link ContainerUtil#createConcurrentIntObjectMap()} to create this
+ * Use {@link ContainerUtil#createConcurrentIntObjectMap()} to create this map
  */
-// added hashing strategy argument
-// added cacheOrGet convenience method
-// Null values are NOT allowed
-
-class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
+final class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   /**
    * The largest possible table capacity.  This value must be
    * exactly 1<<30 to stay within Java array allocation and indexing
@@ -156,7 +145,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
 
     @Override
     public final int hashCode() {
-      return (int)(key ^ val.hashCode());
+      return (key ^ val.hashCode());
     }
 
     @Override
@@ -209,7 +198,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    * never be used in index calculations because of table bounds.
    */
   static int spread(int h) {
-    return (int)((h ^ (h >>> 16)) & HASH_BITS);
+    return (h ^ (h >>> 16)) & HASH_BITS;
   }
 
   /**
@@ -246,16 +235,32 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
 
   @SuppressWarnings("unchecked")
   static <V> Node<V> tabAt(Node<V>[] tab, int i) {
-    return (Node<V>)U.getObjectVolatile(tab, ((long)i << ASHIFT) + ABASE);
+    try {
+      Object o = getObjectVolatileHandle.invokeExact((Object)tab, ((long)i << ASHIFT) + ABASE);
+      return (Node<V>)o;
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
   }
 
   static <V> boolean casTabAt(Node<V>[] tab, int i,
                                  Node<V> c, Node<V> v) {
-    return U.compareAndSwapObject(tab, ((long)i << ASHIFT) + ABASE, c, v);
+    try {
+      return (boolean)compareAndSwapObjectHandle.invokeExact((Object)tab, ((long)i << ASHIFT) + ABASE, (Object)c, (Object)v);
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
   }
 
   static <V> void setTabAt(Node<V>[] tab, int i, Node<V> v) {
-    U.putObjectVolatile(tab, ((long)i << ASHIFT) + ABASE, v);
+    try {
+      putObjectVolatileHandle.invokeExact((Object)tab, ((long)i << ASHIFT) + ABASE, (Object)v);
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
   }
 
     /* ---------------- Fields -------------- */
@@ -353,7 +358,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    * @throws IllegalArgumentException if the initial capacity of
    *                                  elements is negative
    */
-  public ConcurrentIntObjectHashMap(int initialCapacity) {
+  ConcurrentIntObjectHashMap(int initialCapacity) {
     if (initialCapacity < 0) {
       throw new IllegalArgumentException();
     }
@@ -376,9 +381,8 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    *                        establishing the initial table size
    * @throws IllegalArgumentException if the initial capacity of
    *                                  elements is negative or the load factor is nonpositive
-   * @since 1.6
    */
-  public ConcurrentIntObjectHashMap(int initialCapacity, float loadFactor) {
+  ConcurrentIntObjectHashMap(int initialCapacity, float loadFactor) {
     this(initialCapacity, loadFactor, 1);
   }
 
@@ -498,7 +502,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   public boolean containsValue(@NotNull Object value) {
     Node<V>[] t;
     if ((t = table) != null) {
-      Traverser<V> it = new Traverser<V>(t, t.length, 0, t.length);
+      Traverser<V> it = new Traverser<>(t, t.length, 0, t.length);
       for (Node<V> p; (p = it.advance()) != null; ) {
         V v;
         if ((v = p.val) == value || (v != null && value.equals(v))) {
@@ -540,7 +544,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       }
       else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
         if (casTabAt(tab, i, null,
-                     new Node<V>(hash, key, value, null))) {
+                     new Node<>(hash, key, value, null))) {
           break;                   // no lock when adding to empty bin
         }
       }
@@ -563,8 +567,8 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
                 }
                 Node<V> pred = e;
                 if ((e = e.next) == null) {
-                  pred.next = new Node<V>(hash, key,
-                                          value, null);
+                  pred.next = new Node<>(hash, key,
+                                         value, null);
                   break;
                 }
               }
@@ -752,7 +756,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   @Override
   public Collection<V> values() {
     ValuesView<V> vs;
-    return (vs = values) != null ? vs : (values = new ValuesView<V>(this));
+    return (vs = values) != null ? vs : (values = new ValuesView<>(this));
   }
 
   /**
@@ -770,9 +774,11 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    *
    * @return the set view
    */
+  @Override
+  @NotNull
   public Set<Entry<V>> entrySet() {
     EntrySetView<V> es;
-    return (es = entrySet) != null ? es : (entrySet = new EntrySetView<V>(this));
+    return (es = entrySet) != null ? es : (entrySet = new EntrySetView<>(this));
   }
 
   /**
@@ -787,7 +793,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
     int h = 0;
     Node<V>[] t;
     if ((t = table) != null) {
-      Traverser<V> it = new Traverser<V>(t, t.length, 0, t.length);
+      Traverser<V> it = new Traverser<>(t, t.length, 0, t.length);
       for (Node<V> p; (p = it.advance()) != null; ) {
         h += p.key ^ p.val.hashCode();
       }
@@ -810,7 +816,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   public String toString() {
     Node<V>[] t;
     int f = (t = table) == null ? 0 : t.length;
-    Traverser<V> it = new Traverser<V>(t, f, 0, f);
+    Traverser<V> it = new Traverser<>(t, f, 0, f);
     StringBuilder sb = new StringBuilder();
     sb.append('{');
     Node<V> p;
@@ -849,7 +855,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       IntObjectMap<?> m = (IntObjectMap)o;
       Node<V>[] t;
       int f = (t = table) == null ? 0 : t.length;
-      Traverser<V> it = new Traverser<V>(t, f, 0, f);
+      Traverser<V> it = new Traverser<>(t, f, 0, f);
       for (Node<V> p; (p = it.advance()) != null; ) {
         V val = p.val;
         Object v = m.get(p.key);
@@ -857,7 +863,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           return false;
         }
       }
-      for (Entry e : m.entries()) {
+      for (Entry e : m.entrySet()) {
         int mk = e.getKey();
         Object mv;
         Object v;
@@ -952,10 +958,9 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    *
    * @return an enumeration of the keys in this table
    */
-  @NotNull
   @Override
-  public int[] keys() {
-    Object[] entries = new EntrySetView<V>(this).toArray();
+  public int @NotNull [] keys() {
+    Object[] entries = new EntrySetView<>(this).toArray();
     int[] result = new int[entries.length];
     for (int i = 0; i < entries.length; i++) {
       Entry<V> entry = (Entry<V>)entries[i];
@@ -975,7 +980,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   public Enumeration<V> elements() {
     Node<V>[] t;
     int f = (t = table) == null ? 0 : t.length;
-    return new ValueIterator<V>(t, f, 0, f, this);
+    return new ValueIterator<>(t, f, 0, f, this);
   }
 
   // ConcurrentHashMap-only methods
@@ -988,11 +993,10 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
    * there are concurrent insertions or removals.
    *
    * @return the number of mappings
-   * @since 1.8
    */
   public long mappingCount() {
     long n = sumCount();
-    return (n < 0L) ? 0L : n; // ignore transient negative values
+    return Math.max(n, 0L); // ignore transient negative values
   }
 
 
@@ -1062,7 +1066,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       if ((sc = sizeCtl) < 0) {
         Thread.yield(); // lost initialization race; just spin
       }
-      else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+      else if (compareAndSwapInt(this, SIZECTL, sc, -1)) {
         try {
           if ((tab = table) == null || tab.length == 0) {
             int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
@@ -1095,7 +1099,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
     CounterCell[] as;
     long b, s;
     if ((as = counterCells) != null ||
-        !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
+        !compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
       CounterCell a;
       long v;
       int m;
@@ -1103,7 +1107,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       if (as == null || (m = as.length - 1) < 0 ||
           (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
           !(uncontended =
-              U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
+              compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
         fullAddCount(x, uncontended);
         return;
       }
@@ -1124,11 +1128,11 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
               transferIndex <= 0) {
             break;
           }
-          if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
+          if (compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
             transfer(tab, nt);
           }
         }
-        else if (U.compareAndSwapInt(this, SIZECTL, sc,
+        else if (compareAndSwapInt(this, SIZECTL, sc,
                                      (rs << RESIZE_STAMP_SHIFT) + 2)) {
           transfer(tab, null);
         }
@@ -1152,7 +1156,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
             sc == rs + MAX_RESIZERS || transferIndex <= 0) {
           break;
         }
-        if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
+        if (compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
           transfer(tab, nextTab);
           break;
         }
@@ -1175,8 +1179,8 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       Node<V>[] tab = table;
       int n;
       if (tab == null || (n = tab.length) == 0) {
-        n = (sc > c) ? sc : c;
-        if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+        n = Math.max(sc, c);
+        if (compareAndSwapInt(this, SIZECTL, sc, -1)) {
           try {
             if (table == tab) {
               @SuppressWarnings("unchecked")
@@ -1202,11 +1206,11 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
               transferIndex <= 0) {
             break;
           }
-          if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
+          if (compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
             transfer(tab, nt);
           }
         }
-        else if (U.compareAndSwapInt(this, SIZECTL, sc,
+        else if (compareAndSwapInt(this, SIZECTL, sc,
                                      (rs << RESIZE_STAMP_SHIFT) + 2)) {
           transfer(tab, null);
         }
@@ -1237,7 +1241,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       transferIndex = n;
     }
     int nextn = nextTab.length;
-    ForwardingNode<V> fwd = new ForwardingNode<V>(nextTab);
+    ForwardingNode<V> fwd = new ForwardingNode<>(nextTab);
     boolean advance = true;
     boolean finishing = false; // to ensure sweep before committing nextTab
     for (int i = 0, bound = 0; ; ) {
@@ -1252,7 +1256,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           i = -1;
           advance = false;
         }
-        else if (U.compareAndSwapInt
+        else if (compareAndSwapInt
           (this, TRANSFERINDEX, nextIndex,
            nextBound = (nextIndex > stride ?
                         nextIndex - stride : 0))) {
@@ -1269,7 +1273,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           sizeCtl = (n << 1) - (n >>> 1);
           return;
         }
-        if (U.compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) {
+        if (compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) {
           if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT) {
             return;
           }
@@ -1310,10 +1314,10 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
                 int pk = p.key;
                 V pv = p.val;
                 if ((ph & n) == 0) {
-                  ln = new Node<V>(ph, pk, pv, ln);
+                  ln = new Node<>(ph, pk, pv, ln);
                 }
                 else {
-                  hn = new Node<V>(ph, pk, pv, hn);
+                  hn = new Node<>(ph, pk, pv, hn);
                 }
               }
               setTabAt(nextTab, i, ln);
@@ -1328,7 +1332,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
               int lc = 0, hc = 0;
               for (Node<V> e = t.first; e != null; e = e.next) {
                 int h = e.hash;
-                TreeNode<V> p = new TreeNode<V>
+                TreeNode<V> p = new TreeNode<>
                   (h, e.key, e.val, null, null);
                 if ((h & n) == 0) {
                   if ((p.prev = loTail) == null) {
@@ -1352,9 +1356,9 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
                 }
               }
               ln = (lc <= UNTREEIFY_THRESHOLD) ? untreeify(lo) :
-                   (hc != 0) ? new TreeBin<V>(lo) : t;
+                   (hc != 0) ? new TreeBin<>(lo) : t;
               hn = (hc <= UNTREEIFY_THRESHOLD) ? untreeify(hi) :
-                   (lc != 0) ? new TreeBin<V>(hi) : t;
+                   (lc != 0) ? new TreeBin<>(hi) : t;
               setTabAt(nextTab, i, ln);
               setTabAt(nextTab, i + n, hn);
               setTabAt(tab, i, fwd);
@@ -1401,7 +1405,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           if (cellsBusy == 0) {            // Try to attach new Cell
             CounterCell r = new CounterCell(x); // Optimistic create
             if (cellsBusy == 0 &&
-                U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+                compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
               boolean created = false;
               try {               // Recheck under lock
                 CounterCell[] rs;
@@ -1428,7 +1432,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
         {
           wasUncontended = true;      // Continue after rehash
         }
-        else if (U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x)) {
+        else if (compareAndSwapLong(a, CELLVALUE, v = a.value, v + x)) {
           break;
         }
         else if (counterCells != as || n >= NCPU) {
@@ -1438,7 +1442,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           collide = true;
         }
         else if (cellsBusy == 0 &&
-                 U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+                 compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
           try {
             if (counterCells == as) {// Expand table unless stale
               CounterCell[] rs = new CounterCell[n << 1];
@@ -1457,7 +1461,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
         h = ThreadLocalRandom.advanceProbe(h);
       }
       else if (cellsBusy == 0 && counterCells == as &&
-               U.compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
+               compareAndSwapInt(this, CELLSBUSY, 0, 1)) {
         boolean init = false;
         try {                           // Initialize table
           if (counterCells == as) {
@@ -1474,7 +1478,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           break;
         }
       }
-      else if (U.compareAndSwapLong(this, BASECOUNT, v = baseCount, v + x)) {
+      else if (compareAndSwapLong(this, BASECOUNT, v = baseCount, v + x)) {
         break;                          // Fall back on using base
       }
     }
@@ -1499,8 +1503,8 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
             TreeNode<V> hd = null, tl = null;
             for (Node<V> e = b; e != null; e = e.next) {
               TreeNode<V> p =
-                new TreeNode<V>(e.hash, e.key, e.val,
-                                null, null);
+                new TreeNode<>(e.hash, e.key, e.val,
+                               null, null);
               if ((p.prev = tl) == null) {
                 hd = p;
               }
@@ -1509,7 +1513,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
               }
               tl = p;
             }
-            setTabAt(tab, index, new TreeBin<V>(hd));
+            setTabAt(tab, index, new TreeBin<>(hd));
           }
         }
       }
@@ -1522,7 +1526,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   static <V> Node<V> untreeify(Node<V> b) {
     Node<V> hd = null, tl = null;
     for (Node<V> q = b; q != null; q = q.next) {
-      Node<V> p = new Node<V>(q.hash, q.key, q.val, null);
+      Node<V> p = new Node<>(q.hash, q.key, q.val, null);
       if (tl == null) {
         hd = p;
       }
@@ -1664,7 +1668,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
      * Acquires write lock for tree restructuring.
      */
     private void lockRoot() {
-      if (!U.compareAndSwapInt(this, LOCKSTATE, 0, WRITER)) {
+      if (!compareAndSwapInt(this, LOCKSTATE, 0, WRITER)) {
         contendedLock(); // offload to separate method
       }
     }
@@ -1683,7 +1687,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       boolean waiting = false;
       for (int s; ; ) {
         if (((s = lockState) & ~WAITER) == 0) {
-          if (U.compareAndSwapInt(this, LOCKSTATE, s, WRITER)) {
+          if (compareAndSwapInt(this, LOCKSTATE, s, WRITER)) {
             if (waiting) {
               waiter = null;
             }
@@ -1691,7 +1695,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           }
         }
         else if ((s & WAITER) == 0) {
-          if (U.compareAndSwapInt(this, LOCKSTATE, s, s | WAITER)) {
+          if (compareAndSwapInt(this, LOCKSTATE, s, s | WAITER)) {
             waiting = true;
             waiter = Thread.currentThread();
           }
@@ -1717,7 +1721,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
           }
           e = e.next;
         }
-        else if (U.compareAndSwapInt(this, LOCKSTATE, s,
+        else if (compareAndSwapInt(this, LOCKSTATE, s,
                                      s + READER)) {
           TreeNode<V> r;
           TreeNode<V> p;
@@ -1738,13 +1742,13 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       return null;
     }
 
-    private int getAndAddInt(Object var1, long var2, int var4) {
-        int var5;
-        do {
-            var5 = U.getIntVolatile(var1, var2);
-        } while(!U.compareAndSwapInt(var1, var2, var5, var5 + var4));
-
-        return var5;
+    private static int getAndAddInt(Object object, long offset, int v) {
+      try {
+        return (int)getAndAddIntHandle.invokeExact(object, offset, v);
+      }
+      catch (Throwable t) {
+        throw new RuntimeException(t);
+      }
     }
 
     /**
@@ -1757,7 +1761,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       for (TreeNode<V> p = root; ; ) {
         int dir, ph;
         if (p == null) {
-          first = root = new TreeNode<V>(h, k, v, null, null);
+          first = root = new TreeNode<>(h, k, v, null, null);
           break;
         }
         else if ((ph = p.hash) > h) {
@@ -1786,7 +1790,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
         TreeNode<V> xp = p;
         if ((p = (dir <= 0) ? p.left : p.right) == null) {
           TreeNode<V> x, f = first;
-          first = x = new TreeNode<V>(h, k, v, f, xp);
+          first = x = new TreeNode<>(h, k, v, f, xp);
           if (f != null) {
             f.prev = x;
           }
@@ -2183,18 +2187,19 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       return true;
     }
 
-    private static final sun.misc.Unsafe U;
     private static final long LOCKSTATE;
 
     static {
       try {
-        U = getUnsafe();
+        Object unsafe = AtomicFieldUpdater.getUnsafe();
+        MethodHandles.Lookup publicLookup = MethodHandles.publicLookup();
+        MethodHandle objectFieldOffset =
+          publicLookup.findVirtual(unsafe.getClass(), "objectFieldOffset", MethodType.methodType(long.class, Field.class));
         Class<?> k = TreeBin.class;
-        LOCKSTATE = U.objectFieldOffset
-          (k.getDeclaredField("lockState"));
+        LOCKSTATE = (long)objectFieldOffset.invoke(unsafe, k.getDeclaredField("lockState"));
       }
-      catch (Exception e) {
-        throw new Error(e);
+      catch (Throwable t) {
+        throw new Error(t);
       }
     }
   }
@@ -2303,7 +2308,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
         spare = s.next;
       }
       else {
-        s = new TableStack<V>();
+        s = new TableStack<>();
       }
       s.tab = t;
       s.length = n;
@@ -2365,7 +2370,9 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
         throw new IllegalStateException();
       }
       lastReturned = null;
-      map.replaceNode(p.key, null, null);
+      // IJ patched:
+      // see https://bugs.java.com/bugdatabase/view_bug.do?bug_id=8078645
+      map.replaceNode(p.key, null, p.val);
     }
   }
 
@@ -2412,18 +2419,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       final V v = p.val;
       lastReturned = p;
       advance();
-      return new Entry<V>() {
-        @Override
-        public int getKey() {
-          return k;
-        }
-
-        @NotNull
-        @Override
-        public V getValue() {
-          return v;
-        }
-      };
+      return new SimpleEntry<>(k, v);
     }
   }
 
@@ -2492,9 +2488,8 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
 
     private static final String oomeMsg = "Required array size too large";
 
-    @NotNull
     @Override
-    public final Object[] toArray() {
+    public final Object @NotNull [] toArray() {
       long sz = map.mappingCount();
       if (sz > MAX_ARRAY_SIZE) {
         throw new OutOfMemoryError(oomeMsg);
@@ -2520,10 +2515,9 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       return (i == n) ? r : Arrays.copyOf(r, i);
     }
 
-    @NotNull
     @Override
     @SuppressWarnings("unchecked")
-    public final <T> T[] toArray(@NotNull T[] a) {
+    public final <T> T @NotNull [] toArray(T @NotNull [] a) {
       long sz = map.mappingCount();
       if (sz > MAX_ARRAY_SIZE) {
         throw new OutOfMemoryError(oomeMsg);
@@ -2657,7 +2651,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       ConcurrentIntObjectHashMap<V> m = map;
       Node<V>[] t;
       int f = (t = m.table) == null ? 0 : t.length;
-      return new ValueIterator<V>(t, f, 0, f, m);
+      return new ValueIterator<>(t, f, 0, f, m);
     }
 
     @Override
@@ -2669,12 +2663,6 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
     public final boolean addAll(@NotNull Collection<? extends V> c) {
       throw new UnsupportedOperationException();
     }
-  }
-
-  @NotNull
-  @Override
-  public Iterable<Entry<V>> entries() {
-    return new EntrySetView<V>(this);
   }
 
   /**
@@ -2719,7 +2707,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       ConcurrentIntObjectHashMap<V> m = map;
       Node<V>[] t;
       int f = (t = m.table) == null ? 0 : t.length;
-      return new EntryIterator<V>(t, f, 0, f, m);
+      return new EntryIterator<>(t, f, 0, f, m);
     }
 
     @Override
@@ -2743,7 +2731,7 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
       int h = 0;
       Node<V>[] t;
       if ((t = map.table) != null) {
-        Traverser<V> it = new Traverser<V>(t, t.length, 0, t.length);
+        Traverser<V> it = new Traverser<>(t, t.length, 0, t.length);
         for (Node<V> p; (p = it.advance()) != null; ) {
           h += p.hashCode();
         }
@@ -2764,7 +2752,6 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
 
 
   // Unsafe mechanics
-  private static final sun.misc.Unsafe U;
   private static final long SIZECTL;
   private static final long TRANSFERINDEX;
   private static final long BASECOUNT;
@@ -2773,47 +2760,73 @@ class ConcurrentIntObjectHashMap<V> implements ConcurrentIntObjectMap<V> {
   private static final long ABASE;
   private static final int ASHIFT;
 
+  private static final MethodHandle putObjectVolatileHandle;
+  private static final MethodHandle getObjectVolatileHandle;
+  private static final MethodHandle compareAndSwapObjectHandle;
+  private static final MethodHandle compareAndSwapIntHandle;
+  private static final MethodHandle compareAndSwapLongHandle;
+  private static final MethodHandle getAndAddIntHandle;
+
   static {
     try {
-      U = getUnsafe();
+      MethodHandles.Lookup publicLookup = MethodHandles.publicLookup();
+      Object unsafe = AtomicFieldUpdater.getUnsafe();
+      MethodHandle objectFieldOffset = publicLookup.findVirtual(unsafe.getClass(), "objectFieldOffset", MethodType.methodType(long.class, Field.class));
       Class<?> k = ConcurrentIntObjectHashMap.class;
-      SIZECTL = U.objectFieldOffset
-        (k.getDeclaredField("sizeCtl"));
-      TRANSFERINDEX = U.objectFieldOffset
-        (k.getDeclaredField("transferIndex"));
-      BASECOUNT = U.objectFieldOffset
-        (k.getDeclaredField("baseCount"));
-      CELLSBUSY = U.objectFieldOffset
-        (k.getDeclaredField("cellsBusy"));
+      SIZECTL = (long) objectFieldOffset.invoke(unsafe, k.getDeclaredField("sizeCtl"));
+      TRANSFERINDEX = (long) objectFieldOffset.invoke(unsafe, k.getDeclaredField("transferIndex"));
+      BASECOUNT = (long) objectFieldOffset.invoke(unsafe, k.getDeclaredField("baseCount"));
+      CELLSBUSY = (long) objectFieldOffset.invoke(unsafe, k.getDeclaredField("cellsBusy"));
       Class<?> ck = CounterCell.class;
-      CELLVALUE = U.objectFieldOffset
-        (ck.getDeclaredField("value"));
+      CELLVALUE = (long) objectFieldOffset.invoke(unsafe, ck.getDeclaredField("value"));
       Class<?> ak = Node[].class;
-      ABASE = U.arrayBaseOffset(ak);
-      int scale = U.arrayIndexScale(ak);
+      ABASE = (int)publicLookup.findVirtual(unsafe.getClass(), "arrayBaseOffset", MethodType.methodType(int.class, Class.class)).invoke(unsafe, ak);
+      int scale = (int)publicLookup.findVirtual(unsafe.getClass(), "arrayIndexScale", MethodType.methodType(int.class, Class.class)).invoke(unsafe, ak);
       if ((scale & (scale - 1)) != 0) {
         throw new Error("data type scale not a power of two");
       }
       ASHIFT = 31 - Integer.numberOfLeadingZeros(scale);
+      putObjectVolatileHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "putObjectVolatile", MethodType.methodType(void.class, Object.class, long.class, Object.class))
+        .bindTo(unsafe);
+      getObjectVolatileHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "getObjectVolatile", MethodType.methodType(Object.class, Object.class, long.class))
+        .bindTo(unsafe);
+      compareAndSwapObjectHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "compareAndSwapObject", MethodType.methodType(boolean.class, Object.class, long.class, Object.class, Object.class))
+        .bindTo(unsafe);
+      compareAndSwapIntHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "compareAndSwapInt", MethodType.methodType(boolean.class, Object.class, long.class, int.class, int.class))
+        .bindTo(unsafe);
+      compareAndSwapLongHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "compareAndSwapLong", MethodType.methodType(boolean.class, Object.class, long.class, long.class, long.class))
+        .bindTo(unsafe);
+      getAndAddIntHandle = publicLookup
+        .findVirtual(unsafe.getClass(), "getAndAddInt", MethodType.methodType(int.class, Object.class, long.class, int.class))
+        .bindTo(unsafe);
     }
-    catch (Exception e) {
-      throw new Error(e);
+    catch (Throwable t) {
+      throw new Error(t);
     }
   }
 
-
-  /**
-   * Returns a sun.misc.Unsafe.  Suitable for use in a 3rd party package.
-   * Replace with a simple call to Unsafe.getUnsafe when integrating
-   * into a jdk.
-   *
-   * @return a sun.misc.Unsafe
-   */
-  private static Unsafe getUnsafe() {
-    return AtomicFieldUpdater.getUnsafe();
+  private static boolean compareAndSwapInt(Object object, long offset, int expected, int value) {
+    try {
+      return (boolean)compareAndSwapIntHandle.invokeExact(object, offset, expected, value);
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
   }
 
-  ////////////////////// IJ specific
+  private static boolean compareAndSwapLong(Object object, long offset, long expected, long value) {
+    try {
+      return (boolean)compareAndSwapLongHandle.invokeExact(object, offset, expected, value);
+    }
+    catch (Throwable throwable) {
+      throw new RuntimeException(throwable);
+    }
+  }
 
   /**
    * @return value if there is no entry in the map, or corresponding value if entry already exists

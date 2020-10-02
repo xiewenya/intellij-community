@@ -1,36 +1,110 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.layout
 
-import com.intellij.BundleBase
-import com.intellij.icons.AllIcons
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.actionSystem.DefaultActionGroup
-import com.intellij.openapi.actionSystem.PlatformDataKeys
-import com.intellij.openapi.fileChooser.FileChooserDescriptor
-import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.ui.ClickListener
-import com.intellij.ui.TextFieldWithHistoryWithBrowseButton
+import com.intellij.openapi.ui.panel.ComponentPanelBuilder
+import com.intellij.openapi.util.NlsContext
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.ui.components.Label
-import com.intellij.ui.components.Link
-import com.intellij.ui.components.Panel
-import com.intellij.ui.components.textFieldWithHistoryWithBrowseButton
-import com.intellij.util.ui.UIUtil
-import com.intellij.util.ui.UIUtil.ComponentStyle
-import com.intellij.util.ui.UIUtil.FontColor
-import java.awt.Component
-import java.awt.event.ActionEvent
-import java.awt.event.MouseEvent
-import javax.swing.JButton
+import com.intellij.ui.components.noteComponent
+import org.jetbrains.annotations.Nls
+import javax.swing.ButtonGroup
 import javax.swing.JComponent
 import javax.swing.JLabel
+import kotlin.reflect.KMutableProperty0
 
-internal const val COMPONENT_TAG_HINT = "kotlin.dsl.hint.component"
+interface BaseBuilder {
+  fun withButtonGroup(@NlsContexts.BorderTitle title: String?, buttonGroup: ButtonGroup, body: () -> Unit)
 
-abstract class Row {
+  fun withButtonGroup(buttonGroup: ButtonGroup, body: () -> Unit) {
+    withButtonGroup(null, buttonGroup, body)
+  }
+
+  fun buttonGroup(init: () -> Unit) {
+    buttonGroup(null, init)
+  }
+
+  fun buttonGroup(@NlsContexts.BorderTitle title:String? = null, init: () -> Unit) {
+    withButtonGroup(title, ButtonGroup(), init)
+  }
+}
+
+interface RowBuilder : BaseBuilder {
+  fun createChildRow(label: JLabel? = null,
+                     isSeparated: Boolean = false,
+                     noGrid: Boolean = false,
+                     @Nls title: String? = null): Row
+
+  fun createNoteOrCommentRow(component: JComponent): Row
+
+  fun checkBoxGroup(@Nls title: String?, body: () -> Unit)
+
+  fun row(label: JLabel? = null, separated: Boolean = false, init: Row.() -> Unit): Row {
+    return createChildRow(label = label, isSeparated = separated).apply(init)
+  }
+
+  fun row(@Nls label: String?, separated: Boolean = false, init: Row.() -> Unit): Row {
+    return createChildRow(label?.let { Label(it) }, isSeparated = separated).apply(init)
+  }
+
+  fun titledRow(@NlsContexts.BorderTitle title: String, init: Row.() -> Unit): Row
+
+  /**
+   * Creates row with a huge gap after it, that can be used to group related components.
+   * Think of [titledRow] without a title and additional indent.
+   */
+  fun blockRow(init: Row.() -> Unit): Row
+
+  /**
+   * Creates row with hideable decorator.
+   * It allows to hide some information under the titled decorator
+   */
+  fun hideableRow(@NlsContexts.Separator title: String, init: Row.() -> Unit): Row
+
+  /**
+   * Hyperlinks are supported (`<a href=""></a>`), new lines and `<br>` are supported only if no links (file issue if need).
+   */
+  fun noteRow(@Nls text: String, linkHandler: ((url: String) -> Unit)? = null) {
+    createNoteOrCommentRow(noteComponent(text, linkHandler))
+  }
+
+  fun commentRow(@Nls text: String) {
+    createNoteOrCommentRow(ComponentPanelBuilder.createCommentComponent(text, true, -1, true))
+  }
+
+  fun onGlobalApply(callback: () -> Unit): Row
+  fun onGlobalReset(callback: () -> Unit): Row
+  fun onGlobalIsModified(callback: () -> Boolean): Row
+}
+
+inline fun <reified T : Any> InnerCell.buttonGroup(prop: KMutableProperty0<T>, crossinline init: CellBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  buttonGroup(prop.toBinding(), init)
+}
+
+inline fun <reified T : Any> InnerCell.buttonGroup(noinline getter: () -> T, noinline setter: (T) -> Unit, crossinline init: CellBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  buttonGroup(PropertyBinding(getter, setter), init)
+}
+
+inline fun <reified T : Any> InnerCell.buttonGroup(binding: PropertyBinding<T>, crossinline init: CellBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  withButtonGroup(ButtonGroup()) {
+    CellBuilderWithButtonGroupProperty(binding).init()
+  }
+}
+
+inline fun <reified T : Any> RowBuilder.buttonGroup(prop: KMutableProperty0<T>, crossinline init: RowBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  buttonGroup(prop.toBinding(), init)
+}
+
+inline fun <reified T : Any> RowBuilder.buttonGroup(noinline getter: () -> T, noinline setter: (T) -> Unit, crossinline init: RowBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  buttonGroup(PropertyBinding(getter, setter), init)
+}
+
+inline fun <reified T : Any> RowBuilder.buttonGroup(binding: PropertyBinding<T>, crossinline init: RowBuilderWithButtonGroupProperty<T>.() -> Unit) {
+  withButtonGroup(ButtonGroup()) {
+    RowBuilderWithButtonGroupProperty(this, binding).init()
+  }
+}
+
+abstract class Row : Cell(), RowBuilder {
   abstract var enabled: Boolean
 
   abstract var visible: Boolean
@@ -39,74 +113,17 @@ abstract class Row {
 
   abstract var subRowsVisible: Boolean
 
-  abstract val subRows: List<Row>
+  /**
+   * Indent for child rows of this row, expressed in steps (multiples of [SpacingConfiguration.indentLevel]). Replaces indent
+   * calculated from row nesting.
+   */
+  abstract var subRowIndent: Int
 
   protected abstract val builder: LayoutBuilderImpl
 
-  fun label(text: String, gapLeft: Int = 0, style: ComponentStyle? = null, fontColor: FontColor? = null, bold: Boolean = false): JLabel {
-    val label = Label(text, style, fontColor, bold)
-    label(gapLeft = gapLeft)
-    return label
-  }
-
-  fun link(text: String, style: ComponentStyle? = null, action: () -> Unit) {
-    val result = Link(text, action = action)
-    style?.let { UIUtil.applyStyle(it, result) }
-    result()
-  }
-
-  fun button(text: String, actionListener: (event: ActionEvent) -> Unit) {
-    val button = JButton(BundleBase.replaceMnemonicAmpersand(text))
-    button.addActionListener(actionListener)
-    button()
-  }
-
-  fun textFieldWithBrowseButton(browseDialogTitle: String,
-                                value: String? = null,
-                                project: Project? = null,
-                                fileChooserDescriptor: FileChooserDescriptor = FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor(),
-                                historyProvider: (() -> List<String>)? = null,
-                                fileChosen: ((chosenFile: VirtualFile) -> String)? = null): TextFieldWithHistoryWithBrowseButton {
-    val component = textFieldWithHistoryWithBrowseButton(project, browseDialogTitle, fileChooserDescriptor, historyProvider, fileChosen)
-    value?.let { component.text = it }
-    component()
-    return component
-  }
-
-  fun gearButton(vararg actions: AnAction) {
-    val label = JLabel()
-    label.icon = AllIcons.General.Gear
-
-    object : ClickListener() {
-      override fun onClick(e: MouseEvent, clickCount: Int): Boolean {
-        JBPopupFactory.getInstance()
-            .createActionGroupPopup(null, DefaultActionGroup(*actions), DataContext { dataId ->
-              when (dataId) {
-                PlatformDataKeys.CONTEXT_COMPONENT.name -> label
-                else -> null
-              }
-            }, true, null, 10)
-            .showUnderneathOf(label)
-        return true
-      }
-    }.installOn(label)
-
-    label()
-  }
-
-  fun hint(text: String) {
-    val component = label(text, style = ComponentStyle.SMALL, fontColor = FontColor.BRIGHTER)
-    component.putClientProperty(COMPONENT_TAG_HINT, true)
-  }
-
-  fun panel(title: String, wrappedComponent: Component, vararg constraints: CCFlags) {
-    val panel = Panel(title)
-    panel.add(wrappedComponent)
-    panel(*constraints)
-  }
-
-  abstract operator fun JComponent.invoke(vararg constraints: CCFlags, gapLeft: Int = 0, growPolicy: GrowPolicy? = null)
-
+  /**
+   * Specifies the right alignment for the component if the cell is larger than the component plus its gaps.
+   */
   inline fun right(init: Row.() -> Unit) {
     alignRight()
     init()
@@ -115,30 +132,42 @@ abstract class Row {
   @PublishedApi
   internal abstract fun alignRight()
 
-  inline fun row(label: String, init: Row.() -> Unit): Row {
-    val row = createRow(label)
-    row.init()
-    return row
-  }
+  abstract fun largeGapAfter()
 
-  inline fun row(init: Row.() -> Unit): Row {
-    val row = createRow(null)
-    row.init()
-    return row
+  /**
+   * Shares cell between components.
+   *
+   * @param isFullWidth If `true`, the cell occupies the full width of the enclosing component.
+   */
+  inline fun cell(isVerticalFlow: Boolean = false, isFullWidth: Boolean = false, init: InnerCell.() -> Unit) {
+    setCellMode(true, isVerticalFlow, isFullWidth)
+    InnerCell(this).init()
+    setCellMode(false, isVerticalFlow, isFullWidth)
   }
 
   @PublishedApi
   internal abstract fun createRow(label: String?): Row
 
-  @Deprecated(message = "Nested row is prohibited", level = DeprecationLevel.ERROR)
-  fun row(label: JLabel? = null, init: Row.() -> Unit) {
+  @PublishedApi
+  internal abstract fun setCellMode(value: Boolean, isVerticalFlow: Boolean, fullWidth: Boolean)
+
+  // backward compatibility
+  @Deprecated(level = DeprecationLevel.HIDDEN, message = "deprecated")
+  operator fun JComponent.invoke(vararg constraints: CCFlags, gapLeft: Int = 0, growPolicy: GrowPolicy? = null) {
+    invoke(constraints = *constraints, growPolicy = growPolicy).withLeftGap(gapLeft)
   }
 
-  @Deprecated(message = "Nested noteRow is prohibited", level = DeprecationLevel.ERROR)
-  fun noteRow(text: String) {
+  @Deprecated(level = DeprecationLevel.ERROR,
+              message = "Do not create standalone panel, if you want layout components in vertical flow mode, use cell(isVerticalFlow = true)")
+  fun panel(vararg constraints: LCFlags, title: String? = null, init: LayoutBuilder.() -> Unit) {
   }
 }
 
 enum class GrowPolicy {
   SHORT_TEXT, MEDIUM_TEXT
+}
+
+fun Row.enableIf(predicate: ComponentPredicate) {
+  enabled = predicate()
+  predicate.addListener { enabled = it }
 }

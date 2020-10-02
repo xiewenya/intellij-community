@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.diff.impl.patch.apply;
 
-import com.intellij.diff.util.IntPair;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.impl.patch.ApplyPatchStatus;
 import com.intellij.openapi.diff.impl.patch.PatchHunk;
@@ -25,24 +10,27 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.changes.patch.AppliedTextPatch;
 import com.intellij.util.BeforeAfter;
 import com.intellij.util.Consumer;
+import com.intellij.util.IntPair;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-import static com.intellij.openapi.diff.impl.patch.ApplyPatchStatus.ALREADY_APPLIED;
+import static com.intellij.openapi.diff.impl.patch.ApplyPatchStatus.*;
 
 public class GenericPatchApplier {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.diff.impl.patch.apply.GenericPatchApplier");
+  private static final Logger LOG = Logger.getInstance(GenericPatchApplier.class);
   private final static int ourMaxWalk = 1000;
-  
+
   private final TreeMap<TextRange, MyAppliedData> myTransformations;
   private final List<String> myLines;
-  private final List<PatchHunk> myHunks;
+  private final List<? extends PatchHunk> myHunks;
   private final boolean myBaseFileEndsWithNewLine;
   private boolean myHadAlreadyAppliedMet;
 
@@ -52,13 +40,13 @@ public class GenericPatchApplier {
   @NotNull private final List<AppliedTextPatch.AppliedSplitPatchHunk> myAppliedInfo;
   private static final IntPair EMPTY_OFFSET = new IntPair(0, 0);
 
-  private static void debug(final String s) {
+  private static void debug(@NonNls final String s) {
     if (LOG.isDebugEnabled()) {
       LOG.debug(s);
     }
   }
 
-  public GenericPatchApplier(final CharSequence text, List<PatchHunk> hunks) {
+  public GenericPatchApplier(final CharSequence text, List<? extends PatchHunk> hunks) {
     debug("GenericPatchApplier created, hunks: " + hunks.size());
     myLines = new ArrayList<>();
     Collections.addAll(myLines, LineTokenizer.tokenize(text, false));
@@ -71,34 +59,83 @@ public class GenericPatchApplier {
     myAppliedInfo = new ArrayList<>();
   }
 
+  @Nullable
+  public static AppliedPatch apply(CharSequence text, List<? extends PatchHunk> hunks) {
+    String patchedText = PlainSimplePatchApplier.apply(text, hunks);
+    if (patchedText != null) {
+      return new AppliedPatch(patchedText, SUCCESS);
+    }
+
+    GenericPatchApplier applier = new GenericPatchApplier(text, hunks);
+    boolean success = applier.execute();
+
+    if (!success) return null;
+
+    return new AppliedPatch(applier.getAfter(), applier.getStatus());
+  }
+
+  @NotNull
+  public static AppliedSomehowPatch applySomehow(CharSequence text, List<? extends PatchHunk> hunks) {
+    String patchedText = PlainSimplePatchApplier.apply(text, hunks);
+    if (patchedText != null) {
+      return new AppliedSomehowPatch(patchedText, SUCCESS, false);
+    }
+
+    GenericPatchApplier applier = new GenericPatchApplier(text, hunks);
+    boolean success = applier.execute();
+
+    if (!success) applier.trySolveSomehow();
+
+    return new AppliedSomehowPatch(applier.getAfter(), applier.getStatus(), !success);
+  }
+
+  public static class AppliedPatch {
+    @NotNull public final String patchedText;
+    @NotNull public final ApplyPatchStatus status;
+
+    public AppliedPatch(@NotNull String patchedText, @NotNull ApplyPatchStatus status) {
+      this.patchedText = patchedText;
+      this.status = status;
+    }
+  }
+
+  public static class AppliedSomehowPatch extends AppliedPatch {
+    public final boolean isAppliedSomehow;
+
+    public AppliedSomehowPatch(@NotNull String text, @NotNull ApplyPatchStatus status, boolean isAppliedSomehow) {
+      super(text, status);
+      this.isAppliedSomehow = isAppliedSomehow;
+    }
+  }
+
   public ApplyPatchStatus getStatus() {
     if (! myNotExact.isEmpty()) {
-      return ApplyPatchStatus.FAILURE;
+      return FAILURE;
     } else {
       if (myTransformations.isEmpty() && myHadAlreadyAppliedMet) return ALREADY_APPLIED;
       boolean haveAlreadyApplied = myHadAlreadyAppliedMet;
       boolean haveTrue = false;
       for (MyAppliedData data : myTransformations.values()) {
         if (data.isHaveAlreadyApplied()) {
-          haveAlreadyApplied |= true;
+          haveAlreadyApplied = true;
         } else {
           haveTrue = true;
         }
       }
-      if (haveAlreadyApplied && ! haveTrue) return ALREADY_APPLIED;
-      if (haveAlreadyApplied) return ApplyPatchStatus.PARTIAL;
-      return ApplyPatchStatus.SUCCESS;
+      if (haveAlreadyApplied && !haveTrue) return ALREADY_APPLIED;
+      if (haveAlreadyApplied) return PARTIAL;
+      return SUCCESS;
     }
   }
 
-  private void printTransformations(final String comment) {
+  private void printTransformations(@NonNls final String comment) {
     if (LOG.isDebugEnabled()) {
       LOG.debug(comment + " GenericPatchApplier.printTransformations ---->");
       int cnt = 0;
       for (Map.Entry<TextRange, MyAppliedData> entry : myTransformations.entrySet()) {
         final TextRange key = entry.getKey();
         final MyAppliedData value = entry.getValue();
-        LOG.info(String.valueOf(cnt) +
+        LOG.info(cnt +
                  " lines " +
                  key.getStartOffset() +
                  ":" +
@@ -223,7 +260,7 @@ public class GenericPatchApplier {
 
   @NotNull
   private static String constructHunkWarnMessage(int startLineBefore, int startLineAfter, int sizeBefore, int sizeAfter) {
-    return String.format("Can't detect hunk modification lines for: -%d,%d +%d,%d", startLineBefore, sizeBefore,
+    return VcsBundle.message("patch.apply.hunk.warning", startLineBefore, sizeBefore,
                          startLineAfter, sizeAfter);
   }
 
@@ -284,8 +321,7 @@ public class GenericPatchApplier {
   // applies in a way that patch _can_ be solved manually even in the case of total mismatch
   public void trySolveSomehow() {
     assert !myNotExact.isEmpty();
-    for (Iterator<SplitHunk> iterator = myNotExact.iterator(); iterator.hasNext(); ) {
-      final SplitHunk hunk = iterator.next();
+    for (final SplitHunk hunk : myNotExact) {
       hunk.cutSameTail();
       if (!testForPartialContextMatch(hunk, new LongTryMismatchSolver(hunk), ourMaxWalk, null)) {
         if (complementIfShort(hunk)) {
@@ -298,7 +334,7 @@ public class GenericPatchApplier {
         }
       }
     }
-    Collections.sort(myNotBound, HunksComparator.getInstance());
+    myNotBound.sort(HunksComparator.getInstance());
     myNotExact.clear();
   }
 
@@ -421,7 +457,7 @@ public class GenericPatchApplier {
     return myAppliedInfo;
   }
 
-  private static class FragmentResult {
+  private static final class FragmentResult {
     private int myStart;
     private int myEnd;
     private boolean myContainAlreadyApplied;
@@ -551,7 +587,7 @@ public class GenericPatchApplier {
           // deletion
           final UnfairTextRange textRange = new UnfairTextRange(j, i + (cntStart - endSize));
           myTransformations.put(textRange, new MyAppliedData(Collections.emptyList(), value.isHaveAlreadyApplied(),
-                                                             value.isPlaceCoinside(), value.isChangedCoinside(), value.myChangeType));
+                                                             value.isPlaceCoincide(), value.isChangedCoincide(), value.myChangeType));
           processAppliedInfo(splitHunk, range, contextOffsetInPatchSteps, AppliedTextPatch.HunkStatus.EXACTLY_APPLIED);
         }
       }
@@ -562,16 +598,16 @@ public class GenericPatchApplier {
           assert cntStart > 0;
           final MyAppliedData newData =
             new MyAppliedData(new ArrayList<>(list.subList(cntStart - (j - i), endSize)), value.isHaveAlreadyApplied(),
-                              value.isPlaceCoinside(),
-                              value.isChangedCoinside(), value.myChangeType);
+                              value.isPlaceCoincide(),
+                              value.isChangedCoincide(), value.myChangeType);
           final TextRange newRange = new TextRange(i, i);
           myTransformations.put(newRange, newData);
           processAppliedInfo(splitHunk, range, contextOffsetInPatchSteps, AppliedTextPatch.HunkStatus.EXACTLY_APPLIED);
           return;
         }
         final MyAppliedData newData =
-          new MyAppliedData(new ArrayList<>(list.subList(cntStart, endSize)), value.isHaveAlreadyApplied(), value.isPlaceCoinside(),
-                            value.isChangedCoinside(), value.myChangeType);
+          new MyAppliedData(new ArrayList<>(list.subList(cntStart, endSize)), value.isHaveAlreadyApplied(), value.isPlaceCoincide(),
+                            value.isChangedCoincide(), value.myChangeType);
         final TextRange newRange = new TextRange(j, i);
         myTransformations.put(newRange, newData);
         processAppliedInfo(splitHunk, range, contextOffsetInPatchSteps, AppliedTextPatch.HunkStatus.EXACTLY_APPLIED);
@@ -593,9 +629,9 @@ public class GenericPatchApplier {
                                   AppliedTextPatch.HunkStatus hunkStatus) {
     if (hunk != null) {
       // +1 to the end  because end range is always not included -> [i;j); except add modification;
-      int newStart = lineWithPartContextApplied.getStartOffset() + contextRangeShift.val1;
+      int newStart = lineWithPartContextApplied.getStartOffset() + contextRangeShift.first;
       int newEnd = hunk.isInsertion() && hunkStatus != AppliedTextPatch.HunkStatus.ALREADY_APPLIED
-                   ? newStart : lineWithPartContextApplied.getEndOffset() + 1 - contextRangeShift.val2;
+                   ? newStart : lineWithPartContextApplied.getEndOffset() + 1 - contextRangeShift.second;
       myAppliedInfo.add(new AppliedTextPatch.AppliedSplitPatchHunk(hunk, newStart, newEnd, hunkStatus));
     }
   }
@@ -623,7 +659,7 @@ public class GenericPatchApplier {
     }
   }
 
-  private static class Point {
+  private static final class Point {
     private final int myDistance;
     private final int myContextDistance;
     private final int myCommon;
@@ -637,7 +673,7 @@ public class GenericPatchApplier {
       myContextDistance = contextDistance;
       myCommon = common;
     }
-    
+
     public boolean meBetter(final Point maxPoint) {
       if (myCommon <= 1 && maxPoint.myCommon > 1) return false;
       if (maxPoint.myCommon <= 1 && myCommon > 1) return true;
@@ -658,7 +694,7 @@ public class GenericPatchApplier {
     }
   }
 
-  private class SequentialStepsChecker {
+  private final class SequentialStepsChecker {
     private int myDistance;
     // in the end, will be [excluding] end of changing interval
     private int myIdx;
@@ -680,7 +716,7 @@ public class GenericPatchApplier {
       return myDistance;
     }
 
-    public void go(final List<BeforeAfter<List<String>>> steps) {
+    public void go(final List<? extends BeforeAfter<List<String>>> steps) {
       final Consumer<BeforeAfter<List<String>>> stepConsumer = listBeforeAfter -> {
         if (myDistance == 0) {
           // until this point, it all had being doing well
@@ -716,13 +752,13 @@ public class GenericPatchApplier {
         }
       }
     }
-    
+
     public int getSizeOfFragmentToBeReplaced() {
       return myForward ? (myIdx - myStartIdx) : (myStartIdx - myIdx);
     }
   }
 
-  private static class FirstLineDescriptor {
+  private static final class FirstLineDescriptor {
     private final String myLine;
     private final int myOffset;
     private final int myStepNumber;
@@ -757,8 +793,8 @@ public class GenericPatchApplier {
       return myIsInBefore;
     }
   }
-  
-  private static class ExactMatchSolver extends MismatchSolver {
+
+  private static final class ExactMatchSolver extends MismatchSolver {
     private ExactMatchSolver(final SplitHunk hunk) {
       super(false);
       final List<BeforeAfter<List<String>>> steps = hunk.getPatchSteps();
@@ -775,7 +811,7 @@ public class GenericPatchApplier {
       assert ! myResult.isEmpty();
     }
   }
-  
+
   public static class LongTryMismatchSolver extends MismatchSolver {
     // let it be 3 first steps plus 2 lines as an attempt
     public LongTryMismatchSolver(final SplitHunk hunk) {
@@ -800,7 +836,7 @@ public class GenericPatchApplier {
       }
     }
   }
-  
+
   private abstract static class MismatchSolver {
     protected final ArrayList<FirstLineDescriptor> myResult;
     private final boolean myAllowMismatch;
@@ -818,13 +854,13 @@ public class GenericPatchApplier {
       return myAllowMismatch;
     }
   }
-  
+
   private Iterator<Integer> getMatchingIterator(final String line, final int originalStart, final int maxWalkFromBinding) {
     return ContainerUtil.concatIterators(new WalkingIterator(line, originalStart, maxWalkFromBinding, true),
                                           new WalkingIterator(line, originalStart, maxWalkFromBinding, false));
   }
-  
-  private class WalkingIterator implements Iterator<Integer> {
+
+  private final class WalkingIterator implements Iterator<Integer> {
     private final String myLine;
     // true = down
     private final boolean myDirection;
@@ -838,7 +874,7 @@ public class GenericPatchApplier {
       myLeftWalk = leftWalk;
 
       myDirection = direction;
-      myCurrentIdx = direction ? start - 1 : start; 
+      myCurrentIdx = direction ? start - 1 : start;
       step();
     }
 
@@ -886,7 +922,7 @@ public class GenericPatchApplier {
         }
       }
     }
-    
+
     private boolean isSeized(final int lineNumber) {
       final TextRange art = new TextRange(lineNumber, lineNumber);
       final TextRange floor = myTransformations.floorKey(art);
@@ -898,7 +934,7 @@ public class GenericPatchApplier {
     final int offset = splitHunk.getContextBefore().size();
     final List<BeforeAfter<List<String>>> steps = splitHunk.getPatchSteps();
     if (splitHunk.isInsertion()) {
-      final boolean emptyFile = myLines.isEmpty() || myLines.size() == 1 && myLines.get(0).trim().length() == 0;
+      final boolean emptyFile = myLines.isEmpty() || myLines.size() == 1 && myLines.get(0).trim().isEmpty();
       if (emptyFile) {
         myNotBound.add(splitHunk);
         processAppliedInfoForUnApplied(splitHunk);
@@ -937,30 +973,27 @@ public class GenericPatchApplier {
   }
 
   // will not find consider fragments that intersect
-  private class FragmentMatcher {
+  private final class FragmentMatcher {
     private final int myIdx;
     private int myOffsetIdxInHunk;
     // if we set index in hunk != 0, then we will check only one side
     private Boolean myBeforeSide;
-    private boolean myIsInBefore;
-    private final int myIdxInHunk;
     private final BeforeAfter<List<String>> myBeforeAfter;
 
     private FragmentMatcher(int idx, BeforeAfter<List<String>> beforeAfter) {
       myOffsetIdxInHunk = 0;
       myIdx = idx;
       myBeforeAfter = beforeAfter;
-      myIdxInHunk = 0;
       //myBeforeSide = true;
     }
-    
+
     public void setSideAndIdx(final int startInHunk, final boolean beforeSide) {
       myOffsetIdxInHunk = startInHunk;
       myBeforeSide = beforeSide;
       if (myBeforeSide) {
-        assert myBeforeAfter.getBefore().size() > myOffsetIdxInHunk || (myOffsetIdxInHunk == 0 && myBeforeAfter.getBefore().size() == 0);
+        assert myBeforeAfter.getBefore().size() > myOffsetIdxInHunk || (myOffsetIdxInHunk == 0 && myBeforeAfter.getBefore().isEmpty());
       } else {
-        assert myBeforeAfter.getAfter().size() > myOffsetIdxInHunk || (myOffsetIdxInHunk == 0 && myBeforeAfter.getAfter().size() == 0);
+        assert myBeforeAfter.getAfter().size() > myOffsetIdxInHunk || (myOffsetIdxInHunk == 0 && myBeforeAfter.getAfter().isEmpty());
       }
     }
 
@@ -990,7 +1023,7 @@ public class GenericPatchApplier {
           return beforePair;
         }
 
-        // take longer coinsiding
+        // take longer coinciding
         final int beforeCommon = myBeforeAfter.getBefore().size() - beforeCheckResult;
         final int afterCommon = myBeforeAfter.getAfter().size() - afterCheckResult;
         if (beforeCommon > 0 && afterCommon > 0) {
@@ -1013,7 +1046,7 @@ public class GenericPatchApplier {
         return beforePair;
       }
     }
-    
+
     private int checkSide(final List<String> side, final boolean canMismatch) {
       int distance = 0;
       if (myOffsetIdxInHunk > 0) {
@@ -1048,9 +1081,9 @@ public class GenericPatchApplier {
       linesToSb(sb, hunk.getAfterAll(), true);
     }
     iterateTransformations(range -> {
-      List<String> baseLineslist = myLines.subList(range.getStartOffset(), range.getEndOffset() + 1);
+      List<String> baseLinesList = myLines.subList(range.getStartOffset(), range.getEndOffset() + 1);
       boolean withLineBreak = !containsLastLine(range) || myBaseFileEndsWithNewLine;
-      linesToSb(sb, baseLineslist, withLineBreak);
+      linesToSb(sb, baseLinesList, withLineBreak);
     }, range -> {
       final MyAppliedData appliedData = myTransformations.get(range);
       List<String> list = appliedData.getList();
@@ -1072,7 +1105,7 @@ public class GenericPatchApplier {
   }
 
   // indexes are passed inclusive
-  private void iterateTransformations(final Consumer<TextRange> consumerExcluded, final Consumer<TextRange> consumerIncluded) {
+  private void iterateTransformations(final Consumer<? super TextRange> consumerExcluded, final Consumer<? super TextRange> consumerIncluded) {
     if (myTransformations.isEmpty()) {
       consumerExcluded.consume(new UnfairTextRange(0, myLines.size() - 1));
     } else {
@@ -1175,26 +1208,26 @@ public class GenericPatchApplier {
       }
       return result;
     }
-    
-    private static int readOne(final List<PatchLine> lines, final List<String> contextBefore, final List<String> contextAfter, 
-                               final List<BeforeAfter<List<String>>> steps, final int startI) {
+
+    private static int readOne(final List<? extends PatchLine> lines, final List<? super String> contextBefore, final List<? super String> contextAfter,
+                               final List<? super BeforeAfter<List<String>>> steps, final int startI) {
       int i = startI;
       for (; i < lines.size(); i++) {
         final PatchLine patchLine = lines.get(i);
-        if (! PatchLine.Type.CONTEXT.equals(patchLine.getType())) break;
+        if (PatchLine.Type.CONTEXT != patchLine.getType()) break;
         contextBefore.add(patchLine.getText());
       }
 
-      final boolean addFirst = i < lines.size() && PatchLine.Type.ADD.equals(lines.get(i).getType());
+      final boolean addFirst = i < lines.size() && PatchLine.Type.ADD == lines.get(i).getType();
       List<String> before = new ArrayList<>();
       List<String> after = new ArrayList<>();
       for (; i < lines.size(); i++) {
         final PatchLine patchLine = lines.get(i);
         final PatchLine.Type type = patchLine.getType();
-        if (PatchLine.Type.CONTEXT.equals(type)) {
+        if (PatchLine.Type.CONTEXT == type) {
           break;
         }
-        if (PatchLine.Type.ADD.equals(type)) {
+        if (PatchLine.Type.ADD == type) {
           if (addFirst && ! before.isEmpty()) {
             // new piece
             steps.add(new BeforeAfter<>(before, after));
@@ -1202,7 +1235,7 @@ public class GenericPatchApplier {
             after = new ArrayList<>();
           }
           after.add(patchLine.getText());
-        } else if (PatchLine.Type.REMOVE.equals(type)) {
+        } else if (PatchLine.Type.REMOVE == type) {
           if (! addFirst && ! after.isEmpty()) {
             // new piece
             steps.add(new BeforeAfter<>(before, after));
@@ -1218,7 +1251,7 @@ public class GenericPatchApplier {
 
       for (; i < lines.size(); i++) {
         final PatchLine patchLine = lines.get(i);
-        if (! PatchLine.Type.CONTEXT.equals(patchLine.getType())) {
+        if (PatchLine.Type.CONTEXT != patchLine.getType()) {
           return i;
         }
         contextAfter.add(patchLine.getText());
@@ -1250,7 +1283,7 @@ public class GenericPatchApplier {
     public List<BeforeAfter<List<String>>> getPatchSteps() {
       return myPatchSteps;
     }
-    
+
     public List<String> getAfterAll() {
       final ArrayList<String> after = new ArrayList<>();
       for (BeforeAfter<List<String>> step : myPatchSteps) {
@@ -1263,26 +1296,26 @@ public class GenericPatchApplier {
   public static class MyAppliedData {
     private List<String> myList;
     private final boolean myHaveAlreadyApplied;
-    private final boolean myPlaceCoinside;
-    private final boolean myChangedCoinside;
+    private final boolean myPlaceCoincide;
+    private final boolean myChangedCoincide;
     private final ChangeType myChangeType;
 
     public MyAppliedData(List<String> list,
                          boolean alreadyApplied,
-                         boolean placeCoinside,
-                         boolean changedCoinside,
+                         boolean placeCoincide,
+                         boolean changedCoincide,
                          ChangeType changeType) {
       myList = list;
       myHaveAlreadyApplied = alreadyApplied;
-      myPlaceCoinside = placeCoinside;
-      myChangedCoinside = changedCoinside;
+      myPlaceCoincide = placeCoincide;
+      myChangedCoincide = changedCoincide;
       myChangeType = changeType;
     }
 
     public List<String> getList() {
       return myList;
     }
-    
+
     public void cutToSize(final int size) {
       assert size > 0 && size < myList.size();
       myList = new ArrayList<>(myList.subList(0, size));
@@ -1292,12 +1325,12 @@ public class GenericPatchApplier {
       return myHaveAlreadyApplied;
     }
 
-    public boolean isPlaceCoinside() {
-      return myPlaceCoinside;
+    public boolean isPlaceCoincide() {
+      return myPlaceCoincide;
     }
 
-    public boolean isChangedCoinside() {
-      return myChangedCoinside;
+    public boolean isChangedCoincide() {
+      return myChangedCoincide;
     }
   }
 
@@ -1308,7 +1341,7 @@ public class GenericPatchApplier {
   public TreeMap<TextRange, MyAppliedData> getTransformations() {
     return myTransformations;
   }
-  
+
   private static class HunksComparator implements Comparator<SplitHunk> {
     private final static HunksComparator ourInstance = new HunksComparator();
 

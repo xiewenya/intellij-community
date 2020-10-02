@@ -20,9 +20,13 @@ import com.intellij.history.core.Content;
 import com.intellij.history.core.Paths;
 import com.intellij.history.core.StreamUtil;
 import com.intellij.history.core.revisions.Difference;
+import com.intellij.openapi.util.NlsSafe;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.newvfs.impl.FileNameCache;
 import com.intellij.util.SmartList;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,20 +40,26 @@ import static java.lang.String.format;
 
 public abstract class Entry {
   private int myNameId;
+  private int myNameHash; // case insensitive
   private DirectoryEntry myParent;
 
-  public Entry(String name) {
-    this(toNameId(name));
+  public Entry(@NonNls String name) {
+    this(toNameId(name), calcNameHash(name));
   }
 
   public Entry(int nameId) {
+    this(nameId, calcNameHash(fromNameId(nameId)));
+  }
+  
+  private Entry(int nameId, int nameHash) {
     myNameId = nameId;
+    myNameHash = nameHash;
   }
 
   private static final int NULL_NAME_ID = -1;
   private static final int EMPTY_NAME_ID = 0;
 
-  protected static int toNameId(String name) {
+  protected static int toNameId(@NonNls String name) {
     if (name == null) return NULL_NAME_ID;
     if (name.isEmpty()) return EMPTY_NAME_ID;
     return FileNameCache.storeName(name);
@@ -62,13 +72,16 @@ public abstract class Entry {
   }
 
   public Entry(DataInput in) throws IOException {
-    myNameId = toNameId(StreamUtil.readString(in));
+    String name = StreamUtil.readString(in);
+    myNameId = toNameId(name);
+    myNameHash = calcNameHash(name);
   }
 
   public void write(DataOutput out) throws IOException {
     StreamUtil.writeString(out, getName());
   }
 
+  @NlsSafe
   public String getName() {
     CharSequence sequence = fromNameId(myNameId);
     if (sequence != null && !(sequence instanceof String)) {
@@ -77,6 +90,7 @@ public abstract class Entry {
     return (String)sequence;
   }
 
+  @NlsSafe
   public CharSequence getNameSequence() {
     return fromNameId(myNameId);
   }
@@ -84,7 +98,12 @@ public abstract class Entry {
   public int getNameId() {
     return myNameId;
   }
+  
+  public int getNameHash() {
+    return myNameHash;
+  }
 
+  @NlsSafe
   public String getPath() {
     StringBuilder builder = new StringBuilder();
     buildPath(this, builder);
@@ -98,11 +117,11 @@ public abstract class Entry {
     builder.append(e.getNameSequence());
   }
 
-  public boolean nameEquals(String name) {
+  public boolean nameEquals(@NonNls String name) {
     return Paths.equals(getName(), name);
   }
 
-  public boolean pathEquals(String path) {
+  public boolean pathEquals(@NonNls String path) {
     return Paths.equals(getPath(), path);
   }
 
@@ -128,7 +147,7 @@ public abstract class Entry {
     return hasUnavailableContent(new ArrayList<>());
   }
 
-  public boolean hasUnavailableContent(List<Entry> entriesWithUnavailableContent) {
+  public boolean hasUnavailableContent(List<? super Entry> entriesWithUnavailableContent) {
     return false;
   }
 
@@ -148,7 +167,7 @@ public abstract class Entry {
     throw new UnsupportedOperationException(formatAddRemove(child));
   }
 
-  public void addChildren(Collection<Entry> children) {
+  public void addChildren(Collection<? extends Entry> children) {
     throw new UnsupportedOperationException();
   }
 
@@ -156,6 +175,7 @@ public abstract class Entry {
     throw new UnsupportedOperationException(formatAddRemove(child));
   }
 
+  @NonNls
   private String formatAddRemove(Entry child) {
     return "add/remove " + child.formatPath() + " to " + formatPath();
   }
@@ -164,18 +184,24 @@ public abstract class Entry {
     return Collections.emptyList();
   }
 
-  public Entry findChild(String name) {
+  public Entry findChild(@NonNls String name) {
+    int nameHash = calcNameHash(name);
     for (Entry e : getChildren()) {
-      if (e.nameEquals(name)) return e;
+      if (nameHash == e.getNameHash() && e.nameEquals(name)) return e;
     }
     return null;
   }
 
-  public boolean hasEntry(String path) {
+  protected static int calcNameHash(@Nullable @NonNls CharSequence name) {
+    return name == null ? -1 : StringUtil.stringHashCodeInsensitive(name);
+  }
+
+  public boolean hasEntry(@NonNls String path) {
     return findEntry(path) != null;
   }
 
-  public Entry getEntry(String path) {
+  @NotNull
+  public Entry getEntry(@NonNls String path) {
     Entry result = findEntry(path);
     if (result == null) {
       throw new RuntimeException(format("entry '%s' not found", path));
@@ -183,7 +209,8 @@ public abstract class Entry {
     return result;
   }
 
-  public Entry findEntry(String relativePath) {
+  @Nullable
+  public Entry findEntry(@NonNls String relativePath) {
     Iterable<String> parts = Paths.split(relativePath);
     Entry result = this;
     for (String each : parts) {
@@ -197,9 +224,10 @@ public abstract class Entry {
   @NotNull
   public abstract Entry copy();
 
-  public void setName(String newName) {
+  public void setName(@NonNls String newName) {
     if (myParent != null) myParent.checkDoesNotExist(this, newName);
     myNameId = toNameId(newName);
+    myNameHash = calcNameHash(newName);
   }
 
   public void setContent(Content newContent, long timestamp) {
@@ -207,25 +235,30 @@ public abstract class Entry {
   }
 
   public static List<Difference> getDifferencesBetween(Entry left, Entry right) {
+    return getDifferencesBetween(left, right, false);
+  }
+
+  public static List<Difference> getDifferencesBetween(Entry left, Entry right, boolean isRightContentCurrent) {
     List<Difference> result = new SmartList<>();
 
-    if (left == null) right.collectCreatedDifferences(result);
-    else if (right == null) left.collectDeletedDifferences(result);
-    else left.collectDifferencesWith(right, result);
+    if (left == null) right.collectCreatedDifferences(result, isRightContentCurrent);
+    else if (right == null) left.collectDeletedDifferences(result, isRightContentCurrent);
+    else left.collectDifferencesWith(right, result, isRightContentCurrent);
     return result;
   }
 
-  protected abstract void collectDifferencesWith(@NotNull Entry e, @NotNull List<Difference> result);
+  protected abstract void collectDifferencesWith(@NotNull Entry e, @NotNull List<? super Difference> result, boolean isRightContentCurrent);
 
-  protected abstract void collectCreatedDifferences(@NotNull List<Difference> result);
+  protected abstract void collectCreatedDifferences(@NotNull List<? super Difference> result, boolean isRightContentCurrent);
 
-  protected abstract void collectDeletedDifferences(@NotNull List<Difference> result);
+  protected abstract void collectDeletedDifferences(@NotNull List<? super Difference> result, boolean isRightContentCurrent);
 
   @Override
   public String toString() {
     return getName();
   }
 
+  @NonNls
   private String formatPath() {
     String type = isDirectory() ? "dir: " : "file: ";
     return type + getPath();

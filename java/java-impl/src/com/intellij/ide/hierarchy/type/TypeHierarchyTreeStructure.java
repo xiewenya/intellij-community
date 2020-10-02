@@ -19,17 +19,18 @@ import com.intellij.ide.hierarchy.HierarchyNodeDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiClass;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 
 public final class TypeHierarchyTreeStructure extends SubtypesHierarchyTreeStructure {
-
-  public TypeHierarchyTreeStructure(final Project project, final PsiClass aClass, String currentScopeType) {
+  public TypeHierarchyTreeStructure(@NotNull Project project, @NotNull PsiClass aClass, String currentScopeType) {
     super(project, buildHierarchyElement(project, aClass), currentScopeType);
     setBaseElement(myBaseDescriptor); //to set myRoot
   }
 
-  private static HierarchyNodeDescriptor buildHierarchyElement(final Project project, final PsiClass aClass) {
+  @NotNull
+  private static HierarchyNodeDescriptor buildHierarchyElement(@NotNull Project project, @NotNull PsiClass aClass) {
     HierarchyNodeDescriptor descriptor = null;
     final PsiClass[] superClasses = createSuperClasses(aClass);
     for(int i = superClasses.length - 1; i >= 0; i--){
@@ -47,7 +48,8 @@ public final class TypeHierarchyTreeStructure extends SubtypesHierarchyTreeStruc
     return newDescriptor;
   }
 
-  private static PsiClass[] createSuperClasses(PsiClass aClass) {
+  @NotNull
+  private static PsiClass[] createSuperClasses(@NotNull PsiClass aClass) {
     if (!aClass.isValid()) return PsiClass.EMPTY_ARRAY;
     if (aClass.isInterface()) return PsiClass.EMPTY_ARRAY;
 
@@ -56,8 +58,7 @@ public final class TypeHierarchyTreeStructure extends SubtypesHierarchyTreeStruc
       final PsiClass aClass1 = aClass;
       final PsiClass[] superTypes = aClass1.getSupers();
       PsiClass superType = null;
-      for (int i = 0; i < superTypes.length; i++) {
-        final PsiClass type = superTypes[i];
+      for (final PsiClass type : superTypes) {
         if (!type.isInterface()) {
           superType = type;
           break;
@@ -70,5 +71,10 @@ public final class TypeHierarchyTreeStructure extends SubtypesHierarchyTreeStruc
     }
 
     return superClasses.toArray(PsiClass.EMPTY_ARRAY);
+  }
+
+  @Override
+  public String toString() {
+    return "Type Hierarchy for " + formatBaseElementText();
   }
 }

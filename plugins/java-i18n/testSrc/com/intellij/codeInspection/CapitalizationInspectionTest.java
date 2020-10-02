@@ -17,22 +17,32 @@ package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.capitalization.AnnotateCapitalizationIntention;
-import com.intellij.codeInspection.capitalization.TitleCapitalizationInspection;
+import com.intellij.codeInspection.i18n.TitleCapitalizationInspection;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.testFramework.LightProjectDescriptor;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
  */
-public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCase {
+public class CapitalizationInspectionTest extends LightJavaCodeInsightFixtureTestCase {
 
   public void testTitleCapitalization() {
     doTest(true);
   }
 
+  public void testTitleCapitalizationExtension() {
+    doTest(true);
+  }
+
   public void testSentenceCapitalization() {
     doTest(true);
+  }
+
+  public void testTernaryAndParentheses() {
+    myFixture.testHighlighting(getTestName(false) + ".java");
   }
 
   public void testMultipleReturns() {
@@ -52,6 +62,44 @@ public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCas
   }
 
   public void testSuperConstructorArgument() {
+    doTest(false);
+  }
+  
+  public void testStripHtml() {
+    doTest(false);
+  }
+  
+  public void testCapitalizationMismatch() {
+    doTest(false);
+  }
+  
+  public void testCapitalizationMix() {
+    doTest(false);
+  }
+  
+  public void testLocalVar() {
+    doTest(false);
+  }
+
+  public void testField() {
+    doTest(false);
+  }
+
+  public void testIgnoreConcatFormat() {
+    doTest(false);
+  }
+
+  public void testPropertyTest() {
+    String props = "property.lowercase=hello world\n" +
+                   "property.titlecase=Hello World\n" +
+                   "property.titlecase.html=<html><b>Hello</b> World</html>\n" +
+                   "property.parameterized=Hello {0}\n" +
+                   "property.choice.title=Hello {0,choice,0#World|1#Universe}\n" +
+                   "property.choice.mixed=Hello {0,choice,0#World|1#universe}\n" +
+                   "property.choice.lower=Hello {0,choice,0#world|1#universe}\n" +
+                   "property.choice.sentence.start={0,choice,0#No|1#{0}} {0,choice,0#occurrences|1#occurrence|2#occurrences} found so far\n" +
+                   "property.sentence.with.quote='return' is not allowed here";
+    myFixture.addFileToProject("MyBundle.properties", props);
     doTest(false);
   }
 
@@ -86,9 +134,14 @@ public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCas
     myFixture.enableInspections(TitleCapitalizationInspection.class);
   }
 
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_8;
+  }
 
   @Override
   protected String getBasePath() {
-    return PluginPathManager.getPluginHomePathRelative("devkit") + "/testData/inspections/capitalization";
+    return PluginPathManager.getPluginHomePathRelative("java-i18n") + "/testData/inspections/capitalization";
   }
 }

@@ -39,13 +39,12 @@ public class StubTreeNode extends SimpleNode {
   }
 
   @Override
-  public StubTreeNode[] getChildren() {
+  public StubTreeNode @NotNull [] getChildren() {
     return ContainerUtil.map2Array(myStub.getChildrenStubs(), StubTreeNode.class, stub -> new StubTreeNode(stub, this));
   }
 
-  @NotNull
   @Override
-  public Object[] getEqualityObjects() {
+  public Object @NotNull [] getEqualityObjects() {
     return new Object[]{myStub};
   }
 

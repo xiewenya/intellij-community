@@ -23,10 +23,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Ref
 import com.intellij.remote.CredentialsType
 import com.intellij.remote.ext.CredentialsCase
+import com.jetbrains.python.PyBundle
 import com.jetbrains.python.remote.PyRemotePathMapper
-import com.jetbrains.python.remote.PyRemoteProcessHandlerBase
 import com.jetbrains.python.remote.PyRemoteSdkAdditionalDataBase
 import com.jetbrains.python.remote.PyRemoteSocketToLocalHostProvider
+import java.io.IOException
 
 interface PythonConsoleRemoteProcessCreator<T> {
   val credentialsType: CredentialsType<T>
@@ -37,36 +38,37 @@ interface PythonConsoleRemoteProcessCreator<T> {
                                  project: Project,
                                  data: PyRemoteSdkAdditionalDataBase,
                                  runnerFileFromHelpers: String,
-                                 credentials: T,
-                                 scriptPort: Int,
-                                 idePort: Int): RemoteConsoleProcessData
+                                 credentials: T): RemoteConsoleProcessData
+
+  /**
+   * Tries to create a remote tunnel.
+   * @return Port on the remote server or null if port forwarding by this method is not implemented.
+   */
+  @JvmDefault
+  @Throws(IOException::class)
+  fun createRemoteTunnel(project: Project,
+                         data: PyRemoteSdkAdditionalDataBase,
+                         localPort: Int): Int? = localPort
 
   companion object {
-    val EP_NAME = ExtensionPointName.create<PythonConsoleRemoteProcessCreator<Any>>("Pythonid.remoteConsoleProcessCreator")
+    @JvmField
+    val EP_NAME: ExtensionPointName<PythonConsoleRemoteProcessCreator<Any>> = ExtensionPointName.create<PythonConsoleRemoteProcessCreator<Any>>(
+      "Pythonid.remoteConsoleProcessCreator")
   }
 }
 
 data class RemoteConsoleProcessData(val remoteProcessHandlerBase: ProcessHandler,
-                                    val pydevConsoleCommunication: PydevRemoteConsoleCommunication,
+                                    val pydevConsoleCommunication: PydevConsoleCommunication,
                                     val commandLine: String?,
                                     val process: Process,
-                                    val socketProvider: PyRemoteSocketToLocalHostProvider) {
-  constructor(remoteProcessHandlerBase: PyRemoteProcessHandlerBase,
-              pydevConsoleCommunication: PydevRemoteConsoleCommunication) : this(remoteProcessHandlerBase = remoteProcessHandlerBase,
-                                                                                 pydevConsoleCommunication = pydevConsoleCommunication,
-                                                                                 commandLine = remoteProcessHandlerBase.commandLine,
-                                                                                 process = remoteProcessHandlerBase.process,
-                                                                                 socketProvider = remoteProcessHandlerBase.remoteSocketToLocalHostProvider)
-}
+                                    val socketProvider: PyRemoteSocketToLocalHostProvider)
 
 @Throws(ExecutionException::class)
 fun createRemoteConsoleProcess(commandLine: GeneralCommandLine,
                                pathMapper: PyRemotePathMapper,
                                project: Project,
                                data: PyRemoteSdkAdditionalDataBase,
-                               runnerFileFromHelpers: String,
-                               scriptPort: Int,
-                               idePort: Int): RemoteConsoleProcessData {
+                               runnerFileFromHelpers: String): RemoteConsoleProcessData {
   val extensions = PythonConsoleRemoteProcessCreator.EP_NAME.extensions
   val result = Ref.create<RemoteConsoleProcessData>()
   val exception = Ref.create<ExecutionException>()
@@ -82,9 +84,7 @@ fun createRemoteConsoleProcess(commandLine: GeneralCommandLine,
                                                                    project = project,
                                                                    data = data,
                                                                    runnerFileFromHelpers = runnerFileFromHelpers,
-                                                                   credentials = credentials,
-                                                                   scriptPort = scriptPort,
-                                                                   idePort = idePort)
+                                                                   credentials = credentials)
           result.set(remoteConsoleProcess)
         }
         catch (e: ExecutionException) {
@@ -102,6 +102,6 @@ fun createRemoteConsoleProcess(commandLine: GeneralCommandLine,
     return result.get()
   }
   else {
-    throw ExecutionException("Python console for ${data.remoteConnectionType.name} interpreter is not supported")
+    throw ExecutionException(PyBundle.message("python.console.not.supported", data.remoteConnectionType.name))
   }
 }

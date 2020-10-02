@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.containers;
 
 import com.intellij.openapi.util.Condition;
@@ -37,15 +23,15 @@ import java.util.*;
  * </ul>
  * Please note that since weak references can be collected at any time, index-based methods (like get(index))
  * or size-based methods (like size()) are dangerous, misleading, error-inducing and are not supported.
- * Instead, please use add(element) and iterator().
+ * Instead, please use {@link #add(T)} and {@link #iterator()}.
  */
 public class UnsafeWeakList<T> extends AbstractCollection<T> {
   protected final List<MyReference<T>> myList;
-  private final ReferenceQueue<T> myQueue = new ReferenceQueue<T>();
+  private final ReferenceQueue<T> myQueue = new ReferenceQueue<>();
   private int myAlive;
   private int modCount;
 
-  private static class MyReference<T> extends WeakReference<T> {
+  private static final class MyReference<T> extends WeakReference<T> {
     private final int index;
 
     private MyReference(int index, T referent, ReferenceQueue<? super T> queue) {
@@ -55,11 +41,11 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
   }
 
   public UnsafeWeakList() {
-    myList = new ArrayList<MyReference<T>>();
+    myList = new ArrayList<>();
   }
 
   public UnsafeWeakList(int capacity) {
-    myList = new ArrayList<MyReference<T>>(capacity);
+    myList = new ArrayList<>(capacity);
   }
 
   boolean processQueue() {
@@ -96,7 +82,7 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
         continue;
       }
       if (toSaveAlive != i) {
-        myList.set(toSaveAlive, new MyReference<T>(toSaveAlive, t, myQueue));
+        myList.set(toSaveAlive, new MyReference<>(toSaveAlive, t, myQueue));
       }
       toSaveAlive++;
     }
@@ -108,7 +94,7 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
   }
 
   private void append(@NotNull T element) {
-    myList.add(new MyReference<T>(myList.size(), element, myQueue));
+    myList.add(new MyReference<>(myList.size(), element, myQueue));
     myAlive++;
     modCount++;
   }
@@ -145,7 +131,7 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
   public Iterator<T> iterator() {
     return new MyIterator();
   }
-  private class MyIterator implements Iterator<T> {
+  private final class MyIterator implements Iterator<T> {
     private final int startModCount;
     private int curIndex;
     private T curElement;
@@ -225,25 +211,20 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
     return super.removeAll(c);
   }
 
-  private static final Function<MyReference<Object>, Object> DEREF = new Function<MyReference<Object>, Object>() {
-    @Override
-    public Object fun(MyReference<Object> reference) {
-      return SoftReference.dereference(reference);
-    }
-  };
+  private static final Function<MyReference<Object>, Object> DEREF = SoftReference::dereference;
   private static <X> Function<MyReference<X>, X> deref() {
     //noinspection unchecked
     return (Function)DEREF;
   }
   @NotNull
   public List<T> toStrongList() {
-    return ContainerUtil.mapNotNull(myList, UnsafeWeakList.<T>deref());
+    return ContainerUtil.mapNotNull(myList, deref());
   }
 
   /**
-   * Since weak references can be collected at any time,
-   * this method considered dangerous, misleading, error-inducing and are is not supported.
-   * Instead, please use add(element) and iterator()
+   * @deprecated Since weak references can be collected at any time,
+   * this method considered dangerous, misleading, error-inducing and is not supported.
+   * Instead, please use {@link #add(T)} and {@link #iterator()}.
    */
   @Override
   @Deprecated
@@ -267,14 +248,12 @@ public class UnsafeWeakList<T> extends AbstractCollection<T> {
     //noinspection unchecked
     return (Condition)NOT_NULL;
   }
-  private static final Condition<MyReference<Object>> NOT_NULL = new Condition<MyReference<Object>>() {
-    @Override
-    public boolean value(MyReference<Object> reference) {
-      return SoftReference.dereference(reference) != null;
-    }
-  };
+  private static final Condition<MyReference<Object>> NOT_NULL = reference -> SoftReference.dereference(reference) != null;
 
-  // (*@#ing plugins
+  /**
+   * @deprecated Since weak references can be collected at any time,
+   * this method considered dangerous, misleading, error-inducing and is not supported.
+   */
   @Deprecated
   public T get(int index) {
     throwNotAllowedException();

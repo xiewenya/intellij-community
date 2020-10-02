@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testIntegration;
 
 import com.intellij.codeInsight.daemon.impl.quickfix.OrderEntryFix;
@@ -32,12 +18,16 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import java.util.Collections;
 
 public abstract class JavaTestFramework implements TestFramework {
+  @Override
   public boolean isLibraryAttached(@NotNull Module module) {
     GlobalSearchScope scope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module);
     PsiClass c = JavaPsiFacade.getInstance(module.getProject()).findClass(getMarkerClassFQName(), scope);
@@ -60,6 +50,7 @@ public abstract class JavaTestFramework implements TestFramework {
 
   protected abstract String getMarkerClassFQName();
 
+  @Override
   public boolean isTestClass(@NotNull PsiElement clazz) {
     return clazz instanceof PsiClass && isTestClass((PsiClass)clazz, false);
   }
@@ -95,6 +86,28 @@ public abstract class JavaTestFramework implements TestFramework {
 
   @Nullable
   protected abstract PsiMethod findTearDownMethod(@NotNull PsiClass clazz);
+  
+  @Nullable
+  @Override
+  public PsiElement findBeforeClassMethod(@NotNull PsiElement clazz) {
+    return clazz instanceof PsiClass ? findBeforeClassMethod((PsiClass)clazz) : null;
+  }
+
+  @Nullable
+  protected PsiMethod findBeforeClassMethod(@NotNull PsiClass clazz) {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public PsiElement findAfterClassMethod(@NotNull PsiElement clazz) {
+    return clazz instanceof PsiClass ? findAfterClassMethod((PsiClass)clazz) : null;
+  }
+
+  @Nullable
+  protected PsiMethod findAfterClassMethod(@NotNull PsiClass clazz) {
+    return null;
+  }
 
   @Override
   public PsiElement findOrCreateSetUpMethod(@NotNull PsiElement clazz) throws IncorrectOperationException {
@@ -114,7 +127,7 @@ public abstract class JavaTestFramework implements TestFramework {
 
   @Nullable
   protected abstract PsiMethod findOrCreateSetUpMethod(PsiClass clazz) throws IncorrectOperationException;
-  
+
   public boolean isParameterized(PsiClass clazz) {
     return false;
   }
@@ -128,8 +141,15 @@ public abstract class JavaTestFramework implements TestFramework {
   public FileTemplateDescriptor getParametersMethodFileTemplateDescriptor() {
     return null;
   }
-  
-  public abstract char getMnemonic();
+
+  /**
+   * @deprecated Mnemonics are not required anymore; frameworks are loaded in the combobox now
+   */
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.2")
+  @Deprecated
+  public char getMnemonic() {
+    return 0;
+  }
 
   public PsiMethod createSetUpPatternMethod(JVMElementFactory factory) {
     final FileTemplate template = FileTemplateManager.getDefaultInstance().getCodeTemplate(getSetUpMethodFileTemplateDescriptor().getFileName());
@@ -140,18 +160,20 @@ public abstract class JavaTestFramework implements TestFramework {
   public FileTemplateDescriptor getTestClassFileTemplateDescriptor() {
     return null;
   }
-  
-  public void setupLibrary(Module module) {
+
+  public Promise<Void> setupLibrary(Module module) {
     ExternalLibraryDescriptor descriptor = getFrameworkLibraryDescriptor();
     if (descriptor != null) {
-      JavaProjectModelModificationService.getInstance(module.getProject()).addDependency(module, descriptor, DependencyScope.TEST);
+      return JavaProjectModelModificationService.getInstance(module.getProject()).addDependency(module, descriptor, DependencyScope.TEST);
     }
     else {
       String path = getLibraryPath();
       if (path != null) {
         OrderEntryFix.addJarsToRoots(Collections.singletonList(path), null, module, null);
+        return Promises.resolvedPromise(null);
       }
     }
+    return Promises.rejectedPromise();
   }
 
   public boolean isSingleConfig() {

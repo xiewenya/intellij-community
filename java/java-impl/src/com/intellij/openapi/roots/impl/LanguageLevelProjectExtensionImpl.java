@@ -27,10 +27,10 @@ import com.intellij.util.ObjectUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * @author anna
- * @since 26-Dec-2007
  */
 public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExtension {
   private static final String LANGUAGE_LEVEL = "languageLevel";
@@ -55,10 +55,19 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
       myLanguageLevel = null;
     }
     else {
-      myLanguageLevel = LanguageLevel.valueOf(level);
+      myLanguageLevel = readLanguageLevel(level);
     }
     String aDefault = element.getAttributeValue(DEFAULT_ATTRIBUTE);
     setDefault(aDefault == null ? null : Boolean.parseBoolean(aDefault));
+  }
+
+  private static LanguageLevel readLanguageLevel(String level) {
+    for (LanguageLevel languageLevel : LanguageLevel.values()) {
+      if (level.equals(languageLevel.name())) {
+        return languageLevel;
+      }
+    }
+    return LanguageLevel.HIGHEST;
   }
 
   private void writeExternal(final Element element) {
@@ -117,6 +126,12 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
 
   public LanguageLevel getCurrentLevel() {
     return myCurrentLevel;
+  }
+
+  @TestOnly
+  public void resetDefaults() {
+    myLanguageLevel = null;
+    setDefault(null);
   }
 
   public static class MyProjectExtension extends ProjectExtension {

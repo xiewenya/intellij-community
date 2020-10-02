@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.ConcurrencyUtil;
 import com.sun.jdi.VMDisconnectedException;
 import org.jetbrains.annotations.Async;
 import org.jetbrains.annotations.NotNull;
@@ -16,7 +17,7 @@ import java.util.concurrent.*;
  * @author lex
  */
 public abstract class InvokeThread<E extends PrioritizedTask> {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.InvokeThread");
+  private static final Logger LOG = Logger.getInstance(InvokeThread.class);
 
   private static final ThreadLocal<WorkerThreadRequest> ourWorkerRequest = new ThreadLocal<>();
 
@@ -44,7 +45,8 @@ public abstract class InvokeThread<E extends PrioritizedTask> {
       }
       ourWorkerRequest.set(this);
       try {
-        myOwner.run(this);
+        ConcurrencyUtil.runUnderThreadName("DebuggerManagerThread", ()->
+        myOwner.run(this));
       } 
       finally {
         ourWorkerRequest.set(null);
@@ -113,68 +115,65 @@ public abstract class InvokeThread<E extends PrioritizedTask> {
   protected abstract void processEvent(E e);
 
   protected void startNewWorkerThread() {
-    final WorkerThreadRequest workerRequest = new WorkerThreadRequest<>(this);
+    final WorkerThreadRequest<E> workerRequest = new WorkerThreadRequest<>(this);
     myCurrentRequest = workerRequest;
     workerRequest.setRequestFuture( ApplicationManager.getApplication().executeOnPooledThread(workerRequest) );
   }
 
   private void run(final @NotNull WorkerThreadRequest threadRequest) {
-    String oldThreadName = Thread.currentThread().getName();
-    Thread.currentThread().setName("DebuggerManagerThread");
-
     try {
-      DumbService.getInstance(myProject).setAlternativeResolveEnabled(true);
-      while(true) {
-        try {
-          if(threadRequest.isStopRequested()) {
-            break;
-          }
-
-          final WorkerThreadRequest currentRequest = getCurrentRequest();
-          if(currentRequest != threadRequest) {
-            LOG.error("Expected " + threadRequest + " instead of " + currentRequest);
-            if (currentRequest != null && !currentRequest.isDone()) {
-              continue; // ensure events are processed by one thread at a time
+      DumbService.getInstance(myProject).runWithAlternativeResolveEnabled(() -> {
+        while(true) {
+          try {
+            if(threadRequest.isStopRequested()) {
+              break;
             }
-          }
 
-          processEvent(myEvents.get());
-        }
-        catch (VMDisconnectedException ignored) {
-          break;
-        }
-        catch (EventQueueClosedException ignored) {
-          break;
-        }
-        catch (ProcessCanceledException ignored) {}
-        catch (RuntimeException e) {
-          if(e.getCause() instanceof InterruptedException) {
+            final WorkerThreadRequest currentRequest = getCurrentRequest();
+            if(currentRequest != threadRequest) {
+              reportCommandError(new IllegalStateException("Expected " + threadRequest + " instead of " + currentRequest + " closed=" + myEvents.isClosed()));
+              break; // ensure events are processed by one thread at a time
+            }
+
+            processEvent(myEvents.get());
+          }
+          catch (VMDisconnectedException ignored) {
             break;
           }
-          reportCommandError(e);
+          catch (EventQueueClosedException ignored) {
+            break;
+          }
+          catch (ProcessCanceledException ignored) {}
+          catch (RuntimeException e) {
+            if(e.getCause() instanceof InterruptedException) {
+              break;
+            }
+            reportCommandError(e);
+          }
+          catch (Throwable e) {
+            reportCommandError(e);
+          }
         }
-        catch (Throwable e) {
-          reportCommandError(e);
-        }
-      }
+      });
     }
     finally {
       // ensure that all scheduled events are processed
       if (threadRequest == getCurrentRequest()) {
-        for (E event : myEvents.clearQueue()) {
-          try {
-            processEvent(event);
-          }
-          catch (Throwable ignored) {
-          }
-        }
+        processRemaining();
       }
 
       LOG.debug("Request " + toString() + " exited");
-      DumbService.getInstance(myProject).setAlternativeResolveEnabled(false);
-      Thread.currentThread().setName(oldThreadName);
     }
+  }
 
+  public void processRemaining() {
+    for (E event : myEvents.clearQueue()) {
+      try {
+        processEvent(event);
+      }
+      catch (Throwable ignored) {
+      }
+    }
   }
 
   private static void reportCommandError(Throwable e) {

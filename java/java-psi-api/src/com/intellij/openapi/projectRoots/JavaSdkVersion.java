@@ -1,6 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.projectRoots;
 
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.util.lang.JavaVersion;
 import org.jetbrains.annotations.NotNull;
@@ -9,9 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 
 /**
- * Represents version of Java SDK. Use {@code JavaSdk#getVersion(Sdk)} method to obtain version of an {@code Sdk}.
- *
- * @author nik
+ * Represents a version of Java SDK. Use {@code JavaSdk#getVersion(Sdk)} method to obtain a version of an {@code Sdk}.
  * @see LanguageLevel
  */
 public enum JavaSdkVersion {
@@ -25,7 +24,13 @@ public enum JavaSdkVersion {
   JDK_1_7(LanguageLevel.JDK_1_7),
   JDK_1_8(LanguageLevel.JDK_1_8),
   JDK_1_9(LanguageLevel.JDK_1_9),
-  JDK_10(LanguageLevel.JDK_10);
+  JDK_10(LanguageLevel.JDK_10),
+  JDK_11(LanguageLevel.JDK_11),
+  JDK_12(LanguageLevel.JDK_12),
+  JDK_13(LanguageLevel.JDK_13),
+  JDK_14(LanguageLevel.JDK_14),
+  JDK_15(LanguageLevel.JDK_15),
+  JDK_16(LanguageLevel.JDK_X);
 
   private final LanguageLevel myMaxLanguageLevel;
 
@@ -39,7 +44,7 @@ public enum JavaSdkVersion {
   }
 
   @NotNull
-  public String getDescription() {
+  public @NlsSafe String getDescription() {
     int feature = ordinal();
     return feature < 5 ? "1." + feature : String.valueOf(feature);
   }
@@ -50,17 +55,13 @@ public enum JavaSdkVersion {
 
   @NotNull
   public static JavaSdkVersion fromLanguageLevel(@NotNull LanguageLevel languageLevel) throws IllegalArgumentException {
-    if (languageLevel == LanguageLevel.JDK_1_3) {
-      return JDK_1_3;
-    }
     JavaSdkVersion[] values = values();
     if (languageLevel == LanguageLevel.JDK_X) {
       return values[values.length - 1];
     }
-    for (JavaSdkVersion version : values) {
-      if (version.getMaxLanguageLevel().isAtLeast(languageLevel)) {
-        return version;
-      }
+    int feature = languageLevel.toJavaVersion().feature;
+    if (feature < values.length) {
+      return values[feature];
     }
     throw new IllegalArgumentException("Can't map " + languageLevel + " to any of " + Arrays.toString(values));
   }

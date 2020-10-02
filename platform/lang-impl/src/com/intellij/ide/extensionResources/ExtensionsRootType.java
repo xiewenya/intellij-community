@@ -1,48 +1,36 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.extensionResources;
 
-import com.intellij.ide.plugins.IdeaPluginDescriptor;
-import com.intellij.ide.plugins.PluginManager;
-import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.ide.plugins.*;
 import com.intellij.ide.scratch.RootType;
 import com.intellij.ide.scratch.ScratchFileService;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.*;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.Contract;
+import com.intellij.util.io.DigestUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * <p> Extensions root type provide a common interface for plugins to access resources that are modifiable by the user. </p>
@@ -53,44 +41,41 @@ import java.util.Set;
  * </p>
  * <p> Bundled resources are updated automatically upon plugin version change. For bundled plugins, application version is used. </p>
  */
-public class ExtensionsRootType extends RootType {
+public final class ExtensionsRootType extends RootType {
   static final Logger LOG = Logger.getInstance(ExtensionsRootType.class);
 
-  private static final String HASH_ALGORITHM = "MD5";
-  private static final String EXTENSIONS_PATH = "extensions";
-  private static final String BACKUP_FILE_EXTENSION = "old";
+  private static final @NonNls String EXTENSIONS_PATH = "extensions";
+  private static final @NonNls String BACKUP_FILE_EXTENSION = "old";
 
   ExtensionsRootType() {
-    super(EXTENSIONS_PATH, "Extensions");
+    super(EXTENSIONS_PATH, LangBundle.message("root.type.extensions"));
   }
 
-  @NotNull
-  public static ExtensionsRootType getInstance() {
+  public static @NotNull ExtensionsRootType getInstance() {
     return findByClass(ExtensionsRootType.class);
   }
 
-  @NotNull
-  public static Condition<File> regularFileFilter() {
-    return new Condition<File>() {
-      private final ExtensionsRootType myRootType = getInstance();
-      @Override
-      public boolean value(File file) {
-        if (file.isDirectory()) return false;
-        String name = file.getName();
-        String extension = FileUtilRt.getExtension(name);
-        return !extension.isEmpty() &&
-               !FileUtilRt.extensionEquals(name, "txt") &&
-               !FileUtilRt.extensionEquals(name, "properties") &&
-               !extension.startsWith(BACKUP_FILE_EXTENSION) &&
-               !myRootType.isResourceFile(file);
+  public static @NotNull Predicate<Path> regularFileFilter() {
+    return file -> {
+      try {
+        if (Files.isDirectory(file) || Files.isHidden(file)) {
+          return false;
+        }
       }
+      catch (IOException e) {
+        return false;
+      }
+
+      String fileName = file.getFileName().toString();
+      int index = fileName.lastIndexOf('.');
+      return index >= 0 && !fileName.endsWith(".txt") && !fileName.endsWith(".properties") &&
+             !fileName.regionMatches(index + 1, BACKUP_FILE_EXTENSION, 0, BACKUP_FILE_EXTENSION.length());
     };
   }
 
-  @Nullable
-  public PluginId getOwner(@Nullable VirtualFile resource) {
-    VirtualFile file = getPluginResourcesDirectoryFor(resource);
-    return file != null ? PluginId.findId(file.getName()) : null;
+  public @Nullable PluginId getOwner(@Nullable VirtualFile resource) {
+    VirtualFile file = resource == null ? null : getPluginResourcesDirectoryFor(resource);
+    return file == null ? null : PluginId.findId(file.getName());
   }
 
   @Nullable
@@ -99,22 +84,23 @@ public class ExtensionsRootType extends RootType {
     return findExtensionImpl(pluginId, path);
   }
 
-  @Nullable
-  public File findResourceDirectory(@NotNull PluginId pluginId, @NotNull String path, boolean createIfMissing) throws IOException {
+  public @NotNull Path findResourceDirectory(@NotNull PluginId pluginId, @NotNull String path, boolean createIfMissing) throws IOException {
     extractBundledExtensionsIfNeeded(pluginId);
     return findExtensionsDirectoryImpl(pluginId, path, createIfMissing);
   }
 
   public void extractBundledResources(@NotNull PluginId pluginId, @NotNull String path) throws IOException {
     List<URL> bundledResources = getBundledResourceUrls(pluginId, path);
-    if (bundledResources.isEmpty()) return;
+    if (bundledResources.isEmpty()) {
+      return;
+    }
 
-    File resourcesDirectory = findExtensionsDirectoryImpl(pluginId, path, true);
-    if (resourcesDirectory == null) return;
-
+    Path resourcesDirectory = findExtensionsDirectoryImpl(pluginId, path, true);
     for (URL bundledResourceDirUrl : bundledResources) {
       VirtualFile bundledResourcesDir = VfsUtil.findFileByURL(bundledResourceDirUrl);
-      if (bundledResourcesDir == null || !bundledResourcesDir.isDirectory()) continue;
+      if (bundledResourcesDir == null || !bundledResourcesDir.isDirectory()) {
+        continue;
+      }
       extractResources(bundledResourcesDir, resourcesDirectory);
     }
   }
@@ -132,34 +118,24 @@ public class ExtensionsRootType extends RootType {
     return super.substituteName(project, file);
   }
 
-  /** @noinspection unused*/
-  public boolean isResourceFile(@NotNull File file) {
-    return false;
-  }
-
-  @Nullable
-  String getPath(@Nullable VirtualFile resource) {
-    VirtualFile pluginResourcesDir = getPluginResourcesDirectoryFor(resource);
+  @Nullable String getPath(@Nullable VirtualFile resource) {
+    VirtualFile pluginResourcesDir = resource == null ? null : getPluginResourcesDirectoryFor(resource);
     PluginId pluginId = getOwner(pluginResourcesDir);
     return pluginResourcesDir != null && pluginId != null ? VfsUtilCore.getRelativePath(resource, pluginResourcesDir) : null;
   }
 
-  @Nullable
-  private File findExtensionImpl(@NotNull PluginId pluginId, @NotNull String path) throws IOException {
-    File dir = findExtensionsDirectoryImpl(pluginId, "", false);
-    File file = dir == null ? null : new File(dir, path);
-    return file != null && file.exists() && file.isFile() ? file : null;
+  private @Nullable File findExtensionImpl(@NotNull PluginId pluginId, @NotNull String path) throws IOException {
+    Path dir = findExtensionsDirectoryImpl(pluginId, "", false);
+    Path file = dir.resolve(path);
+    return Files.isRegularFile(file) ? file.toFile() : null;
   }
 
-  @Nullable
-  private File findExtensionsDirectoryImpl(@NotNull PluginId pluginId, @NotNull String path, boolean createIfMissing) throws IOException {
+  private @NotNull Path findExtensionsDirectoryImpl(@NotNull PluginId pluginId, @NotNull String path, boolean createIfMissing) throws IOException {
     String fullPath = getPath(pluginId, path);
-    File dir = new File(FileUtil.toSystemDependentName(fullPath));
-    if (createIfMissing && !dir.exists() && !dir.mkdirs()) {
-      throw new IOException("Failed to create directory: " + dir.getPath());
+    Path dir = Paths.get(fullPath);
+    if (createIfMissing) {
+      Files.createDirectories(dir);
     }
-    if (!dir.exists()) return null;
-    if (!dir.isDirectory()) throw new IOException("Not a directory: " + dir.getPath());
     return dir;
   }
 
@@ -168,11 +144,11 @@ public class ExtensionsRootType extends RootType {
     PluginId ownerPluginId = getOwner(resourcesDir);
     if (ownerPluginId == null) return null;
 
-    if (PluginManagerCore.CORE_PLUGIN_ID.equals(ownerPluginId.getIdString())) {
+    if (PluginManagerCore.CORE_ID == ownerPluginId) {
       return PlatformUtils.getPlatformPrefix();
     }
 
-    IdeaPluginDescriptor plugin = PluginManager.getPlugin(ownerPluginId);
+    IdeaPluginDescriptor plugin = PluginManagerCore.getPlugin(ownerPluginId);
     if (plugin != null) {
       return plugin.getName();
     }
@@ -180,10 +156,12 @@ public class ExtensionsRootType extends RootType {
     return null;
   }
 
-  @Contract("null->null")
-  private VirtualFile getPluginResourcesDirectoryFor(@Nullable VirtualFile resource) {
-    VirtualFile root = resource != null ? getRootDirectory() : null;
-    if (root == null) return null;
+  private VirtualFile getPluginResourcesDirectoryFor(@NotNull VirtualFile resource) {
+    String rootPath = ScratchFileService.getInstance().getRootPath(this);
+    VirtualFile root = LocalFileSystem.getInstance().findFileByPath(rootPath);
+    if (root == null) {
+      return null;
+    }
 
     VirtualFile parent = resource;
     VirtualFile file = resource;
@@ -194,37 +172,49 @@ public class ExtensionsRootType extends RootType {
     return parent != null && file.isDirectory() ? file : null;
   }
 
-  @Nullable
-  private VirtualFile getRootDirectory() {
-    String path = ScratchFileService.getInstance().getRootPath(this);
-    return LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+  private @NotNull String getPath(@NotNull PluginId pluginId, @NotNull String path) {
+    return ScratchFileService.getInstance().getRootPath(this) + '/' + pluginId.getIdString() + (Strings.isEmpty(path) ? "" : '/' + path);
   }
 
-  @NotNull
-  private String getPath(@NotNull PluginId pluginId, @NotNull String path) {
-    return ScratchFileService.getInstance().getRootPath(this) + "/" + pluginId.getIdString() + (StringUtil.isEmpty(path) ? "" : "/" + path);
-  }
-
-  @NotNull
-  private static List<URL> getBundledResourceUrls(@NotNull PluginId pluginId, @NotNull String path) throws IOException {
-    String resourcesPath = EXTENSIONS_PATH + "/" + path;
-    IdeaPluginDescriptor plugin = PluginManager.getPlugin(pluginId);
-    ClassLoader pluginClassLoader = plugin != null ? plugin.getPluginClassLoader() : null;
-    Set<URL> urls = plugin == null ? null : ContainerUtil.newLinkedHashSet(ContainerUtil.toList(pluginClassLoader.getResources(resourcesPath)));
-    if (urls == null) return ContainerUtil.emptyList();
-
-    PluginId corePluginId = PluginId.findId(PluginManagerCore.CORE_PLUGIN_ID);
-    IdeaPluginDescriptor corePlugin = ObjectUtils.notNull(PluginManager.getPlugin(corePluginId));
-    ClassLoader coreClassLoader = corePlugin.getPluginClassLoader();
-    if (coreClassLoader != pluginClassLoader && !plugin.getUseIdeaClassLoader() && !pluginId.equals(corePluginId)) {
-      urls.removeAll(ContainerUtil.toList(coreClassLoader.getResources(resourcesPath)));
+  private static @NotNull List<URL> getBundledResourceUrls(@NotNull PluginId pluginId, @NotNull String path) throws IOException {
+    // search in enabled plugins only
+    IdeaPluginDescriptorImpl plugin = (IdeaPluginDescriptorImpl)PluginManager.getInstance().findEnabledPlugin(pluginId);
+    if (plugin == null) {
+      return ContainerUtil.emptyList();
     }
 
-    return ContainerUtil.newArrayList(urls);
+    ClassLoader pluginClassLoader = plugin.getPluginClassLoader();
+    Enumeration<URL> resources = pluginClassLoader.getResources(EXTENSIONS_PATH + '/' + path);
+    if (resources == null) {
+      return ContainerUtil.emptyList();
+    }
+    else if (plugin.isUseIdeaClassLoader()) {
+      return ContainerUtil.toList(resources);
+    }
+
+    Set<URL> urls = new LinkedHashSet<>();
+    while (resources.hasMoreElements()) {
+      urls.add(resources.nextElement());
+    }
+    // exclude parent classloader resources from list
+    for (PluginDependency it : plugin.getPluginDependencies()) {
+      IdeaPluginDescriptor descriptor = PluginManagerCore.getPlugin(it.id);
+      if (descriptor == null) {
+        continue;
+      }
+      ClassLoader loader = descriptor.getPluginClassLoader();
+      if (loader != pluginClassLoader) {
+        Enumeration<URL> pluginResources = loader.getResources(EXTENSIONS_PATH + '/' + path);
+        while (pluginResources.hasMoreElements()) {
+          urls.remove(pluginResources.nextElement());
+        }
+      }
+    }
+    return new ArrayList<>(urls);
   }
 
-  private static void extractResources(@NotNull VirtualFile from, @NotNull File to) throws IOException {
-    VfsUtilCore.visitChildrenRecursively(from, new VirtualFileVisitor(VirtualFileVisitor.NO_FOLLOW_SYMLINKS) {
+  private static void extractResources(@NotNull VirtualFile from, @NotNull Path to) throws IOException {
+    VfsUtilCore.visitChildrenRecursively(from, new VirtualFileVisitor<Void>(VirtualFileVisitor.NO_FOLLOW_SYMLINKS) {
       @NotNull
       @Override
       public Result visitFileEx(@NotNull VirtualFile file) {
@@ -237,7 +227,7 @@ public class ExtensionsRootType extends RootType {
       }
 
       Result visitImpl(@NotNull VirtualFile file) throws IOException {
-        File child = new File(to, FileUtil.toSystemDependentName(ObjectUtils.notNull(VfsUtilCore.getRelativePath(file, from))));
+        File child = to.resolve(Objects.requireNonNull(VfsUtilCore.getRelativePath(file, from))).toFile();
         if (child.exists() && child.isDirectory() != file.isDirectory()) {
           renameToBackupCopy(child);
         }
@@ -254,7 +244,7 @@ public class ExtensionsRootType extends RootType {
         String oldText = child.exists() ? FileUtil.loadFile(child) : "";
         String newHash = hash(newText);
         String oldHash = hash(oldText);
-        boolean upToDate = oldHash != null && newHash != null && StringUtil.equals(oldHash, newHash);
+        boolean upToDate = StringUtil.equals(oldHash, newHash);
         if (upToDate) return CONTINUE;
         if (child.exists()) {
           renameToBackupCopy(child);
@@ -265,21 +255,15 @@ public class ExtensionsRootType extends RootType {
     }, IOException.class);
   }
 
-  @Nullable
+  @NotNull
   private static String hash(@NotNull String s) {
-    try {
-      MessageDigest md5 = MessageDigest.getInstance(HASH_ALGORITHM);
-      StringBuilder sb = new StringBuilder();
-      byte[] digest = md5.digest(s.getBytes(CharsetToolkit.UTF8_CHARSET));
-      for (byte b : digest) {
-        sb.append(Integer.toHexString(b));
-      }
-      return sb.toString();
+    MessageDigest md5 = DigestUtil.md5();
+    StringBuilder sb = new StringBuilder();
+    byte[] digest = md5.digest(s.getBytes(StandardCharsets.UTF_8));
+    for (byte b : digest) {
+      sb.append(Integer.toHexString(b));
     }
-    catch (NoSuchAlgorithmException e) {
-      LOG.error("Hash algorithm " + HASH_ALGORITHM + " is not supported", e);
-      return null;
-    }
+    return sb.toString();
   }
 
   private static void renameToBackupCopy(@NotNull File file) throws IOException {
@@ -294,10 +278,14 @@ public class ExtensionsRootType extends RootType {
   }
 
   private void extractBundledExtensionsIfNeeded(@NotNull PluginId pluginId) throws IOException {
-    if (!ApplicationManager.getApplication().isDispatchThread()) return;
+    if (!ApplicationManager.getApplication().isDispatchThread()) {
+      return;
+    }
 
-    IdeaPluginDescriptor plugin = PluginManager.getPlugin(pluginId);
-    if (plugin == null || !ResourceVersions.getInstance().shouldUpdateResourcesOf(plugin)) return;
+    IdeaPluginDescriptor plugin = PluginManagerCore.getPlugin(pluginId);
+    if (plugin == null || !ResourceVersions.getInstance().shouldUpdateResourcesOf(plugin)) {
+      return;
+    }
 
     extractBundledResources(pluginId, "");
     ResourceVersions.getInstance().resourcesUpdated(plugin);

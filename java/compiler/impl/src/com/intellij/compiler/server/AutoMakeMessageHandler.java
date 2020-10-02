@@ -1,8 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.server;
 
 import com.intellij.compiler.CompilerMessageImpl;
 import com.intellij.compiler.ProblemsView;
+import com.intellij.compiler.impl.CompileDriver;
 import com.intellij.notification.Notification;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.compiler.*;
@@ -15,7 +16,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.problems.Problem;
 import com.intellij.problems.WolfTheProblemSolver;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.api.CmdlineRemoteProto;
 import org.jetbrains.jps.api.GlobalOptions;
 
@@ -27,19 +28,20 @@ import java.util.UUID;
 * @author Eugene Zhuravlev
 */
 class AutoMakeMessageHandler extends DefaultMessageHandler {
-  private static final Key<Notification> LAST_AUTO_MAKE_NOFITICATION = Key.create("LAST_AUTO_MAKE_NOFITICATION");
+  private static final Key<Notification> LAST_AUTO_MAKE_NOTIFICATION = Key.create("LAST_AUTO_MAKE_NOTIFICATION");
   private CmdlineRemoteProto.Message.BuilderMessage.BuildEvent.Status myBuildStatus;
   private final Project myProject;
   private final WolfTheProblemSolver myWolf;
   private volatile boolean myUnprocessedFSChangesDetected = false;
   private final AutomakeCompileContext myContext;
 
-  public AutoMakeMessageHandler(Project project) {
+  AutoMakeMessageHandler(@NotNull Project project) {
     super(project);
     myProject = project;
     myBuildStatus = CmdlineRemoteProto.Message.BuilderMessage.BuildEvent.Status.SUCCESS;
     myWolf = WolfTheProblemSolver.getInstance(project);
     myContext = new AutomakeCompileContext(project);
+    myContext.getProgressIndicator().start();
   }
 
   public boolean unprocessedFSChangesDetected() {
@@ -102,7 +104,7 @@ class AutoMakeMessageHandler extends DefaultMessageHandler {
     }
     final CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind kind = message.getKind();
     if (kind == CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind.PROGRESS) {
-      final ProblemsView view = ProblemsView.SERVICE.getInstance(myProject);
+      final ProblemsView view = ProblemsView.getInstance(myProject);
       if (message.hasDone()) {
         view.setProgress(message.getText(), message.getDone());
       }
@@ -111,39 +113,28 @@ class AutoMakeMessageHandler extends DefaultMessageHandler {
       }
     }
     else {
-      final CompilerMessageCategory category = convertToCategory(kind);
+      final CompilerMessageCategory category = CompileDriver.convertToCategory(kind, null);
       if (category != null) { // only process supported kinds of messages
         final String sourceFilePath = message.hasSourceFilePath() ? message.getSourceFilePath() : null;
         final String url = sourceFilePath != null ? VirtualFileManager.constructUrl(LocalFileSystem.PROTOCOL, FileUtil.toSystemIndependentName(sourceFilePath)) : null;
         final long line = message.hasLine() ? message.getLine() : -1;
         final long column = message.hasColumn() ? message.getColumn() : -1;
+        //noinspection HardCodedStringLiteral
         final CompilerMessage msg = myContext.createAndAddMessage(category, message.getText(), url, (int)line, (int)column, null);
-        if (kind == CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind.ERROR || kind == CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind.JPS_INFO) {
-          if (kind == CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind.ERROR) {
-            ReadAction.run(() -> informWolf(myProject, message));
+        if (category == CompilerMessageCategory.ERROR || kind == CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind.JPS_INFO) {
+          if (category == CompilerMessageCategory.ERROR) {
+            ReadAction.run(() -> informWolf(message));
           }
           if (msg != null) {
-            ProblemsView.SERVICE.getInstance(myProject).addMessage(msg, sessionId);
+            ProblemsView.getInstance(myProject).addMessage(msg, sessionId);
           }
         }
       }
     }
   }
 
-  @Nullable
-  private static CompilerMessageCategory convertToCategory(CmdlineRemoteProto.Message.BuilderMessage.CompileMessage.Kind kind) {
-    switch(kind) {
-      case ERROR: return CompilerMessageCategory.ERROR;
-      case WARNING: return CompilerMessageCategory.WARNING;
-      case INFO: return CompilerMessageCategory.INFORMATION;
-      case JPS_INFO: return CompilerMessageCategory.INFORMATION;
-      case OTHER: return CompilerMessageCategory.INFORMATION;
-      default: return null;
-    }
-  }
-
   @Override
-  public void handleFailure(UUID sessionId, CmdlineRemoteProto.Message.Failure failure) {
+  public void handleFailure(@NotNull UUID sessionId, CmdlineRemoteProto.Message.Failure failure) {
     if (myProject.isDisposed()) {
       return;
     }
@@ -151,13 +142,13 @@ class AutoMakeMessageHandler extends DefaultMessageHandler {
     if (descr == null) {
       descr = failure.hasStacktrace()? failure.getStacktrace() : "";
     }
-    final String msg = "Auto build failure: " + descr;
+    final String msg = JavaCompilerBundle.message("notification.compiler.auto.build.failure", descr);
     CompilerManager.NOTIFICATION_GROUP.createNotification(msg, MessageType.INFO);
-    ProblemsView.SERVICE.getInstance(myProject).addMessage(new CompilerMessageImpl(myProject, CompilerMessageCategory.ERROR, msg), sessionId);
+    ProblemsView.getInstance(myProject).addMessage(new CompilerMessageImpl(myProject, CompilerMessageCategory.ERROR, msg), sessionId);
   }
 
   @Override
-  public void sessionTerminated(UUID sessionId) {
+  public void sessionTerminated(@NotNull UUID sessionId) {
     String statusMessage = null/*"Auto make completed"*/;
     switch (myBuildStatus) {
       case SUCCESS:
@@ -167,7 +158,7 @@ class AutoMakeMessageHandler extends DefaultMessageHandler {
         //statusMessage = "All files are up-to-date";
         break;
       case ERRORS:
-        statusMessage = "Auto build completed with errors";
+        statusMessage = JavaCompilerBundle.message("notification.compiler.auto.build.completed.with.errors");
         break;
       case CANCELED:
         //statusMessage = "Auto make has been canceled";
@@ -178,25 +169,27 @@ class AutoMakeMessageHandler extends DefaultMessageHandler {
       if (!myProject.isDisposed()) {
         notification.notify(myProject);
       }
-      myProject.putUserData(LAST_AUTO_MAKE_NOFITICATION, notification);
+      myProject.putUserData(LAST_AUTO_MAKE_NOTIFICATION, notification);
     }
     else {
-      Notification notification = myProject.getUserData(LAST_AUTO_MAKE_NOFITICATION);
+      Notification notification = myProject.getUserData(LAST_AUTO_MAKE_NOTIFICATION);
       if (notification != null) {
         notification.expire();
-        myProject.putUserData(LAST_AUTO_MAKE_NOFITICATION, null);
+        myProject.putUserData(LAST_AUTO_MAKE_NOTIFICATION, null);
       }
     }
     if (!myProject.isDisposed()) {
-      final ProblemsView view = ProblemsView.SERVICE.getInstance(myProject);
-      view.clearProgress();
-      view.clearOldMessages(null, sessionId);
+      ProblemsView view = ProblemsView.getInstanceIfCreated(myProject);
+      if (view != null) {
+        view.clearProgress();
+        view.clearOldMessages(null, sessionId);
+      }
     }
   }
 
-  private void informWolf(Project project, CmdlineRemoteProto.Message.BuilderMessage.CompileMessage message) {
+  private void informWolf(CmdlineRemoteProto.Message.BuilderMessage.@NotNull CompileMessage message) {
     final String srcPath = message.getSourceFilePath();
-    if (srcPath != null && !project.isDisposed()) {
+    if (srcPath != null && !myProject.isDisposed()) {
       final VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(srcPath);
       if (vFile != null) {
         final int line = (int)message.getLine();

@@ -23,10 +23,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiSuperMethodUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyBundle;
@@ -90,8 +89,7 @@ public class GroovyGotoSuperHandler extends GotoTargetHandler implements Languag
     return PsiTreeUtil.getParentOfType(element, PsiMethod.class, GrField.class, PsiClass.class);
   }
 
-  @NotNull
-  private static PsiElement[] findTargets(@NotNull PsiMember e) {
+  private static PsiElement @NotNull [] findTargets(@NotNull PsiMember e) {
     if (e instanceof PsiClass) {
       PsiClass aClass = (PsiClass)e;
       List<PsiClass> allSupers = new ArrayList<>(Arrays.asList(aClass.getSupers()));
@@ -99,7 +97,7 @@ public class GroovyGotoSuperHandler extends GotoTargetHandler implements Languag
         PsiClass superClass = iterator.next();
         if (CommonClassNames.JAVA_LANG_OBJECT.equals(superClass.getQualifiedName())) iterator.remove();
       }
-      return ContainerUtil.toArray(allSupers, new PsiClass[allSupers.size()]);
+      return allSupers.toArray(PsiClass.EMPTY_ARRAY);
     }
     else if (e instanceof PsiMethod) {
       return getSupers((PsiMethod)e);
@@ -110,14 +108,13 @@ public class GroovyGotoSuperHandler extends GotoTargetHandler implements Languag
       for (GrAccessorMethod method : GroovyPropertyUtils.getFieldAccessors((GrField)e)) {
         supers.addAll(Arrays.asList(getSupers(method)));
       }
-      return ContainerUtil.toArray(supers, new PsiMethod[supers.size()]);
+      return supers.toArray(PsiMethod.EMPTY_ARRAY);
     }
   }
 
-  @NotNull
-  private static PsiMethod[] getSupers(PsiMethod method) {
+  private static PsiMethod @NotNull [] getSupers(PsiMethod method) {
     if (method.isConstructor()) {
-      PsiMethod constructorInSuper = PsiSuperMethodUtil.findConstructorInSuper(method);
+      PsiMethod constructorInSuper = JavaPsiConstructorUtil.findConstructorInSuper(method);
       if (constructorInSuper != null) {
         return new PsiMethod[]{constructorInSuper};
       }

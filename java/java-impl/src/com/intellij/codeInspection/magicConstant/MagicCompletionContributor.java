@@ -21,6 +21,7 @@ import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInsight.lookup.LookupItemUtil;
 import com.intellij.codeInsight.lookup.VariableLookupItem;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.Pair;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.*;
@@ -36,7 +37,7 @@ import java.util.*;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 
-public class MagicCompletionContributor extends CompletionContributor {
+public class MagicCompletionContributor extends CompletionContributor implements DumbAware {
   private static final ElementPattern<PsiElement> IN_METHOD_CALL_ARGUMENT =
     psiElement().withParent(psiElement(PsiReferenceExpression.class).inside(psiElement(PsiExpressionList.class).withParent(PsiCall.class)));
   private static final ElementPattern<PsiElement> IN_BINARY_COMPARISON =
@@ -57,17 +58,17 @@ public class MagicCompletionContributor extends CompletionContributor {
       return;
     }
 
-    MagicConstantInspection.AllowedValues allowedValues = getAllowedValues(pos);
+    MagicConstantUtils.AllowedValues allowedValues = getAllowedValues(pos);
     if (allowedValues == null) return;
 
     addCompletionVariants(parameters, result, pos, allowedValues);
   }
 
   @Nullable
-  public static MagicConstantInspection.AllowedValues getAllowedValues(@NotNull PsiElement pos) {
-    MagicConstantInspection.AllowedValues allowedValues = null;
+  public static MagicConstantUtils.AllowedValues getAllowedValues(@NotNull PsiElement pos) {
+    MagicConstantUtils.AllowedValues allowedValues = null;
     for (Pair<PsiModifierListOwner, PsiType> pair : getMembersWithAllowedValues(pos)) {
-      MagicConstantInspection.AllowedValues values = MagicConstantInspection.getAllowedValues(pair.first, pair.second, null);
+      MagicConstantUtils.AllowedValues values = MagicConstantUtils.getAllowedValues(pair.first, pair.second);
       if (values == null) continue;
       if (allowedValues == null) {
         allowedValues = values;
@@ -145,9 +146,9 @@ public class MagicCompletionContributor extends CompletionContributor {
     else if (IN_ASSIGNMENT.accepts(pos)) {
       PsiAssignmentExpression assignment = PsiTreeUtil.getParentOfType(pos, PsiAssignmentExpression.class);
       PsiExpression l = assignment == null ? null : assignment.getLExpression();
-      PsiElement resolved = resolveExpression(l);
+      PsiModifierListOwner resolved = resolveExpression(l);
       if (resolved != null && PsiTreeUtil.isAncestor(assignment.getRExpression(), pos, false)) {
-        result.add(Pair.create((PsiModifierListOwner)resolved, l.getType()));
+        result.add(Pair.create(resolved, l.getType()));
       }
     }
     else if (IN_RETURN.accepts(pos)) {
@@ -161,7 +162,7 @@ public class MagicCompletionContributor extends CompletionContributor {
         final PsiType interfaceType = ((PsiLambdaExpression)element).getFunctionalInterfaceType();
         final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(interfaceType);
         if (interfaceMethod != null) {
-          result.add(Pair.create((PsiModifierListOwner)interfaceMethod, LambdaUtil.getFunctionalInterfaceReturnType(interfaceType)));
+          result.add(Pair.create(interfaceMethod, LambdaUtil.getFunctionalInterfaceReturnType(interfaceType)));
         }
       }
     }
@@ -181,8 +182,8 @@ public class MagicCompletionContributor extends CompletionContributor {
   private static void addCompletionVariants(@NotNull final CompletionParameters parameters,
                                             @NotNull final CompletionResultSet result,
                                             PsiElement pos,
-                                            MagicConstantInspection.AllowedValues allowedValues) {
-    final Set<PsiElement> allowed = new THashSet<>(new TObjectHashingStrategy<PsiElement>() {
+                                            MagicConstantUtils.AllowedValues allowedValues) {
+    final Set<PsiElement> allowed = new THashSet<>(new TObjectHashingStrategy<>() {
       @Override
       public int computeHashCode(PsiElement object) {
         return 0;
@@ -193,7 +194,7 @@ public class MagicCompletionContributor extends CompletionContributor {
         return parameters.getOriginalFile().getManager().areElementsEquivalent(o1, o2);
       }
     });
-    if (allowedValues.canBeOred) {
+    if (allowedValues.isFlagSet()) {
       PsiElementFactory factory = JavaPsiFacade.getElementFactory(pos.getProject());
       PsiExpression zero = factory.createExpressionFromText("0", pos);
       result.addElement(PrioritizedLookupElement.withPriority(LookupElementBuilder.create(zero, "0"), PRIORITY - 1));
@@ -203,7 +204,7 @@ public class MagicCompletionContributor extends CompletionContributor {
       allowed.add(minusOne);
     }
     List<ExpectedTypeInfo> types = Arrays.asList(JavaSmartCompletionContributor.getExpectedTypes(parameters));
-    for (PsiAnnotationMemberValue value : allowedValues.values) {
+    for (PsiAnnotationMemberValue value : allowedValues.getValues()) {
       if (value instanceof PsiReference) {
         PsiElement resolved = ((PsiReference)value).resolve();
         if (resolved instanceof PsiNamedElement) {
@@ -235,7 +236,7 @@ public class MagicCompletionContributor extends CompletionContributor {
     });
   }
 
-  private static LookupElement decorate(CompletionParameters parameters, List<ExpectedTypeInfo> types, LookupElement element) {
+  private static LookupElement decorate(CompletionParameters parameters, List<? extends ExpectedTypeInfo> types, LookupElement element) {
     if (!types.isEmpty() && parameters.getCompletionType() == CompletionType.SMART) {
       element = JavaSmartCompletionContributor.decorate(element, types);
     }

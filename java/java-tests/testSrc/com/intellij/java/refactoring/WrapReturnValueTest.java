@@ -21,24 +21,17 @@ import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.refactoring.BaseRefactoringProcessor;
-import com.intellij.refactoring.MultiFileTestCase;
+import com.intellij.refactoring.LightMultiFileTestCase;
 import com.intellij.refactoring.wrapreturnvalue.WrapReturnValueProcessor;
 import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * @author anna
  */
-public class WrapReturnValueTest extends MultiFileTestCase {
+public class WrapReturnValueTest extends LightMultiFileTestCase {
   @Override
   protected String getTestDataPath() {
-    return JavaTestUtil.getJavaTestDataPath();
-  }
-
-  @NotNull
-  @Override
-  protected String getTestRoot() {
-    return "/refactoring/wrapReturnValue/";
+    return JavaTestUtil.getJavaTestDataPath() + "/refactoring/wrapReturnValue/";
   }
 
   public void testSimple() { doTest(false); }
@@ -55,6 +48,7 @@ public class WrapReturnValueTest extends MultiFileTestCase {
   public void testInferFieldTypeArg() { doTest(true, null, false); }
   public void testWrongFieldType() { doTest(true, "Existing class does not have appropriate constructor", false); }
   public void testStaticMethodInnerClass() { doTest(false, null, true); }
+  public void testOpenMethodReference() { doTest(false, null, true); }
   public void testRawReturnType() { doTest(true, "Existing class does not have appropriate constructor"); }
   public void testReturnInsideLambda() { doTest(false, null, true); }
   public void testTypeAnnotations() { doTest(false); }
@@ -70,12 +64,11 @@ public class WrapReturnValueTest extends MultiFileTestCase {
 
   private void doTest(final boolean existing, String exceptionMessage, final boolean createInnerClass) {
     try {
-      doTest((rootDir, rootAfter) -> {
-        PsiClass aClass = myJavaFacade.findClass("Test", GlobalSearchScope.projectScope(getProject()));
-        assertNotNull("Class Test not found", aClass);
+      doTest(() -> {
+        PsiClass aClass = myFixture.findClass("Test");
         PsiMethod method = aClass.findMethodsByName("foo", false)[0];
         String wrapperClassName = "Wrapper";
-        PsiClass wrapperClass = myJavaFacade.findClass(wrapperClassName, GlobalSearchScope.projectScope(getProject()));
+        PsiClass wrapperClass = myFixture.getJavaFacade().findClass(wrapperClassName, GlobalSearchScope.projectScope(getProject()));
         assertTrue(!existing || wrapperClass != null);
         PsiField delegateField = existing ? wrapperClass.findFieldByName("myField", false) : null;
         new WrapReturnValueProcessor(wrapperClassName, "", null, method, existing, createInnerClass, delegateField).run();

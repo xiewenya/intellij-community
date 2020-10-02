@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.xdebugger.AbstractDebuggerSession;
 import com.intellij.xdebugger.XDebuggerManager;
@@ -36,9 +21,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * @author nik
- */
 @Deprecated
 public abstract class DebuggerSupport {
   private static final ExtensionPointName<DebuggerSupport> EXTENSION_POINT = ExtensionPointName.create("com.intellij.xdebugger.debuggerSupport");
@@ -56,9 +38,8 @@ public abstract class DebuggerSupport {
     }
   }
 
-  @NotNull
-  public static DebuggerSupport[] getDebuggerSupports() {
-    return Extensions.getExtensions(EXTENSION_POINT);
+  public static DebuggerSupport @NotNull [] getDebuggerSupports() {
+    return EXTENSION_POINT.getExtensions();
   }
 
   @NotNull
@@ -169,6 +150,12 @@ public abstract class DebuggerSupport {
   public DebuggerActionHandler getAddToWatchesActionHandler() {
     return DisabledActionHandler.INSTANCE;
   }
+
+  @NotNull
+  public DebuggerActionHandler getAddToInlineWatchesActionHandler() {
+    return DisabledActionHandler.INSTANCE;
+  }
+
 
   public DebuggerActionHandler getEvaluateInConsoleActionHandler() {
     return DisabledActionHandler.INSTANCE;

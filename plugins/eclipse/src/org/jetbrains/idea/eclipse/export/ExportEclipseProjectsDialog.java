@@ -25,15 +25,17 @@ public class ExportEclipseProjectsDialog extends DialogWrapper {
   private JCheckBox myExportProjectLibrariesCb;
   private JLabel myPathToUserLibsLabel;
 
-  public ExportEclipseProjectsDialog(final Project project, List<Module> modules) {
+  public ExportEclipseProjectsDialog(final Project project, List<? extends Module> modules) {
     super(project, false);
     moduleChooser.setElements(modules, true);
     setTitle(EclipseBundle.message("eclipse.export.dialog.title"));
     init();
     myUserLibrariesTF.setText(project.getBasePath() + File.separator + project.getName() + ".userlibraries");
-    myUserLibrariesTF.addBrowseFolderListener("Locate .userlibraries", "Locate .userlibraries file where project libraries would be exported", project, FileChooserDescriptorFactory.createSingleLocalFileDescriptor());
+    myUserLibrariesTF.addBrowseFolderListener(EclipseBundle.message("button.browse.dialog.title.locate.user.libraries"), EclipseBundle
+      .message("button.browse.dialog.description.locate.user.libraries.file"), project, FileChooserDescriptorFactory.createSingleLocalFileDescriptor());
     myExportProjectLibrariesCb.setSelected(true);
     myExportProjectLibrariesCb.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myUserLibrariesTF.setEnabled(myExportProjectLibrariesCb.isSelected());
         myPathToUserLibsLabel.setEnabled(myExportProjectLibrariesCb.isSelected());
@@ -41,6 +43,7 @@ public class ExportEclipseProjectsDialog extends DialogWrapper {
     });
   }
 
+  @Override
   @Nullable
   protected JComponent createCenterPanel() {
     return contentPane;
@@ -48,6 +51,7 @@ public class ExportEclipseProjectsDialog extends DialogWrapper {
 
   private void createUIComponents() {
     moduleChooser = new ElementsChooser<Module>(true) {
+      @Override
       protected String getItemText(@NotNull final Module module) {
         return module.getName();
       }

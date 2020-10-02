@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.codeinsight;
 
-import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.generation.surroundWith.JavaExpressionSurrounder;
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.DebuggerInvocationUtil;
 import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.engine.evaluation.DefaultCodeFragmentFactory;
@@ -37,10 +22,12 @@ import org.jetbrains.annotations.Nullable;
 
 public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
 
+  @Override
   public String getTemplateDescription() {
-    return CodeInsightBundle.message("surround.with.runtime.type.template");
+    return JavaDebuggerBundle.message("surround.with.runtime.type.template");
   }
 
+  @Override
   public boolean isApplicable(PsiExpression expr) {
     if (!expr.isPhysical()) return false;
     PsiFile file = expr.getContainingFile();
@@ -52,13 +39,14 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
     return RuntimeTypeEvaluator.isSubtypeable(expr);
   }
 
+  @Override
   public TextRange surroundExpression(Project project, Editor editor, PsiExpression expr) throws IncorrectOperationException {
     DebuggerContextImpl debuggerContext = (DebuggerManagerEx.getInstanceEx(project)).getContext();
     DebuggerSession debuggerSession = debuggerContext.getDebuggerSession();
     if (debuggerSession != null) {
       final ProgressWindow progressWindow = new ProgressWindow(true, expr.getProject());
       SurroundWithCastWorker worker = new SurroundWithCastWorker(editor, expr, debuggerContext, progressWindow);
-      progressWindow.setTitle(DebuggerBundle.message("title.evaluating"));
+      progressWindow.setTitle(JavaDebuggerBundle.message("title.evaluating"));
       debuggerContext.getDebugProcess().getManagerThread().startProgress(worker, progressWindow);
     }
     return null;
@@ -67,7 +55,7 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
   private static class SurroundWithCastWorker extends RuntimeTypeEvaluator {
     private final Editor myEditor;
 
-    public SurroundWithCastWorker(Editor editor, PsiExpression expression, DebuggerContextImpl context, final ProgressIndicator indicator) {
+    SurroundWithCastWorker(Editor editor, PsiExpression expression, DebuggerContextImpl context, final ProgressIndicator indicator) {
       super(editor, expression, context, indicator);
       myEditor = editor;
     }
@@ -81,9 +69,9 @@ public class JavaWithRuntimeCastSurrounder extends JavaExpressionSurrounder {
       hold();
       final Project project = myElement.getProject();
       DebuggerInvocationUtil.invokeLater(project, () -> WriteCommandAction.writeCommandAction(project).withName(
-        CodeInsightBundle.message("command.name.surround.with.runtime.cast")).run(() -> {
+        JavaDebuggerBundle.message("command.name.surround.with.runtime.cast")).run(() -> {
         try {
-          PsiElementFactory factory = JavaPsiFacade.getInstance(myElement.getProject()).getElementFactory();
+          PsiElementFactory factory = JavaPsiFacade.getElementFactory(myElement.getProject());
           PsiParenthesizedExpression parenth =
             (PsiParenthesizedExpression)factory.createExpressionFromText("((" + type.getCanonicalText() + ")expr)", null);
           //noinspection ConstantConditions

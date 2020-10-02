@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectView.impl.nodes;
 
-import com.intellij.CommonBundle;
+import com.intellij.ide.IdeBundle;
 import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.projectView.ViewSettings;
@@ -46,12 +32,12 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 
 public class PsiFileNode extends BasePsiNode<PsiFile> implements NavigatableWithText {
-  public PsiFileNode(Project project, PsiFile value, ViewSettings viewSettings) {
+  public PsiFileNode(Project project, @NotNull PsiFile value, ViewSettings viewSettings) {
     super(project, value, viewSettings);
   }
 
   @Override
-  public Collection<AbstractTreeNode> getChildrenImpl() {
+  public Collection<AbstractTreeNode<?>> getChildrenImpl() {
     Project project = getProject();
     VirtualFile jarRoot = getJarRoot();
     if (project != null && jarRoot != null) {
@@ -70,28 +56,24 @@ public class PsiFileNode extends BasePsiNode<PsiFile> implements NavigatableWith
   }
 
   @Override
-  protected void updateImpl(PresentationData data) {
+  protected void updateImpl(@NotNull PresentationData data) {
     PsiFile value = getValue();
-    data.setPresentableText(value.getName());
-    data.setIcon(value.getIcon(Iconable.ICON_FLAG_READ_STATUS));
+    if (value != null) {
+      data.setPresentableText(value.getName());
+      data.setIcon(value.getIcon(Iconable.ICON_FLAG_READ_STATUS));
 
-    VirtualFile file = getVirtualFile();
-    if (file != null && file.is(VFileProperty.SYMLINK)) {
-      String target = file.getCanonicalPath();
-      if (target == null) {
-        data.setAttributesKey(CodeInsightColors.WRONG_REFERENCES_ATTRIBUTES);
-        data.setTooltip(CommonBundle.message("vfs.broken.link"));
-      }
-      else {
-        data.setTooltip(FileUtil.toSystemDependentName(target));
+      VirtualFile file = getVirtualFile();
+      if (file != null && file.is(VFileProperty.SYMLINK)) {
+        String target = file.getCanonicalPath();
+        if (target == null) {
+          data.setAttributesKey(CodeInsightColors.WRONG_REFERENCES_ATTRIBUTES);
+          data.setTooltip(IdeBundle.message("node.project.view.bad.link"));
+        }
+        else {
+          data.setTooltip(FileUtil.toSystemDependentName(target));
+        }
       }
     }
-  }
-
-  @Override
-  public VirtualFile getVirtualFile() {
-    PsiFile value = getValue();
-    return value != null ? value.getVirtualFile() : null;
   }
 
   @Override
@@ -146,11 +128,7 @@ public class PsiFileNode extends BasePsiNode<PsiFile> implements NavigatableWith
   @Override
   public String getTitle() {
     VirtualFile file = getVirtualFile();
-    if (file != null) {
-      return FileUtil.getLocationRelativeToUserHome(file.getPresentableUrl());
-    }
-
-    return super.getTitle();
+    return file != null ? FileUtil.getLocationRelativeToUserHome(file.getPresentableUrl()) : super.getTitle();
   }
 
   @Override
@@ -159,7 +137,7 @@ public class PsiFileNode extends BasePsiNode<PsiFile> implements NavigatableWith
   }
 
   @Override
-  public Comparable getTypeSortKey() {
+  public Comparable<ExtensionSortKey> getTypeSortKey() {
     String extension = extension(getValue());
     return extension == null ? null : new ExtensionSortKey(extension);
   }
@@ -176,18 +154,16 @@ public class PsiFileNode extends BasePsiNode<PsiFile> implements NavigatableWith
     return null;
   }
 
-  public static class ExtensionSortKey implements Comparable {
+  public static class ExtensionSortKey implements Comparable<ExtensionSortKey> {
     private final String myExtension;
 
-    public ExtensionSortKey(final String extension) {
+    public ExtensionSortKey(@NotNull String extension) {
       myExtension = extension;
     }
 
     @Override
-    public int compareTo(final Object o) {
-      if (!(o instanceof ExtensionSortKey)) return 0;
-      ExtensionSortKey rhs = (ExtensionSortKey) o;
-      return myExtension.compareTo(rhs.myExtension);
+    public int compareTo(ExtensionSortKey o) {
+      return o == null ? 0 : myExtension.compareTo(o.myExtension);
     }
   }
 

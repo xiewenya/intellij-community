@@ -15,13 +15,15 @@
  */
 package com.intellij.openapi.diff.impl.dir;
 
+import com.intellij.diff.util.DiffUtil;
 import com.intellij.ide.diff.DiffElement;
 import com.intellij.ide.diff.DiffErrorElement;
 import com.intellij.ide.diff.DiffType;
 import com.intellij.ide.diff.DirDiffSettings;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
-import java.util.HashMap;
 import com.intellij.util.containers.SortedList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,6 +32,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 
 import static com.intellij.ide.diff.DiffType.ERROR;
 
@@ -37,6 +40,8 @@ import static com.intellij.ide.diff.DiffType.ERROR;
  * @author Konstantin Bulenkov
  */
 public class DTree {
+  private static final Logger LOG = Logger.getInstance(DTree.class);
+
   private static final Comparator<DTree> COMPARATOR = (o1, o2) -> {
     final boolean b1 = o1.isContainer();
     final boolean b2 = o2.isContainer();
@@ -84,7 +89,7 @@ public class DTree {
     else if (myChildren.containsKey(name)) {
       node = myChildren.get(name);
     } else {
-      node = new DTree(this, name, element.isContainer());
+      node = new DTree(this, element.getPresentableName(), element.isContainer());
       myChildren.put(name, node);
     }
 
@@ -145,7 +150,26 @@ public class DTree {
     return myName;
   }
 
+  private void prepare() {
+    final DiffElement<?> src = getSource();
+    final DiffElement<?> trg = getTarget();
+    if (src instanceof ComparableDiffElement) {
+      ((ComparableDiffElement)src).prepare(trg);
+    }
+    if (trg instanceof ComparableDiffElement) {
+      ((ComparableDiffElement)trg).prepare(src);
+    }
+    for (DTree tree : getChildren()) {
+      tree.prepare();
+    }
+  }
+
   public void update(DirDiffSettings settings) {
+    prepare();
+    updateChildren(settings);
+  }
+
+  private void updateChildren(DirDiffSettings settings) {
     for (DTree tree : getChildren()) {
       final DiffElement<?> src = tree.getSource();
       final DiffElement<?> trg = tree.getTarget();
@@ -157,26 +181,30 @@ public class DTree {
         tree.setType(DiffType.SOURCE);
       } else {
         assert src != null;
-        boolean equals;
-        switch (settings.compareMode) {
-          case CONTENT:
-            equals = isEqualContents(src, trg);
-            break;
-          case TEXT:
-            equals = isEqualContentsAsText(src, trg);
-            break;
-          case SIZE:
-            equals = isEqualSizes(src, trg);
-            break;
-          case TIMESTAMP:
-            equals = isEqualTimestamps(src, trg, settings);
-            break;
-          default:
-            throw new IllegalStateException(settings.compareMode.name());
+        Boolean equals = null;
+        if (src instanceof ComparableDiffElement) equals = ((ComparableDiffElement)src).isContentEqual(trg);
+        if (equals == null && trg instanceof ComparableDiffElement) equals = ((ComparableDiffElement)trg).isContentEqual(src);
+        if (equals == null) {
+          switch (settings.compareMode) {
+            case CONTENT:
+              equals = isEqualContents(src, trg);
+              break;
+            case TEXT:
+              equals = isEqualContentsAsText(src, trg);
+              break;
+            case SIZE:
+              equals = isEqualSizes(src, trg);
+              break;
+            case TIMESTAMP:
+              equals = isEqualTimestamps(src, trg, settings);
+              break;
+            default:
+              throw new IllegalStateException(settings.compareMode.name());
+          }
         }
         tree.setType(equals ? DiffType.EQUAL : DiffType.CHANGED);
       }
-      tree.update(settings);
+      tree.updateChildren(settings);
     }
   }
 
@@ -257,9 +285,10 @@ public class DTree {
     if (file1.isContainer() || file2.isContainer()) return false;
     if (file1.getSize() != file2.getSize()) return false;
     try {
-      return Arrays.equals(file1.getContent(), file2.getContent());
+      return DiffUtil.compareStreams(() -> file1.getContentStream(), () -> file2.getContentStream());
     }
     catch (IOException e) {
+      LOG.warn(e);
       return false;
     }
   }
@@ -288,6 +317,7 @@ public class DTree {
       return StringUtil.equals(convertedText1, convertedText2);
     }
     catch (IOException e) {
+      LOG.warn(e);
       return false;
     }
   }
@@ -300,6 +330,7 @@ public class DTree {
     this.myType = type;
   }
 
+  @NlsSafe
   public String getPath() {
     if (myPath == null) {
       final DTree parent = getParent();

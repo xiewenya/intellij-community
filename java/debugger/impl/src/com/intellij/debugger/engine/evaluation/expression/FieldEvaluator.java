@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class FieldEvaluator
@@ -20,12 +6,11 @@
  */
 package com.intellij.debugger.engine.evaluation.expression;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.engine.JVMNameUtil;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
-import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.ui.impl.watch.FieldDescriptorImpl;
 import com.intellij.debugger.ui.impl.watch.NodeDescriptorImpl;
 import com.intellij.openapi.project.Project;
@@ -50,7 +35,7 @@ public class FieldEvaluator implements Evaluator {
     TargetClassFilter ALL = refType -> true;
     boolean acceptClass(ReferenceType refType);
   }
-  
+
   public FieldEvaluator(Evaluator objectEvaluator, TargetClassFilter filter, @NonNls String fieldName) {
     myObjectEvaluator = objectEvaluator;
     myFieldName = fieldName;
@@ -110,6 +95,7 @@ public class FieldEvaluator implements Evaluator {
     return null;
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     myEvaluatedField = null;
     myEvaluatedQualifier = null;
@@ -127,7 +113,7 @@ public class FieldEvaluator implements Evaluator {
         field = refType.fieldByName(myFieldName);
       }
       if (field == null || !field.isStatic()) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.static.field", myFieldName));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.no.static.field", myFieldName));
       }
       myEvaluatedField = field;
       myEvaluatedQualifier = refType;
@@ -138,18 +124,13 @@ public class FieldEvaluator implements Evaluator {
       ObjectReference objRef = (ObjectReference)object;
       ReferenceType refType = objRef.referenceType();
       if (!(refType instanceof ClassType || refType instanceof ArrayType)) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.class.or.array.expected", myFieldName));
+        throw EvaluateExceptionUtil.createEvaluateException(
+          JavaDebuggerBundle.message("evaluation.error.class.or.array.expected", myFieldName));
       }
 
       // expressions like 'array.length' must be treated separately
-      //noinspection HardCodedStringLiteral
       if (objRef instanceof ArrayReference && "length".equals(myFieldName)) {
-        //noinspection HardCodedStringLiteral
-        return DebuggerUtilsEx.createValue(
-          context.getDebugProcess().getVirtualMachineProxy(),
-          "int",
-          ((ArrayReference)objRef).length()
-        );
+        return context.getDebugProcess().getVirtualMachineProxy().mirrorOf(((ArrayReference)objRef).length());
       }
 
       Field field = findField(refType);
@@ -158,7 +139,7 @@ public class FieldEvaluator implements Evaluator {
       }
 
       if (field == null) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.instance.field", myFieldName));
+        throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.no.instance.field", myFieldName));
       }
       myEvaluatedQualifier = field.isStatic() ? refType : objRef;
       myEvaluatedField = field;
@@ -169,21 +150,25 @@ public class FieldEvaluator implements Evaluator {
       throw EvaluateExceptionUtil.createEvaluateException(new NullPointerException());
     }
 
-    throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.evaluating.field", myFieldName));
+    throw EvaluateExceptionUtil.createEvaluateException(JavaDebuggerBundle.message("evaluation.error.evaluating.field", myFieldName));
   }
 
+  @Override
   public Modifier getModifier() {
     Modifier modifier = null;
     if (myEvaluatedField != null && (myEvaluatedQualifier instanceof ClassType || myEvaluatedQualifier instanceof ObjectReference)) {
       modifier = new Modifier() {
+        @Override
         public boolean canInspect() {
           return myEvaluatedQualifier instanceof ObjectReference;
         }
 
+        @Override
         public boolean canSetValue() {
           return true;
         }
 
+        @Override
         public void setValue(Value value) throws ClassNotLoadedException, InvalidTypeException {
           if (myEvaluatedQualifier instanceof ReferenceType) {
             ClassType classType = (ClassType)myEvaluatedQualifier;
@@ -195,10 +180,12 @@ public class FieldEvaluator implements Evaluator {
           }
         }
 
+        @Override
         public Type getExpectedType() throws ClassNotLoadedException {
           return myEvaluatedField.type();
         }
 
+        @Override
         public NodeDescriptorImpl getInspectItem(Project project) {
           if(myEvaluatedQualifier instanceof ObjectReference) {
             return new FieldDescriptorImpl(project, (ObjectReference)myEvaluatedQualifier, myEvaluatedField);
@@ -222,6 +209,7 @@ public class FieldEvaluator implements Evaluator {
       myQName = qName;
     }
 
+    @Override
     public boolean acceptClass(final ReferenceType refType) {
       return refType.name().equals(myQName);
     }
@@ -234,6 +222,7 @@ public class FieldEvaluator implements Evaluator {
       myLocalClassShortName = localClassShortName;
     }
 
+    @Override
     public boolean acceptClass(final ReferenceType refType) {
       final String name = refType.name();
       final int index = name.lastIndexOf(myLocalClassShortName);

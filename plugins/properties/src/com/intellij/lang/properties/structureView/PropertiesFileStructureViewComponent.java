@@ -22,10 +22,8 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * @author cdr
- */
 public class PropertiesFileStructureViewComponent extends PropertiesGroupingStructureViewComponent {
   private final PropertiesFile myPropertiesFile;
 
@@ -35,12 +33,12 @@ public class PropertiesFileStructureViewComponent extends PropertiesGroupingStru
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       return myPropertiesFile.getVirtualFile();
     }
     if (CommonDataKeys.PSI_ELEMENT.is(dataId)) {
-      return myPropertiesFile;
+      return myPropertiesFile.getContainingFile();
     }
     return super.getData(dataId);
   }

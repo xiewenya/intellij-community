@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon;
 
 import com.intellij.codeHighlighting.Pass;
@@ -21,7 +7,6 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.injection.InjectedLanguageManager;
-import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.psi.PsiDocumentManager;
@@ -30,10 +15,10 @@ import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.testFramework.ExpectedHighlightingData;
 import com.intellij.testFramework.FileTreeAccessFilter;
 import com.intellij.testFramework.HighlightTestInfo;
-import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl;
-import com.intellij.util.ArrayUtil;
-import gnu.trove.TIntArrayList;
+import com.intellij.util.ArrayUtilRt;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.List;
 
-public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCase {
+public abstract class LightDaemonAnalyzerTestCase extends LightJavaCodeInsightTestCase {
   private final FileTreeAccessFilter myJavaFilesFilter = new FileTreeAccessFilter();
 
   @Override
@@ -56,26 +41,16 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
     try {
       // return default value to avoid unnecessary save
       DaemonCodeAnalyzerSettings.getInstance().setImportHintEnabled(true);
-      ((DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(getProject())).cleanupAfterTest();
+      DaemonCodeAnalyzerImpl daemonCodeAnalyzer = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(getProject());
+      if (daemonCodeAnalyzer != null) {
+        daemonCodeAnalyzer.cleanupAfterTest();
+      }
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
     }
     finally {
       super.tearDown();
-    }
-  }
-
-  @Override
-  protected void runTest() throws Throwable {
-    final Throwable[] throwable = {null};
-    CommandProcessor.getInstance().executeCommand(getProject(), () -> {
-      try {
-        doRunTest();
-      }
-      catch (Throwable t) {
-        throwable[0] = t;
-      }
-    }, "", null);
-    if (throwable[0] != null) {
-      throw throwable[0];
     }
   }
 
@@ -99,7 +74,7 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
     ExpectedHighlightingData data = getExpectedHighlightingData(checkWarnings, checkWeakWarnings, checkInfos);
     checkHighlighting(data, composeLocalPath(filePath));
   }
-  
+
   protected ExpectedHighlightingData getExpectedHighlightingData(boolean checkWarnings, boolean checkWeakWarnings, boolean checkInfos) {
     return new ExpectedHighlightingData(getEditor().getDocument(), checkWarnings, checkWeakWarnings, checkInfos);
   }
@@ -121,7 +96,7 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
     try {
       Collection<HighlightInfo> infos = doHighlighting();
 
-      data.checkResult(infos, getEditor().getDocument().getText(), filePath);
+      data.checkResult(getFile(), infos, getEditor().getDocument().getText(), filePath);
     }
     finally {
       PsiManagerEx.getInstanceEx(getProject()).setAssertOnFileLoadingFilter(VirtualFileFilter.NONE, getTestRootDisposable());
@@ -134,7 +109,7 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
       public HighlightTestInfo doTest() {
         String path = assertOneElement(filePaths);
         configureByFile(path);
-        ExpectedHighlightingData data = new JavaExpectedHighlightingData(myEditor.getDocument(), checkWarnings, checkWeakWarnings, checkInfos, myFile);
+        ExpectedHighlightingData data = new JavaExpectedHighlightingData(getEditor().getDocument(), checkWarnings, checkWeakWarnings, checkInfos);
         if (checkSymbolNames) data.checkSymbolNames();
 
         checkHighlighting(data, composeLocalPath(path));
@@ -152,7 +127,7 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
   protected List<HighlightInfo> doHighlighting() {
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
 
-    TIntArrayList toIgnoreList = new TIntArrayList();
+    IntArrayList toIgnoreList = new IntArrayList();
     if (!doFolding()) {
       toIgnoreList.add(Pass.UPDATE_FOLDING);
     }
@@ -160,7 +135,7 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
       toIgnoreList.add(Pass.LOCAL_INSPECTIONS);
       toIgnoreList.add(Pass.WHOLE_FILE_LOCAL_INSPECTIONS);
     }
-    int[] toIgnore = toIgnoreList.isEmpty() ? ArrayUtil.EMPTY_INT_ARRAY : toIgnoreList.toNativeArray();
+    int[] toIgnore = toIgnoreList.isEmpty() ? ArrayUtilRt.EMPTY_INT_ARRAY : toIgnoreList.toIntArray();
     Editor editor = getEditor();
     PsiFile file = getFile();
     if (editor instanceof EditorWindow) {
@@ -168,7 +143,11 @@ public abstract class LightDaemonAnalyzerTestCase extends LightCodeInsightTestCa
       file = InjectedLanguageManager.getInstance(file.getProject()).getTopLevelFile(file);
     }
 
-    return CodeInsightTestFixtureImpl.instantiateAndRun(file, editor, toIgnore, false);
+    return CodeInsightTestFixtureImpl.instantiateAndRun(file, editor, toIgnore, canChangeDocumentDuringHighlighting());
+  }
+
+  private boolean canChangeDocumentDuringHighlighting() {
+    return annotatedWith(DaemonAnalyzerTestCase.CanChangeDocumentDuringHighlighting.class);
   }
 
   protected List<HighlightInfo> doHighlighting(HighlightSeverity minSeverity) {

@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.intention.FileModifier;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -26,6 +14,7 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.infos.MethodCandidateInfo;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
@@ -34,11 +23,9 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-/**
- * @author cdr
- */
-public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction {
+public final class PermuteArgumentsFix implements IntentionAction, HighPriorityAction {
   private static final Logger LOG = Logger.getInstance(PermuteArgumentsFix.class);
   private final PsiCall myCall;
   private final PsiCall myPermutation;
@@ -60,6 +47,10 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
     return QuickFixBundle.message("permute.arguments");
   }
 
+  @Override
+  public @NotNull FileModifier getFileModifierForPreview(@NotNull PsiFile target) {
+    return new PermuteArgumentsFix(PsiTreeUtil.findSameElementInCopy(myCall, target), myPermutation);
+  }
 
   @Override
   @NotNull
@@ -69,17 +60,17 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return !project.isDisposed() && myCall.isValid() && myCall.getManager().isInProject(myCall);
+    return !project.isDisposed() && myCall.isValid() && BaseIntentionAction.canModify(myCall);
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    myCall.getArgumentList().replace(myPermutation.getArgumentList());
+    Objects.requireNonNull(myCall.getArgumentList()).replace(Objects.requireNonNull(myPermutation.getArgumentList()));
   }
 
-  public static void registerFix(HighlightInfo info, PsiCall callExpression, final CandidateInfo[] candidates, final TextRange fixRange) {
-    PsiExpression[] expressions = callExpression.getArgumentList().getExpressions();
-    if (expressions.length < 2) return;
+  public static boolean registerFix(HighlightInfo info, PsiCall callExpression, final CandidateInfo[] candidates, final TextRange fixRange) {
+    PsiExpression[] expressions = Objects.requireNonNull(callExpression.getArgumentList()).getExpressions();
+    if (expressions.length < 2) return false;
     List<PsiCall> permutations = new ArrayList<>();
 
     for (CandidateInfo candidate : candidates) {
@@ -89,7 +80,7 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
         PsiSubstitutor substitutor = methodCandidate.getSubstitutor();
 
         PsiParameter[] parameters = method.getParameterList().getParameters();
-        if (expressions.length != parameters.length || parameters.length ==0) continue;
+        if (expressions.length != parameters.length) continue;
         int minIncompatibleIndex = parameters.length;
         int maxIncompatibleIndex = 0;
         int incompatibilitiesCount = 0;
@@ -114,10 +105,13 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
     if (permutations.size() == 1) {
       PermuteArgumentsFix fix = new PermuteArgumentsFix(callExpression, permutations.get(0));
       QuickFixAction.registerQuickFixAction(info, fixRange, fix);
+      return true;
     }
+
+    return false;
   }
 
-  private static void registerShiftFixes(final PsiExpression[] expressions, final PsiCall callExpression, final List<PsiCall> permutations,
+  private static void registerShiftFixes(final PsiExpression[] expressions, final PsiCall callExpression, final List<? super PsiCall> permutations,
                                          final MethodCandidateInfo methodCandidate, final int minIncompatibleIndex, final int maxIncompatibleIndex)
     throws IncorrectOperationException {
     PsiMethod method = methodCandidate.getElement();
@@ -144,7 +138,7 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
     }
   }
 
-  private static boolean canShift(PsiExpression[] expressions, PsiCall callExpression, List<PsiCall> permutations, int i) {
+  private static boolean canShift(PsiExpression[] expressions, PsiCall callExpression, List<? super PsiCall> permutations, int i) {
     PsiCall copy = LambdaUtil.copyTopLevelCall(callExpression);
     if (copy == null) return false;
     PsiExpressionList list = copy.getArgumentList();
@@ -162,7 +156,7 @@ public class PermuteArgumentsFix implements IntentionAction, HighPriorityAction 
     return false;
   }
 
-  private static void registerSwapFixes(final PsiExpression[] expressions, final PsiCall callExpression, final List<PsiCall> permutations,
+  private static void registerSwapFixes(final PsiExpression[] expressions, final PsiCall callExpression, final List<? super PsiCall> permutations,
                                         MethodCandidateInfo candidate, final int incompatibilitiesCount, final int minIncompatibleIndex,
                                         final int maxIncompatibleIndex) throws IncorrectOperationException {
     PsiMethod method = candidate.getElement();

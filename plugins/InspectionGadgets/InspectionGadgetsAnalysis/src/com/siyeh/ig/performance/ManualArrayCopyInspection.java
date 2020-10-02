@@ -15,28 +15,23 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.DfaUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class ManualArrayCopyInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "manual.array.copy.display.name");
-  }
 
   @Override
   public boolean isEnabledByDefault() {
@@ -65,14 +60,14 @@ public class ManualArrayCopyInspection extends BaseInspection {
 
     private final boolean decrement;
 
-    public ManualArrayCopyFix(boolean decrement) {
+    ManualArrayCopyFix(boolean decrement) {
       this.decrement = decrement;
     }
 
     @Override
     @NotNull
     public String getFamilyName() {
-      return InspectionGadgetsBundle.message("manual.array.copy.replace.quickfix");
+      return CommonQuickFixBundle.message("fix.replace.with.x", "System.arraycopy()");
     }
 
     @Override
@@ -84,13 +79,17 @@ public class ManualArrayCopyInspection extends BaseInspection {
       if (newExpression == null) {
         return;
       }
-      PsiReplacementUtil.replaceStatement(forStatement, newExpression, commentTracker);
+      PsiIfStatement ifStatement = (PsiIfStatement)commentTracker.replaceAndRestoreComments(forStatement, newExpression);
+      if (Boolean.TRUE.equals(DfaUtil.evaluateCondition(ifStatement.getCondition())))  {
+        PsiStatement copyStatement = ControlFlowUtils.stripBraces(ifStatement.getThenBranch());
+        assert copyStatement != null;
+        new CommentTracker().replaceAndRestoreComments(ifStatement, copyStatement);
+      }
     }
 
-    @Nullable
-    private String buildSystemArrayCopyText(PsiForStatement forStatement, CommentTracker commentTracker) {
+    private @Nullable @NonNls String buildSystemArrayCopyText(PsiForStatement forStatement, CommentTracker commentTracker) {
       final PsiExpression condition = forStatement.getCondition();
-      final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)ParenthesesUtils.stripParentheses(condition);
+      final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)PsiUtil.skipParenthesizedExprDown(condition);
       if (binaryExpression == null) {
         return null;
       }
@@ -146,7 +145,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       final PsiExpression rArray = rhs.getArrayExpression();
       final String fromArrayText = commentTracker.text(rArray);
       final PsiExpression rhsIndexExpression = rhs.getIndexExpression();
-      final PsiExpression strippedRhsIndexExpression = ParenthesesUtils.stripParentheses(rhsIndexExpression);
+      final PsiExpression strippedRhsIndexExpression = PsiUtil.skipParenthesizedExprDown(rhsIndexExpression);
       final PsiExpression limitExpression;
       if (decrement) {
         limitExpression = limit;
@@ -157,11 +156,11 @@ public class ManualArrayCopyInspection extends BaseInspection {
       final String fromOffsetText = buildOffsetText(strippedRhsIndexExpression, variable, limitExpression, decrement &&
                                          (JavaTokenType.LT.equals(tokenType) || JavaTokenType.GT.equals(tokenType)), commentTracker);
       final PsiExpression lhsIndexExpression = lhs.getIndexExpression();
-      final PsiExpression strippedLhsIndexExpression = ParenthesesUtils.stripParentheses(lhsIndexExpression);
+      final PsiExpression strippedLhsIndexExpression = PsiUtil.skipParenthesizedExprDown(lhsIndexExpression);
       final String toOffsetText = buildOffsetText(strippedLhsIndexExpression, variable,
                                                   limitExpression, decrement && (JavaTokenType.LT.equals(tokenType) || JavaTokenType.GT.equals(tokenType)),
                                                   commentTracker);
-      return "System.arraycopy(" + fromArrayText + ", " + fromOffsetText + ", " + toArrayText + ", " + toOffsetText + ", " + lengthText + ");";
+      return "if(" + lengthText + ">=0)" + "System.arraycopy(" + fromArrayText + ", " + fromOffsetText + ", " + toArrayText + ", " + toOffsetText + ", " + lengthText + ");";
     }
 
     @Nullable
@@ -196,7 +195,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       final PsiExpression lhs = assignmentExpression.getLExpression();
 
       final PsiExpression deparenthesizedExpression =
-        ParenthesesUtils.stripParentheses(lhs);
+        PsiUtil.skipParenthesizedExprDown(lhs);
       if (!(deparenthesizedExpression instanceof
               PsiArrayAccessExpression)) {
         return null;
@@ -252,7 +251,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
         return null;
       }
       final PsiExpression unparenthesizedExpression =
-        ParenthesesUtils.stripParentheses(arrayAccessExpression);
+        PsiUtil.skipParenthesizedExprDown(arrayAccessExpression);
       if (!(unparenthesizedExpression instanceof
               PsiArrayAccessExpression)) {
         return null;
@@ -266,11 +265,11 @@ public class ManualArrayCopyInspection extends BaseInspection {
                                           PsiExpression min,
                                           boolean plusOne,
                                           CommentTracker commentTracker) {
-      max = ParenthesesUtils.stripParentheses(max);
+      max = PsiUtil.skipParenthesizedExprDown(max);
       if (max == null) {
         return null;
       }
-      min = ParenthesesUtils.stripParentheses(min);
+      min = PsiUtil.skipParenthesizedExprDown(min);
       if (min == null) {
         return buildExpressionText(max, plusOne, commentTracker);
       }
@@ -302,7 +301,8 @@ public class ManualArrayCopyInspection extends BaseInspection {
           return maxText + '+' + -minValue;
         }
       }
-      final String minText = commentTracker.text(min, ParenthesesUtils.ADDITIVE_PRECEDENCE);
+      // - 1 because of the increment inside the com.siyeh.ig.psiutils.CommentTracker.text(com.intellij.psi.PsiExpression, int)
+      final String minText = commentTracker.text(min, ParenthesesUtils.ADDITIVE_PRECEDENCE - 1);
       final String maxText = buildExpressionText(max, plusOne, commentTracker);
       return maxText + '-' + minText;
     }
@@ -311,25 +311,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       if (!plusOne) {
         return commentTracker.text(expression, ParenthesesUtils.ADDITIVE_PRECEDENCE);
       }
-      if (expression instanceof PsiBinaryExpression) {
-        final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)expression;
-        final IElementType tokenType = binaryExpression.getOperationTokenType();
-        if (tokenType == JavaTokenType.MINUS) {
-          final PsiExpression rhs = binaryExpression.getROperand();
-          if (ExpressionUtils.isOne(rhs)) {
-            return commentTracker.text(binaryExpression.getLOperand());
-          }
-        }
-      }
-      else if (expression instanceof PsiLiteralExpression) {
-        final PsiLiteralExpression literalExpression = (PsiLiteralExpression)expression;
-        final Object value = literalExpression.getValue();
-        if (value instanceof Integer) {
-          final Integer integer = (Integer)value;
-          return String.valueOf(integer.intValue() + 1);
-        }
-      }
-      return commentTracker.text(expression, ParenthesesUtils.ADDITIVE_PRECEDENCE) + "+1";
+      return JavaPsiMathUtil.add(expression, 1, commentTracker);
     }
 
     @NonNls
@@ -346,7 +328,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       final String variableName = variable.getName();
       if (expressionText.equals(variableName)) {
         final PsiExpression initialValue =
-          ParenthesesUtils.stripParentheses(limitExpression);
+          PsiUtil.skipParenthesizedExprDown(limitExpression);
         if (initialValue == null) {
           return null;
         }
@@ -508,7 +490,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
       @NotNull PsiVariable variable,
       @Nullable PsiVariable variable2) {
       final PsiExpression strippedExpression =
-        ParenthesesUtils.stripParentheses(expression);
+        PsiUtil.skipParenthesizedExprDown(expression);
       if (strippedExpression == null) {
         return false;
       }
@@ -541,9 +523,9 @@ public class ManualArrayCopyInspection extends BaseInspection {
       final PsiType type = lhs.getType();
       if (type instanceof PsiPrimitiveType) {
         final PsiExpression strippedLhs =
-          ParenthesesUtils.stripParentheses(lhs);
+          PsiUtil.skipParenthesizedExprDown(lhs);
         final PsiExpression strippedRhs =
-          ParenthesesUtils.stripParentheses(rhs);
+          PsiUtil.skipParenthesizedExprDown(rhs);
         if (!areExpressionsCopyable(strippedLhs, strippedRhs)) {
           return false;
         }
@@ -552,7 +534,7 @@ public class ManualArrayCopyInspection extends BaseInspection {
         return ExpressionUtils.isOffsetArrayAccess(rhs, variable);
       }
       else {
-        return VariableAccessUtils.evaluatesToVariable(rhs, variable2);
+        return ExpressionUtils.isReferenceTo(rhs, variable2);
       }
     }
 

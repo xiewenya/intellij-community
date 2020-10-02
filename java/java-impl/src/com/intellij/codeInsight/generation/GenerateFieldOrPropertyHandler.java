@@ -21,7 +21,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.util.PropertyMemberType;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
@@ -58,7 +57,7 @@ public class GenerateFieldOrPropertyHandler extends GenerateMembersHandlerBase {
   @Override
   @NotNull
   public List<? extends GenerationInfo> generateMemberPrototypes(PsiClass aClass, ClassMember[] members) throws IncorrectOperationException {
-    PsiElementFactory psiElementFactory = JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory();
+    PsiElementFactory psiElementFactory = JavaPsiFacade.getElementFactory(aClass.getProject());
     try {
       String fieldName = getFieldName(aClass);
       PsiField psiField = psiElementFactory.createField(fieldName, myType);
@@ -104,7 +103,7 @@ public class GenerateFieldOrPropertyHandler extends GenerateMembersHandlerBase {
     }
     else if (memberType == PropertyMemberType.GETTER) {
       try {
-        PsiElementFactory psiElementFactory = JavaPsiFacade.getInstance(aClass.getProject()).getElementFactory();
+        PsiElementFactory psiElementFactory = JavaPsiFacade.getElementFactory(aClass.getProject());
         PsiField field = psiElementFactory.createField(myAttributeName, myType);
         PsiMethod[] templates = GetterSetterPrototypeProvider.generateGetterSetters(field, myMemberType == PropertyMemberType.GETTER);
         for (PsiMethod template : templates) {

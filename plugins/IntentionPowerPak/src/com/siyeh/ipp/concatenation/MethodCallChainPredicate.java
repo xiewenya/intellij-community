@@ -17,32 +17,22 @@ package com.siyeh.ipp.concatenation;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.siyeh.ig.psiutils.CodeBlockSurrounder;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.Nullable;
 
 class MethodCallChainPredicate implements PsiElementPredicate {
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     if (getCallChainRoot(element) == null) {
       return false;
     }
-    final PsiElement parent = element.getParent();
-    if (parent instanceof PsiExpressionStatement) {
-      return true;
-    }
-    if (parent instanceof PsiLocalVariable) {
-      final PsiElement grandParent = parent.getParent();
-      if (!(grandParent instanceof PsiDeclarationStatement)) {
-        return false;
-      }
-      final PsiDeclarationStatement declarationStatement = (PsiDeclarationStatement)grandParent;
-      return declarationStatement.getDeclaredElements().length == 1;
-    }
-    if (parent instanceof PsiAssignmentExpression) {
-      final PsiElement grandParent = parent.getParent();
-      return grandParent instanceof PsiExpressionStatement;
-    }
-    return false;
+    final PsiElement parent = PsiUtil.skipParenthesizedExprUp(element.getParent());
+    return (parent instanceof PsiStatement || parent instanceof PsiVariable || 
+            parent instanceof PsiAssignmentExpression || parent instanceof PsiLambdaExpression) &&
+           (element instanceof PsiExpression && CodeBlockSurrounder.canSurround((PsiExpression)element));
   }
 
   /**
@@ -64,7 +54,7 @@ class MethodCallChainPredicate implements PsiElementPredicate {
     while (true) {
       final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)element;
       final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
-      final PsiExpression qualifierExpression = methodExpression.getQualifierExpression();
+      final PsiExpression qualifierExpression = PsiUtil.skipParenthesizedExprDown(methodExpression.getQualifierExpression());
       PsiClassType expressionType = getQualifierExpressionType(qualifierExpression);
       if (!first) {
         if (expressionType == null) {

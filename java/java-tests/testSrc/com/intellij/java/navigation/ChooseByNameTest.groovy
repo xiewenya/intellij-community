@@ -4,16 +4,22 @@
 package com.intellij.java.navigation
 
 import com.intellij.codeInsight.JavaProjectCodeInsightSettings
-import com.intellij.ide.util.gotoByName.*
+import com.intellij.ide.actions.searcheverywhere.*
+import com.intellij.ide.util.scopeChooser.ScopeDescriptor
 import com.intellij.lang.java.JavaLanguage
-import com.intellij.openapi.application.ModalityState
+import com.intellij.mock.MockProgressIndicator
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.psi.*
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.search.ProjectScope
-import com.intellij.testFramework.PlatformTestUtil
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
-import com.intellij.util.Consumer
-import com.intellij.util.concurrency.Semaphore
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
+import com.intellij.util.ObjectUtils
+import com.intellij.util.indexing.FindSymbolParameters
+import org.jetbrains.annotations.NotNull
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 
 import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
@@ -21,13 +27,12 @@ import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
 /**
  * @author peter
  */
-class ChooseByNameTest extends LightCodeInsightFixtureTestCase {
-  ChooseByNamePopup myPopup
+class ChooseByNameTest extends LightJavaCodeInsightFixtureTestCase {
+
+  static final ELEMENTS_LIMIT = 30
 
   @Override
   protected void tearDown() throws Exception {
-    myPopup?.close(false)
-    myPopup = null
     super.tearDown()
   }
 
@@ -61,6 +66,11 @@ class ChooseByNameTest extends LightCodeInsightFixtureTestCase {
     assert gotoClass("@Anno") == [match]
   }
 
+  void "test class a in same-named package and partially matching subpackage"() {
+    def c = myFixture.addClass("package com.intellij.codeInsight.template.impl; class TemplateListPanel {}")
+    assert gotoClass("templistpa") == [c]
+  }
+
   void "test no result for empty patterns"() {
     myFixture.addClass("@interface Anno1 {}")
     myFixture.addClass("class Anno2 {}")
@@ -92,6 +102,29 @@ class Impl extends Intf {
     assert !(impl.findMethodsByName('xxx1', false)[0] in elements)
   }
 
+  void "test goto symbol by Copy Reference result"() {
+    def methods = myFixture.addClass('''
+package pkg; 
+import java.util.*; 
+class Cls { 
+  void foo(int i) {} 
+  void bar(int j) {} 
+  void bar(boolean b) {} 
+  void bar(List<String> l) {} 
+}''').methods
+    assert gotoSymbol('pkg.Cls.foo') == [methods[0]]
+    assert gotoSymbol('pkg.Cls#foo') == [methods[0]]
+    assert gotoSymbol('pkg.Cls#foo(int)') == [methods[0]]
+
+    assert gotoSymbol('pkg.Cls.bar') as Set == methods[1..3] as Set
+    assert gotoSymbol('pkg.Cls#bar') as Set == methods[1..3] as Set
+
+    assert gotoSymbol('pkg.Cls#bar(int)') == [methods[1]]
+    assert gotoSymbol('pkg.Cls#bar(boolean)') == [methods[2]]
+    assert gotoSymbol('pkg.Cls#bar(java.util.List)') == [methods[3]]
+    assert gotoSymbol('pkg.Cls#bar(java.util.List<java.lang.String>)') == [methods[3]]
+  }
+
   void "test disprefer underscore"() {
     def intf = myFixture.addClass("""
 class Intf {
@@ -120,6 +153,12 @@ class Intf {
     def i = addEmptyFile("foo/i.txt")
     def index = addEmptyFile("index.html")
     assert gotoFile('i') == [i, index]
+  }
+
+  void "test prefer shorter filename match"() {
+    def shorter = addEmptyFile("foo/cp-users.txt")
+    def longer = addEmptyFile("cp-users-and-smth.html")
+    assert gotoFile('cpusers') == [shorter, longer]
   }
 
   void "test consider dot-idea files out of project"() {
@@ -155,12 +194,11 @@ class Intf {
     def fooContext = addEmptyFile("foo/context.html")
     def barContext = addEmptyFile("bar/context.html")
 
-    def popup = createPopup(new GotoFileModel(project), fooContext)
-    assert calcPopupElements(popup, "index") == [fooIndex, barIndex]
-    popup.close(false)
+    def contributor = createFileContributor(project, testRootDisposable, fooContext)
+    assert calcContributorElements(contributor, "index") == [fooIndex, barIndex]
 
-    popup = createPopup(new GotoFileModel(project), barContext)
-    assert calcPopupElements(popup, "index") == [barIndex, fooIndex]
+    contributor = createFileContributor(project, testRootDisposable, barContext)
+    assert calcContributorElements(contributor, "index") == [barIndex, fooIndex]
   }
 
   private PsiFile addEmptyFile(String relativePath) {
@@ -183,39 +221,37 @@ class Intf {
     PsiFile fooIndex = addEmptyFile("foo/index.html")
     PsiFile barIndex = addEmptyFile("bar.txt/bar.txt")
 
-    def popup = createPopup(new GotoFileModel(project), fooIndex)
+    def contributor = createFileContributor(project, testRootDisposable, fooIndex)
 
     def fooDir = fooIndex.containingDirectory
     def barDir = barIndex.containingDirectory
 
-    assert calcPopupElements(popup, "foo/") == [fooDir]
-    assert calcPopupElements(popup, "foo\\") == [fooDir]
-    assert calcPopupElements(popup, "/foo") == [fooDir]
-    assert calcPopupElements(popup, "\\foo") == [fooDir]
-    assert calcPopupElements(popup, "foo") == [fooDir]
-    assert calcPopupElements(popup, "/index.html") == [fooIndex]
-    assert calcPopupElements(popup, "\\index.html") == [fooIndex]
-    assert calcPopupElements(popup, "index.html/") == []
-    assert calcPopupElements(popup, "index.html\\") == []
+    assert calcContributorElements(contributor, "foo/") == [fooDir]
+    assert calcContributorElements(contributor, "foo\\") == [fooDir]
+    assert calcContributorElements(contributor, "/foo") == [fooDir]
+    assert calcContributorElements(contributor, "\\foo") == [fooDir]
+    assert calcContributorElements(contributor, "foo") == [fooDir]
+    assert calcContributorElements(contributor, "/index.html") == [fooIndex]
+    assert calcContributorElements(contributor, "\\index.html") == [fooIndex]
+    assert calcContributorElements(contributor, "index.html/") == []
+    assert calcContributorElements(contributor, "index.html\\") == []
 
-    assert calcPopupElements(popup, "bar.txt/") == [barDir]
-    assert calcPopupElements(popup, "bar.txt\\") == [barDir]
-    assert calcPopupElements(popup, "/bar.txt") == [barIndex, barDir]
-    assert calcPopupElements(popup, "\\bar.txt") == [barIndex, barDir]
-    assert calcPopupElements(popup, "bar.txt") == [barIndex, barDir]
-    assert calcPopupElements(popup, "bar") == [barIndex, barDir]
-    popup.close(false)
+    assert calcContributorElements(contributor, "bar.txt/") == [barDir]
+    assert calcContributorElements(contributor, "bar.txt\\") == [barDir]
+    assert calcContributorElements(contributor, "/bar.txt") == [barIndex, barDir]
+    assert calcContributorElements(contributor, "\\bar.txt") == [barIndex, barDir]
+    assert calcContributorElements(contributor, "bar.txt") == [barIndex, barDir]
+    assert calcContributorElements(contributor, "bar") == [barIndex, barDir]
   }
 
   void "test prefer files to directories even if longer"() {
     def fooFile = addEmptyFile('dir/fooFile.txt')
     def fooDir = addEmptyFile('foo/barFile.txt').containingDirectory
 
-    def popup = createPopup(new GotoFileModel(project))
-    def popupElements = calcPopupElements(popup, 'foo')
+    def contributor = createFileContributor(project, testRootDisposable)
+    def popupElements = calcContributorElements(contributor, 'foo')
 
     assert popupElements == [fooFile, fooDir]
-    assert popup.calcSelectedIndex(popupElements.toArray(), 'foo') == 0
   }
 
   void "test find method by qualified name"() {
@@ -277,29 +313,16 @@ class Intf {
     assert gotoClass('goo.baz.Bar') == [bar2]
   }
 
-  void "test try lowercase pattern if nothing matches"() {
-    def match = myFixture.addClass("class IPRoi { }")
-    def nonMatch = myFixture.addClass("class InspectionProfileImpl { }")
-    assert gotoClass('IPRoi') == [match]
-    assert gotoClass('IproImpl') == [nonMatch]
-  }
-
   private static filterJavaItems(List<Object> items) {
     return items.findAll { it instanceof PsiElement && it.language == JavaLanguage.INSTANCE }
   }
 
   void "test super method in jdk"() {
     def clazz = myFixture.addClass("package foo.bar; class Goo implements Runnable { public void run() {} }")
-    def ourRun = null
-    def sdkRun = null
-    def sdkRun2 = null
-    def sdkRun3 = null
-    runInEdtAndWait {
-      ourRun = clazz.methods[0]
-      sdkRun = ourRun.containingClass.interfaces[0].methods[0]
-      sdkRun2 = myFixture.javaFacade.findClass("java.security.PrivilegedAction").methods[0]
-      sdkRun3 = myFixture.javaFacade.findClass("java.security.PrivilegedExceptionAction").methods[0]
-    }
+    def ourRun = clazz.methods[0]
+    def sdkRun = ourRun.containingClass.interfaces[0].methods[0]
+    def sdkRun2 = myFixture.findClass("java.security.PrivilegedAction").methods[0]
+    def sdkRun3 = myFixture.findClass("java.security.PrivilegedExceptionAction").methods[0]
 
     def withLibs = filterJavaItems(gotoSymbol('run ', true))
     withLibs.remove(sdkRun2)
@@ -339,26 +362,23 @@ class Intf {
     def wanted = myFixture.addClass('class XFile {}')
     def smth1 = myFixture.addClass('class xfilterExprOwner {}')
     def smth2 = myFixture.addClass('class xfile_baton_t {}')
-    def popup = createPopup(new GotoClassModel2(project))
-    def popupElements = calcPopupElements(popup, 'xfile', false)
+    def contributor = createClassContributor(project, testRootDisposable)
+    def popupElements = calcContributorElements(contributor, 'xfile')
 
     assert popupElements == [wanted, smth2, smth1]
-    assert popup.calcSelectedIndex(popupElements.toArray(), 'xfile') == 0
   }
 
   void "test prefer prefix match"() {
     def wanted = myFixture.addClass('class PsiClassImpl {}')
     def smth = myFixture.addClass('class DroolsPsiClassImpl {}')
-    def popup = createPopup(new GotoClassModel2(project))
-    def popupElements = calcPopupElements(popup, 'PsiCl', false)
+    def contributor = createClassContributor(project, testRootDisposable)
+    def popupElements = calcContributorElements(contributor, 'PsiCl')
 
     assert popupElements == [wanted, smth]
-    assert popup.calcSelectedIndex(popupElements.toArray(), 'PsiCl') == 0
   }
 
   void "test out-of-project-content files"() {
-    def scope = ProjectScope.getAllScope(project)
-    def file = myFixture.javaFacade.findClass(CommonClassNames.JAVA_LANG_OBJECT, scope).containingFile
+    def file = myFixture.findClass(CommonClassNames.JAVA_LANG_OBJECT).containingFile
     def elements = gotoFile("Object.class", true)
     assert file in elements
   }
@@ -367,11 +387,11 @@ class Intf {
     def foo = myFixture.addClass('package foo; class List {}')
     def bar = myFixture.addClass('package bar; class List {}')
 
-    def popup = createPopup(new GotoClassModel2(project), myFixture.addClass('class Context {}'))
-    assert calcPopupElements(popup, "List", false) == [bar, foo]
+    def contributor = createClassContributor(project, testRootDisposable, myFixture.addClass('class Context {}').containingFile)
+    assert calcContributorElements(contributor, "List") == [bar, foo]
 
     JavaProjectCodeInsightSettings.setExcludedNames(project, testRootDisposable, 'bar')
-    assert calcPopupElements(popup, "List", false) == [foo, bar]
+    assert calcContributorElements(contributor, "List") == [foo, bar]
   }
 
   void "test file path matching without slashes"() {
@@ -382,12 +402,19 @@ class Intf {
 
     assert gotoFile("barindex") == [fooBarFile]
     assert gotoFile("fooindex") == [fooBarFile]
-    assert gotoFile("fbindex") == [fbFile, someFbFile, fooBarFile, fbSomeFile]
+    assert gotoFile("fbindex") == [fbFile, someFbFile, fbSomeFile, fooBarFile]
     assert gotoFile("fbhtml") == [fbFile, someFbFile, fbSomeFile, fooBarFile]
 
     // partial slashes
     assert gotoFile("somefb/index.html") == [someFbFile]
     assert gotoFile("somefb\\index.html") == [someFbFile]
+  }
+
+  void "test file path matching with spaces instead of slashes"() {
+    def good = addEmptyFile("config/app.txt")
+    addEmptyFile("src/Configuration/ManagesApp.txt")
+
+    assert gotoFile("config app.txt")[0] == good
   }
 
   void "test multiple slashes in goto file"() {
@@ -406,8 +433,8 @@ class Intf {
 
   void "test show longer suffix matches from jdk and shorter from project"() {
     def seq = addEmptyFile("langc/Sequence.java")
-    def charSeq = JavaPsiFacade.getInstance(project).findClass(CharSequence.name, GlobalSearchScope.allScope(project))
-    assert gotoFile('langcsequence', false) == [charSeq.containingFile, seq]
+    def charSeq = myFixture.findClass(CharSequence.name)
+    assert gotoFile('langcsequence', true) == [charSeq.containingFile, seq]
   }
 
   void "test show no matches from jdk when there are in project"() {
@@ -416,10 +443,10 @@ class Intf {
   }
 
   void "test fix keyboard layout"() {
-    assert (gotoClass('Ыекштп')[0] as PsiClass).name == 'String'
-    assert (gotoSymbol('Ыекштп').find { it instanceof PsiClass && it.name == 'String' })
-    assert (gotoFile('Ыекштп')[0] as PsiFile).name == 'String.class'
-    assert (gotoFile('дфтпЫекштп')[0] as PsiFile).name == 'String.class'
+    assert (gotoClass('Ыекштп', true)[0] as PsiClass).name == 'String'
+    assert (gotoSymbol('Ыекштп', true).find { it instanceof PsiClass && it.name == 'String' })
+    assert (gotoFile('Ыекштп', true)[0] as PsiFile).name == 'String.class'
+    assert (gotoFile('дфтпЫекштп', true)[0] as PsiFile).name == 'String.class'
   }
 
   void "test prefer exact case match"() {
@@ -428,11 +455,29 @@ class Intf {
     assert gotoClass('SomeClass') == [camel, upper]
     assert gotoFile('SomeClass.java') == [camel.containingFile, upper.containingFile]
   }
-  
+
   void "test prefer closer path match"() {
     def index = addEmptyFile("content/objc/features/index.html")
     def i18n = addEmptyFile("content/objc/features/screenshots/i18n.html")
     assert gotoFile('objc/features/i') == [index, i18n]
+  }
+
+  void "test search for full name"() {
+    def file1 = addEmptyFile("Folder/Web/SubFolder/Flow.html")
+    def file2 = addEmptyFile("Folder/Web/SubFolder/Flow/Helper.html")
+
+    def contributor = createFileContributor(project, testRootDisposable)
+    def files = calcWeightedContributorElements(contributor as WeightedSearchEverywhereContributor<?>, "Folder/Web/SubFolder/Flow.html")
+    assert files == [file1, file2]
+  }
+
+  void "test prefer name match over path match"() {
+    def nameMatchFile = addEmptyFile("JBCefBrowser.java")
+    def pathMatchFile = addEmptyFile("com/elements/folder/WebBrowser.java")
+
+    def contributor = createFileContributor(project, testRootDisposable)
+    def files = calcWeightedContributorElements(contributor as WeightedSearchEverywhereContributor<?>, "CefBrowser")
+    assert files == [nameMatchFile, pathMatchFile]
   }
 
   void "test matching file in a matching directory"() {
@@ -443,50 +488,164 @@ class Intf {
 
   void "test prefer fully matching module name"() {
     def module = myFixture.addFileToProject('module-info.java', 'module foo.bar {}')
-    def clazz = myFixture.addClass('package foo; class B { void bar() {}; void barX() {} }')
+    def clazz = myFixture.addClass('package foo; class B { void bar() {} void barX() {} }')
     assert gotoSymbol('foo.bar') == [(module as PsiJavaFile).moduleDeclaration, clazz.methods[0], clazz.methods[1]]
   }
 
-  private List<Object> gotoClass(String text, boolean checkboxState = false) {
-    return getPopupElements(new GotoClassModel2(project), text, checkboxState)
+  void "test allow name separators inside wildcard"() {
+    def clazz = myFixture.addClass('package foo; class X { void bar() {} }')
+    assert gotoSymbol('foo*bar') == [clazz.methods[0]]
+    assert gotoClass('foo*X') == [clazz]
+    assert gotoClass('X') == [clazz]
+    assert gotoClass('foo.*') == [clazz]
   }
 
-  private List<Object> gotoSymbol(String text, boolean checkboxState = false) {
-    return getPopupElements(new GotoSymbolModel2(project), text, checkboxState)
+  void "test prefer longer name vs qualifier matches"() {
+    def myInspection = myFixture.addClass('package ss; class MyInspection { }')
+    def ssBasedInspection = myFixture.addClass('package foo; class SSBasedInspection { }')
+    assert gotoClass('ss*inspection') == [ssBasedInspection, myInspection]
   }
 
-  private List<Object> gotoFile(String text, boolean checkboxState = false) {
-    return getPopupElements(new GotoFileModel(project), text, checkboxState)
+  void "test show all same-named classes sorted by qname"() {
+    def aFoo = myFixture.addClass('package a; class Foo { }')
+    def bFoo = myFixture.addClass('package b; class Foo { }')
+    def fooBar = myFixture.addClass('package c; class FooBar { }')
+    assert gotoClass('Foo') == [aFoo, bFoo, fooBar]
   }
 
-  private List<Object> getPopupElements(ChooseByNameModel model, String text, boolean checkboxState = false) {
-    return calcPopupElements(createPopup(model), text, checkboxState)
+  void "test show prefix matches first when asterisk is in the middle"() {
+    def sb = myFixture.findClass(StringBuilder.name)
+    def asb = myFixture.findClass('java.lang.AbstractStringBuilder')
+    assert gotoClass('Str*Builder', true) == [sb, asb]
+    assert gotoClass('java.Str*Builder', true) == [sb, asb]
   }
 
-  static ArrayList<Object> calcPopupElements(ChooseByNamePopup popup, String text, boolean checkboxState = false) {
-    List<Object> elements = ['empty']
-    def semaphore = new Semaphore(1)
-    popup.scheduleCalcElements(text, checkboxState, ModalityState.NON_MODAL, SelectMostRelevant.INSTANCE, { set ->
-      elements = set as List<Object>
-      semaphore.up()
-    } as Consumer<Set<?>>)
-    def start = System.currentTimeMillis()
-    while (!semaphore.waitFor(10) && System.currentTimeMillis() - start < 10_000_000) {
-      PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+  void "test include overridden qualified name method matches"() {
+    def m1 = myFixture.addClass('interface HttpRequest { void start() {} }').methods[0]
+    def m2 = myFixture.addClass('interface Request extends HttpRequest { void start() {} }').methods[0]
+    assert gotoSymbol('Request.start') == [m1, m2]
+    assert gotoSymbol('start') == [m1] // works as usual for non-qualified patterns
+  }
+
+  void "test colon in search end"() {
+    def foo = myFixture.addClass('class Foo { }')
+    assert gotoClass('Foo:') == [foo]
+  }
+
+  void "test multi-word class name with only first letter of second word"() {
+    myFixture.addClass('class Foo { }')
+    def fooBar = myFixture.addClass('class FooBar { }')
+    assert gotoClass('Foo B') == [fooBar]
+  }
+
+  void "test prefer filename match regardless of package match"() {
+    def f1 = addEmptyFile('resolve/ResolveCache.java')
+    def f2 = addEmptyFile('abc/ResolveCacheSettings.xml')
+    assert gotoFile('resolvecache') == [f1, f2]
+  }
+
+  void "test search for long full name"() {
+    def veryLongNameFile = addEmptyFile("aaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbb/cccccccccccccccccc/" +
+                                        "ddddddddddddddddd/eeeeeeeeeeeeeeee/ffffffffffffffffff/" +
+                                        "ggggggggggggggggg/hhhhhhhhhhhhhhhh/ClassName.java")
+
+    assert gotoFile("bbbbbbbbbbbbbbbb/cccccccccccccccccc/ddddddddddddddddd/eeeeeeeeeeeeeeee/" +
+                    "ffffffffffffffffff/ggggggggggggggggg/hhhhhhhhhhhhhhhh/ClassName.java") == [veryLongNameFile]
+  }
+
+  private List<Object> gotoClass(String text, boolean checkboxState = false, PsiElement context = null) {
+    return getContributorElements(createClassContributor(project, testRootDisposable, context, checkboxState), text)
+  }
+
+  private List<Object> gotoSymbol(String text, boolean checkboxState = false, PsiElement context = null) {
+    return getContributorElements(createSymbolContributor(project, testRootDisposable, context, checkboxState), text)
+  }
+
+  private List<Object> gotoFile(String text, boolean checkboxState = false, PsiElement context = null) {
+    return getContributorElements(createFileContributor(project, testRootDisposable, context, checkboxState), text)
+  }
+
+  private static List<Object> getContributorElements(SearchEverywhereContributor<?> contributor, String text) {
+    return calcContributorElements(contributor, text)
+  }
+
+  static List<Object> calcContributorElements(SearchEverywhereContributor<?> contributor, String text) {
+    return contributor.search(text, new MockProgressIndicator(), ELEMENTS_LIMIT).items
+  }
+
+  static List<Object> calcWeightedContributorElements(WeightedSearchEverywhereContributor<?> contributor, String text) {
+    def items = contributor.searchWeightedElements(text, new MockProgressIndicator(), ELEMENTS_LIMIT).items
+    return new ArrayList<>(items)
+      .sort{-(it as FoundItemDescriptor<?>).weight}
+      .collect{(it as FoundItemDescriptor<?>).item}
+  }
+
+  static SearchEverywhereContributor<Object> createClassContributor(Project project,
+                                                                    Disposable parentDisposable,
+                                                                    PsiElement context = null,
+                                                                    boolean everywhere = false) {
+    def res = new TestClassContributor(createEvent(project, context))
+    res.setEverywhere(everywhere)
+    Disposer.register(parentDisposable, res)
+    return res
+  }
+
+  static SearchEverywhereContributor<Object> createFileContributor(Project project,
+                                                                   Disposable parentDisposable,
+                                                                   PsiElement context = null,
+                                                                   boolean everywhere = false) {
+    def res = new TestFileContributor(createEvent(project, context))
+    res.setEverywhere(everywhere)
+    Disposer.register(parentDisposable, res)
+    return res
+  }
+
+  static SearchEverywhereContributor<Object> createSymbolContributor(Project project,
+                                                                     Disposable parentDisposable,
+                                                                     PsiElement context = null,
+                                                                     boolean everywhere = false) {
+    def res = new TestSymbolContributor(createEvent(project, context))
+    res.setEverywhere(everywhere)
+    Disposer.register(parentDisposable, res)
+    return res
+  }
+
+  static AnActionEvent createEvent(Project project, PsiElement context = null) {
+    def dataContext = SimpleDataContext.getSimpleContext(
+      CommonDataKeys.PSI_FILE.name, ObjectUtils.tryCast(context, PsiFile.class), SimpleDataContext.getProjectContext(project))
+    return AnActionEvent.createFromDataContext(ActionPlaces.UNKNOWN, null, dataContext)
+  }
+
+  private static class TestClassContributor extends ClassSearchEverywhereContributor {
+
+    TestClassContributor(@NotNull AnActionEvent event) {
+      super(event)
     }
-    if (!semaphore.waitFor(10)) {
-      printThreadDump()
-      fail()
+
+    void setEverywhere(boolean state) {
+      myScopeDescriptor = new ScopeDescriptor(FindSymbolParameters.searchScopeFor(myProject, state))
     }
-    return elements
   }
 
-  private ChooseByNamePopup createPopup(ChooseByNameModel model, PsiElement context = null) {
-    if (myPopup) {
-      myPopup.close(false)
+  private static class TestFileContributor extends FileSearchEverywhereContributor {
+
+    TestFileContributor(@NotNull AnActionEvent event) {
+      super(event)
     }
 
-    return myPopup = ChooseByNamePopup.createPopup(project, model, (PsiElement)context, "")
+    void setEverywhere(boolean state) {
+      myScopeDescriptor = new ScopeDescriptor(FindSymbolParameters.searchScopeFor(myProject, state))
+    }
   }
 
+  private static class TestSymbolContributor extends SymbolSearchEverywhereContributor {
+
+    TestSymbolContributor(@NotNull AnActionEvent event) {
+      super(event)
+    }
+
+    void setEverywhere(boolean state) {
+      myScopeDescriptor = new ScopeDescriptor(FindSymbolParameters.searchScopeFor(myProject, state))
+    }
+  }
 }

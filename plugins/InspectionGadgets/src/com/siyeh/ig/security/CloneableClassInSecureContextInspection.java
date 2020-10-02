@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
@@ -33,6 +32,7 @@ import com.siyeh.ig.psiutils.CloneUtils;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.MethodUtils;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,19 +42,13 @@ public class CloneableClassInSecureContextInspection extends BaseInspection {
 
   @Override
   @NotNull
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("cloneable.class.in.secure.context.display.name");
-  }
-
-  @Override
-  @NotNull
   protected String buildErrorString(Object... infos) {
     return InspectionGadgetsBundle.message("cloneable.class.in.secure.context.problem.descriptor");
   }
 
   @Override
   protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
-    // the quickfixes below probably require some thought and shouldn't be applied blindly on many classes at once
+    // the quick fixes below probably require some thought and shouldn't be applied blindly on many classes at once
     return true;
   }
 
@@ -65,8 +59,13 @@ public class CloneableClassInSecureContextInspection extends BaseInspection {
     if (CloneUtils.isDirectlyCloneable(aClass)) {
       return new RemoveCloneableFix();
     }
-    final boolean hasCloneMethod = Arrays.stream(aClass.findMethodsByName("clone", false)).anyMatch(CloneUtils::isClone);
-    if (hasCloneMethod) {
+    final boolean hasOwnCloneMethod = Arrays.stream(aClass.findMethodsByName("clone", false)).anyMatch(CloneUtils::isClone);
+    if (hasOwnCloneMethod) {
+      return null;
+    }
+    final boolean hasParentFinalCloneMethod = Arrays.stream(aClass.findMethodsByName("clone", true))
+      .anyMatch(m -> CloneUtils.isClone(m) && m.hasModifierProperty(PsiModifier.FINAL));
+    if (hasParentFinalCloneMethod) {
       return null;
     }
     return new CreateExceptionCloneMethodFix();
@@ -121,12 +120,23 @@ public class CloneableClassInSecureContextInspection extends BaseInspection {
         return;
       }
       final PsiClass aClass = (PsiClass)element;
-      final StringBuilder methodText = new StringBuilder();
-      if (PsiUtil.isLanguageLevel5OrHigher(aClass) && CodeStyleSettingsManager.getSettings(aClass.getProject())
-        .getCustomSettings(JavaCodeStyleSettings.class).INSERT_OVERRIDE_ANNOTATION) {
+      @NonNls final StringBuilder methodText = new StringBuilder();
+      if (PsiUtil.isLanguageLevel5OrHigher(aClass) &&
+          JavaCodeStyleSettings.getInstance(aClass.getContainingFile()).INSERT_OVERRIDE_ANNOTATION) {
         methodText.append("@java.lang.Override ");
       }
-      methodText.append("protected ").append(aClass.getName());
+      methodText.append("protected ");
+      final String name = aClass.getName();
+      if (name != null) {
+        methodText.append(name);
+      }
+      else if (aClass instanceof PsiAnonymousClass) {
+        final PsiClassType baseClassType = ((PsiAnonymousClass)aClass).getBaseClassType();
+        methodText.append(baseClassType.getCanonicalText());
+      }
+      else {
+        methodText.append(CommonClassNames.JAVA_LANG_OBJECT);
+      }
       final PsiTypeParameterList typeParameterList = aClass.getTypeParameterList();
       if (typeParameterList != null) {
         methodText.append(typeParameterList.getText());
@@ -162,7 +172,7 @@ public class CloneableClassInSecureContextInspection extends BaseInspection {
       final PsiCodeBlock body = method.getBody();
       assert body != null;
       body.add(statement);
-      if (isOnTheFly()) {
+      if (isOnTheFly() && method.isPhysical()) {
         final Editor editor = FileEditorManager.getInstance(project).getSelectedTextEditor();
         if (editor != null) {
           GenerateMembersUtil.positionCaret(editor, method, true);

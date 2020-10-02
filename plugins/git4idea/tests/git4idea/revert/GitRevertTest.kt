@@ -21,6 +21,7 @@ import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcsUtil.VcsUtil.getFilePath
 import git4idea.GitContentRevision.createRevision
 import git4idea.GitRevisionNumber
+import git4idea.history.GitHistoryUtils
 import git4idea.history.GitLogUtil
 import git4idea.test.*
 import java.nio.charset.Charset
@@ -52,7 +53,7 @@ class GitRevertTest : GitSingleRepoTest() {
 
     revertAutoCommit(commit)
 
-    assertErrorNotification("Revert Failed", """
+    assertErrorNotification("Revert failed", """
       ${commit.id.toShortString()} ${commit.subject}
       Your local changes would be overwritten by revert. Commit your changes or stash them to proceed.""")
     assertEquals("File content shouldn't change", "initial\nsecond\n", file.read())
@@ -91,7 +92,7 @@ class GitRevertTest : GitSingleRepoTest() {
 
     revertAutoCommit(commit2, commit1)
 
-    assertErrorNotification("Revert Failed","""
+    assertErrorNotification("Revert failed","""
       ${commit1.id.toShortString()} ${commit1.subject} Your local changes would be overwritten by revert.
       Commit your changes or stash them to proceed.
       However revert succeeded for the following commit:
@@ -147,7 +148,7 @@ class GitRevertTest : GitSingleRepoTest() {
 
     revertAutoCommit(commitToRevert)
 
-    assertWarningNotification("Reverted with conflicts", """
+    assertWarningNotification("Revert performed with conflicts", """
       ${commitToRevert.id.toShortString()} ${commitToRevert.subject}
       Unresolved conflicts remain in the working tree. <a href='resolve'>Resolve them.<a/>""")
   }
@@ -214,7 +215,7 @@ class GitRevertTest : GitSingleRepoTest() {
   fun `test reverting commit doesn't preserve authorship of the original commit`() {
     file("a.txt").create("initial\n").add()
     git("commit --author='Original Author <original@example.com>' -m original_commit")
-    val commit = GitLogUtil.collectFullDetails(project, projectRoot, "-1").first()
+    val commit = GitHistoryUtils.history(project, projectRoot, "-1").first()
 
     vcsHelper.onCommit { false }
 

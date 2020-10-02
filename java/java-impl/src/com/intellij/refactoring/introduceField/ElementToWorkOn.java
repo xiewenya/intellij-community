@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceField;
 
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInsight.unwrap.ScopeHighlighter;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pass;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
@@ -38,7 +26,7 @@ import java.util.List;
 /**
  * @author dsl
  */
-public class ElementToWorkOn {
+public final class ElementToWorkOn {
   public static final Key<PsiElement> PARENT = Key.create("PARENT");
   private final PsiExpression myExpression;
   private final PsiLocalVariable myLocalVariable;
@@ -54,6 +42,23 @@ public class ElementToWorkOn {
     myExpression = expr;
   }
 
+  public static ElementToWorkOn adjustElements(PsiExpression expr, PsiElement anchorElement) {
+    PsiLocalVariable localVariable = null;
+    if (anchorElement instanceof PsiLocalVariable) {
+      localVariable = (PsiLocalVariable)anchorElement;
+    }
+    else if (expr instanceof PsiReferenceExpression) {
+      PsiElement ref = ((PsiReferenceExpression)expr).resolve();
+      if (ref instanceof PsiLocalVariable) {
+        localVariable = (PsiLocalVariable)ref;
+      }
+    }
+    else if (expr instanceof PsiArrayInitializerExpression && expr.getParent() instanceof PsiNewExpression) {
+      expr = (PsiExpression)expr.getParent();
+    }
+    return new ElementToWorkOn(localVariable, expr);
+  }
+
   public PsiExpression getExpression() {
     return myExpression;
   }
@@ -66,7 +71,7 @@ public class ElementToWorkOn {
     return myExpression == null;
   }
 
-  public static void processElementToWorkOn(final Editor editor, final PsiFile file, final String refactoringName, final String helpId, final Project project, final ElementsProcessor<ElementToWorkOn> processor) {
+  public static void processElementToWorkOn(final Editor editor, final PsiFile file, final @NlsContexts.DialogTitle String refactoringName, final String helpId, final Project project, final ElementsProcessor<? super ElementToWorkOn> processor) {
     PsiLocalVariable localVar = null;
     PsiExpression expr = null;
 
@@ -120,7 +125,7 @@ public class ElementToWorkOn {
           }
           else {
             final int selection = IntroduceVariableBase.preferredSelection(statementsInRange, expressions);
-            IntroduceTargetChooser.showChooser(editor, expressions, new Pass<PsiExpression>() {
+            IntroduceTargetChooser.showChooser(editor, expressions, new Pass<>() {
               @Override
               public void pass(final PsiExpression selectedValue) {
                 PsiLocalVariable var = null; //replace var if selected expression == var initializer
@@ -129,7 +134,7 @@ public class ElementToWorkOn {
                 }
                 processor.pass(getElementToWorkOn(editor, file, refactoringName, helpId, project, var, selectedValue));
               }
-            }, new PsiExpressionTrimRenderer.RenderFunction(), "Expressions", selection, ScopeHighlighter.NATURAL_RANGER);
+            }, new PsiExpressionTrimRenderer.RenderFunction(), RefactoringBundle.message("introduce.target.chooser.expressions.title"), selection, ScopeHighlighter.NATURAL_RANGER);
             return;
           }
         }
@@ -141,7 +146,7 @@ public class ElementToWorkOn {
   }
 
   private static ElementToWorkOn getElementToWorkOn(final Editor editor, final PsiFile file,
-                                                    final String refactoringName,
+                                                    final @NlsContexts.DialogTitle String refactoringName,
                                                     final String helpId,
                                                     final Project project, PsiLocalVariable localVar, PsiExpression expr) {
     int startOffset = 0;
@@ -155,6 +160,9 @@ public class ElementToWorkOn {
         if (ident != null) {
           localVar = PsiTreeUtil.getParentOfType(ident, PsiLocalVariable.class);
         }
+      }
+      else if (expr instanceof PsiArrayInitializerExpression && expr.getParent() instanceof PsiNewExpression) {
+        expr = (PsiExpression)expr.getParent();
       }
     }
 
@@ -186,13 +194,13 @@ public class ElementToWorkOn {
   }
 
   public static void showNothingSelectedErrorMessage(final Editor editor,
-                                                     final String refactoringName,
+                                                     final @NlsContexts.DialogTitle String refactoringName,
                                                      final String helpId,
                                                      final Project project) {
-    String message = RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("error.wrong.caret.position.local.or.expression.name"));
+    String message = RefactoringBundle.getCannotRefactorMessage(JavaRefactoringBundle.message("error.wrong.caret.position.local.or.expression.name"));
     CommonRefactoringUtil.showErrorHint(project, editor, message, refactoringName, helpId);
   }
-  
+
   public interface ElementsProcessor<T> {
     boolean accept(ElementToWorkOn el);
     void pass(T t);

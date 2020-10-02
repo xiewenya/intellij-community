@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
 import com.intellij.openapi.util.TextRange;
@@ -24,7 +10,6 @@ import com.intellij.psi.impl.source.xml.SchemaPrefixReference;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ProcessingContext;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
@@ -37,7 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  * @author Konstantin Bulenkov
  */
 public class SchemaReferencesProvider extends PsiReferenceProvider {
@@ -71,11 +56,13 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       myElement = element;
     }
 
+    @NotNull
     @Override
     public PsiElement getElement() {
       return myElement;
     }
 
+    @NotNull
     @Override
     public TextRange getRangeInElement() {
       return ElementManipulators.getValueTextRange(myElement);
@@ -95,8 +82,8 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
-      return ElementManipulators.getManipulator(myElement).handleContentChange(
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
+      return ElementManipulators.handleContentChange(
         myElement,
         getRangeInElement(),
         newElementName.substring(newElementName.indexOf(':') + 1)
@@ -109,14 +96,8 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public boolean isReferenceTo(PsiElement element) {
+    public boolean isReferenceTo(@NotNull PsiElement element) {
       return myElement.getManager().areElementsEquivalent(resolve(), element);
-    }
-
-    @Override
-    @NotNull
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
     }
 
     @Override
@@ -126,8 +107,7 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
   }
 
   @Override
-  @NotNull
-  public PsiReference[] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
+  public PsiReference @NotNull [] getReferencesByElement(@NotNull PsiElement element, @NotNull final ProcessingContext context) {
     final PsiElement parent = element.getParent();
     if (!(parent instanceof XmlAttribute)) return PsiReference.EMPTY_ARRAY;
     final String attrName = ((XmlAttribute)parent).getName();

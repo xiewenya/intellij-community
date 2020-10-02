@@ -46,8 +46,6 @@ import javax.swing.tree.TreeNode
 /**
  * Provides methods to build trees where nodes are grouped by modules (and optionally by module groups). Type parameter M specified class
  * of modules (may be [Module] if real modules are shown, or [com.intellij.openapi.module.ModuleDescription] if loaded and unloaded modules are shown.
- *
- * @author nik
  */
 class ModuleGroupingTreeHelper<M: Any, N: MutableTreeNode> private constructor(
   private val groupingEnabled: Boolean,
@@ -69,7 +67,7 @@ class ModuleGroupingTreeHelper<M: Any, N: MutableTreeNode> private constructor(
     @JvmStatic
     fun <M: Any, N : MutableTreeNode> forEmptyTree(groupingEnabled: Boolean, grouping: ModuleGroupingImplementation<M>,
                                                    moduleGroupNodeFactory: (ModuleGroup) -> N, moduleNodeFactory: (M) -> N,
-                                                   nodeComparator: Comparator<in N>) =
+                                                   nodeComparator: Comparator<in N>): ModuleGroupingTreeHelper<M, N> =
       ModuleGroupingTreeHelper(groupingEnabled, grouping, moduleGroupNodeFactory, moduleNodeFactory, nodeComparator)
 
     @JvmStatic
@@ -111,7 +109,7 @@ class ModuleGroupingTreeHelper<M: Any, N: MutableTreeNode> private constructor(
     }
 
     @JvmStatic
-    fun createDefaultGrouping(grouper: ModuleGrouper) = object : ModuleGroupingImplementation<Module> {
+    fun createDefaultGrouping(grouper: ModuleGrouper): ModuleGroupingImplementation<Module> = object : ModuleGroupingImplementation<Module> {
       override val compactGroupNodes: Boolean
         get() = grouper.compactGroupNodes
 
@@ -364,19 +362,19 @@ class ModuleGroupingTreeHelper<M: Any, N: MutableTreeNode> private constructor(
   }
 
   @TestOnly
-  fun getNodeForGroupMap() = Collections.unmodifiableMap(nodeForGroup)
+  fun getNodeForGroupMap(): MutableMap<ModuleGroup, N>? = Collections.unmodifiableMap(nodeForGroup)
 
   @TestOnly
-  fun getVirtualGroupToChildNodeMap() = Collections.unmodifiableMap(virtualGroupToChildNode)
+  fun getVirtualGroupToChildNodeMap(): MutableMap<ModuleGroup, N>? = Collections.unmodifiableMap(virtualGroupToChildNode)
 
   @TestOnly
-  fun getModuleByNodeMap() = nodeData.mapValues { it.value.module }.filterValues { it != null }
+  fun getModuleByNodeMap(): Map<N, M?> = nodeData.mapValues { it.value.module }.filterValues { it != null }
 
   @TestOnly
-  fun getGroupByNodeMap() = nodeData.mapValues { it.value.group }.filterValues { it != null }
+  fun getGroupByNodeMap(): Map<N, ModuleGroup?> = nodeData.mapValues { it.value.group }.filterValues { it != null }
 
   @TestOnly
-  fun isGroupingEnabled() = groupingEnabled
+  fun isGroupingEnabled(): Boolean = groupingEnabled
 }
 
 private class ModuleTreeNodeData<M>(val module: M?, val group: ModuleGroup?)

@@ -1,38 +1,36 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.jvm.types;
 
-import gnu.trove.THashMap;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import static com.intellij.psi.CommonClassNames.*;
 
-/**
- * @since 2018.2
- */
-public enum JvmPrimitiveTypeKind {
-
-  BYTE("byte", JAVA_LANG_BYTE),
-  CHAR("char", JAVA_LANG_CHARACTER),
-  DOUBLE("double", JAVA_LANG_DOUBLE),
-  FLOAT("float", JAVA_LANG_FLOAT),
-  INT("int", JAVA_LANG_INTEGER),
-  LONG("long", JAVA_LANG_LONG),
-  SHORT("short", JAVA_LANG_SHORT),
-  BOOLEAN("boolean", JAVA_LANG_BOOLEAN),
-  VOID("void", JAVA_LANG_VOID);
+public final class JvmPrimitiveTypeKind {
+  public static final JvmPrimitiveTypeKind BOOLEAN = new JvmPrimitiveTypeKind("boolean", JAVA_LANG_BOOLEAN, "Z");
+  public static final JvmPrimitiveTypeKind BYTE = new JvmPrimitiveTypeKind("byte", JAVA_LANG_BYTE, "B");
+  public static final JvmPrimitiveTypeKind CHAR = new JvmPrimitiveTypeKind("char", JAVA_LANG_CHARACTER, "C");
+  public static final JvmPrimitiveTypeKind DOUBLE = new JvmPrimitiveTypeKind("double", JAVA_LANG_DOUBLE, "D");
+  public static final JvmPrimitiveTypeKind FLOAT = new JvmPrimitiveTypeKind("float", JAVA_LANG_FLOAT, "F");
+  public static final JvmPrimitiveTypeKind INT = new JvmPrimitiveTypeKind("int", JAVA_LANG_INTEGER, "I");
+  public static final JvmPrimitiveTypeKind LONG = new JvmPrimitiveTypeKind("long", JAVA_LANG_LONG, "J");
+  public static final JvmPrimitiveTypeKind SHORT = new JvmPrimitiveTypeKind("short", JAVA_LANG_SHORT, "S");
+  public static final JvmPrimitiveTypeKind VOID = new JvmPrimitiveTypeKind("void", JAVA_LANG_VOID, "V");
 
   private final String myName;
   private final String myBoxedFqn;
+  private final String myBinaryName;
 
-  JvmPrimitiveTypeKind(String name, String boxedFqn) {
+  private JvmPrimitiveTypeKind(@NotNull String name, @NotNull String boxedFqn, @NotNull String binaryName) {
     myName = name;
     myBoxedFqn = boxedFqn;
+    myBinaryName = binaryName;
   }
 
   @Contract(pure = true)
@@ -47,18 +45,23 @@ public enum JvmPrimitiveTypeKind {
     return myBoxedFqn;
   }
 
+  @Contract(pure = true)
+  @NotNull
+  public String getBinaryName() {
+    return myBinaryName;
+  }
+
   private static final Map<String, JvmPrimitiveTypeKind> ourNameToKind;
   private static final Map<String, JvmPrimitiveTypeKind> ourFqnToKind;
 
   static {
-    THashMap<String, JvmPrimitiveTypeKind> nameToKind = new THashMap<>();
-    THashMap<String, JvmPrimitiveTypeKind> fqnToKind = new THashMap<>();
-    for (JvmPrimitiveTypeKind kind : values()) {
+    JvmPrimitiveTypeKind[] values = {BOOLEAN, BYTE, CHAR, DOUBLE, FLOAT, INT, LONG, SHORT, VOID};
+    Map<String, JvmPrimitiveTypeKind> nameToKind = new HashMap<>(values.length);
+    Map<String, JvmPrimitiveTypeKind> fqnToKind = new HashMap<>(values.length);
+    for (JvmPrimitiveTypeKind kind : values) {
       nameToKind.put(kind.getName(), kind);
       fqnToKind.put(kind.getBoxedFqn(), kind);
     }
-    nameToKind.compact();
-    fqnToKind.compact();
     ourNameToKind = nameToKind;
     ourFqnToKind = fqnToKind;
   }

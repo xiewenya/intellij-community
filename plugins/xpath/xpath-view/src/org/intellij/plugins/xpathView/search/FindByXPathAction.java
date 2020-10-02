@@ -16,7 +16,6 @@
 
 package org.intellij.plugins.xpathView.search;
 
-import com.intellij.find.FindProgressIndicator;
 import com.intellij.find.FindSettings;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -27,10 +26,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Factory;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.usages.*;
-import org.intellij.plugins.xpathView.Config;
-import org.intellij.plugins.xpathView.XPathAppComponent;
-import org.intellij.plugins.xpathView.XPathEvalAction;
-import org.intellij.plugins.xpathView.XPathProjectComponent;
+import org.intellij.plugins.xpathView.*;
 import org.intellij.plugins.xpathView.support.XPathSupport;
 import org.intellij.plugins.xpathView.ui.InputExpressionDialog;
 import org.jaxen.JaxenException;
@@ -41,14 +37,16 @@ import java.util.Collections;
 
 public class FindByXPathAction extends AnAction {
 
-    public void update(AnActionEvent e) {
+    @Override
+    public void update(@NotNull AnActionEvent e) {
         final Project project = e.getProject();
         e.getPresentation().setEnabled(project != null);
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
         final Project project = e.getProject();
-        final Module module = LangDataKeys.MODULE.getData(e.getDataContext());
+        final Module module = e.getData(LangDataKeys.MODULE);
 
         if (project != null) {
             executeSearch(project, module);
@@ -81,17 +79,16 @@ public class FindByXPathAction extends AnAction {
         final UsageViewPresentation presentation = new UsageViewPresentation();
         presentation.setTargetsNodeText(settings.MATCH_RECURSIVELY ? "XPath Pattern" : "XPath Expression");
         presentation.setCodeUsages(false);
-        presentation.setCodeUsagesString("Found Matches in " + scope.getName());
-        presentation.setNonCodeUsagesString("Result");
+        presentation.setCodeUsagesString(XPathBundle.message("list.item.found.matches.in", scope.getName()));
+        presentation.setNonCodeUsagesString(XPathBundle.message("list.item.result"));
         presentation.setUsagesString("results matching '" + expression + '\'');
-        presentation.setUsagesWord("match");
-        presentation.setTabText(StringUtil.shortenTextWithEllipsis("XPath '" + expression + '\'', 60, 0, true));
+        presentation.setUsagesWord(XPathBundle.message("match"));
+        presentation.setTabText(StringUtil.shortenTextWithEllipsis(XPathBundle.message("tab.title.xpath", expression), 60, 0, true));
         presentation.setScopeText(scope.getName());
 
         presentation.setOpenInNewTab(FindSettings.getInstance().isShowResultsInSeparateView());
 
         final FindUsagesProcessPresentation processPresentation = new FindUsagesProcessPresentation(presentation);
-        processPresentation.setProgressIndicatorFactory(() -> new FindProgressIndicator(project, scope.getName()));
         processPresentation.setShowPanelIfOnlyOneUsage(true);
         processPresentation.setShowNotFoundMessage(true);
 
@@ -122,11 +119,12 @@ public class FindByXPathAction extends AnAction {
         private final Project myProject;
         private final Module myModule;
 
-        public MyEditExpressionAction(Project project, Module module) {
+        MyEditExpressionAction(Project project, Module module) {
             myProject = project;
             myModule = module;
         }
 
+        @Override
         protected void execute() {
             executeSearch(myProject, myModule);
         }
@@ -134,13 +132,12 @@ public class FindByXPathAction extends AnAction {
 
     private static boolean validateExpression(Project project, String expression) {
         try {
-            //noinspection unchecked
-            XPathSupport.getInstance().createXPath(null, expression, Collections.emptyList());
+          XPathSupport.getInstance().createXPath(null, expression, Collections.emptyList());
             return true;
         } catch (XPathSyntaxException e) {
-            Messages.showErrorDialog(project, e.getMultilineMessage(), "XPath Syntax Error");
+            Messages.showErrorDialog(project, e.getMultilineMessage(), XPathBundle.message("dialog.title.xpath.syntax.error")); //NON-NLS
         } catch (JaxenException e) {
-            Messages.showErrorDialog(project, e.getMessage(), "XPath Error");
+            Messages.showErrorDialog(project, e.getMessage(), XPathBundle.message("dialog.title.xpath.error"));
         }
         return false;
     }

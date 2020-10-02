@@ -1,15 +1,20 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
 import com.intellij.execution.BeforeRunTask;
+import com.intellij.execution.configuration.RunConfigurationExtensionBase;
+import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsActions;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.jdom.Element;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,16 +22,15 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Interface for run configurations which can be managed by a user and displayed in the UI.
+ * A run configuration which can be managed by a user and displayed in the UI.
+ * <p>
+ * If debugger is provided by plugin, it should also implement {@link RunConfigurationWithSuppressedDefaultDebugAction}.
+ * Otherwise (in case of disabled plugin) debug action may be enabled in UI but with no reaction.
  *
  * @see com.intellij.execution.RunManager
  * @see RunConfigurationBase
- *
- * If debugger is provided by plugin, RunConfiguration should also implement RunConfigurationWithSuppressedDefaultDebugAction
- * Otherwise (in case of disabled plugin) debug action may be enabled in UI but with no reaction
- * @see RunConfigurationWithSuppressedDefaultDebugAction
- *
  * @see RefactoringListenerProvider
+ * @see RunConfigurationExtensionBase
  */
 public interface RunConfiguration extends RunProfile, Cloneable {
   DataKey<RunConfiguration> DATA_KEY = DataKey.create("runtimeConfiguration");
@@ -34,24 +38,21 @@ public interface RunConfiguration extends RunProfile, Cloneable {
   /**
    * Returns the type of the run configuration.
    */
-  @NotNull
-  default ConfigurationType getType() {
-    return getFactory().getType();
+  default @NotNull ConfigurationType getType() {
+    ConfigurationFactory factory = getFactory();
+    return factory == null ? UnknownConfigurationType.getInstance() : factory.getType();
   }
 
   /**
    * Returns the factory that has created the run configuration.
-   *
-   * @return the factory instance.
    */
-  ConfigurationFactory getFactory();
+  @Nullable ConfigurationFactory getFactory();
 
+  // do not annotate as Nullable because in this case Kotlin compiler will forbid field style access (because of different nullability for getter and setter).
   /**
    * Sets the name of the configuration.
-   *
-   * @param name the new name of the configuration.
    */
-  void setName(String name);
+  void setName(@NlsSafe String name);
 
   /**
    * Returns the UI control for editing the run configuration settings. If additional control over validation is required, the object
@@ -61,13 +62,10 @@ public interface RunConfiguration extends RunProfile, Cloneable {
    *
    * @return the settings editor component.
    */
-  @NotNull
-  SettingsEditor<? extends RunConfiguration> getConfigurationEditor();
+  @NotNull SettingsEditor<? extends RunConfiguration> getConfigurationEditor();
 
   /**
    * Returns the project in which the run configuration exists.
-   *
-   * @return the project instance.
    */
   Project getProject();
 
@@ -78,8 +76,7 @@ public interface RunConfiguration extends RunProfile, Cloneable {
    * @param provider source of assorted information about the configuration being edited.
    * @return the per-runner settings.
    */
-  @Nullable
-  default ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider) {
+  default @Nullable ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider) {
     return null;
   }
 
@@ -90,8 +87,7 @@ public interface RunConfiguration extends RunProfile, Cloneable {
    * @param runner the runner the settings for which need to be edited.
    * @return the editor for the per-runner settings.
    */
-  @Nullable
-  default SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner) {
+  default @Nullable SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner) {
     return null;
   }
 
@@ -107,14 +103,20 @@ public interface RunConfiguration extends RunProfile, Cloneable {
    *
    * @return the unique ID of the configuration.
    */
-  @Deprecated
   default int getUniqueID() {
     return System.identityHashCode(this);
   }
 
-  @NotNull
+  /**
+   * Returns the unique identifier of the run configuration. Return null if not applicable.
+   * Used only for non-managed RC type.
+   */
+  default @Nullable @NonNls String getId() {
+    return null;
+  }
+
   @Transient
-  default String getPresentableType() {
+  default @NotNull @NlsActions.ActionText String getPresentableType() {
     if (PlatformUtils.isPhpStorm()) {
       return " (" + StringUtil.first(getType().getDisplayName(), 10, true) + ")";
     }
@@ -145,14 +147,43 @@ public interface RunConfiguration extends RunProfile, Cloneable {
   default void readExternal(@NotNull Element element) {
   }
 
-  default void writeExternal(Element element) {
+  default void writeExternal(@NotNull Element element) {
   }
 
-  @NotNull
-  default List<BeforeRunTask> getBeforeRunTasks() {
+  default @NotNull List<BeforeRunTask<?>> getBeforeRunTasks() {
     return Collections.emptyList();
   }
 
-  default void setBeforeRunTasks(@NotNull List<BeforeRunTask> value) {
+  default void setBeforeRunTasks(@NotNull List<BeforeRunTask<?>> value) {
+  }
+
+  default boolean isAllowRunningInParallel() {
+    return false;
+  }
+
+  default void setAllowRunningInParallel(boolean value) {
+  }
+
+  /**
+   * Allows to customize handling when restart the run configuration not allowing running in parallel.
+   *
+   * @return the further actions.
+   */
+  default RestartSingletonResult restartSingleton(@NotNull ExecutionEnvironment environment) {
+    return RestartSingletonResult.ASK_AND_RESTART;
+  }
+
+  /**
+   * Further actions to restart the run configuration not allowing running in parallel.
+   *
+   * @see RunConfiguration#restartSingleton
+   */
+  enum RestartSingletonResult {
+    /** Ask user to stop and restart the run configuration. */
+    ASK_AND_RESTART,
+    /** Stop and restart the run configuration without additional interaction with user. */
+    RESTART,
+    /** No further action is needed. */
+    NO_FURTHER_ACTION
   }
 }

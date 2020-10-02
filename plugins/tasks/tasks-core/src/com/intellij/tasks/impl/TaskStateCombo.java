@@ -6,12 +6,12 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.tasks.CustomTaskState;
 import com.intellij.tasks.Task;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.impl.TaskUiUtil.ComboBoxUpdater;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,16 +45,16 @@ public abstract class TaskStateCombo extends JPanel {
     this(null, null);
   }
 
-  @SuppressWarnings({"GtkPreferredJComboBoxRenderer", "unchecked"})
+  @SuppressWarnings({"unchecked"})
   public TaskStateCombo(Project project, Task task) {
     myProject = project;
     myTask = task;
 
     myHintLabel = new JBLabel();
     myHintLabel.setIcon(PlatformIcons.UP_DOWN_ARROWS);
-    myHintLabel.setToolTipText("Pressing Up or Down arrows while in editor changes the state");
+    myHintLabel.setToolTipText(TaskBundle.message("pressing.up.or.down.arrows.while.in.editor.changes.the.state"));
     final JComboBox comboBox = myKindCombo.getComboBox();
-    comboBox.setPreferredSize(new Dimension(300, UIUtil.fixComboBoxHeight(comboBox.getPreferredSize().height)));
+    comboBox.setPreferredSize(new Dimension(300, comboBox.getPreferredSize().height));
     setLayout(new BoxLayout(this, BoxLayout.LINE_AXIS));
     add(myKindCombo);
     add(myHintLabel);
@@ -70,7 +70,7 @@ public abstract class TaskStateCombo extends JPanel {
       final JComboBox comboBox = myKindCombo.getComboBox();
       final TaskRepository repository = myTask.getRepository();
       assert repository != null;
-      new ComboBoxUpdater<CustomStateTrinityAdapter>(myProject, "Fetching available task states...", comboBox) {
+      new ComboBoxUpdater<CustomStateTrinityAdapter>(myProject, TaskBundle.message("progress.title.fetching.available.task.states"), comboBox) {
         @NotNull
         @Override
         protected List<CustomStateTrinityAdapter> fetch(@NotNull ProgressIndicator indicator) throws Exception {
@@ -140,18 +140,18 @@ public abstract class TaskStateCombo extends JPanel {
   private static class CustomStateTrinityAdapter extends Trinity<String, Icon, String> {
     final CustomTaskState myState;
 
-    public CustomStateTrinityAdapter(@NotNull CustomTaskState state) {
+    CustomStateTrinityAdapter(@NotNull CustomTaskState state) {
       super(state.getPresentableName(), null, state.getId());
       myState = state;
     }
 
     @NotNull
-    static List<CustomStateTrinityAdapter> wrapList(@NotNull Collection<CustomTaskState> states) {
+    static List<CustomStateTrinityAdapter> wrapList(@NotNull Collection<? extends CustomTaskState> states) {
       return ContainerUtil.map(states, state -> new CustomStateTrinityAdapter(state));
     }
 
     @NotNull
-    static List<CustomTaskState> unwrapList(@NotNull Collection<CustomStateTrinityAdapter> wrapped) {
+    static List<CustomTaskState> unwrapList(@NotNull Collection<? extends CustomStateTrinityAdapter> wrapped) {
       return ContainerUtil.map(wrapped, adapter -> adapter.myState);
     }
   }

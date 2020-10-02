@@ -2,15 +2,13 @@
 package com.intellij.compiler.artifacts;
 
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.Artifact;
 
 import java.io.IOException;
 
-/**
- * @author nik
- */
 public class UpdateArtifactsAfterRenameTest extends PackagingElementsTestCase {
   public void testRenameFile() {
     final VirtualFile file = createFile("a.txt");
@@ -69,10 +67,11 @@ public class UpdateArtifactsAfterRenameTest extends PackagingElementsTestCase {
       Module res = moduleManager.newModule(getProjectBasePath() + "/myModule.iml", StdModuleTypes.JAVA.getId());
       return res;
     });
-    final Artifact artifact = addArtifact(root().module(module));
+    final Artifact artifact = addArtifact(root().module(module).moduleSource(module));
 
     assertLayout(artifact, "<root>\n" +
-                           " module:myModule");
+                           " module:myModule\n" +
+                           " module sources:myModule");
     WriteAction.runAndWait(() -> {
       final ModifiableModuleModel model = moduleManager.getModifiableModel();
       model.renameModule(module, "newName");
@@ -80,12 +79,14 @@ public class UpdateArtifactsAfterRenameTest extends PackagingElementsTestCase {
     });
 
     assertLayout(artifact, "<root>\n" +
-                           " module:newName");
+                           " module:newName\n" +
+                           " module sources:newName");
 
     moduleManager.disposeModule(module);
 
     assertLayout(artifact, "<root>\n" +
-                           " module:newName");
+                           " module:newName\n" +
+                           " module sources:newName");
   }
 
   private void moveFile(final VirtualFile file, final VirtualFile newParent) {

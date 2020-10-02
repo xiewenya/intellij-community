@@ -32,6 +32,8 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.indexing.DumbModeAccessType;
+import com.intellij.util.indexing.FileBasedIndex;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
@@ -58,27 +60,30 @@ public class TestClassFilter implements ClassFilter.ClassFilterWithScope {
 
   public Project getProject() { return myProject; }
 
+  @Override
   public boolean isAccepted(final PsiClass aClass) {
     return ReadAction.compute(() -> {
-      if (aClass.getQualifiedName() != null &&
-          (myBase != null && aClass.isInheritor(myBase, true) && ConfigurationUtil.PUBLIC_INSTANTIATABLE_CLASS.value(aClass) ||
-           isTopMostTestClass(aClass))) {
-        final CompilerConfiguration compilerConfiguration = CompilerConfiguration.getInstance(getProject());
-        final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(aClass);
-        if (virtualFile == null) return false;
-        return !compilerConfiguration.isExcludedFromCompilation(virtualFile) &&
-               !ProjectRootManager.getInstance(myProject).getFileIndex()
-                 .isUnderSourceRootOfType(virtualFile, JavaModuleSourceRootTypes.RESOURCES);
-      }
-      return false;
+      return FileBasedIndex.getInstance().ignoreDumbMode(DumbModeAccessType.RELIABLE_DATA_ONLY, () -> {
+        if (aClass.getQualifiedName() != null &&
+            (myBase != null && aClass.isInheritor(myBase, true) && ConfigurationUtil.PUBLIC_INSTANTIATABLE_CLASS.value(aClass) ||
+             isTopMostTestClass(aClass))) {
+          final CompilerConfiguration compilerConfiguration = CompilerConfiguration.getInstance(getProject());
+          final VirtualFile virtualFile = PsiUtilCore.getVirtualFile(aClass);
+          if (virtualFile == null) return false;
+          return !compilerConfiguration.isExcludedFromCompilation(virtualFile) &&
+                 !ProjectRootManager.getInstance(myProject).getFileIndex()
+                   .isUnderSourceRootOfType(virtualFile, JavaModuleSourceRootTypes.RESOURCES);
+        }
+        return false;
+      });
     });
   }
-  
+
   private static boolean isTopMostTestClass(PsiClass psiClass) {
     if (psiClass.getQualifiedName() == null) return false;
-    
+
     if (!PsiClassUtil.isRunnableClass(psiClass, true, true)) return false;
-    
+
     if (AnnotationUtil.isAnnotated(psiClass, JUnitUtil.RUN_WITH, CHECK_HIERARCHY)) return true;
 
     if (JUnitUtil.isTestCaseInheritor(psiClass)) return true;
@@ -162,6 +167,7 @@ public class TestClassFilter implements ClassFilter.ClassFilterWithScope {
     };
   }
 
+  @Override
   public GlobalSearchScope getScope() { return myScope; }
   @Nullable
   public PsiClass getBase() { return myBase; }

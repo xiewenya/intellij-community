@@ -25,15 +25,17 @@ import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.javadoc.PsiDocTagValue;
+import com.intellij.psi.util.InheritanceUtil;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import org.jetbrains.annotations.NotNull;
 
-public class ThrowsRuntimeExceptionInspection extends ThrowsRuntimeExceptionInspectionBase {
+public class ThrowsRuntimeExceptionInspection extends BaseInspection {
 
-  @NotNull
   @Override
-  protected InspectionGadgetsFix[] buildFixes(Object... infos) {
+  protected InspectionGadgetsFix @NotNull [] buildFixes(Object... infos) {
     final String exceptionName = (String)infos[0];
     if (MoveExceptionToJavadocFix.isApplicable((PsiJavaCodeReferenceElement)infos[1])) {
       return new InspectionGadgetsFix[] {
@@ -42,6 +44,17 @@ public class ThrowsRuntimeExceptionInspection extends ThrowsRuntimeExceptionInsp
       };
     }
     return new InspectionGadgetsFix[] {new ThrowsRuntimeExceptionFix(exceptionName)};
+  }
+
+  @NotNull
+  @Override
+  protected String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message("throws.runtime.exception.problem.descriptor");
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new ThrowsRuntimeExceptionVisitor();
   }
 
   private static class MoveExceptionToJavadocFix extends InspectionGadgetsFix {
@@ -61,7 +74,7 @@ public class ThrowsRuntimeExceptionInspection extends ThrowsRuntimeExceptionInsp
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Move to Javadoc '@throws'";
+      return InspectionGadgetsBundle.message("move.exception.to.javadoc.fix.family.name");
     }
 
     @Override
@@ -147,7 +160,7 @@ public class ThrowsRuntimeExceptionInspection extends ThrowsRuntimeExceptionInsp
 
     private final String myClassName;
 
-    public ThrowsRuntimeExceptionFix(String className) {
+    ThrowsRuntimeExceptionFix(String className) {
       myClassName = className;
     }
 
@@ -160,12 +173,34 @@ public class ThrowsRuntimeExceptionInspection extends ThrowsRuntimeExceptionInsp
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Remove from \"throws\" clause";
+      return InspectionGadgetsBundle.message("throws.runtime.exception.fix.family.name");
     }
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
       descriptor.getPsiElement().delete();
+    }
+  }
+
+  private static class ThrowsRuntimeExceptionVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitMethod(PsiMethod method) {
+      super.visitMethod(method);
+      final PsiReferenceList throwsList = method.getThrowsList();
+      final PsiJavaCodeReferenceElement[] referenceElements = throwsList.getReferenceElements();
+      for (PsiJavaCodeReferenceElement referenceElement : referenceElements) {
+        final PsiElement target = referenceElement.resolve();
+        if (!(target instanceof PsiClass)) {
+          continue;
+        }
+        final PsiClass aClass = (PsiClass)target;
+        if (!InheritanceUtil.isInheritor(aClass, "java.lang.RuntimeException")) {
+          continue;
+        }
+        final String className = aClass.getName();
+        registerError(referenceElement, className, referenceElement);
+      }
     }
   }
 }

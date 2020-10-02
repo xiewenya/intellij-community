@@ -1,9 +1,8 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.editor;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.util.xmlb.XmlSerializerUtil;
@@ -14,8 +13,8 @@ import org.jetbrains.annotations.Nullable;
   name = "XmlEditorOptions",
   storages = @Storage("editor.xml")
 )
-public class WebEditorOptions implements PersistentStateComponent<WebEditorOptions> {
-  private boolean myShowCssColorPreviewInGutter = true;
+public final class WebEditorOptions implements PersistentStateComponent<WebEditorOptions> {
+  private static final boolean myShowCssColorPreviewInGutter = true;
   private boolean mySelectWholeCssIdentifierOnDoubleClick = true;
   private boolean myShowCssInlineColorPreview = false;
   private boolean myAutomaticallyInsertClosingTag = true;
@@ -35,7 +34,7 @@ public class WebEditorOptions implements PersistentStateComponent<WebEditorOptio
   }
 
   public static WebEditorOptions getInstance() {
-    return ServiceManager.getService(WebEditorOptions.class);
+    return ApplicationManager.getApplication().getService(WebEditorOptions.class);
   }
 
   public boolean isShowCssInlineColorPreview() {
@@ -49,15 +48,9 @@ public class WebEditorOptions implements PersistentStateComponent<WebEditorOptio
   /**
    * @deprecated use LineMarkerSettings.getSettings().isEnabled(new ColorLineMarkerProvider())
    */
+  @Deprecated
   public boolean isShowCssColorPreviewInGutter() {
     return myShowCssColorPreviewInGutter;
-  }
-
-  /**
-   * @deprecated use LineMarkerSettings.getSettings().isEnabled(new ColorLineMarkerProvider())
-   */
-  public void setShowCssColorPreviewInGutter(final boolean showCssColorPreviewInGutter) {
-    myShowCssColorPreviewInGutter = showCssColorPreviewInGutter;
   }
 
   public boolean isAutomaticallyInsertClosingTag() {
@@ -115,8 +108,7 @@ public class WebEditorOptions implements PersistentStateComponent<WebEditorOptio
   }
 
   @Override
-  @Nullable
-  public Object clone() {
+  public @Nullable Object clone() {
     try {
       return super.clone();
     }
@@ -131,7 +123,7 @@ public class WebEditorOptions implements PersistentStateComponent<WebEditorOptio
   }
 
   @Override
-  public void loadState(@NotNull final WebEditorOptions state) {
+  public void loadState(final @NotNull WebEditorOptions state) {
     XmlSerializerUtil.copyBean(state, this);
   }
 

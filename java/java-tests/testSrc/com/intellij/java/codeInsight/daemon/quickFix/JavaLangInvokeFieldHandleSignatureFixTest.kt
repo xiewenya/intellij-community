@@ -18,21 +18,19 @@ package com.intellij.java.codeInsight.daemon.quickFix
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCase
 import com.intellij.codeInspection.reflectiveAccess.JavaLangInvokeHandleSignatureInspection
 import com.intellij.testFramework.LightProjectDescriptor
-import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 
 /**
  * @author Pavel.Dolgov
  */
 class JavaLangInvokeFieldHandleSignatureFixTest : LightQuickFixParameterizedTestCase() {
 
-  override fun getProjectDescriptor(): LightProjectDescriptor = LightCodeInsightFixtureTestCase.JAVA_9
+  override fun getProjectDescriptor(): LightProjectDescriptor = LightJavaCodeInsightFixtureTestCase.JAVA_9
 
   override fun setUp() {
     super.setUp()
     enableInspectionTool(JavaLangInvokeHandleSignatureInspection())
   }
-
-  fun test() = doAllTests()
 
   override fun getBasePath() = "/codeInsight/daemonCodeAnalyzer/quickFix/fieldHandle"
 }

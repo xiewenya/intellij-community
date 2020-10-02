@@ -17,7 +17,6 @@ import java.util.List;
  * Not thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 1/16/12 5:06 PM
  */
 public class RichTextControlBuilder {
   
@@ -144,7 +143,7 @@ public class RichTextControlBuilder {
         rowComponents.clear();
       }
       else {
-        final JLabel label = new JLabel(s);
+        final JLabel label = new JLabel(s); // NON-NLS
         label.setForeground(myForegroundColor);
         label.setBackground(myBackgroundColor);
         label.setFont(myFont);

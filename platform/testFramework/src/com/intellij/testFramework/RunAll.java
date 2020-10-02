@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
+import com.intellij.util.ErrorKt;
 import com.intellij.util.SmartList;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.containers.ContainerUtil;
@@ -22,6 +9,9 @@ import com.intellij.util.lang.CompoundRuntimeException;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -29,43 +19,57 @@ import java.util.List;
  *
  * @author peter
  */
-public class RunAll implements Runnable {
-  private final List<ThrowableRunnable<?>> myActions;
+public final class RunAll implements Runnable {
+  private final List<? extends ThrowableRunnable<?>> myActions;
 
   @SafeVarargs
-  public RunAll(@NotNull ThrowableRunnable<Throwable>... actions) {
-    this(ContainerUtil.newArrayList(actions));
+  public RunAll(ThrowableRunnable<Throwable> @NotNull ... actions) {
+    this(Arrays.asList(actions));
   }
 
-  private RunAll(@NotNull List<ThrowableRunnable<?>> actions) {
+  public RunAll(@NotNull List<? extends ThrowableRunnable<?>> actions) {
     myActions = actions;
   }
 
   @SafeVarargs
+  public static void runAll(ThrowableRunnable<Throwable> @NotNull ... actions) {
+    ErrorKt.throwIfNotEmpty(collectExceptions(Arrays.asList(actions)));
+  }
+
+  @SafeVarargs
   @Contract(pure=true)
-  public final RunAll append(@NotNull ThrowableRunnable<Throwable>... actions) {
-    return new RunAll(ContainerUtil.concat(myActions, ContainerUtil.newArrayList(actions)));
+  public final RunAll append(ThrowableRunnable<Throwable> @NotNull ... actions) {
+    return new RunAll(ContainerUtil.concat(myActions, actions.length == 1 ? Collections.singletonList(actions[0]) : Arrays.asList(actions)));
   }
 
   @Override
   public void run() {
-    CompoundRuntimeException.throwIfNotEmpty(collectExceptions());
+    run(Collections.emptyList());
   }
 
-  @NotNull
-  private List<Throwable> collectExceptions() {
-    List<Throwable> errors = new SmartList<>();
-    for (ThrowableRunnable<?> action : myActions) {
+  public void run(@NotNull List<? extends Throwable> suppressedExceptions) {
+    ErrorKt.throwIfNotEmpty(ContainerUtil.concat(suppressedExceptions, collectExceptions(myActions)));
+  }
+
+  private static @NotNull List<Throwable> collectExceptions(@NotNull List<? extends ThrowableRunnable<?>> actions) {
+    List<Throwable> result = null;
+    for (ThrowableRunnable<?> action : actions) {
       try {
         action.run();
       }
       catch (CompoundRuntimeException e) {
-        errors.addAll(e.getExceptions());
+        if (result == null) {
+          result = new ArrayList<>();
+        }
+        result.addAll(e.getExceptions());
       }
       catch (Throwable e) {
-        errors.add(e);
+        if (result == null) {
+          result = new SmartList<>();
+        }
+        result.add(e);
       }
     }
-    return errors;
+    return ContainerUtil.notNullize(result);
   }
 }

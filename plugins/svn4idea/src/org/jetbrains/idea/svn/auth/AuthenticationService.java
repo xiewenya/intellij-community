@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.auth;
 
 import com.intellij.openapi.application.ModalityState;
@@ -8,9 +8,8 @@ import com.intellij.openapi.ui.popup.util.PopupUtil;
 import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.WaitForProgressToShow;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.net.HttpConfigurable;
 import com.intellij.util.net.IdeHttpClientHelpers;
 import com.intellij.util.net.ssl.CertificateManager;
@@ -22,9 +21,10 @@ import org.apache.http.config.SocketConfig;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.HttpClients;
+import org.jetbrains.annotations.Nls;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.svn.SvnBundle;
 import org.jetbrains.idea.svn.SvnConfiguration;
 import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.api.Url;
@@ -38,12 +38,21 @@ import java.io.IOException;
 import java.net.*;
 import java.nio.file.Path;
 import java.security.KeyManagementException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class AuthenticationService {
+import static org.jetbrains.idea.svn.SvnBundle.message;
 
+public class AuthenticationService {
   private static final Logger LOG = Logger.getInstance(AuthenticationService.class);
+
+  private static final @NonNls String FATAL_HANDSHAKE_FAILURE_ERROR = "received fatal alert: handshake_failure";
+  private static final @NonNls String SSL_V3_PROTOCOL = "SSLv3";
+  private static final @NonNls String TLS_V1_PROTOCOL = "TLSv1";
+
+  private static final @NonNls String TERMINAL_SSL_SERVER_AUTH_KIND = "terminal.ssl.server";
 
   @NotNull private final SvnVcs myVcs;
   private final boolean myIsActive;
@@ -55,7 +64,7 @@ public class AuthenticationService {
     myVcs = vcs;
     myIsActive = isActive;
     myConfiguration = myVcs.getSvnConfiguration();
-    myRequestedCredentials = ContainerUtil.newHashSet();
+    myRequestedCredentials = new HashSet<>();
   }
 
   @NotNull
@@ -125,7 +134,7 @@ public class AuthenticationService {
         SimpleCredentialsDialog dialog = new SimpleCredentialsDialog(myVcs.getProject());
 
         dialog.setup(mode, realm, key, true);
-        dialog.setTitle(SvnBundle.message("dialog.title.authentication.required"));
+        dialog.setTitle(message("dialog.title.authentication.required"));
         dialog.setSaveEnabled(false);
         if (dialog.showAndGet()) {
           answer.set(dialog.getPassword());
@@ -143,9 +152,8 @@ public class AuthenticationService {
   @NotNull
   public AcceptResult acceptCertificate(@NotNull final Url url, @NotNull final String certificateInfo) {
     // TODO: Probably explicitly construct server url for realm here - like in CertificateTrustManager.
-    String kind = "terminal.ssl.server";
     String realm = url.toDecodedString();
-    Object data = SvnConfiguration.RUNTIME_AUTH_CACHE.getDataWithLowerCheck(kind, realm);
+    Object data = SvnConfiguration.RUNTIME_AUTH_CACHE.getDataWithLowerCheck(TERMINAL_SSL_SERVER_AUTH_KIND, realm);
     AcceptResult result;
 
     if (data != null) {
@@ -155,7 +163,7 @@ public class AuthenticationService {
       result = getAuthenticationManager().getProvider().acceptServerAuthentication(url, realm, certificateInfo, true);
 
       if (!AcceptResult.REJECTED.equals(result)) {
-        myConfiguration.acknowledge(kind, realm, result);
+        myConfiguration.acknowledge(TERMINAL_SSL_SERVER_AUTH_KIND, realm, result);
       }
     }
 
@@ -177,13 +185,12 @@ public class AuthenticationService {
     }
   }
 
-  @Nullable
-  private static String fixMessage(@NotNull IOException e) {
+  private static @Nls @Nullable String fixMessage(@NotNull IOException e) {
     String message = null;
 
     if (e instanceof SSLHandshakeException) {
-      if (StringUtil.containsIgnoreCase(e.getMessage(), "received fatal alert: handshake_failure")) {
-        message = e.getMessage() + ". Please try to specify SSL protocol manually - SSLv3 or TLSv1";
+      if (StringUtil.containsIgnoreCase(e.getMessage(), FATAL_HANDSHAKE_FAILURE_ERROR)) {
+        message = e.getMessage() + ". " + message("label.specify.ssl.protocol.manually");
       }
       else if (e.getCause() != null) {
         // SSLHandshakeException.getMessage() could contain full type name of cause exception - for instance when cause is
@@ -200,7 +207,7 @@ public class AuthenticationService {
     // TODO: Implement algorithm of resolving necessary enabled protocols (TLSv1 vs SSLv3) instead of just using values from Settings.
     SSLContext sslContext = createSslContext(repositoryUrl);
     List<String> supportedProtocols = getSupportedSslProtocols();
-    SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext, ArrayUtil.toStringArray(supportedProtocols), null,
+    SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext, ArrayUtilRt.toStringArray(supportedProtocols), null,
                                                                               SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
     // TODO: Seems more suitable here to read timeout values directly from config file - without utilizing SvnAuthenticationManager.
     final RequestConfig.Builder requestConfigBuilder = RequestConfig.custom();
@@ -224,14 +231,14 @@ public class AuthenticationService {
 
   @NotNull
   private List<String> getSupportedSslProtocols() {
-    List<String> result = ContainerUtil.newArrayList();
+    List<String> result = new ArrayList<>();
 
     switch (myConfiguration.getSslProtocols()) {
       case sslv3:
-        result.add("SSLv3");
+        result.add(SSL_V3_PROTOCOL);
         break;
       case tlsv1:
-        result.add("TLSv1");
+        result.add(TLS_V1_PROTOCOL);
         break;
       case all:
         break;
@@ -263,7 +270,7 @@ public class AuthenticationService {
   // TODO: rename
   public boolean haveDataForTmpConfig() {
     final HttpConfigurable instance = HttpConfigurable.getInstance();
-    return myConfiguration.isIsUseDefaultProxy() && (instance.USE_HTTP_PROXY || instance.USE_PROXY_PAC);
+    return myConfiguration.isUseDefaultProxy() && (instance.USE_HTTP_PROXY || instance.USE_PROXY_PAC);
   }
 
   @Nullable
@@ -311,8 +318,8 @@ public class AuthenticationService {
   private static void showFailedAuthenticateProxy() {
     HttpConfigurable instance = HttpConfigurable.getInstance();
     String message = instance.USE_HTTP_PROXY || instance.USE_PROXY_PAC
-                     ? "Failed to authenticate to proxy. You can change proxy credentials in HTTP proxy settings."
-                     : "Failed to authenticate to proxy.";
+                     ? message("popup.content.failed.to.authenticate.to.proxy.change.credentials")
+                     : message("popup.content.failed.to.authenticate.to.proxy");
 
     PopupUtil.showBalloonForActiveComponent(message, MessageType.ERROR);
   }

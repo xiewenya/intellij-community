@@ -19,7 +19,9 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLambdaExpression;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -30,17 +32,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class LambdaBodyCanBeCodeBlockInspection extends BaseInspection {
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return InspectionGadgetsBundle.message("lambda.body.can.be.code.block.name");
-  }
 
   @NotNull
   @Override
   protected String buildErrorString(Object... infos) {
     return getDisplayName();
+  }
+
+  @Override
+  public boolean shouldInspect(PsiFile file) {
+    return PsiUtil.isLanguageLevel8OrHigher(file);
   }
 
   @Override

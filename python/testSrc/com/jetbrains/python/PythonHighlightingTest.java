@@ -80,6 +80,16 @@ public class PythonHighlightingTest extends PyTestCase {
     doTest(false, false);
   }
 
+  // PY-36003
+  public void testContinueInFinallyBlockBefore38() {
+    doTest(LanguageLevel.PYTHON37, false, false);
+  }
+
+  // PY-36003
+  public void testContinueInFinallyBlock() {
+    doTest(LanguageLevel.PYTHON38, false, false);
+  }
+
   public void testReturnWithArgumentsInGenerator() {
     doTest();
   }
@@ -109,11 +119,9 @@ public class PythonHighlightingTest extends PyTestCase {
     doTest(false, false);
   }
 
-  /*
   public void testStringEscapedOK() {
     doTest();
   }
-  */
 
   public void testStringMixedSeparatorsOK() {   // PY-299
     doTest();
@@ -198,6 +206,25 @@ public class PythonHighlightingTest extends PyTestCase {
     doTest();
   }
 
+  // PY-33235
+  public void testNestedFunction() {
+    EditorColorsScheme scheme = createTemporaryColorScheme();
+
+    TextAttributesKey xKey = TextAttributesKey.find("PY.CLASS_DEFINITION");
+    TextAttributes xAttributes = new TextAttributes(Color.blue, Color.black, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    xKey = TextAttributesKey.find("PY.FUNC_DEFINITION");
+    xAttributes = new TextAttributes(Color.red, Color.black, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    xKey = TextAttributesKey.find("PY.NESTED_FUNC_DEFINITION");
+    xAttributes = new TextAttributes(Color.green, Color.blue, Color.white, EffectType.BOXED, Font.BOLD);
+    scheme.setAttributes(xKey, xAttributes);
+
+    doTest();
+  }
+
   public void testAsync() {
     doTest(LanguageLevel.PYTHON35, true, true);
   }
@@ -253,6 +280,16 @@ public class PythonHighlightingTest extends PyTestCase {
 
   public void testUnpackingStar() {
     doTest(LanguageLevel.PYTHON35, false, false);
+  }
+
+  // PY-35961
+  public void testUnpackingInNonParenthesizedTuplesInReturnAndYieldBefore38() {
+    doTest(LanguageLevel.PYTHON35, false, false);
+  }
+
+  // PY-35961
+  public void testUnpackingInNonParenthesizedTuplesInReturnAndYield() {
+    doTest(LanguageLevel.PYTHON38, false, false);
   }
 
   // PY-19927
@@ -351,6 +388,11 @@ public class PythonHighlightingTest extends PyTestCase {
     doTest(true, true);
   }
 
+  // PY-41305
+  public void testExpressionAsDecorator() {
+    runWithLanguageLevel(LanguageLevel.getLatest(), this::doTest);
+  }
+
   // PY-25381
   public void testBuiltinDecorator() {
     doTest(true, true);
@@ -394,6 +436,56 @@ public class PythonHighlightingTest extends PyTestCase {
   // PY-27913
   public void testDunderClassGetItem() {
     doTest(LanguageLevel.PYTHON37, false, true);
+  }
+
+  // PY-28313
+  public void testVarargs() {
+    doTest();
+  }
+
+  // PY-28313
+  public void testKwargs() {
+    doTest();
+  }
+
+  // PY-20530
+  public void testUnparsedTypeHints() {
+    doTest(LanguageLevel.PYTHON36, false, false);
+  }
+
+  // PY-32321
+  public void testMixedBytesAndNonBytes() {
+    doTest(LanguageLevel.PYTHON36, false, false);
+  }
+
+  // PY-35512
+  public void testInvalidPositionalOnlyParameters() {
+    doTest(LanguageLevel.PYTHON38, false, false);
+  }
+
+  // PY-35512
+  public void testUnsupportedPositionalOnlyParameters() {
+    doTest(LanguageLevel.PYTHON37, false, false);
+  }
+
+  // PY-33886
+  public void testInvalidAssignmentExpressions() {
+    doTest(LanguageLevel.PYTHON38, false, false);
+  }
+
+  // PY-33886
+  public void testUnsupportedAssignmentExpressions() {
+    doTest(LanguageLevel.PYTHON37, false, false);
+  }
+
+  // PY-36004
+  public void testNamedUnicodeBefore38() {
+    doTest(LanguageLevel.PYTHON37, false, false);
+  }
+
+  // PY-36004
+  public void testNamedUnicode() {
+    doTest(LanguageLevel.PYTHON38, false, false);
   }
 
   @NotNull

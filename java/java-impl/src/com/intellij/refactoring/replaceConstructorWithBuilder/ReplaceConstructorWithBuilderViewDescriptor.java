@@ -22,11 +22,12 @@ import org.jetbrains.annotations.NotNull;
 
 public class ReplaceConstructorWithBuilderViewDescriptor extends UsageViewDescriptorAdapter{
 
-  @NotNull
-  public PsiElement[] getElements() {
+  @Override
+  public PsiElement @NotNull [] getElements() {
     return PsiElement.EMPTY_ARRAY;
   }
 
+  @Override
   public String getProcessedElementsHeader() {
     return "";
   }

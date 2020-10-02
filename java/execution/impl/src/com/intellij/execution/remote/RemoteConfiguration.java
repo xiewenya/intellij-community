@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Jeka
@@ -29,8 +27,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
-public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigurationModule>
-                                 implements RunConfigurationWithSuppressedDefaultRunAction, RemoteRunProfile {
+public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigurationModule, Element>
+  implements RunConfigurationWithSuppressedDefaultRunAction, RemoteRunProfile {
   @Override
   public void writeExternal(@NotNull final Element element) throws WriteExternalException {
     super.writeExternal(element);
@@ -48,6 +46,7 @@ public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigu
   public String SHMEM_ADDRESS = "javadebug";
   public String HOST = "localhost";
   public String PORT = "5005";
+  public boolean AUTO_RESTART;
 
   public RemoteConfiguration(final Project project, ConfigurationFactory configurationFactory) {
     super(new JavaRunConfigurationModule(project, true), configurationFactory);
@@ -66,7 +65,7 @@ public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigu
       debuggerSettings.setDebugPort(USE_SOCKET_TRANSPORT ? PORT : SHMEM_ADDRESS);
       debuggerSettings.setTransport(USE_SOCKET_TRANSPORT ? DebuggerSettings.SOCKET_TRANSPORT : DebuggerSettings.SHMEM_TRANSPORT);
     }
-    return new RemoteStateState(getProject(), createRemoteConnection());
+    return new RemoteStateState(getProject(), createRemoteConnection(), AUTO_RESTART);
   }
 
   @Override

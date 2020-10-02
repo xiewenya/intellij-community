@@ -4,8 +4,10 @@ package com.intellij.java.codeInsight.daemon;
 import com.intellij.codeInsight.daemon.LightDaemonAnalyzerTestCase;
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationAction;
 import com.intellij.codeInspection.AnonymousCanBeLambdaInspection;
+import com.intellij.codeInspection.redundantCast.RedundantCastInspection;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.util.RecursionManager;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiClass;
@@ -23,22 +25,37 @@ public class LightAdvLVTIHighlightingTest extends LightDaemonAnalyzerTestCase {
   }
 
   private void doTest() {
-    doTest(BASE_PATH + "/" + getTestName(false) + ".java", false, false);
+    doTest(false);
   }
 
-  public void testSimpleAvailability() { doTest(); }
+  private void doTest(final boolean checkWarnings) {
+    doTest(BASE_PATH + "/" + getTestName(false) + ".java", checkWarnings, false);
+  }
+
+  public void testSimpleAvailability() {
+    RecursionManager.disableMissedCacheAssertions(getTestRootDisposable());
+    doTest();
+  }
 
   public void testDisabledInspections() {
     enableInspectionTool(new AnonymousCanBeLambdaInspection());
-    doTest(BASE_PATH + "/" + getTestName(false) + ".java", true, false);
+    doTest(true);
+  }
+
+  public void testKeepSemanticCastForVars() {
+    enableInspectionTool(new RedundantCastInspection());
+    doTest(true);
   }
 
   public void testVarClassNameConflicts() { doTest(); }
   public void testStandaloneInVarContext() { doTest(); }
+
   public void testUpwardProjection() { doTest(); }
 
+  public void testFailedInferenceWithLeftTypeVar() { doTest(); }
+
   public void testVarInLambdaParameters() {
-    setLanguageLevel(LanguageLevel.JDK_X);
+    setLanguageLevel(LanguageLevel.JDK_11);
     doTest();
   }
 

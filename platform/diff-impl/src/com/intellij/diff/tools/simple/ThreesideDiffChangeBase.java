@@ -20,7 +20,7 @@ import com.intellij.diff.util.*;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.util.TextRange;
-import org.jetbrains.annotations.CalledInAwt;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,12 +32,20 @@ public abstract class ThreesideDiffChangeBase {
 
   @NotNull protected final List<RangeHighlighter> myHighlighters = new ArrayList<>();
   @NotNull protected final List<RangeHighlighter> myInnerHighlighters = new ArrayList<>();
+  @NotNull protected final List<DiffGutterOperation> myOperations = new ArrayList<>();
 
   public ThreesideDiffChangeBase(@NotNull MergeConflictType type) {
     myType = type;
   }
 
-  @CalledInAwt
+  @RequiresEdt
+  public void destroy() {
+    destroyHighlighters();
+    destroyInnerHighlighters();
+    destroyOperations();
+  }
+
+  @RequiresEdt
   protected void installHighlighters() {
     assert myHighlighters.isEmpty();
 
@@ -46,7 +54,7 @@ public abstract class ThreesideDiffChangeBase {
     if (isChange(Side.RIGHT)) createHighlighter(ThreeSide.RIGHT);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void installInnerHighlighters() {
     assert myInnerHighlighters.isEmpty();
 
@@ -55,7 +63,7 @@ public abstract class ThreesideDiffChangeBase {
     if (isChange(Side.RIGHT)) createInnerHighlighter(ThreeSide.RIGHT);
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void destroyHighlighters() {
     for (RangeHighlighter highlighter : myHighlighters) {
       highlighter.dispose();
@@ -63,12 +71,30 @@ public abstract class ThreesideDiffChangeBase {
     myHighlighters.clear();
   }
 
-  @CalledInAwt
+  @RequiresEdt
   protected void destroyInnerHighlighters() {
     for (RangeHighlighter highlighter : myInnerHighlighters) {
       highlighter.dispose();
     }
     myInnerHighlighters.clear();
+  }
+
+  @RequiresEdt
+  protected void installOperations() {
+  }
+
+  @RequiresEdt
+  protected void destroyOperations() {
+    for (DiffGutterOperation operation : myOperations) {
+      operation.dispose();
+    }
+    myOperations.clear();
+  }
+
+  public void updateGutterActions(boolean force) {
+    for (DiffGutterOperation operation : myOperations) {
+      operation.update(force);
+    }
   }
 
   //
@@ -123,8 +149,12 @@ public abstract class ThreesideDiffChangeBase {
     boolean resolved = isResolved(side);
     boolean ignored = !resolved && getInnerFragments() != null;
     boolean shouldHideWithoutLineNumbers = side == ThreeSide.BASE && !isChange(Side.LEFT) && isChange(Side.RIGHT);
-    myHighlighters.addAll(DiffDrawUtil.createHighlighter(editor, startLine, endLine, type, ignored, resolved, false,
-                                                         shouldHideWithoutLineNumbers, side == ThreeSide.BASE));
+    myHighlighters.addAll(new DiffDrawUtil.LineHighlighterBuilder(editor, startLine, endLine, type)
+                            .withIgnored(ignored)
+                            .withResolved(resolved)
+                            .withHideWithoutLineNumbers(shouldHideWithoutLineNumbers)
+                            .withHideStripeMarkers(side == ThreeSide.BASE)
+                            .done());
   }
 
   protected void createInnerHighlighter(@NotNull ThreeSide side) {

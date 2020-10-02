@@ -8,23 +8,28 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.concurrency.EdtExecutorService;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author peter
  */
 public class TestWriteActionUnderProgress extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    ApplicationImpl app = (ApplicationImpl)ApplicationManager.getApplication();
-    boolean success;
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    EdtExecutorService.getScheduledExecutorInstance().schedule(() -> runProgresses(), 2, TimeUnit.SECONDS);
+  }
 
-    success = app.runWriteActionWithNonCancellableProgressInDispatchThread(
+  private static void runProgresses() {
+    ApplicationImpl app = (ApplicationImpl)ApplicationManager.getApplication();
+    boolean success = app.runWriteActionWithNonCancellableProgressInDispatchThread(
       "Progress", null, null, TestWriteActionUnderProgress::runIndeterminateProgress);
     assert success;
 
-    success = app.runWriteActionWithProgressInBackgroundThread(
-      "Cancellable Progress", null, null, "Stop", TestWriteActionUnderProgress::runDeterminateProgress);
-    assert success;
+    app.runWriteActionWithCancellableProgressInDispatchThread(
+      "Cancellable progress", null, null, TestWriteActionUnderProgress::runDeterminateProgress);
   }
 
   private static void runDeterminateProgress(ProgressIndicator indicator) {
@@ -42,6 +47,7 @@ public class TestWriteActionUnderProgress extends DumbAwareAction {
 
   private static void runIndeterminateProgress(ProgressIndicator indicator) {
     indicator.setIndeterminate(true);
+    //noinspection DialogTitleCapitalization
     indicator.setText("In Event Dispatch thread");
     for (int i = 0; i < 1000; i++) {
       TimeoutUtil.sleep(5);

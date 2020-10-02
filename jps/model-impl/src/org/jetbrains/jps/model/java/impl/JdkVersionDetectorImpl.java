@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.java.impl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -20,26 +20,25 @@ import java.io.InputStream;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
-/**
- * @author nik
- */
+import static org.jetbrains.jps.model.java.impl.JdkVendorDetector.detectJdkVendorByReleaseFile;
+
 public class JdkVersionDetectorImpl extends JdkVersionDetector {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.projectRoots.impl.SdkVersionUtil");
-  private static final ActionRunner ACTION_RUNNER = r -> SharedThreadPool.getInstance().executeOnPooledThread(r);
+  private static final Logger LOG = Logger.getInstance(JdkVersionDetectorImpl.class);
 
   @Nullable
   @Override
   public JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath) {
-    return detectJdkVersionInfo(homePath, ACTION_RUNNER);
+    return detectJdkVersionInfo(homePath, SharedThreadPool.getInstance());
   }
 
   @Nullable
   @Override
-  public JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath, @NotNull ActionRunner runner) {
+  public JdkVersionInfo detectJdkVersionInfo(@NotNull String homePath, @NotNull ExecutorService runner) {
     // Java 1.7+
     File releaseFile = new File(homePath, "release");
     if (releaseFile.isFile()) {
@@ -51,7 +50,11 @@ public class JdkVersionDetectorImpl extends JdkVersionDetector {
           JavaVersion version = JavaVersion.parse(versionString);
           String arch = StringUtil.unquoteString(p.getProperty("OS_ARCH", ""));
           boolean x64 = "x86_64".equals(arch) || "amd64".equals(arch);
-          return new JdkVersionInfo(version, x64 ? Bitness.x64 : Bitness.x32);
+          Bitness bitness = x64 ? Bitness.x64 : Bitness.x32;
+          JdkVendorDetector.Vendor vendor = detectJdkVendorByReleaseFile(p);
+          return vendor != null
+                 ? new JdkVersionInfo(version, bitness, vendor.getPrefix(), vendor.displayName)
+                 : new JdkVersionInfo(version, bitness);
         }
       }
       catch (IOException | IllegalArgumentException e) {
@@ -92,11 +95,15 @@ public class JdkVersionDetectorImpl extends JdkVersionDetector {
           process.destroy();
         }
 
-        if (!reader.myLines.isEmpty()) {
-          JavaVersion base = JavaVersion.parse(reader.myLines.get(0));
-          JavaVersion rt = JavaVersion.tryParse(reader.myLines.size() > 2 ? reader.myLines.get(1) : null);
+        List<String> lines = reader.myLines;
+        while (!lines.isEmpty() && lines.get(0).startsWith("Picked up ")) {
+          lines.remove(0);
+        }
+        if (!lines.isEmpty()) {
+          JavaVersion base = JavaVersion.parse(lines.get(0));
+          JavaVersion rt = JavaVersion.tryParse(lines.size() > 2 ? lines.get(1) : null);
           JavaVersion version = rt != null && rt.feature == base.feature && rt.minor == base.minor ? rt : base;
-          boolean x64 = reader.myLines.stream().anyMatch(s -> s.contains("64-Bit") || s.contains("x86_64") || s.contains("amd64"));
+          boolean x64 = lines.stream().anyMatch(s -> s.contains("64-Bit") || s.contains("x86_64") || s.contains("amd64"));
           return new JdkVersionInfo(version, x64 ? Bitness.x64 : Bitness.x32);
         }
       }
@@ -116,10 +123,10 @@ public class JdkVersionDetectorImpl extends JdkVersionDetector {
       @Override public boolean withSeparators() { return false; }
     };
 
-    private final ActionRunner myRunner;
+    private final ExecutorService myRunner;
     private final List<String> myLines;
 
-    public VersionOutputReader(@NotNull InputStream stream, @NotNull ActionRunner runner) {
+    VersionOutputReader(@NotNull InputStream stream, @NotNull ExecutorService runner) {
       super(stream, CharsetToolkit.getDefaultSystemCharset(), OPTIONS);
       myRunner = runner;
       myLines = new CopyOnWriteArrayList<>();
@@ -129,7 +136,7 @@ public class JdkVersionDetectorImpl extends JdkVersionDetector {
     @NotNull
     @Override
     protected Future<?> executeOnPooledThread(@NotNull Runnable runnable) {
-      return myRunner.run(runnable);
+      return myRunner.submit(runnable);
     }
 
     @Override

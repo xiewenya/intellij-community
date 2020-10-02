@@ -12,22 +12,22 @@ import org.jetbrains.jps.appengine.model.impl.AppEngineModuleExtensionProperties
 
 import java.util.List;
 
-/**
- * @author nik
- */
 public class AppEngineFacetConfiguration implements FacetConfiguration, PersistentStateComponent<AppEngineModuleExtensionProperties> {
   private AppEngineModuleExtensionProperties myProperties = new AppEngineModuleExtensionProperties();
 
+  @Override
   public FacetEditorTab[] createEditorTabs(FacetEditorContext editorContext, FacetValidatorsManager validatorsManager) {
     return new FacetEditorTab[] {
        new AppEngineFacetEditor(this, editorContext, validatorsManager)
     };
   }
 
+  @Override
   public AppEngineModuleExtensionProperties getState() {
     return myProperties;
   }
 
+  @Override
   public void loadState(@NotNull AppEngineModuleExtensionProperties state) {
     myProperties = state;
   }

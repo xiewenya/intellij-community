@@ -16,9 +16,9 @@
 package com.intellij.codeInspection.equalsAndHashcode;
 
 import com.intellij.codeInsight.generation.GenerateEqualsHandler;
-import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.java.JavaBundle;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
@@ -32,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class EqualsAndHashcode extends EqualsAndHashcodeBase {
 
+  @Override
   protected LocalQuickFix[] buildFixes(boolean isOnTheFly, boolean hasEquals) {
     if (!isOnTheFly) {
       return LocalQuickFix.EMPTY_ARRAY;
@@ -43,7 +44,7 @@ public class EqualsAndHashcode extends EqualsAndHashcodeBase {
 
     private final boolean myHasEquals;
 
-    public GenerateEqualsHashcodeFix(boolean hasEquals) {
+    GenerateEqualsHashcodeFix(boolean hasEquals) {
       myHasEquals = hasEquals;
     }
 
@@ -51,8 +52,8 @@ public class EqualsAndHashcode extends EqualsAndHashcodeBase {
     @Override
     public String getFamilyName() {
       return myHasEquals
-             ? InspectionsBundle.message("inspection.equals.hashcode.generate.hashcode.quickfix")
-             : InspectionsBundle.message("inspection.equals.hashcode.generate.equals.quickfix");
+             ? JavaBundle.message("inspection.equals.hashcode.generate.hashcode.quickfix")
+             : JavaBundle.message("inspection.equals.hashcode.generate.equals.quickfix");
     }
 
     @Override

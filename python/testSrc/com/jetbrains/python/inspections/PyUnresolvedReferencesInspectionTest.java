@@ -41,11 +41,14 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
-  public void testSlotsAndUnlistedAttrAssign() {
+  // PY-10397
+  public void testOwnSlots() {
     doTest();
   }
 
-  public void testSlotsSuperclass() {
+  // PY-5939
+  // PY-29229
+  public void testSlotsAndInheritance() {
     doTest();
   }
 
@@ -53,17 +56,8 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
-  // PY-10397
-  public void testSlotsAndListedAttrAccess() {
-    doTest();
-  }
-
   // PY-18422
   public void testSlotsAndClassAttr() {
-    doTest();
-  }
-
-  public void testSlotsSubclass() {  // PY-5939
     doTest();
   }
 
@@ -545,11 +539,6 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
-  // PY-20071
-  public void testNonexistentLoggerMethod() {
-    doMultiFileTest();
-  }
-
   // PY-21224
   public void testSixWithMetaclass() {
     doTest();
@@ -645,6 +634,11 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
     doTest();
   }
 
+  // PY-7251
+  public void testImportHighlightLevel() {
+    doMultiFileTest();
+  }
+
   // PY-26243
   public void testNotImportedModuleInDunderAll() {
     doMultiFileTest("pkg/__init__.py");
@@ -703,7 +697,14 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
 
   // PY-23632
   public void testMockPatchObject() {
-    doMultiFileTest();
+    runWithAdditionalClassEntryInSdkRoots(
+      getTestDirectoryPath() + "/lib",
+      () -> {
+        final PsiFile file = myFixture.configureByFile(getTestDirectoryPath() + "/a.py");
+        configureInspection();
+        assertSdkRootsNotParsed(file);
+      }
+    );
   }
 
   // PY-20197
@@ -712,6 +713,146 @@ public class PyUnresolvedReferencesInspectionTest extends PyInspectionTestCase {
                  "    from datetime import datetime\n" +
                  "    def __init__(self):\n" +
                  "        self.value = self.datetime(2016, 1, 1)");
+  }
+
+  // PY-19599
+  public void testDefinedInParameterDefaultAndBody() {
+    doTestByText("def f(p=(x for x in [])):\n" +
+                 "    x = 1\n" +
+                 "    return x");
+  }
+
+  // PY-20530
+  public void testSelfInAnnotationAndTypeComment() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON36,
+      () -> doTestByText("class A:\n" +
+                         "    def f1(self) -> <error descr=\"Unresolved reference 'self'\">self</error>.B:\n" +
+                         "        pass\n" +
+                         "\n" +
+                         "    def f2(self):\n" +
+                         "        # type: () -> <warning descr=\"Unresolved reference 'self'\">self</warning>.B\n" +
+                         "        pass\n" +
+                         "\n" +
+                         "    def f3(self):\n" +
+                         "        v3: self.B\n" +
+                         "        v4 = None  # type: self.B\n" +
+                         "\n" +
+                         "    v1: <error descr=\"Unresolved reference 'self'\">self</error>.B\n" +
+                         "    v2 = None  # type: <warning descr=\"Unresolved reference 'self'\">self</warning>.B\n" +
+                         "\n" +
+                         "    class B:\n" +
+                         "        pass")
+    );
+  }
+
+  // PY-30383
+  public void testLambdaMember() {
+    doTestByText("class SomeClass:\n" +
+                 "    def __init__(self):\n" +
+                 "        self.one = lambda x: True\n" +
+                 "        \n" +
+                 "    def some_method(self):\n" +
+                 "        self.one.<warning descr=\"Cannot find reference 'abc' in 'function'\">abc</warning>");
+  }
+
+  public void testNamedTupleFunction() {
+    doTest();
+  }
+
+  // PY-22508
+  public void testFakesFromTypeshed() {
+    doTestByText("print(<error descr=\"Unresolved reference 'function'\">function</error>)\n" +
+                 "print(<error descr=\"Unresolved reference 'module'\">module</error>)");
+  }
+
+  // PY-29929
+  public void testAttrsSpecialAttribute() {
+    doTestByText("import attr\n" +
+                 "\n" +
+                 "@attr.s\n" +
+                 "class C:\n" +
+                 "    a = attr.ib()\n" +
+                 "\n" +
+                 "print(C.__attrs_attrs__)\n" +
+                 "print(C(1).__attrs_attrs__)");
+  }
+
+  // PY-32927
+  public void testPrefixExpressionOnClassHavingSkeletons() {
+    doMultiFileTest();
+  }
+
+  // PY-35531
+  public void testAttributeDefinedInOverloadedDunderInit() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON35,
+      () -> doTestByText("from typing import overload\n" +
+                         "class Example:\n" +
+                         "    @overload\n" +
+                         "    def __init__(self, **kwargs): ...\n" +
+                         "    def __init__(self, *args, **kwargs):\n" +
+                         "        self.__data = None\n" +
+                         "    def test(self):\n" +
+                         "        return self.__data")
+    );
+  }
+
+  // PY-36008
+  public void testTypedDict() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON38,
+      () -> doTestByText("from typing import TypedDict\n" +
+                         "class X(TypedDict):\n" +
+                         "    x: str\n" +
+                         "x = X(x='str')\n" +
+                         "x.clear()\n" +
+                         "x['x'] = 'rts'\n" +
+                         "x.<warning descr=\"Unresolved attribute reference 'clea' for class 'X'\">clea</warning>()\n" +
+                         "x.<warning descr=\"Unresolved attribute reference 'x' for class 'X'\">x</warning>()\n" +
+                         "x1: X = {'x1': 'str'}\n" +
+                         "x1['x1'] = 'rts'\n" +
+                         "x1.clear()\n" +
+                         "x1.<warning descr=\"Unresolved attribute reference 'clea' for class 'X'\">clea</warning>()\n" +
+                         "x1.<warning descr=\"Unresolved attribute reference 'x' for class 'X'\">x</warning>()")
+    );
+  }
+
+  // PY-31517
+  public void testNameDefinedAndUsedInsideDocstring() {
+    doTestByText("\"\"\"\n" +
+                 ">>> def foo(bar):\n" +
+                 "...     print(bar)\n" +
+                 "\n" +
+                 ">>> foo(\"Hello\")\n" +
+                 "Hello\n" +
+                 "\"\"\"");
+  }
+
+  // PY-37755 PY-2700
+  public void testGlobalResolveAttribute() {
+    doTest();
+  }
+
+  // PY-39078
+  public void testNoneAttribute() {
+    doTestByText("a = None\n" +
+                 "a.<warning descr=\"Cannot find reference 'append' in 'None'\">append</warning>(10)");
+  }
+
+  // PY-39682
+  public void testWildcardIgnorePatternReferenceForNestedBinaryModule() {
+    runWithAdditionalClassEntryInSdkRoots(getTestDirectoryPath() + "/site-packages", () -> {
+      runWithAdditionalClassEntryInSdkRoots(getTestDirectoryPath() + "/python_stubs", () -> {
+        myFixture.configureByFile(getTestDirectoryPath() + "/a.py");
+        final PyUnresolvedReferencesInspection inspection = new PyUnresolvedReferencesInspection();
+        inspection.ignoredIdentifiers.add("pkg.*");
+        myFixture.enableInspections(inspection);
+        myFixture.checkHighlighting(isWarning(), isInfo(), isWeakWarning());
+        assertSdkRootsNotParsed(myFixture.getFile());
+        assertProjectFilesNotParsed(myFixture.getFile());
+      });
+    });
   }
 
   @NotNull

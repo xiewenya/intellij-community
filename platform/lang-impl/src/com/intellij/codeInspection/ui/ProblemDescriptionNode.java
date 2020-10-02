@@ -1,19 +1,22 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ui;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
-import com.intellij.codeInsight.daemon.HighlightDisplayKey;
+import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
+import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
 import com.intellij.codeInspection.CommonProblemDescriptor;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemDescriptorUtil;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
+import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.util.Pair;
+import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.containers.WeakStringInterner;
+import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.Interner;
 import com.intellij.xml.util.XmlStringUtil;
 import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NotNull;
@@ -21,9 +24,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.function.IntSupplier;
 
-/**
- * @author max
- */
 public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
   private final CommonProblemDescriptor myDescriptor;
   private final HighlightDisplayLevel myLevel;
@@ -31,26 +31,49 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
   protected final RefEntity myElement;
 
   public ProblemDescriptionNode(RefEntity element,
-                                CommonProblemDescriptor descriptor,
-                                @NotNull InspectionToolPresentation presentation) {
-    this(element, descriptor, presentation, null);
+                                @NotNull CommonProblemDescriptor descriptor,
+                                @NotNull InspectionToolPresentation presentation,
+                                @NotNull InspectionTreeNode parent) {
+    this(element, descriptor, presentation, null, parent);
   }
 
   protected ProblemDescriptionNode(@Nullable RefEntity element,
                                    CommonProblemDescriptor descriptor,
                                    @NotNull InspectionToolPresentation presentation,
-                                   @Nullable IntSupplier lineNumberCounter) {
-    super(descriptor, presentation);
+                                   @Nullable IntSupplier lineNumberCounter,
+                                   @NotNull InspectionTreeNode parent) {
+    super(presentation, parent);
     myElement = element;
     myDescriptor = descriptor;
-    final InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
-    String shortName = presentation.getToolWrapper().getShortName();
-    myLevel = descriptor instanceof ProblemDescriptor
-              ? profile.getErrorLevel(HighlightDisplayKey.find(shortName), ((ProblemDescriptor)descriptor).getStartElement())
-              : profile.getTools(shortName, presentation.getContext().getProject()).getLevel();
+    myLevel = ObjectUtils.notNull(calculatePreciseLevel(element, descriptor, presentation), () -> {
+      String shortName = presentation.getToolWrapper().getShortName();
+      final InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
+      return profile.getTools(shortName, presentation.getContext().getProject()).getLevel();
+    });
     myLineNumber = myDescriptor instanceof ProblemDescriptor
                    ? ((ProblemDescriptor)myDescriptor).getLineNumber()
                    : lineNumberCounter == null ? -1 : lineNumberCounter.getAsInt();
+  }
+
+  private static HighlightDisplayLevel calculatePreciseLevel(@Nullable RefEntity element,
+                                                             @Nullable CommonProblemDescriptor descriptor,
+                                                             @NotNull InspectionToolPresentation presentation) {
+    if (element == null) return null;
+    final InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
+    String shortName = presentation.getToolWrapper().getShortName();
+    if (descriptor instanceof ProblemDescriptor) {
+      InspectionProfileManager inspectionProfileManager = profile.getProfileManager();
+      RefElement refElement = (RefElement)element;
+      SeverityRegistrar severityRegistrar = inspectionProfileManager.getSeverityRegistrar();
+      HighlightSeverity severity = presentation.getSeverity(refElement);
+      if (severity == null) return null;
+      HighlightInfoType highlightInfoType = ProblemDescriptorUtil.highlightTypeFromDescriptor((ProblemDescriptor)descriptor, severity, severityRegistrar);
+      HighlightSeverity highlightSeverity = highlightInfoType.getSeverity(refElement.getPsiElement());
+      return HighlightDisplayLevel.find(highlightSeverity);
+    }
+    else {
+      return profile.getTools(shortName, presentation.getContext().getProject()).getLevel();
+    }
   }
 
   @Nullable
@@ -59,7 +82,11 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
     CommonProblemDescriptor descriptor = getDescriptor();
     if (descriptor == null) return null;
     PsiElement element = descriptor instanceof ProblemDescriptor ? ((ProblemDescriptor)descriptor).getPsiElement() : null;
-    return ProblemDescriptorUtil.renderDescriptionMessage(descriptor, element, false);
+    String message = ProblemDescriptorUtil.renderDescriptionMessage(descriptor, element, false);
+    if (XmlStringUtil.isWrappedInHtml(message)) {
+      return message;
+    }
+    return XmlStringUtil.wrapInHtml(XmlStringUtil.escapeString(message));
   }
 
   @Override
@@ -77,7 +104,7 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
   }
 
   @NotNull
-  public InspectionToolWrapper getToolWrapper() {
+  public InspectionToolWrapper<?, ?> getToolWrapper() {
     return getPresentation().getToolWrapper();
   }
 
@@ -87,7 +114,6 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
     return myElement;
   }
 
-  @Override
   @Nullable
   public CommonProblemDescriptor getDescriptor() {
     return myDescriptor;
@@ -129,10 +155,11 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
 
   @Override
   public boolean isExcluded() {
-    return getPresentation().isExcluded(getDescriptor());
+    CommonProblemDescriptor descriptor = getDescriptor();
+    return descriptor != null && getPresentation().isExcluded(descriptor);
   }
 
-  private static final WeakStringInterner NAME_INTERNER = new WeakStringInterner();
+  private static final Interner<String> NAME_INTERNER = Interner.createWeakInterner();
 
   @NotNull
   @Override
@@ -140,9 +167,7 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
     CommonProblemDescriptor descriptor = getDescriptor();
     if (descriptor == null) return "";
     PsiElement element = descriptor instanceof ProblemDescriptor ? ((ProblemDescriptor)descriptor).getPsiElement() : null;
-
-    String name = XmlStringUtil.stripHtml(ProblemDescriptorUtil.renderDescriptionMessage(descriptor, element,
-                                                                                         ProblemDescriptorUtil.TRIM_AT_TREE_END));
+    String name = ProblemDescriptorUtil.renderDescriptionMessage(descriptor, element, ProblemDescriptorUtil.TRIM_AT_TREE_END);
     return NAME_INTERNER.intern(name);
   }
 
@@ -156,5 +181,18 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
   public String getTailText() {
     final String text = super.getTailText();
     return text == null ? "" : text;
+  }
+
+  @NotNull
+  @Override
+  public Pair<PsiElement, CommonProblemDescriptor> getSuppressContent() {
+    RefEntity refElement = getElement();
+    CommonProblemDescriptor descriptor = getDescriptor();
+    PsiElement element = descriptor instanceof ProblemDescriptor
+                         ? ((ProblemDescriptor)descriptor).getPsiElement()
+                         : refElement instanceof RefElement
+                           ? ((RefElement)refElement).getPsiElement()
+                           : null;
+    return Pair.create(element, descriptor);
   }
 }

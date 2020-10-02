@@ -43,11 +43,11 @@ public class StructureViewCompositeModel extends StructureViewModelBase
   implements Disposable,
              StructureViewModel.ElementInfoProvider, 
              StructureViewModel.ExpandInfoProvider {
-  private final List<StructureViewComposite.StructureViewDescriptor> myViews;
+  private final List<? extends StructureViewComposite.StructureViewDescriptor> myViews;
 
   public StructureViewCompositeModel(@NotNull PsiFile file,
                                      @Nullable Editor editor,
-                                     @NotNull List<StructureViewComposite.StructureViewDescriptor> views) {
+                                     @NotNull List<? extends StructureViewComposite.StructureViewDescriptor> views) {
     super(file, editor, createRootNode(file, views));
     myViews = views;
   }
@@ -64,7 +64,7 @@ public class StructureViewCompositeModel extends StructureViewModelBase
 
   @NotNull
   private static StructureViewTreeElement createRootNode(@NotNull PsiFile file,
-                                                         @NotNull List<StructureViewComposite.StructureViewDescriptor> views) {
+                                                         @NotNull List<? extends StructureViewComposite.StructureViewDescriptor> views) {
     JBIterable<TreeElement> children = JBIterable.from(views).map(o -> createTreeElementFromView(file, o));
     return new StructureViewTreeElement() {
       @Override
@@ -93,9 +93,8 @@ public class StructureViewCompositeModel extends StructureViewModelBase
         return file.getPresentation();
       }
 
-      @NotNull
       @Override
-      public TreeElement[] getChildren() {
+      public TreeElement @NotNull [] getChildren() {
         List<TreeElement> elements = children.toList();
         return elements.toArray(TreeElement.EMPTY_ARRAY);
       }
@@ -108,9 +107,8 @@ public class StructureViewCompositeModel extends StructureViewModelBase
     return getModels().filter(ProvidingTreeModel.class).flatMap(ProvidingTreeModel::getNodeProviders).toSet();
   }
 
-  @NotNull
   @Override
-  public Filter[] getFilters() {
+  public Filter @NotNull [] getFilters() {
     Set<Filter> filters = getModels().flatMap(o -> JBIterable.of(o.getFilters())).toSet();
     return filters.toArray(Filter.EMPTY_ARRAY);
   }
@@ -197,9 +195,8 @@ public class StructureViewCompositeModel extends StructureViewModelBase
         };
       }
 
-      @NotNull
       @Override
-      public TreeElement[] getChildren() {
+      public TreeElement @NotNull [] getChildren() {
         return view.structureModel.getRoot().getChildren();
       }
     };

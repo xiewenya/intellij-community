@@ -1,69 +1,63 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.inline;
 
-import com.intellij.openapi.help.HelpManager;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
+import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringBundle;
 
 public class InlineFieldDialog extends InlineOptionsWithSearchSettingsDialog {
-  public static final String REFACTORING_NAME = RefactoringBundle.message("inline.field.title");
-  private final PsiReferenceExpression myReferenceExpression;
+  private final PsiElement myReferenceExpression;
 
   private final PsiField myField;
   protected final int myOccurrencesNumber;
 
-  public InlineFieldDialog(Project project, PsiField field, PsiReferenceExpression ref) {
+  public InlineFieldDialog(Project project, PsiField field, PsiElement ref) {
     super(project, true, field);
     myField = field;
     myReferenceExpression = ref;
     myInvokedOnReference = myReferenceExpression != null;
 
-    setTitle(REFACTORING_NAME);
+    setTitle(getRefactoringName());
     myOccurrencesNumber = getNumberOfOccurrences(myField);
     init();
   }
 
+  @Override
   protected String getNameLabelText() {
-    final String occurrencesString = myOccurrencesNumber > -1 ? "has " + myOccurrencesNumber + " occurrence" + (myOccurrencesNumber == 1 ? "" : "s") : "";
-
-    String fieldText = PsiFormatUtil.formatVariable(myField, PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_TYPE,PsiSubstitutor.EMPTY);
-    return RefactoringBundle.message("inline.field.field.name.label", fieldText, occurrencesString);
+    String fieldText = PsiFormatUtil.formatVariable(myField, PsiFormatUtilBase.SHOW_NAME | PsiFormatUtilBase.SHOW_TYPE, PsiSubstitutor.EMPTY);
+    String occurrencesString = myOccurrencesNumber > -1 ?
+                              JavaRefactoringBundle.message("inline.field.field.occurrences", fieldText, myOccurrencesNumber) :
+                              JavaRefactoringBundle.message("inline.field.field.name.label", fieldText);
+    return JavaRefactoringBundle.message("inline.field.field.name.label", fieldText, occurrencesString);
   }
 
+  @Override
   protected String getBorderTitle() {
     return RefactoringBundle.message("inline.field.border.title");
   }
 
+  @Override
   protected String getInlineThisText() {
-    return RefactoringBundle.message("this.reference.only.and.keep.the.field");
+    return JavaRefactoringBundle.message("this.reference.only.and.keep.the.field");
   }
 
+  @Override
   protected String getInlineAllText() {
-    return RefactoringBundle.message(myField.isWritable() ?"all.references.and.remove.the.field" : "all.invocations.in.project");
+    return myField.isWritable()
+           ? JavaRefactoringBundle.message("all.references.and.remove.the.field")
+           : RefactoringBundle.message("all.invocations.in.project");
   }
 
   @Override
   protected String getKeepTheDeclarationText() {
-    if (myField.isWritable()) return RefactoringBundle.message("all.references.keep.field");
+    if (myField.isWritable()) return JavaRefactoringBundle.message("all.references.keep.field");
     return super.getKeepTheDeclarationText();
   }
 
@@ -72,6 +66,7 @@ public class InlineFieldDialog extends InlineOptionsWithSearchSettingsDialog {
     return true;
   }
 
+  @Override
   protected boolean isInlineThis() {
     return JavaRefactoringSettings.getInstance().INLINE_FIELD_THIS;
   }
@@ -101,6 +96,7 @@ public class InlineFieldDialog extends InlineOptionsWithSearchSettingsDialog {
     JavaRefactoringSettings.getInstance().RENAME_SEARCH_FOR_TEXT_FOR_FIELD = searchInTextOccurrences;
   }
 
+  @Override
   protected void doAction() {
     super.doAction();
     invokeRefactoring(
@@ -112,7 +108,12 @@ public class InlineFieldDialog extends InlineOptionsWithSearchSettingsDialog {
     }
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INLINE_FIELD);
+  @Override
+  protected String getHelpId() {
+    return HelpID.INLINE_FIELD;
+  }
+
+  public static @NlsContexts.DialogTitle String getRefactoringName() {
+    return JavaRefactoringBundle.message("inline.field.title");
   }
 }

@@ -1,28 +1,63 @@
-rowConstraints: ''
-columnConstraints:
-  count: 2.0
+layoutConstraints:
+  fillX: true
+  gridGapX:
+    min: &id001 {horizontal: true, unit: 0, value: 0.0}
+    preferred: *id001
+  gridGapY:
+    min: &id002 {horizontal: false, value: 12.0}
+    preferred: *id002
+  hideMode: 2
+  insets:
+  - &id003 {horizontal: false, unit: 0, value: 0.0}
+  - &id004 {horizontal: true, unit: 0, value: 0.0}
+  - *id003
+  - *id004
+rowConstraints:
   constraints:
+  - align: &id005 {horizontal: false, unit: -1, value: 0.0}
+  - align: *id005
+  - align: *id005
+    gapAfter:
+      max: &id006 {horizontal: true, value: 6.0}
+      min: *id006
+      preferred: *id006
+  - align: *id005
+  count: 4
+columnConstraints:
+  constraints:
+  - gapAfter:
+      max: &id007 {horizontal: true, value: 6.0}
+      min: *id007
+      preferred: *id007
+    grow: 0.0
+  - gapAfter:
+      max: &id008 {horizontal: true, value: 6.0}
+      min: *id008
+      preferred: *id008
   - {}
-  - {grow: 100.0}
+  count: 3
 componentConstrains:
-  'JRadioButton #0': {spanX: 2097051.0, wrap: true}
-  'JLabel #1':
+  In KeePass: {spanX: INF, wrap: true}
+  Database [label]:
     horizontal:
       gapBefore:
-        min: {value: 30.0, unitString: px}
-        preferred: {value: 30.0, unitString: px}
-  'JTextField #2': {split: 2097051.0}
-  'JLabel #3': {wrap: true}
-  'JLabel #4':
+        min: &id009 {horizontal: true, value: 20.0}
+        preferred: *id009
+  'JTextField #2':
+    horizontal: {grow: 100.0}
+  'JLabel #3': {spanX: INF, wrap: true}
+  Master Password [label]:
     horizontal:
       gapBefore:
-        min: {value: 30.0, unitString: px}
-        preferred: {value: 30.0, unitString: px}
+        min: &id010 {horizontal: true, value: 20.0}
+        preferred: *id010
   'JBPasswordField #5':
+    horizontal: {grow: 100.0}
+    spanX: INF
     wrap: true
+  Stored using weak encryption. [label]:
     horizontal:
-      size:
-        min: {value: 250.0, unitString: px}
-        max: {value: 250.0, unitString: px}
-        preferred: {value: 250.0, unitString: px}
-  'JBLabel #6': {skip: 1.0, spanX: 2097051.0, wrap: true}
+      gapBefore: {}
+    skip: 1
+    spanX: INF
+    wrap: true

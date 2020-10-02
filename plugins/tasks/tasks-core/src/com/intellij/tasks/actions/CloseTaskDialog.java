@@ -21,6 +21,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.tasks.CustomTaskState;
 import com.intellij.tasks.LocalTask;
+import com.intellij.tasks.TaskBundle;
 import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.impl.TaskStateCombo;
 import com.intellij.tasks.impl.TaskUtil;
@@ -43,9 +44,8 @@ public class CloseTaskDialog extends DialogWrapper {
   private static final String UPDATE_STATE_ENABLED = "tasks.close.task.update.state.enabled";
 
   private final Project myProject;
-  private final LocalTask myTask;
   private final List<TaskDialogPanel> myPanels;
-  
+
   private JPanel myPanel;
   private JLabel myTaskLabel;
   private TaskStateCombo myStateCombo;
@@ -55,11 +55,10 @@ public class CloseTaskDialog extends DialogWrapper {
   public CloseTaskDialog(Project project, final LocalTask task) {
     super(project, false);
     myProject = project;
-    myTask = task;
     myStateCombo.setProject(myProject);
-    myStateCombo.setTask(myTask);
+    myStateCombo.setTask(task);
 
-    setTitle("Close Task");
+    setTitle(TaskBundle.message("dialog.title.close.task"));
     myTaskLabel.setText(TaskUtil.getTrimmedSummary(task));
     myTaskLabel.setIcon(task.getIcon());
 
@@ -87,13 +86,13 @@ public class CloseTaskDialog extends DialogWrapper {
     if (myUpdateState.isSelected()) {
       myStateCombo.scheduleUpdateOnce();
     }
-    
+
     myAdditionalPanel.setLayout(new BoxLayout(myAdditionalPanel, BoxLayout.Y_AXIS));
     myPanels = TaskDialogPanelProvider.getCloseTaskPanels(project, task);
     for (TaskDialogPanel panel : myPanels) {
       myAdditionalPanel.add(panel.getPanel());
     }
-    
+
     init();
   }
 
@@ -105,6 +104,7 @@ public class CloseTaskDialog extends DialogWrapper {
     super.doOKAction();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }

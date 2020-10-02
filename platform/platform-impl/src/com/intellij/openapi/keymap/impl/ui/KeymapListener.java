@@ -25,9 +25,9 @@ import org.jetbrains.annotations.NotNull;
 public interface KeymapListener {
   Topic<KeymapListener> CHANGE_TOPIC = new Topic<>("KEYMAP_CHANGED", KeymapListener.class);
 
-  void quickListRenamed(QuickList oldQuickList, QuickList newQuickList);
+  void quickListRenamed(@NotNull QuickList oldQuickList, @NotNull QuickList newQuickList);
 
-  void processCurrentKeymapChanged(@NotNull QuickList[] ids);
+  void processCurrentKeymapChanged(QuickList @NotNull [] ids);
 
   void processCurrentKeymapChanged();
 }

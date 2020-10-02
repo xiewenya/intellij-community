@@ -15,10 +15,8 @@
  */
 package com.jetbrains.python.spellchecker;
 
-import com.intellij.lang.ASTNode;
-import com.intellij.openapi.util.Pair;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.spellchecker.inspections.PlainTextSplitter;
 import com.intellij.spellchecker.inspections.Splitter;
@@ -27,15 +25,16 @@ import com.intellij.spellchecker.tokenizer.TokenConsumer;
 import com.intellij.spellchecker.tokenizer.Tokenizer;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyTokenTypes;
-import com.jetbrains.python.inspections.PyStringFormatParser;
+import com.jetbrains.python.PyStringFormatParser;
 import com.jetbrains.python.psi.PyBinaryExpression;
+import com.jetbrains.python.psi.PyFormattedStringElement;
+import com.jetbrains.python.psi.PyStringElement;
 import com.jetbrains.python.psi.PyStringLiteralExpression;
-import com.jetbrains.python.psi.PyStringLiteralUtil;
+import com.jetbrains.python.psi.impl.PyStringLiteralDecoder;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.List;
-
-import static com.jetbrains.python.psi.PyUtil.StringNodeInfo;
 
 /**
  * @author yole
@@ -45,25 +44,29 @@ public class PythonSpellcheckerStrategy extends SpellcheckingStrategy {
     @Override
     public void tokenize(@NotNull PyStringLiteralExpression element, TokenConsumer consumer) {
       final Splitter splitter = PlainTextSplitter.getInstance();
-      final List<ASTNode> strNodes = element.getStringNodes();
-      final List<String> prefixes = ContainerUtil.mapNotNull(strNodes, n -> StringUtil.nullize(new StringNodeInfo(n).getPrefix()));
-      
-      if (element.textContains('\\') && prefixes.stream().noneMatch(PyStringLiteralUtil::isRawPrefix)) {
-        for (Pair<TextRange, String> fragment : element.getDecodedFragments()) {
-          final String value = fragment.getSecond();
-          final int startOffset = fragment.getFirst().getStartOffset();
-          consumer.consumeToken(element, value, false, startOffset, TextRange.allOf(value), splitter);
+      for (PyStringElement stringElement : element.getStringElements()) {
+        final List<TextRange> literalPartRanges;
+        if (stringElement.isFormatted()) {
+          literalPartRanges = ((PyFormattedStringElement)stringElement).getLiteralPartRanges();
         }
-      }
-      else if (!prefixes.isEmpty()) {
-        for (TextRange valueTextRange : element.getStringValueTextRanges()) {
-          final String value = valueTextRange.substring(element.getText());
-          final int startOffset = valueTextRange.getStartOffset();
-          consumer.consumeToken(element, value, false, startOffset, TextRange.allOf(value), splitter);
+        else {
+          literalPartRanges = Collections.singletonList(stringElement.getContentRange());
         }
-      }
-      else {
-        consumer.consumeToken(element, splitter);
+        final PyStringLiteralDecoder decoder = new PyStringLiteralDecoder(stringElement);
+        final boolean containsEscapes = stringElement.textContains('\\');
+        for (TextRange literalPartRange : literalPartRanges) {
+          final List<TextRange> escapeAwareRanges;
+          if (stringElement.isRaw() || !containsEscapes) {
+            escapeAwareRanges = Collections.singletonList(literalPartRange);
+          }
+          else {
+            escapeAwareRanges = ContainerUtil.map(decoder.decodeRange(literalPartRange), x -> x.getFirst());
+          }
+          for (TextRange escapeAwareRange : escapeAwareRanges) {
+            final String valueText = escapeAwareRange.substring(stringElement.getText());
+            consumer.consumeToken(stringElement, valueText, false, escapeAwareRange.getStartOffset(), TextRange.allOf(valueText), splitter);
+          }
+        }
       }
     }
   }
@@ -92,6 +95,10 @@ public class PythonSpellcheckerStrategy extends SpellcheckingStrategy {
   @Override
   public Tokenizer getTokenizer(PsiElement element) {
     if (element instanceof PyStringLiteralExpression) {
+      final InjectedLanguageManager injectionManager = InjectedLanguageManager.getInstance(element.getProject());
+      if (element.getTextLength() >= 2 && injectionManager.getInjectedPsiFiles(element) != null) {
+        return EMPTY_TOKENIZER;
+      }
       PsiElement parent = element.getParent();
       if (parent instanceof PyBinaryExpression) {
         PyBinaryExpression binaryExpression = (PyBinaryExpression)parent;

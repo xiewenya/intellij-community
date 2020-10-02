@@ -20,14 +20,14 @@ import org.junit.Test;
 
 /**
  * @author Denis Zhdanov
- * @since Aug 25, 2010 3:20:41 PM
  */
 public class DefaultLineWrapPositionStrategyTest extends AbstractLineWrapPositionStrategyTest {
   private LineWrapPositionStrategy myStrategy;
 
+  @Override
   @Before
-  public void setUp() {
-    super.setUp();
+  public void prepare() {
+    super.prepare();
     myStrategy = new DefaultLineWrapPositionStrategy();
   }
 
@@ -54,7 +54,7 @@ public class DefaultLineWrapPositionStrategyTest extends AbstractLineWrapPositio
 
   @Test
   public void longStringWithoutWrapPositionIsNotWrapped() {
-    String document = 
+    String document =
       "-----------------<EDGE>---------------------------------------------------------";
     doTest(myStrategy, document);
   }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.mvc;
 
 import com.intellij.application.options.ModulesComboBox;
@@ -33,6 +19,7 @@ import com.intellij.ui.StringComboboxEditor;
 import com.intellij.util.TextFieldCompletionProvider;
 import com.intellij.util.TextFieldCompletionProviderDumbAware;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.mvc.util.MvcTargetDialogCompletionUtils;
 
 import javax.swing.*;
@@ -64,15 +51,14 @@ public class MvcRunTargetDialog extends DialogWrapper {
     super(module.getProject(), true);
     myModule = module;
     myFramework = framework;
-    setTitle("Run " + framework.getDisplayName() + " target");
+    setTitle(GroovyBundle.message("mvc.framework.0.run.target.dialog.title", framework.getDisplayName()));
     setUpDialog();
     setModal(true);
     init();
   }
 
-  @NotNull
   @Override
-  protected Action[] createLeftSideActions() {
+  protected Action @NotNull [] createLeftSideActions() {
     boolean hasOneSupportedModule = false;
     for (Module module : ModuleManager.getInstance(myModule.getProject()).getModules()) {
       if (module == myModule || myFramework.hasSupport(module)) {
@@ -84,7 +70,9 @@ public class MvcRunTargetDialog extends DialogWrapper {
     }
 
     if (hasOneSupportedModule) {
-      myInteractiveRunAction = new DialogWrapperAction("&Start Grails Console in Interactive Mode") {
+      myInteractiveRunAction = new DialogWrapperAction(
+        GroovyBundle.message("mvc.framework.0.run.target.interactive", myFramework.getDisplayName())
+      ) {
         @Override
         protected void doAction(ActionEvent e) {
           myFramework.runInteractiveConsole(getSelectedModule());
@@ -223,7 +211,7 @@ public class MvcRunTargetDialog extends DialogWrapper {
 
     editorTextField.getDocument().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         setOKActionEnabled(!StringUtil.isEmptyOrSpaces(e.getDocument().getText()));
       }
     });

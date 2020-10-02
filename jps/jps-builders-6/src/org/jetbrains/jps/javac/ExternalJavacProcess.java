@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.javac;
 
 import io.netty.bootstrap.Bootstrap;
@@ -27,47 +13,48 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.apache.log4j.PatternLayout;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.api.CanceledStatus;
 import org.jetbrains.jps.builders.impl.java.JavacCompilerTool;
 import org.jetbrains.jps.builders.java.JavaCompilingTool;
+import org.jetbrains.jps.javac.ast.api.JavacFileData;
 
-import javax.tools.Diagnostic;
-import javax.tools.JavaFileObject;
+import javax.tools.*;
 import java.io.File;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * @author Eugene Zhuravlev
  */
 public class ExternalJavacProcess {
   public static final String JPS_JAVA_COMPILING_TOOL_PROPERTY = "jps.java.compiling.tool";
-  private final ChannelInitializer myChannelInitializer;
+  private final ChannelInitializer<?> myChannelInitializer;
   private final EventLoopGroup myEventLoopGroup;
+  private final boolean myKeepRunning;
   private volatile ChannelFuture myConnectFuture;
-  private volatile CancelHandler myCancelHandler;
-  private final ExecutorService myThreadPool = Executors.newCachedThreadPool();
+  private final ConcurrentMap<UUID, Boolean> myCanceled = new ConcurrentHashMap<UUID, Boolean>();
+  private final Executor myThreadPool = Executors.newCachedThreadPool();
 
   static {
-    org.apache.log4j.Logger root = org.apache.log4j.Logger.getRootLogger();
+    Logger root = Logger.getRootLogger();
     if (!root.getAllAppenders().hasMoreElements()) {
       root.setLevel(Level.INFO);
       root.addAppender(new ConsoleAppender(new PatternLayout(PatternLayout.DEFAULT_CONVERSION_PATTERN)));
     }
-    InternalLoggerFactory.setDefaultFactory(new Log4JLoggerFactory());
+    InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
   }
-  
-  public ExternalJavacProcess() {
+
+  public ExternalJavacProcess(boolean keepRunning) {
+    myKeepRunning = keepRunning;
     final JavacRemoteProto.Message msgDefaultInstance = JavacRemoteProto.Message.getDefaultInstance();
 
     myEventLoopGroup = new NioEventLoopGroup(1, myThreadPool);
     myChannelInitializer = new ChannelInitializer() {
       @Override
-      protected void initChannel(Channel channel) throws Exception {
+      protected void initChannel(Channel channel) {
         channel.pipeline().addLast(new ProtobufVarint32FrameDecoder(),
                                    new ProtobufDecoder(msgDefaultInstance),
                                    new ProtobufVarint32LengthFieldPrepender(),
@@ -77,15 +64,19 @@ public class ExternalJavacProcess {
       }
     };
   }
-  
+
   //static volatile long myGlobalStart;
-  
+
+  /**
+   * @param args: SessionUUID, host, port,
+   */
   public static void main(String[] args) {
-    //myGlobalStart = System.currentTimeMillis();
+    //myGlobalStart = System.nanoTime();
     UUID uuid = null;
     String host = null;
     int port = -1;
-    if (args.length > 0) {
+    boolean keepRunning = false;  // keep running after compilation ends until explicit shutdown
+    if (args.length >= 3) {
       try {
         uuid = UUID.fromString(args[0]);
       }
@@ -93,9 +84,9 @@ public class ExternalJavacProcess {
         System.err.println("Error parsing session id: " + e.getMessage());
         System.exit(-1);
       }
-      
+
       host = args[1];
-      
+
       try {
         port = Integer.parseInt(args[2]);
       }
@@ -103,18 +94,22 @@ public class ExternalJavacProcess {
         System.err.println("Error parsing port: " + e.getMessage());
         System.exit(-1);
       }
+
+      if (args.length > 3) {
+        keepRunning = Boolean.valueOf(args[3]);
+      }
     }
     else {
-      System.err.println("Insufficient parameters");
+      System.err.println("Insufficient number of parameters");
       System.exit(-1);
     }
 
-    final ExternalJavacProcess process = new ExternalJavacProcess();
+    final ExternalJavacProcess process = new ExternalJavacProcess(keepRunning);
     try {
-      //final long connectStart = System.currentTimeMillis();
+      //final long connectStart = System.nanoTime();
       if (process.connect(host, port)) {
-        //final long connectEnd = System.currentTimeMillis();
-        //System.err.println("Connected in " + (connectEnd - connectStart) + " ms; since start: " + (connectEnd - myGlobalStart));
+        //final long connectEnd = System.nanoTime();
+        //System.err.println("Connected in " + TimeUnit.NANOSECONDS.toMillis(connectEnd - connectStart) + " ms; since start: " + TimeUnit.NANOSECONDS.toMillis(connectEnd - myGlobalStart));
         process.myConnectFuture.channel().writeAndFlush(
           JavacProtoUtil.toMessage(uuid, JavacProtoUtil.createRequestAckResponse())
         );
@@ -142,17 +137,18 @@ public class ExternalJavacProcess {
   }
 
   private static JavacRemoteProto.Message compile(final ChannelHandlerContext context,
-                                                 final UUID sessionId,
-                                                 List<String> options,
-                                                 Collection<File> files,
-                                                 Collection<File> classpath,
-                                                 Collection<File> platformCp,
-                                                 Collection<File> modulePath,
-                                                 Collection<File> sourcePath,
-                                                 Map<File, Set<File>> outs,
-                                                 final CanceledStatus canceledStatus) {
-    //final long compileStart = System.currentTimeMillis();
-    //System.err.println("Compile start; since global start: " + (compileStart - myGlobalStart));
+                                                  final UUID sessionId,
+                                                  List<String> options,
+                                                  Collection<? extends File> files,
+                                                  Collection<? extends File> classpath,
+                                                  Collection<? extends File> platformCp,
+                                                  ModulePath modulePath,
+                                                  Collection<? extends File> upgradeModulePath,
+                                                  Collection<? extends File> sourcePath,
+                                                  Map<File, Set<File>> outs,
+                                                  final CanceledStatus canceledStatus) {
+    //final long compileStart = System.nanoTime();
+    //System.err.println("Compile start; since global start: " + TimeUnit.NANOSECONDS.toMillis(compileStart - myGlobalStart));
     final DiagnosticOutputConsumer diagnostic = new DiagnosticOutputConsumer() {
       @Override
       public void javaFileLoaded(File file) {
@@ -171,9 +167,8 @@ public class ExternalJavacProcess {
       }
 
       @Override
-      public void registerImports(String className, Collection<String> imports, Collection<String> staticImports) {
-        final JavacRemoteProto.Message.Response response = JavacProtoUtil.createClassDataResponse(className, imports, staticImports);
-        context.channel().writeAndFlush(JavacProtoUtil.toMessage(sessionId, response));
+      public void registerJavacFileData(JavacFileData data) {
+        customOutputData(JavacFileData.CUSTOM_DATA_PLUGIN_ID, JavacFileData.CUSTOM_DATA_KIND, data.asBytes());
       }
 
       @Override
@@ -193,7 +188,7 @@ public class ExternalJavacProcess {
     try {
       JavaCompilingTool tool = getCompilingTool();
       final boolean rc = JavacMain.compile(
-        options, files, classpath, platformCp, modulePath, sourcePath, outs, diagnostic, outputSink, canceledStatus, tool
+        options, files, classpath, platformCp, modulePath, upgradeModulePath, sourcePath, outs, diagnostic, outputSink, canceledStatus, tool
       );
       return JavacProtoUtil.toMessage(sessionId, JavacProtoUtil.createBuildCompletedResponse(rc));
     }
@@ -203,11 +198,12 @@ public class ExternalJavacProcess {
       return JavacProtoUtil.toMessage(sessionId, JavacProtoUtil.createFailure(e.getMessage(), e));
     }
     //finally {
-    //  final long compileEnd = System.currentTimeMillis();
-    //  System.err.println("Compiled in " + (compileEnd - compileStart) + " ms; since global start: " + (compileEnd - myGlobalStart));
+      //final long compileEnd = System.nanoTime();
+      //System.err.println("Compiled in " + TimeUnit.NANOSECONDS.toMillis(compileEnd - compileStart) + " ms");
+      //System.err.println("Compiled in " + TimeUnit.NANOSECONDS.toMillis(compileEnd - compileStart) + " ms; since global start: " + TimeUnit.NANOSECONDS.toMillis(compileEnd - myGlobalStart));
     //}
   }
-  
+
   private static JavaCompilingTool getCompilingTool() {
     String property = System.getProperty(JPS_JAVA_COMPILING_TOOL_PROPERTY);
     if (property != null) {
@@ -235,13 +231,21 @@ public class ExternalJavacProcess {
           final JavacRemoteProto.Message.Request request = message.getRequest();
           final JavacRemoteProto.Message.Request.Type requestType = request.getRequestType();
           if (requestType == JavacRemoteProto.Message.Request.Type.COMPILE) {
-            if (myCancelHandler == null) { // if not running yet
+            if (myCanceled.putIfAbsent(sessionId, Boolean.FALSE) == null) { // if not running yet
               final List<String> options = request.getOptionList();
               final List<File> files = toFiles(request.getFileList());
               final List<File> cp = toFiles(request.getClasspathList());
               final List<File> platformCp = toFiles(request.getPlatformClasspathList());
               final List<File> srcPath = toFiles(request.getSourcepathList());
-              final List<File> modulePath = toFiles(request.getModulePathList());
+
+              final ModulePath.Builder modulePathBuilder = ModulePath.newBuilder();
+              final Map<String, String> namesMap = request.getModuleNamesMap();
+              for (String path : request.getModulePathList()) {
+                modulePathBuilder.add(namesMap.get(path), new File(path));
+              }
+              final ModulePath modulePath = modulePathBuilder.create();
+
+              final List<File> upgradeModulePath = toFiles(request.getUpgradeModulePathList());
 
               final Map<File, Set<File>> outs = new HashMap<File, Set<File>>();
               for (JavacRemoteProto.Message.Request.OutputGroup outputGroup : request.getOutputList()) {
@@ -251,20 +255,29 @@ public class ExternalJavacProcess {
                 }
                 outs.put(new File(outputGroup.getOutputRoot()), srcRoots);
               }
-
-              final CancelHandler cancelHandler = new CancelHandler();
-              myCancelHandler = cancelHandler;
-              myThreadPool.submit(new Runnable() {
+              myThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
                   try {
-                    context.channel().writeAndFlush(
-                      compile(context, sessionId, options, files, cp, platformCp, modulePath, srcPath, outs, cancelHandler)
-                    ).awaitUninterruptibly();
+                    final JavacRemoteProto.Message result = compile(context, sessionId, options, files, cp, platformCp, modulePath, upgradeModulePath, srcPath, outs, new CanceledStatus() {
+                      @Override
+                      public boolean isCanceled() {
+                        return Boolean.TRUE.equals(myCanceled.get(sessionId));
+                      }
+                    });
+                    context.channel().writeAndFlush(result).awaitUninterruptibly();
                   }
                   finally {
-                    myCancelHandler = null;
-                    ExternalJavacProcess.this.stop();
+                    myCanceled.remove(sessionId); // state cleanup
+                    if (myKeepRunning) {
+                      JavacMain.clearCompilerZipFileCache();
+                      //noinspection CallToSystemGC
+                      System.gc();
+                    }
+                    else {
+                      // in this mode this is only one-time compilation process that should stop after build is complete
+                      ExternalJavacProcess.this.stop();
+                    }
                     Thread.interrupted(); // reset interrupted status
                   }
                 }
@@ -272,14 +285,18 @@ public class ExternalJavacProcess {
             }
           }
           else if (requestType == JavacRemoteProto.Message.Request.Type.CANCEL){
-            cancelBuild();
+            cancelBuild(sessionId);
           }
           else if (requestType == JavacRemoteProto.Message.Request.Type.SHUTDOWN){
-            cancelBuild();
+            // cancel all running builds
+            // todo: optionally wait for all builds to complete and only then shutdown
+            for (UUID uuid : myCanceled.keySet()) {
+              // todo: do we really need to wait for cancelled sessions to terminate?
+              cancelBuild(uuid);
+            }
             new Thread("StopThread") {
               @Override
               public void run() {
-                //noinspection finally
                 ExternalJavacProcess.this.stop();
               }
             }.start();
@@ -299,18 +316,18 @@ public class ExternalJavacProcess {
       }
     }
   }
-  
+
   public void stop() {
     try {
-      //final long stopStart = System.currentTimeMillis();
-      //System.err.println("Exiting. Since global start " + (stopStart - myGlobalStart));
+      //final long stopStart = System.nanoTime();
+      //System.err.println("Exiting. Since global start " + TimeUnit.NANOSECONDS.toMillis(stopStart - myGlobalStart));
       final ChannelFuture future = myConnectFuture;
       if (future != null) {
         future.channel().close().await();
       }
       myEventLoopGroup.shutdownGracefully(0, 15, TimeUnit.SECONDS).await();
-      //final long stopEnd = System.currentTimeMillis();
-      //System.err.println("Stop completed in " + (stopEnd - stopStart) + "ms; since global start: " + ((stopEnd - myGlobalStart)));
+      //final long stopEnd = System.nanoTime();
+      //System.err.println("Stop completed in " + TimeUnit.NANOSECONDS.toMillis(stopEnd - stopStart) + "ms; since global start: " + TimeUnit.NANOSECONDS.toMillis(stopEnd - myGlobalStart));
       System.exit(0);
     }
     catch (Throwable e) {
@@ -326,27 +343,9 @@ public class ExternalJavacProcess {
     }
     return files;
   }
-  
-  public void cancelBuild() {
-    final CancelHandler cancelHandler = myCancelHandler;
-    if (cancelHandler != null) {
-      cancelHandler.cancel();
-    }
+
+  public void cancelBuild(UUID sessionId) {
+    myCanceled.replace(sessionId, Boolean.FALSE, Boolean.TRUE);
   }
 
-  private static class CancelHandler implements CanceledStatus {
-    private volatile boolean myIsCanceled = false;
-
-    private CancelHandler() {
-    }
-
-    public void cancel() {
-      myIsCanceled = true;
-    }
-
-    @Override
-    public boolean isCanceled() {
-      return myIsCanceled;
-    }
-  }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl;
 
 import com.intellij.openapi.util.NotNullComputable;
@@ -22,7 +8,6 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiSubstitutor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyMethodResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.SpreadState;
 import org.jetbrains.plugins.groovy.util.NotNullCachedComputableWrapper;
@@ -35,7 +20,7 @@ public class GroovyMethodResultImpl extends GroovyResolveResultImpl implements G
                                 @Nullable PsiElement resolveContext,
                                 @Nullable SpreadState spreadState,
                                 @NotNull PsiSubstitutor partialSubstitutor,
-                                @NotNull NotNullComputable<PsiSubstitutor> substitutorComputer,
+                                @NotNull NotNullComputable<? extends PsiSubstitutor> substitutorComputer,
                                 boolean isAccessible, boolean isStaticsOK) {
     this(method, resolveContext, spreadState, partialSubstitutor, substitutorComputer, true, isAccessible, isStaticsOK, true);
   }
@@ -44,7 +29,7 @@ public class GroovyMethodResultImpl extends GroovyResolveResultImpl implements G
                                 @Nullable PsiElement resolveContext,
                                 @Nullable SpreadState spreadState,
                                 @NotNull PsiSubstitutor partialSubstitutor,
-                                @NotNull NotNullComputable<PsiSubstitutor> substitutorComputer,
+                                @NotNull NotNullComputable<? extends PsiSubstitutor> substitutorComputer,
                                 boolean isAccessible, boolean isStaticsOK, boolean isApplicable) {
     this(method, resolveContext, spreadState, partialSubstitutor, substitutorComputer, false, isAccessible, isStaticsOK, isApplicable);
   }
@@ -53,7 +38,7 @@ public class GroovyMethodResultImpl extends GroovyResolveResultImpl implements G
                                 @Nullable PsiElement resolveContext,
                                 @Nullable SpreadState spreadState,
                                 @NotNull PsiSubstitutor partialSubstitutor,
-                                @NotNull NotNullComputable<PsiSubstitutor> substitutorComputer,
+                                @NotNull NotNullComputable<? extends PsiSubstitutor> substitutorComputer,
                                 boolean isInvokedOnProperty,
                                 boolean isAccessible, boolean isStaticsOk, boolean isApplicable) {
     super(method, resolveContext, spreadState, partialSubstitutor, isAccessible, isStaticsOk, isInvokedOnProperty, isApplicable);
@@ -77,8 +62,8 @@ public class GroovyMethodResultImpl extends GroovyResolveResultImpl implements G
 
   @NotNull
   @Override
-  public PsiSubstitutor getSubstitutor(boolean infer) {
-    return infer ? mySubstitutorComputer.compute() : super.getSubstitutor();
+  public PsiSubstitutor getPartialSubstitutor() {
+    return super.getSubstitutor();
   }
 
   @Override
@@ -99,11 +84,5 @@ public class GroovyMethodResultImpl extends GroovyResolveResultImpl implements G
     int result = super.hashCode();
     result = 31 * result + mySubstitutorComputer.hashCode();
     return result;
-  }
-
-  @TestOnly
-  @NotNull
-  public NotNullComputable<PsiSubstitutor> getSubstitutorComputer() {
-    return mySubstitutorComputer;
   }
 }

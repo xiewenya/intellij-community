@@ -35,7 +35,8 @@ public abstract class PyStringLiteralReference extends BaseReference {
     myStringLiteral = element;
   }
 
-  @SuppressWarnings("RefusedBequest") // 1 instead of 1 in range and "-1" at the end because we do not need quotes
+  @NotNull
+  // 1 instead of 1 in range and "-1" at the end because we do not need quotes
   @Override
   public final TextRange getRangeInElement() {
     return myStringLiteral.getStringValueTextRange();

@@ -1,11 +1,12 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.text;
 
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.text.NaturalComparator;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.*;
 import com.intellij.util.LineSeparator;
+import com.intellij.util.TripleFunction;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jdom.Verifier;
@@ -15,16 +16,19 @@ import org.jetbrains.jetCheck.PropertyChecker;
 import org.junit.Test;
 
 import java.nio.CharBuffer;
+import java.text.DecimalFormat;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
-import static com.intellij.testFramework.assertions.Assertions.assertThat;
+import static com.intellij.openapi.util.text.StringUtil.ELLIPSIS;
+import static com.intellij.openapi.util.text.StringUtil.removeEllipsisSuffix;
+import static java.util.Collections.singletonList;
 import static org.junit.Assert.*;
 
 /**
  * @author Eugene Zhuravlev
- * @since Dec 22, 2006
  */
 public class StringUtilTest {
   @Test
@@ -55,6 +59,17 @@ public class StringUtilTest {
     assertEquals(expected, StringUtil.trimTrailing(string));
     assertEquals(expected, StringUtil.trimTrailing(string, ' '));
     assertEquals(expected, StringUtil.trimTrailing(new StringBuilder(string), ' ').toString());
+  }
+
+  @Test
+  public void doTestTrimCharSequence() {
+    assertEquals(StringUtil.trim((CharSequence)"").toString(), "");
+    assertEquals(StringUtil.trim((CharSequence)" ").toString(), "");
+    assertEquals(StringUtil.trim((CharSequence)" \n\t\r").toString(), "");
+    assertEquals(StringUtil.trim((CharSequence)"a").toString(), "a");
+    assertEquals(StringUtil.trim((CharSequence)" a").toString(), "a");
+    assertEquals(StringUtil.trim((CharSequence)"bc ").toString(), "bc");
+    assertEquals(StringUtil.trim((CharSequence)" b a c   ").toString(), "b a c");
   }
 
   @Test
@@ -104,6 +119,7 @@ public class StringUtilTest {
   }
 
   @Test
+  @SuppressWarnings("SpellCheckingInspection")
   public void testUnPluralize() {
     // synthetic
     assertEquals("plurals", StringUtil.unpluralize("pluralses"));
@@ -196,16 +212,16 @@ public class StringUtilTest {
   @Test
   public void testNaturalCompare() {
 
-    final List<String> numbers = Arrays.asList("1a000001", "000001a1", "001a0001", "0001A001" , "00001a01", "01a00001");
+    final List<String> numbers = Arrays.asList("1a000001", "000001a1", "001a0001", "0001A001", "00001a01", "01a00001");
     numbers.sort(NaturalComparator.INSTANCE);
-    assertEquals(Arrays.asList("1a000001", "01a00001", "001a0001", "0001A001" , "00001a01", "000001a1"), numbers);
+    assertEquals(Arrays.asList("1a000001", "01a00001", "001a0001", "0001A001", "00001a01", "000001a1"), numbers);
 
     final List<String> test = Arrays.asList("test011", "test10", "test10a", "test010");
     test.sort(NaturalComparator.INSTANCE);
     assertEquals(Arrays.asList("test10", "test10a", "test010", "test011"), test);
 
     final List<String> strings = Arrays.asList("Test99", "tes0", "test0", "testing", "test", "test99", "test011", "test1",
-                    "test 3", "test2", "test10a", "test10", "1.2.10.5", "1.2.9.1");
+                                               "test 3", "test2", "test10a", "test10", "1.2.10.5", "1.2.9.1");
     strings.sort(NaturalComparator.INSTANCE);
     assertEquals(Arrays.asList("1.2.9.1", "1.2.10.5", "tes0", "test", "test0", "test1", "test2", "test 3", "test10", "test10a",
                                "test011", "Test99", "test99", "testing"), strings);
@@ -213,13 +229,14 @@ public class StringUtilTest {
     final List<String> strings2 = Arrays.asList("t1", "t001", "T2", "T002", "T1", "t2");
     strings2.sort(NaturalComparator.INSTANCE);
     assertEquals(Arrays.asList("T1", "t1", "t001", "T2", "t2", "T002"), strings2);
-    assertEquals(1 ,StringUtil.naturalCompare("7403515080361171695", "07403515080361171694"));
+    assertEquals(1, StringUtil.naturalCompare("7403515080361171695", "07403515080361171694"));
     assertEquals(-14, StringUtil.naturalCompare("_firstField", "myField1"));
     //idea-80853
     final List<String> strings3 =
       Arrays.asList("C148A_InsomniaCure", "C148B_Escape", "C148C_TersePrincess", "C148D_BagOfMice", "C148E_Porcelain");
     strings3.sort(NaturalComparator.INSTANCE);
-    assertEquals(Arrays.asList("C148A_InsomniaCure", "C148B_Escape", "C148C_TersePrincess", "C148D_BagOfMice", "C148E_Porcelain"), strings3);
+    assertEquals(Arrays.asList("C148A_InsomniaCure", "C148B_Escape", "C148C_TersePrincess", "C148D_BagOfMice", "C148E_Porcelain"),
+                 strings3);
 
     final List<String> l = Arrays.asList("a0002", "a0 2", "a001");
     l.sort(NaturalComparator.INSTANCE);
@@ -240,7 +257,6 @@ public class StringUtilTest {
 
     assertNotNull(CharArrayUtil.fromSequenceWithoutCopying(buffer));
     assertNotNull(CharArrayUtil.fromSequenceWithoutCopying(buffer.subSequence(0, 5)));
-    //assertNull(CharArrayUtil.fromSequenceWithoutCopying(buffer.subSequence(0, 4))); // end index is not checked
     assertNull(CharArrayUtil.fromSequenceWithoutCopying(buffer.subSequence(1, 5)));
     assertNull(CharArrayUtil.fromSequenceWithoutCopying(buffer.subSequence(1, 2)));
   }
@@ -248,13 +264,20 @@ public class StringUtilTest {
   @Test
   public void testTitleCase() {
     assertEquals("Couldn't Connect to Debugger", StringUtil.wordsToBeginFromUpperCase("Couldn't connect to debugger"));
-    assertEquals("Let's Make Abbreviations Like I18n, SQL and CSS", StringUtil.wordsToBeginFromUpperCase("Let's make abbreviations like I18n, SQL and CSS"));
+    assertEquals("Let's Make Abbreviations Like I18n, SQL and CSS",
+                 StringUtil.wordsToBeginFromUpperCase("Let's make abbreviations like I18n, SQL and CSS"));
   }
 
   @Test
   public void testSentenceCapitalization() {
     assertEquals("couldn't connect to debugger", StringUtil.wordsToBeginFromLowerCase("Couldn't Connect to Debugger"));
-    assertEquals("let's make abbreviations like I18n, SQL and CSS s SQ sq", StringUtil.wordsToBeginFromLowerCase("Let's Make Abbreviations Like I18n, SQL and CSS S SQ Sq"));
+    assertEquals("let's make abbreviations like I18n, SQL and CSS s SQ sq",
+                 StringUtil.wordsToBeginFromLowerCase("Let's Make Abbreviations Like I18n, SQL and CSS S SQ Sq"));
+  }
+
+  @Test
+  public void testCapitalizeWords() {
+    assertEquals("AspectJ (Syntax Highlighting Only)", StringUtil.capitalizeWords("AspectJ (syntax highlighting only)", true));
   }
 
   @Test
@@ -288,16 +311,16 @@ public class StringUtilTest {
     assertEquals("\"foo", StringUtil.unquoteString("\"foo"));
     assertEquals("foo\"", StringUtil.unquoteString("foo\""));
     assertEquals("", StringUtil.unquoteString(""));
-    assertEquals("\'", StringUtil.unquoteString("\'"));
-    assertEquals("", StringUtil.unquoteString("\'\'"));
-    assertEquals("\'", StringUtil.unquoteString("\'\'\'"));
-    assertEquals("foo", StringUtil.unquoteString("\'foo\'"));
-    assertEquals("\'foo", StringUtil.unquoteString("\'foo"));
-    assertEquals("foo\'", StringUtil.unquoteString("foo\'"));
+    assertEquals("'", StringUtil.unquoteString("'"));
+    assertEquals("", StringUtil.unquoteString("''"));
+    assertEquals("'", StringUtil.unquoteString("'''"));
+    assertEquals("foo", StringUtil.unquoteString("'foo'"));
+    assertEquals("'foo", StringUtil.unquoteString("'foo"));
+    assertEquals("foo'", StringUtil.unquoteString("foo'"));
 
-    assertEquals("\'\"", StringUtil.unquoteString("\'\""));
-    assertEquals("\"\'", StringUtil.unquoteString("\"\'"));
-    assertEquals("\"foo\'", StringUtil.unquoteString("\"foo\'"));
+    assertEquals("'\"", StringUtil.unquoteString("'\""));
+    assertEquals("\"'", StringUtil.unquoteString("\"'"));
+    assertEquals("\"foo'", StringUtil.unquoteString("\"foo'"));
   }
 
   @SuppressWarnings("SSBasedInspection")
@@ -345,8 +368,8 @@ public class StringUtilTest {
   @Test
   public void testJoin() {
     assertEquals("", StringUtil.join(Collections.emptyList(), ","));
-    assertEquals("qqq", StringUtil.join(Collections.singletonList("qqq"), ","));
-    assertEquals("", StringUtil.join(Collections.singletonList(null), ","));
+    assertEquals("qqq", StringUtil.join(singletonList("qqq"), ","));
+    assertEquals("", StringUtil.join(singletonList(null), ","));
     assertEquals("a,b", StringUtil.join(Arrays.asList("a", "b"), ","));
     assertEquals("foo,,bar", StringUtil.join(Arrays.asList("foo", "", "bar"), ","));
     assertEquals("foo,,bar", StringUtil.join(new String[]{"foo", "", "bar"}, ","));
@@ -354,8 +377,8 @@ public class StringUtilTest {
 
   @Test
   public void testSplitByLineKeepingSeparators() {
-    assertEquals(Collections.singletonList(""), Arrays.asList(StringUtil.splitByLinesKeepSeparators("")));
-    assertEquals(Collections.singletonList("aa"), Arrays.asList(StringUtil.splitByLinesKeepSeparators("aa")));
+    assertEquals(singletonList(""), Arrays.asList(StringUtil.splitByLinesKeepSeparators("")));
+    assertEquals(singletonList("aa"), Arrays.asList(StringUtil.splitByLinesKeepSeparators("aa")));
     assertEquals(Arrays.asList("\n", "\n", "aa\n", "\n", "bb\n", "cc\n", "\n"),
                  Arrays.asList(StringUtil.splitByLinesKeepSeparators("\n\naa\n\nbb\ncc\n\n")));
 
@@ -367,26 +390,30 @@ public class StringUtilTest {
   }
 
   @Test
+  @SuppressWarnings("StringToUpperCaseOrToLowerCaseWithoutLocale")
   public void testReplaceReturnReplacementIfTextEqualsToReplacedText() {
-    String newS = "/tmp";
-    assertThat(newS).isSameAs(StringUtil.replace("$PROJECT_FILE$", "$PROJECT_FILE$".toLowerCase().toUpperCase() /* ensure new String instance */, newS));
+    String str = "/tmp";
+    assertSame(str,
+               StringUtil.replace("$PROJECT_FILE$", "$PROJECT_FILE$".toLowerCase().toUpperCase() /* ensure new String instance */, str));
   }
 
   @Test
   public void testReplace() {
-    assertThat("/tmp/filename").isEqualTo(StringUtil.replace("$PROJECT_FILE$/filename", "$PROJECT_FILE$", "/tmp"));
+    assertEquals("/tmp/filename", StringUtil.replace("$PROJECT_FILE$/filename", "$PROJECT_FILE$", "/tmp"));
   }
 
   @Test
   public void testReplaceListOfChars() {
-    assertThat("/tmp/filename").isEqualTo(StringUtil.replace("$PROJECT_FILE$/filename", Collections.singletonList("$PROJECT_FILE$"), Collections.singletonList("/tmp")));
-    assertThat("/someTextBefore/tmp/filename").isEqualTo(StringUtil.replace("/someTextBefore/$PROJECT_FILE$/filename", Collections.singletonList("$PROJECT_FILE$"), Collections.singletonList("tmp")));
+    assertEquals("/tmp/filename",
+                 StringUtil.replace("$PROJECT_FILE$/filename", singletonList("$PROJECT_FILE$"), singletonList("/tmp")));
+    assertEquals("/someTextBefore/tmp/filename",
+                 StringUtil.replace("/someTextBefore/$PROJECT_FILE$/filename", singletonList("$PROJECT_FILE$"), singletonList("tmp")));
   }
 
   @Test
   public void testReplaceReturnTheSameStringIfNothingToReplace() {
-    String s = "/tmp/filename";
-    assertThat(StringUtil.replace(s, "$PROJECT_FILE$/filename", "$PROJECT_FILE$")).isSameAs(s);
+    String str = "/tmp/filename";
+    assertSame(str, StringUtil.replace(str, "$PROJECT_FILE$/filename", "$PROJECT_FILE$"));
   }
 
   @Test
@@ -447,6 +474,36 @@ public class StringUtilTest {
   }
 
   @Test
+  public void testCompareCharSequence() {
+    TripleFunction<CharSequence, CharSequence, Boolean, Boolean> assertPrecedence =
+      (lesser, greater, ignoreCase) -> {
+        assertTrue(StringUtil.compare(lesser, greater, ignoreCase) < 0);
+        assertTrue(StringUtil.compare(greater, lesser, ignoreCase) > 0);
+        return true;
+      };
+    TripleFunction<CharSequence, CharSequence, Boolean, Boolean> assertEquality =
+      (lesser, greater, ignoreCase) -> {
+        assertEquals(0, StringUtil.compare(lesser, greater, ignoreCase));
+        assertEquals(0, StringUtil.compare(greater, lesser, ignoreCase));
+        return true;
+      };
+
+    assertPrecedence.fun("A","b", true);
+    assertPrecedence.fun("a","aa", true);
+    assertPrecedence.fun("abb","abC", true);
+
+    assertPrecedence.fun("A","a", false);
+    assertPrecedence.fun("Aa","a", false);
+    assertPrecedence.fun("a","aa", false);
+    assertPrecedence.fun("-","A", false);
+
+    assertEquality.fun("a","A",true);
+    assertEquality.fun("aa12b","Aa12B",true);
+
+    assertEquality.fun("aa12b","aa12b",false);
+  }
+
+  @Test
   public void testDetectSeparators() {
     assertNull(StringUtil.detectSeparators(""));
     assertNull(StringUtil.detectSeparators("asd"));
@@ -478,49 +535,97 @@ public class StringUtilTest {
     assertEquals(LineSeparator.LF, StringUtil.getLineSeparatorAt("\nH\rel\nlo", 5));
     assertEquals(LineSeparator.LF, StringUtil.getLineSeparatorAt("Hello\n", 5));
 
-    assertEquals(LineSeparator.CR, StringUtil.getLineSeparatorAt("\rH\r\nello", 0));
+    assertEquals(LineSeparator.CR, StringUtil.getLineSeparatorAt("\rH\r\nelp", 0));
     assertEquals(LineSeparator.CR, StringUtil.getLineSeparatorAt("Hello\r", 5));
     assertEquals(LineSeparator.CR, StringUtil.getLineSeparatorAt("Hello\b\r", 6));
 
-    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\rH\r\nello", 2));
-    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\r\nH\r\nello", 0));
-    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\r\nH\r\nello\r\n", 9));
+    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\rH\r\nelp", 2));
+    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\r\nH\r\nelp", 0));
+    assertEquals(LineSeparator.CRLF, StringUtil.getLineSeparatorAt("\r\nH\r\nelp\r\n", 8));
   }
 
   @Test
   public void testFormatFileSize() {
-    assertEquals("0B", StringUtil.formatFileSize(0));
-    assertEquals("1B", StringUtil.formatFileSize(1));
-    assertEquals("2.15G", StringUtil.formatFileSize(Integer.MAX_VALUE));
-    assertEquals("9.22E", StringUtil.formatFileSize(Long.MAX_VALUE));
+    assertEquals("0 B", StringUtil.formatFileSize(0));
+    assertEquals("1 B", StringUtil.formatFileSize(1));
+    char sep = new DecimalFormat("0.##").getDecimalFormatSymbols().getDecimalSeparator();
+    assertEquals("2.15 GB".replace('.', sep), StringUtil.formatFileSize(Integer.MAX_VALUE));
+    assertEquals("9.22 EB".replace('.', sep), StringUtil.formatFileSize(Long.MAX_VALUE));
 
-    assertEquals("60.10K", StringUtil.formatFileSize(60100));
+    assertEquals("60.1 kB".replace('.', sep), StringUtil.formatFileSize(60_100));
 
-    assertEquals("1.23K", StringUtil.formatFileSize(1234));
-    assertEquals("12.35K", StringUtil.formatFileSize(12345));
-    assertEquals("123.46K", StringUtil.formatFileSize(123456));
-    assertEquals("1.23M", StringUtil.formatFileSize(1234567));
-    assertEquals("12.35M", StringUtil.formatFileSize(12345678));
-    assertEquals("123.46M", StringUtil.formatFileSize(123456789));
-    assertEquals("1.23G", StringUtil.formatFileSize(1234567890));
+    assertEquals("1.23 kB".replace('.', sep), StringUtil.formatFileSize(1_234));
+    assertEquals("12.35 kB".replace('.', sep), StringUtil.formatFileSize(12_345));
+    assertEquals("123.46 kB".replace('.', sep), StringUtil.formatFileSize(123_456));
+    assertEquals("1.23 MB".replace('.', sep), StringUtil.formatFileSize(1234_567));
+    assertEquals("12.35 MB".replace('.', sep), StringUtil.formatFileSize(1_2345_678));
+    assertEquals("123.46 MB".replace('.', sep), StringUtil.formatFileSize(123_456_789));
+    assertEquals("1.23 GB".replace('.', sep), StringUtil.formatFileSize(1_234_567_890));
+
+    assertEquals("999 B".replace('.', sep), StringUtil.formatFileSize(999));
+    assertEquals("1 kB".replace('.', sep), StringUtil.formatFileSize(1000));
+    assertEquals("999.99 kB".replace('.', sep), StringUtil.formatFileSize(999_994));
+    assertEquals("1 MB".replace('.', sep), StringUtil.formatFileSize(999_995));
+    assertEquals("999.99 MB".replace('.', sep), StringUtil.formatFileSize(999_994_999));
+    assertEquals("1 GB".replace('.', sep), StringUtil.formatFileSize(999_995_000));
+    assertEquals("999.99 GB".replace('.', sep), StringUtil.formatFileSize(999_994_999_999L));
+    assertEquals("1 TB".replace('.', sep), StringUtil.formatFileSize(999_995_000_000L));
   }
 
   @Test
   public void testFormatDuration() {
-    assertEquals("0ms", StringUtil.formatDuration(0));
-    assertEquals("1ms", StringUtil.formatDuration(1));
-    assertEquals("3w 3d 20h 31m 23s 647ms", StringUtil.formatDuration(Integer.MAX_VALUE));
-    assertEquals("31ep 7714ml 2c 59yr 5mo 0w 3d 7h 12m 55s 807ms", StringUtil.formatDuration(Long.MAX_VALUE));
+    assertEquals("0 ms", StringUtil.formatDuration(0));
+    assertEquals("1 ms", StringUtil.formatDuration(1));
+    assertEquals("1 s", StringUtil.formatDuration(1000));
+    assertEquals("24 d 20 h 31 m 23 s 647 ms", StringUtil.formatDuration(Integer.MAX_VALUE));
+    assertEquals("82 d 17 h 24 m 43 s 647 ms", StringUtil.formatDuration(Integer.MAX_VALUE+5000000000L));
 
-    assertEquals("1m 0s 100ms", StringUtil.formatDuration(60100));
+    assertEquals("1 m 0 s 100 ms", StringUtil.formatDuration(60100));
 
-    assertEquals("1s 234ms", StringUtil.formatDuration(1234));
-    assertEquals("12s 345ms", StringUtil.formatDuration(12345));
-    assertEquals("2m 3s 456ms", StringUtil.formatDuration(123456));
-    assertEquals("20m 34s 567ms", StringUtil.formatDuration(1234567));
-    assertEquals("3h 25m 45s 678ms", StringUtil.formatDuration(12345678));
-    assertEquals("1d 10h 17m 36s 789ms", StringUtil.formatDuration(123456789));
-    assertEquals("2w 0d 6h 56m 7s 890ms", StringUtil.formatDuration(1234567890));
+    assertEquals("1 s 234 ms", StringUtil.formatDuration(1234));
+    assertEquals("12 s 345 ms", StringUtil.formatDuration(12345));
+    assertEquals("2 m 3 s 456 ms", StringUtil.formatDuration(123456));
+    assertEquals("20 m 34 s 567 ms", StringUtil.formatDuration(1234567));
+    assertEquals("3 h 25 m 45 s 678 ms", StringUtil.formatDuration(12345678));
+    assertEquals("1 d 10 h 17 m 36 s 789 ms", StringUtil.formatDuration(123456789));
+    assertEquals("14 d 6 h 56 m 7 s 890 ms", StringUtil.formatDuration(1234567890));
+
+    assertEquals("39 d 2 h 30 m 6 s 101 ms", StringUtil.formatDuration(3378606101L));
+  }
+
+  @Test
+  public void testFormatDurationApproximate() {
+    assertEquals("0 ms", StringUtil.formatDurationApproximate(0));
+
+    assertEquals("59 s 999 ms", StringUtil.formatDurationApproximate(60000 - 1));
+    assertEquals("1 m", StringUtil.formatDurationApproximate(60000));
+    assertEquals("1 m 0 s", StringUtil.formatDurationApproximate(60000 + 1));
+
+    assertEquals("2 m", StringUtil.formatDurationApproximate(120000 - 1));
+    assertEquals("2 m", StringUtil.formatDurationApproximate(120000));
+    assertEquals("2 m 0 s", StringUtil.formatDurationApproximate(120000 + 1));
+    assertEquals("2 m 0 s", StringUtil.formatDurationApproximate(120000 + 499));
+    assertEquals("2 m 0 s", StringUtil.formatDurationApproximate(120000 + 500));
+    assertEquals("2 m 1 s", StringUtil.formatDurationApproximate(120000 + 501));
+
+    assertEquals("2 m 3 s", StringUtil.formatDurationApproximate(123000));
+    assertEquals("2 m 4 s", StringUtil.formatDurationApproximate(123789));
+    assertEquals("2 m 3 s", StringUtil.formatDurationApproximate(123456));
+    assertEquals("1 h 1 m", StringUtil.formatDurationApproximate(3659009));
+    assertEquals("2 h", StringUtil.formatDurationApproximate(7199000));
+    assertEquals("1 d", StringUtil.formatDurationApproximate((23 * 60 * 60 + 59 * 60 + 59) * 1000L));
+    assertEquals("391 d 1 h", StringUtil.formatDurationApproximate(33786061001L));
+  }
+
+  @Test
+  public void testFormatDurationPadded() {
+    assertEquals("0 ms", StringUtil.formatDurationPadded(0, " "));
+    assertEquals("1 s 000 ms", StringUtil.formatDurationPadded(1000, " "));
+    assertEquals("1 s 001 ms", StringUtil.formatDurationPadded(1001, " "));
+    assertEquals("2 m 00 s 000 ms", StringUtil.formatDurationPadded(TimeUnit.MINUTES.toMillis(2), " "));
+    assertEquals("2 h 00 m 00 s 000 ms", StringUtil.formatDurationPadded(TimeUnit.HOURS.toMillis(2), " "));
+    assertEquals("2 d 00 h 00 m 00 s 000 ms", StringUtil.formatDurationPadded(TimeUnit.DAYS.toMillis(2), " "));
+    assertEquals("1434852 d 16 h 13 m 50 s 987 ms", StringUtil.formatDurationPadded(123971271230987L, " "));
   }
 
   @Test
@@ -528,7 +633,8 @@ public class StringUtilTest {
     assertEquals("<![CDATA[abc]]>", XmlStringUtil.wrapInCDATA("abc"));
     assertEquals("<![CDATA[abc]]]><![CDATA[]>]]>", XmlStringUtil.wrapInCDATA("abc]]>"));
     assertEquals("<![CDATA[abc]]]><![CDATA[]>def]]>", XmlStringUtil.wrapInCDATA("abc]]>def"));
-    assertEquals("<![CDATA[123<![CDATA[wow<&>]]]><![CDATA[]>]]]><![CDATA[]><![CDATA[123]]>", XmlStringUtil.wrapInCDATA("123<![CDATA[wow<&>]]>]]><![CDATA[123"));
+    assertEquals("<![CDATA[123<![CDATA[wow<&>]]]><![CDATA[]>]]]><![CDATA[]><![CDATA[123]]>",
+                 XmlStringUtil.wrapInCDATA("123<![CDATA[wow<&>]]>]]><![CDATA[123"));
   }
 
   @Test
@@ -539,10 +645,9 @@ public class StringUtilTest {
     assertEquals("", StringUtil.getPackageName("Number"));
   }
 
-  @SuppressWarnings("SpellCheckingInspection")
   @Test
   public void testIndexOf_1() {
-    char[] chars = new char[]{'a','b','c','d','a','b','c','d','A','B','C','D'};
+    char[] chars = new char[]{'a', 'b', 'c', 'd', 'a', 'b', 'c', 'd', 'A', 'B', 'C', 'D'};
     assertEquals(2, StringUtil.indexOf(chars, 'c', 0, 12, false));
     assertEquals(2, StringUtil.indexOf(chars, 'C', 0, 12, false));
     assertEquals(10, StringUtil.indexOf(chars, 'C', 0, 12, true));
@@ -591,6 +696,7 @@ public class StringUtilTest {
   }
 
   @Test
+  @SuppressWarnings("SpellCheckingInspection")
   public void testCountChars() {
     assertEquals(0, StringUtil.countChars("abcdefgh", 'x'));
     assertEquals(1, StringUtil.countChars("abcdefgh", 'd'));
@@ -598,9 +704,12 @@ public class StringUtilTest {
     assertEquals(4, StringUtil.countChars("abcddddefghd", 'd', 4, false));
     assertEquals(3, StringUtil.countChars("abcddddefghd", 'd', 4, true));
     assertEquals(2, StringUtil.countChars("abcddddefghd", 'd', 4, 6, false));
+    assertEquals(3, StringUtil.countChars("aaabcddddefghdaaaa", 'a', -20, 20, true));
+    assertEquals(4, StringUtil.countChars("aaabcddddefghdaaaa", 'a', 20, -20, true));
   }
 
   @Test
+  @SuppressWarnings("SpellCheckingInspection")
   public void testSubstringBeforeLast() {
     assertEquals("a", StringUtil.substringBeforeLast("abc", "b"));
     assertEquals("abab", StringUtil.substringBeforeLast("ababbccc", "b"));
@@ -610,6 +719,7 @@ public class StringUtilTest {
   }
 
   @Test
+  @SuppressWarnings("SpellCheckingInspection")
   public void testSubstringAfterLast() {
     assertEquals("c", StringUtil.substringAfterLast("abc", "b"));
     assertEquals("ccc", StringUtil.substringAfterLast("ababbccc", "b"));
@@ -620,17 +730,18 @@ public class StringUtilTest {
 
   @Test
   public void testGetWordIndicesIn() {
-    assertEquals(ContainerUtil.list(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first second"));
-    assertEquals(ContainerUtil.list(new TextRange(1, 6), new TextRange(7, 13)), StringUtil.getWordIndicesIn(" first second"));
-    assertEquals(ContainerUtil.list(new TextRange(1, 6), new TextRange(7, 13)), StringUtil.getWordIndicesIn(" first second    "));
-    assertEquals(ContainerUtil.list(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first:second"));
-    assertEquals(ContainerUtil.list(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first-second"));
-    assertEquals(ContainerUtil.list(new TextRange(0, 12)), StringUtil.getWordIndicesIn("first-second", ContainerUtil.set(' ', '_', '.')));
-    assertEquals(ContainerUtil.list(new TextRange(0, 5), new TextRange(6, 12)),
+    assertEquals(Arrays.asList(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first second"));
+    assertEquals(Arrays.asList(new TextRange(1, 6), new TextRange(7, 13)), StringUtil.getWordIndicesIn(" first second"));
+    assertEquals(Arrays.asList(new TextRange(1, 6), new TextRange(7, 13)), StringUtil.getWordIndicesIn(" first second    "));
+    assertEquals(Arrays.asList(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first:second"));
+    assertEquals(Arrays.asList(new TextRange(0, 5), new TextRange(6, 12)), StringUtil.getWordIndicesIn("first-second"));
+    assertEquals(Arrays.asList(new TextRange(0, 12)), StringUtil.getWordIndicesIn("first-second", ContainerUtil.set(' ', '_', '.')));
+    assertEquals(Arrays.asList(new TextRange(0, 5), new TextRange(6, 12)),
                  StringUtil.getWordIndicesIn("first-second", ContainerUtil.set('-')));
   }
 
   @Test
+  @SuppressWarnings("SpellCheckingInspection")
   public void testIsLatinAlphanumeric() {
     assertTrue(StringUtil.isLatinAlphanumeric("1234567890"));
     assertTrue(StringUtil.isLatinAlphanumeric("123abc593"));
@@ -661,5 +772,147 @@ public class StringUtilTest {
     assertFalse(StringUtil.isShortNameOf("a.b.c", "d"));
     assertFalse(StringUtil.isShortNameOf("x.y.zzz", "zz"));
     assertFalse(StringUtil.isShortNameOf("x", "a.b.x"));
+  }
+
+  @Test
+  @SuppressWarnings("SpellCheckingInspection")
+  public void startsWith() {
+    assertTrue(StringUtil.startsWith("abcdefgh", 5, "fgh"));
+    assertTrue(StringUtil.startsWith("abcdefgh", 2, "cde"));
+    assertTrue(StringUtil.startsWith("abcdefgh", 0, "abc"));
+    assertTrue(StringUtil.startsWith("abcdefgh", 0, "abcdefgh"));
+    assertFalse(StringUtil.startsWith("abcdefgh", 5, "cde"));
+
+    assertTrue(StringUtil.startsWith("abcdefgh", 0, ""));
+    assertTrue(StringUtil.startsWith("abcdefgh", 4, ""));
+    assertTrue(StringUtil.startsWith("abcdefgh", 7, ""));
+    assertTrue(StringUtil.startsWith("abcdefgh", 8, ""));
+
+    assertTrue(StringUtil.startsWith("", 0, ""));
+
+    assertFalse(StringUtil.startsWith("ab", 0, "abcdefgh"));
+    assertFalse(StringUtil.startsWith("ab", 1, "abcdefgh"));
+    assertFalse(StringUtil.startsWith("ab", 2, "abcdefgh"));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithNegativeIndex() {
+    StringUtil.startsWith("whatever", -1, "");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithIndexGreaterThanLength() {
+    StringUtil.startsWith("whatever", 9, "");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithEmptyStringNegativeIndex() {
+    StringUtil.startsWith("", -1, "");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithEmptyStringIndexGreaterThanLength() {
+    StringUtil.startsWith("", 1, "");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithLongerSuffixNegativeIndex() {
+    StringUtil.startsWith("wh", -1, "whatever");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  public void startsWithLongerSuffixIndexGreaterThanLength() {
+    StringUtil.startsWith("wh", 3, "whatever");
+  }
+
+  @Test
+  public void offsetToLineNumberCol() {
+    assertEquals(LineColumn.of(0, 0), StringUtil.offsetToLineColumn("abc\nabc", 0));
+    assertEquals(LineColumn.of(0, 1), StringUtil.offsetToLineColumn("abc\nabc", 1));
+    assertEquals(LineColumn.of(0, 2), StringUtil.offsetToLineColumn("abc\nabc", 2));
+    assertEquals(LineColumn.of(0, 3), StringUtil.offsetToLineColumn("abc\nabc", 3));
+    assertEquals(LineColumn.of(1, 0), StringUtil.offsetToLineColumn("abc\nabc", 4));
+    assertEquals(LineColumn.of(1, 1), StringUtil.offsetToLineColumn("abc\nabc", 5));
+    assertEquals(LineColumn.of(1, 3), StringUtil.offsetToLineColumn("abc\nabc", 7));
+    assertNull(StringUtil.offsetToLineColumn("abc\nabc", 8));
+    assertEquals(LineColumn.of(0, 3), StringUtil.offsetToLineColumn("abc\r\nabc", 3));
+    assertEquals(LineColumn.of(1, 0), StringUtil.offsetToLineColumn("abc\r\nabc", 5));
+    assertEquals(LineColumn.of(2, 1), StringUtil.offsetToLineColumn("abc\n\nabc", 6));
+    assertEquals(LineColumn.of(1, 1), StringUtil.offsetToLineColumn("abc\r\nabc", 6));
+  }
+
+  @Test
+  public void testFirstLastDontConvertCharSequenceToString() {
+    CharSequence s = ByteArrayCharSequence.convertToBytesIfPossible("test");
+    assertTrue(s instanceof ByteArrayCharSequence || SystemInfoRt.IS_AT_LEAST_JAVA9 && s.getClass() == String.class);
+    CharSequence first = StringUtil.first(s, 1, false);
+    assertTrue(String.valueOf(first.getClass()),
+               first instanceof CharSequenceSubSequence || SystemInfoRt.IS_AT_LEAST_JAVA9 && s.getClass() == String.class);
+    assertEquals("t", first.toString());
+    CharSequence last = StringUtil.last(s, 1, false);
+    assertTrue(String.valueOf(last.getClass()),
+               last instanceof CharSequenceSubSequence || SystemInfoRt.IS_AT_LEAST_JAVA9 && s.getClass() == String.class);
+    assertEquals("t", last.toString());
+  }
+
+  @Test
+  public void testEnglishOrdinals() {
+    assertEquals("100th", OrdinalFormat.formatEnglish(100));
+    assertEquals("101st", OrdinalFormat.formatEnglish(101));
+    assertEquals("111th", OrdinalFormat.formatEnglish(111));
+    assertEquals("122nd", OrdinalFormat.formatEnglish(122));
+
+    assertEquals("-3rd", OrdinalFormat.formatEnglish(-3));
+    assertEquals("-9223372036854775808th", OrdinalFormat.formatEnglish(Long.MIN_VALUE));
+  }
+
+  @Test
+  public void testCollapseWhiteSpace() {
+    assertEquals("one two three four five", StringUtil.collapseWhiteSpace("\t one\ttwo     three\nfour five   "));
+  }
+
+  @Test
+  public void testStripCharFilter() {
+    assertEquals("mystring", StringUtil.strip("\n   my string ", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("mystring", StringUtil.strip("my string", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("mystring", StringUtil.strip("mystring", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("\n     ", StringUtil.strip("\n   my string ", CharFilter.WHITESPACE_FILTER));
+    assertEquals("", StringUtil.strip("", CharFilter.WHITESPACE_FILTER));
+    assertEquals("", StringUtil.strip("\n   my string ", (ch) -> false));
+    assertEquals("\n   my string ", StringUtil.strip("\n   my string ", (ch) -> true));
+  }
+
+  @Test
+  public void testTrimCharFilter() {
+    assertEquals("my string", StringUtil.trim("\n   my string ", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("my string", StringUtil.trim("my string", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("my string", StringUtil.trim("my string\t", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("my string", StringUtil.trim("\nmy string", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("mystring", StringUtil.trim("mystring", CharFilter.NOT_WHITESPACE_FILTER));
+    assertEquals("\n   my string ", StringUtil.trim("\n   my string ", CharFilter.WHITESPACE_FILTER));
+    assertEquals("", StringUtil.trim("", CharFilter.WHITESPACE_FILTER));
+    assertEquals("", StringUtil.trim("\n   my string ", (ch) -> false));
+    assertEquals("\n   my string ", StringUtil.trim("\n   my string ", (ch) -> true));
+  }
+
+  @Test
+  public void testEscapeToRegexp() {
+    assertEquals("a\\nb", StringUtil.escapeToRegexp("a\nb"));
+    assertEquals("a\\&\\%\\$b", StringUtil.escapeToRegexp("a&%$b"));
+    assertEquals("\uD83D\uDE80", StringUtil.escapeToRegexp("\uD83D\uDE80"));
+  }
+
+  @Test
+  public void testRemoveEllipsisSuffix() {
+    assertEquals("a", removeEllipsisSuffix("a..."));
+    assertEquals("a", removeEllipsisSuffix("a"));
+    assertEquals("a", removeEllipsisSuffix("a" + ELLIPSIS));
+    assertEquals("a...", removeEllipsisSuffix("a..." + ELLIPSIS));
   }
 }

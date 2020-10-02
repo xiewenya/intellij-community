@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework.sm.runner;
 
+import com.intellij.execution.impl.ConsoleBuffer;
 import com.intellij.execution.process.ProcessOutputType;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.util.Key;
@@ -27,7 +14,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 
+/**
+ * @deprecated Use {@link OutputEventSplitter}, remove in 2020
+ */
+@Deprecated
 public abstract class OutputLineSplitter {
+  public static final int SM_MESSAGE_PREFIX = 105;
+
+  private static final boolean USE_CYCLE_BUFFER = ConsoleBuffer.useCycleBuffer();
   private static final String TEAMCITY_SERVICE_MESSAGE_PREFIX = ServiceMessage.SERVICE_MESSAGE_START;
   private static final char NEW_LINE = '\n';
 
@@ -36,6 +30,7 @@ public abstract class OutputLineSplitter {
   private final List<OutputChunk> myStdOutChunks = new ArrayList<>();
   private final List<OutputChunk> myStdErrChunks = new ArrayList<>();
   private final List<OutputChunk> mySystemChunks = new ArrayList<>();
+  private final int myCurrentCyclicBufferSize = ConsoleBuffer.getCycleBufferSize();
 
   public OutputLineSplitter(boolean stdinEnabled) {
     myStdinSupportEnabled = stdinEnabled;
@@ -137,7 +132,16 @@ public abstract class OutputLineSplitter {
     synchronized (myStdOutChunks) {
       for (OutputChunk chunk : myStdOutChunks) {
         if (lastChunk != null && chunk.getKey() == lastChunk.getKey()) {
-          lastChunk.append(chunk.getText());
+          String chunkText = chunk.getText();
+          if (USE_CYCLE_BUFFER) {
+            StringBuilder builder = lastChunk.myBuilder;
+            if (builder != null &&
+                builder.length() + chunkText.length() > myCurrentCyclicBufferSize &&
+                myCurrentCyclicBufferSize > 2 * SM_MESSAGE_PREFIX) {
+              builder.delete(SM_MESSAGE_PREFIX, Math.min(builder.length(), myCurrentCyclicBufferSize - SM_MESSAGE_PREFIX));
+            }
+          }
+          lastChunk.append(chunkText);
         }
         else {
           lastChunk = chunk;
@@ -183,7 +187,7 @@ public abstract class OutputLineSplitter {
 
   protected abstract void onLineAvailable(@NotNull String text, @NotNull Key outputType, boolean tcLikeFakeOutput);
 
-  private static class OutputChunk {
+  private static final class OutputChunk {
     private final Key myKey;
     private String myText;
     private StringBuilder myBuilder;

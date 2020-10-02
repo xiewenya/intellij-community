@@ -16,6 +16,7 @@
 
 package com.intellij.refactoring.inlineSuperClass;
 
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -30,18 +31,17 @@ import com.intellij.refactoring.inlineSuperClass.usageInfo.*;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.memberPushDown.PushDownConflicts;
 import com.intellij.refactoring.memberPushDown.PushDownProcessor;
-import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.refactoring.util.DocCommentPolicy;
-import com.intellij.refactoring.util.FixableUsageInfo;
-import com.intellij.refactoring.util.FixableUsagesRefactoringProcessor;
+import com.intellij.refactoring.util.*;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
 import com.intellij.refactoring.util.classMembers.MemberInfoStorage;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.JavaPsiConstructorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -69,7 +69,8 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
   }
 
   public static List<MemberInfo> getClassMembersToPush(PsiClass superClass) {
-    MemberInfoStorage memberInfoStorage = new MemberInfoStorage(superClass, new MemberInfo.Filter<PsiMember>() {
+    MemberInfoStorage memberInfoStorage = new MemberInfoStorage(superClass, new MemberInfo.Filter<>() {
+      @Override
       public boolean includeMember(PsiMember element) {
         return !(element instanceof PsiClass) || PsiTreeUtil.isAncestor(superClass, element, true);
       }
@@ -77,12 +78,14 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
     return memberInfoStorage.getClassMemberInfos(superClass);
   }
 
+  @Override
   @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(@NotNull final UsageInfo[] usages) {
+  protected UsageViewDescriptor createUsageViewDescriptor(final UsageInfo @NotNull [] usages) {
     return new InlineSuperClassUsageViewDescriptor(mySuperClass);
   }
 
 
+  @Override
   protected void findUsages(@NotNull final List<FixableUsageInfo> usages) {
     final JavaPsiFacade facade = JavaPsiFacade.getInstance(myProject);
     final PsiElementFactory elementFactory = facade.getElementFactory();
@@ -117,9 +120,13 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
               if (parent instanceof PsiReferenceList) {
                 final PsiElement pparent = parent.getParent();
                 if (pparent instanceof PsiClass) {
+                  final PsiJavaCodeReferenceElement classRef = (PsiJavaCodeReferenceElement)element;
                   final PsiClass inheritor = (PsiClass)pparent;
                   if (parent.equals(inheritor.getExtendsList()) || parent.equals(inheritor.getImplementsList())) {
-                    usages.add(new ReplaceExtendsListUsageInfo((PsiJavaCodeReferenceElement)element, mySuperClass, inheritor));
+                    usages.add(new ReplaceExtendsListUsageInfo(classRef, mySuperClass, inheritor));
+                  }
+                  else if (parent.equals(inheritor.getPermitsList())) {
+                    usages.add(new RemovePermitsListUsageInfo(classRef, mySuperClass, inheritor));
                   }
                 }
               } else {
@@ -160,7 +167,8 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
           final PsiElement element = reference.getElement();
           if (element instanceof PsiReferenceExpression &&
               ((PsiReferenceExpression)element).getQualifierExpression() instanceof PsiSuperExpression &&
-              PsiTreeUtil.isAncestor(targetClass, element, false)) {
+              PsiTreeUtil.isAncestor(targetClass, element, false) &&
+              !PushDownConflicts.isSuperCallToBeInlined(member, targetClass, mySuperClass, element)) {
             usages.add(new RemoveQualifierUsageInfo((PsiReferenceExpression)element));
           }
         }
@@ -168,25 +176,16 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
 
       if (!mySuperClass.isInterface()) {
         final PsiMethod[] superConstructors = mySuperClass.getConstructors();
+        Set<PsiMethod> addedSuperConstructors = new HashSet<>();
         for (PsiMethod constructor : targetClass.getConstructors()) {
           final PsiCodeBlock constrBody = constructor.getBody();
-          if (constrBody != null) {
-            final PsiStatement[] statements = constrBody.getStatements();
-            if (statements.length > 0) {
-              final PsiStatement firstConstrStatement = statements[0];
-              if (firstConstrStatement instanceof PsiExpressionStatement) {
-                final PsiExpression expression = ((PsiExpressionStatement)firstConstrStatement).getExpression();
-                if (expression instanceof PsiMethodCallExpression) {
-                  final PsiReferenceExpression methodExpression = ((PsiMethodCallExpression)expression).getMethodExpression();
-                  if (methodExpression.getText().equals(PsiKeyword.SUPER)) {
-                    final PsiMethod superConstructor = ((PsiMethodCallExpression)expression).resolveMethod();
-                    if (superConstructor != null && superConstructor.getBody() != null) {
-                      usages.add(new InlineSuperCallUsageInfo((PsiMethodCallExpression)expression));
-                      continue;
-                    }
-                  }
-                }
-              }
+          PsiMethodCallExpression call = JavaPsiConstructorUtil.findThisOrSuperCallInConstructor(constructor);
+          if (JavaPsiConstructorUtil.isSuperConstructorCall(call)) {
+            final PsiMethod superConstructor = call.resolveMethod();
+            if (superConstructor != null && superConstructor.getBody() != null) {
+              usages.add(new InlineSuperCallUsageInfo(call));
+              processChainedCallsInSuper(superConstructor, targetClass, usages, addedSuperConstructors);
+              continue;
             }
           }
 
@@ -195,6 +194,7 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
             if (superConstructor.getParameterList().isEmpty()) {
               final PsiExpression expression = JavaPsiFacade.getElementFactory(myProject).createExpressionFromText("super()", constructor);
               usages.add(new InlineSuperCallUsageInfo((PsiMethodCallExpression)expression, constrBody));
+              processChainedCallsInSuper(superConstructor, targetClass, usages, addedSuperConstructors);
             }
           }
         }
@@ -212,7 +212,19 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
     }
   }
 
-  private void findUsagesInExtendsList(@NotNull List<FixableUsageInfo> usages, PsiReferenceList extendsList) {
+  private static void processChainedCallsInSuper(PsiMethod superConstructorWithChain,
+                                                 PsiClass targetClass,
+                                                 List<? super FixableUsageInfo> usages,
+                                                 Set<? super PsiMethod> addedSuperConstructors) {
+    addedSuperConstructors.add(superConstructorWithChain);
+    PsiMethod chainedConstructor = RefactoringUtil.getChainedConstructor(superConstructorWithChain);
+    while (chainedConstructor != null && addedSuperConstructors.add(chainedConstructor)) {
+      usages.add(new CopyDefaultConstructorUsageInfo(targetClass, chainedConstructor));
+      chainedConstructor = RefactoringUtil.getChainedConstructor(chainedConstructor);
+    }
+  }
+
+  private void findUsagesInExtendsList(@NotNull List<? super FixableUsageInfo> usages, PsiReferenceList extendsList) {
     final PsiJavaCodeReferenceElement[] referenceExtendsElements = extendsList != null ? extendsList.getReferenceElements() : null;
     if (referenceExtendsElements != null) {
       for (PsiJavaCodeReferenceElement element : referenceExtendsElements) {
@@ -225,34 +237,37 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
 
   @Override
   protected boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
+    final MultiMap<PsiElement, @Nls String> conflicts = new MultiMap<>();
     final PushDownConflicts pushDownConflicts = new PushDownConflicts(mySuperClass, myMemberInfos, conflicts);
     for (PsiClass targetClass : myTargetClasses) {
       if (targetClass instanceof PsiAnonymousClass) {
-        conflicts.putValue(targetClass, "Cannot inline into anonymous class.");
+        conflicts.putValue(targetClass, JavaRefactoringBundle.message("inline.super.no.anonymous.class"));
       }
       else if (PsiTreeUtil.isAncestor(mySuperClass, targetClass, false)) {
-        conflicts.putValue(targetClass, "Cannot inline into the inner class. Move \'" + targetClass.getName() + "\' to upper level");
+        conflicts.putValue(targetClass, JavaRefactoringBundle.message("inline.super.no.inner.class", targetClass.getName()));
       }
       else {
         for (MemberInfo info : myMemberInfos) {
           final PsiMember member = info.getMember();
           pushDownConflicts.checkMemberPlacementInTargetClassConflict(targetClass, member);
+          if (myCurrentInheritor == null) { //superclass to be removed
+            Set<PsiMember> movedMembers = new HashSet<>(pushDownConflicts.getMovedMembers());
+            movedMembers.addAll(Arrays.asList(mySuperClass.getConstructors()));
+            RefactoringConflictsUtil
+              .analyzeAccessibilityConflicts(movedMembers, targetClass, conflicts, null, targetClass, pushDownConflicts.getAbstractMembers());
+          }
         }
-        //todo check accessibility conflicts
       }
     }
     if (myCurrentInheritor != null) {
       ReferencesSearch.search(myCurrentInheritor).forEach(reference -> {
         final PsiElement element = reference.getElement();
-        if (element != null) {
-          final PsiElement parent = element.getParent();
-          if (parent instanceof PsiNewExpression) {
-            final PsiClass aClass = PsiUtil.resolveClassInType(getPlaceExpectedType(parent));
-            if (aClass == mySuperClass) {
-              conflicts.putValue(parent, "Instance of target type is passed to a place where super class is expected.");
-              return false;
-            }
+        final PsiElement parent = element.getParent();
+        if (parent instanceof PsiNewExpression) {
+          final PsiClass aClass = PsiUtil.resolveClassInType(getPlaceExpectedType(parent));
+          if (aClass == mySuperClass) {
+            conflicts.putValue(parent, JavaRefactoringBundle.message("inline.super.target.instead.of.super.class"));
+            return false;
           }
         }
         return true;
@@ -263,7 +278,7 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
   }
 
   private boolean skipTargetClass(PsiClass targetClass) {
-    return targetClass instanceof PsiAnonymousClass || 
+    return targetClass instanceof PsiAnonymousClass ||
            PsiTreeUtil.isAncestor(mySuperClass, targetClass, false);
   }
 
@@ -294,7 +309,8 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
     return type;
   }
 
-  protected void performRefactoring(@NotNull final UsageInfo[] usages) {
+  @Override
+  protected void performRefactoring(final UsageInfo @NotNull [] usages) {
     try {
       final UsageInfo[] infos = ContainerUtil.map2Array(myTargetClasses, UsageInfo.class, UsageInfo::new);
       new PushDownProcessor<>(mySuperClass, Arrays.asList(myMemberInfos), new DocCommentPolicy(myPolicy)).pushDownToClasses(infos);
@@ -341,7 +357,7 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
 
   @Nullable
   @Override
-  protected RefactoringEventData getAfterData(@NotNull UsageInfo[] usages) {
+  protected RefactoringEventData getAfterData(UsageInfo @NotNull [] usages) {
     final RefactoringEventData data = new RefactoringEventData();
     data.addElements(myTargetClasses);
     return data;
@@ -432,8 +448,9 @@ public class InlineSuperClassRefactoringProcessor extends FixableUsagesRefactori
     return subst;
   }
 
+  @Override
   @NotNull
   protected String getCommandName() {
-    return InlineSuperClassRefactoringHandler.REFACTORING_NAME;
+    return JavaRefactoringBundle.message("inline.super.class");
   }
 }

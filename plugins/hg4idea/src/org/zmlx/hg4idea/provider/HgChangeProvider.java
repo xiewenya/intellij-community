@@ -12,6 +12,8 @@
 // limitations under the License.
 package org.zmlx.hg4idea.provider;
 
+import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
@@ -19,7 +21,6 @@ import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.*;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.JBColor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
@@ -32,20 +33,19 @@ import org.zmlx.hg4idea.command.HgWorkingCopyRevisionsCommand;
 import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgUtil;
 
-import java.awt.*;
 import java.io.File;
 import java.util.*;
-import java.util.List;
 
 public class HgChangeProvider implements ChangeProvider {
 
   private final Project myProject;
   private final VcsKey myVcsKey;
 
-  public static final FileStatus COPIED = FileStatusFactory.getInstance().createFileStatus("COPIED", "Copied", FileStatus.ADDED.getColor());
-  public static final FileStatus RENAMED = FileStatusFactory.getInstance().createFileStatus("RENAMED", "Renamed",
-                                                                                            new JBColor(JBColor.CYAN.darker().darker(),
-                                                                                                        new Color(0x3a8484)));
+  private static final PluginId OUR_PLUGIN_ID = PluginManagerCore.getPluginByClassName(HgChangeProvider.class.getName());
+  public static final FileStatus COPIED
+    = FileStatusFactory.getInstance().createFileStatus("COPIED",HgBundle.messagePointer("hg4idea.file.status.copied"), OUR_PLUGIN_ID);
+  public static final FileStatus RENAMED
+    = FileStatusFactory.getInstance().createFileStatus("RENAMED", HgBundle.messagePointer("hg4idea.file.status.renamed"), OUR_PLUGIN_ID);
 
   private static final EnumMap<HgFileStatusEnum, HgChangeProcessor> PROCESSORS =
     new EnumMap<>(HgFileStatusEnum.class);
@@ -65,13 +65,12 @@ public class HgChangeProvider implements ChangeProvider {
     myVcsKey = vcsKey;
   }
 
+  @Override
   public boolean isModifiedDocumentTrackingRequired() {
     return true;
   }
 
-  public void doCleanup(List<VirtualFile> files) {
-  }
-
+  @Override
   public void getChanges(@NotNull VcsDirtyScope dirtyScope, @NotNull ChangelistBuilder builder,
                          @NotNull ProgressIndicator progress, @NotNull ChangeListManagerGate addGate) {
     if (myProject.isDisposed()) return;
@@ -285,7 +284,7 @@ public class HgChangeProvider implements ChangeProvider {
       void process(Project project, VcsKey vcsKey, ChangelistBuilder builder,
         HgRevisionNumber currentNumber, HgRevisionNumber parentRevision,
         HgFile beforeFile, HgFile afterFile) {
-        builder.processUnversionedFile(VcsUtil.getVirtualFile(afterFile.getFile()));
+        builder.processUnversionedFile(afterFile.toFilePath());
       }
     };
 

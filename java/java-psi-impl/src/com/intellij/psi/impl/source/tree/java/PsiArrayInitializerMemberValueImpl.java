@@ -36,8 +36,7 @@ public class PsiArrayInitializerMemberValueImpl extends CompositePsiElement impl
   }
 
   @Override
-  @NotNull
-  public PsiAnnotationMemberValue[] getInitializers() {
+  public PsiAnnotationMemberValue @NotNull [] getInitializers() {
     return getChildrenAsPsiElements(MEMBER_SET, PsiAnnotationMemberValue.ARRAY_FACTORY);
   }
 
@@ -65,13 +64,13 @@ public class PsiArrayInitializerMemberValueImpl extends CompositePsiElement impl
     if (i == JavaTokenType.COMMA) {
       return ChildRole.COMMA;
     }
-    else if (i == JavaTokenType.LBRACE) {
+    if (i == JavaTokenType.LBRACE) {
       return ChildRole.LBRACE;
     }
-    else if (i == JavaTokenType.RBRACE) {
+    if (i == JavaTokenType.RBRACE) {
       return ChildRole.RBRACE;
     }
-    else if (MEMBER_SET.contains(child.getElementType())) {
+    if (MEMBER_SET.contains(child.getElementType())) {
       return ChildRole.ANNOTATION_VALUE;
     }
     return ChildRoleBase.NONE;

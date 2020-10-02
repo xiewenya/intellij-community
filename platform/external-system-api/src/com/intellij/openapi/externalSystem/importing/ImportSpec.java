@@ -19,12 +19,12 @@ import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode;
 import com.intellij.openapi.externalSystem.service.project.ExternalProjectRefreshCallback;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Vladislav.Soroka
- * @since 3/10/2017
  */
 public interface ImportSpec {
 
@@ -39,7 +39,12 @@ public interface ImportSpec {
 
   boolean isForceWhenUptodate();
 
-  boolean whenAutoImportEnabled();
+  /**
+   * @deprecated see {@link com.intellij.openapi.externalSystem.settings.ExternalProjectSettings#setUseAutoImport} for details
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval(inVersion = "2021.1")
+  default boolean whenAutoImportEnabled() { return false; }
 
   @Nullable
   ExternalProjectRefreshCallback getCallback();

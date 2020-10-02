@@ -17,6 +17,7 @@ package com.intellij.refactoring.introduceField;
 
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
@@ -24,11 +25,9 @@ import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.TypeSelectorManager;
 import com.intellij.ui.NonFocusableCheckBox;
 import com.intellij.ui.StateRestoringCheckBox;
-import com.intellij.util.Processor;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
@@ -41,7 +40,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public abstract class IntroduceFieldCentralPanel {
-   protected static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.introduceField.IntroduceFieldDialog");
+  protected static final Logger LOG = Logger.getInstance(IntroduceFieldDialog.class);
 
   private static final String INTRODUCE_FIELD_FINAL_CHECKBOX = "introduce.final.checkbox";
   public static boolean ourLastCbFinalState = PropertiesComponent.getInstance().getBoolean(INTRODUCE_FIELD_FINAL_CHECKBOX, true);
@@ -88,7 +87,7 @@ public abstract class IntroduceFieldCentralPanel {
     myTypeSelectorManager = typeSelectorManager;
   }
 
-  protected boolean setEnabledInitializationPlaces(@NotNull final PsiElement initializer) {
+  protected boolean setEnabledInitializationPlaces(@NotNull final PsiExpression initializer) {
     final Set<PsiField> fields = new HashSet<>();
     final Ref<Boolean> refsLocal = new Ref<>(false);
     initializer.accept(new JavaRecursiveElementWalkingVisitor() {
@@ -97,7 +96,7 @@ public abstract class IntroduceFieldCentralPanel {
         super.visitReferenceExpression(expression);
         if (expression.getQualifierExpression() == null) {
           final PsiElement resolve = expression.resolve();
-          if (resolve == null || 
+          if (resolve == null ||
               resolve instanceof PsiVariable && !PsiTreeUtil.isAncestor(initializer, resolve, true)) {
             if (resolve instanceof PsiField) {
               if (!((PsiField)resolve).hasInitializer()) {
@@ -114,11 +113,13 @@ public abstract class IntroduceFieldCentralPanel {
     });
 
     final boolean locals = refsLocal.get();
-    if (!locals && fields.isEmpty()) {
+    boolean superOrThis = IntroduceFieldHandler.isInSuperOrThis(initializer);
+    if (!locals && fields.isEmpty() && !superOrThis) {
       return true;
     }
     return updateInitializationPlaceModel(!locals && initializedInSetUp(fields),
-                                          !locals && initializedInConstructor(fields));
+                                          !locals && !superOrThis && initializedInConstructor(fields), 
+                                          locals || !fields.isEmpty());
   }
 
   private static boolean initializedInConstructor(Set<PsiField> fields) {
@@ -132,19 +133,18 @@ public abstract class IntroduceFieldCentralPanel {
 
   private boolean initializedInSetUp(Set<PsiField> fields) {
     if (hasSetUpChoice()) {
+      nextField:
       for (PsiField field : fields) {
+        if (field.hasModifierProperty(PsiModifier.FINAL)) continue;
         final PsiMethod setUpMethod = TestFrameworks.getInstance().findSetUpMethod((field).getContainingClass());
         if (setUpMethod != null) {
-          final Processor<PsiReference> initializerSearcher = reference -> {
-            final PsiElement referenceElement = reference.getElement();
-            if (referenceElement instanceof PsiExpression) {
-              return !PsiUtil.isAccessedForWriting((PsiExpression)referenceElement);
+          for (PsiReference reference: ReferencesSearch.search(field, new LocalSearchScope(setUpMethod))) {
+            PsiElement element = reference.getElement();
+            if (element instanceof PsiExpression && !PsiUtil.isAccessedForWriting((PsiExpression)element)) {
+              continue nextField;
             }
-            return true;
-          };
-          if (ReferencesSearch.search(field, new LocalSearchScope(setUpMethod)).forEach(initializerSearcher)) {
-            return false;
           }
+          return false;
         }
       }
       return true;
@@ -158,7 +158,6 @@ public abstract class IntroduceFieldCentralPanel {
   protected abstract JComponent createInitializerPlacePanel(ItemListener itemListener, ItemListener finalUpdater);
   public abstract void setInitializeInFieldDeclaration();
 
-  public abstract void setVisibility(String visibility);
   public abstract String getFieldVisibility();
 
   protected void initializeControls(PsiExpression initializerExpression,
@@ -186,6 +185,7 @@ public abstract class IntroduceFieldCentralPanel {
   protected JComponent createCenterPanel() {
 
     ItemListener itemListener = new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (myCbReplaceAll != null && myAllowInitInMethod) {
           updateInitializerSelection();
@@ -196,6 +196,7 @@ public abstract class IntroduceFieldCentralPanel {
       }
     };
     ItemListener finalUpdater = new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         updateCbFinal();
       }
@@ -224,7 +225,7 @@ public abstract class IntroduceFieldCentralPanel {
     JPanel panel = new JPanel(new GridBagLayout());
     myCbFinal = new StateRestoringCheckBox();
     myCbFinal.setFocusable(false);
-    myCbFinal.setText(RefactoringBundle.message("declare.final"));
+    myCbFinal.setText(JavaRefactoringBundle.message("declare.final"));
     myCbFinal.addItemListener(itemListener);
     gbConstraints.gridy++;
     panel.add(myCbFinal, gbConstraints);
@@ -236,7 +237,7 @@ public abstract class IntroduceFieldCentralPanel {
         gbConstraints.insets = JBUI.insetsLeft(8);
       }
       myCbDeleteVariable = new StateRestoringCheckBox();
-      myCbDeleteVariable.setText(RefactoringBundle.message("delete.variable.declaration"));
+      myCbDeleteVariable.setText(JavaRefactoringBundle.message("delete.variable.declaration"));
       panel.add(myCbDeleteVariable, gbConstraints);
       if (myIsInvokedOnDeclaration) {
         myCbDeleteVariable.setEnabled(false);
@@ -245,6 +246,7 @@ public abstract class IntroduceFieldCentralPanel {
         updateCbDeleteVariable();
         myCbReplaceAll.addItemListener(
                 new ItemListener() {
+                  @Override
                   public void itemStateChanged(ItemEvent e) {
                     updateCbDeleteVariable();
                   }
@@ -258,7 +260,7 @@ public abstract class IntroduceFieldCentralPanel {
   public void appendOccurrences(ItemListener itemListener, GridBagConstraints gbConstraints, JPanel panel) {
     if (myOccurrencesCount > 1) {
       myCbReplaceAll = new NonFocusableCheckBox();
-      myCbReplaceAll.setText(RefactoringBundle.message("replace.all.occurrences.of.expression.0.occurrences", myOccurrencesCount));
+      myCbReplaceAll.setText(JavaRefactoringBundle.message("replace.all.occurrences.of.expression.0.occurrences", myOccurrencesCount));
       gbConstraints.gridy++;
       panel.add(myCbReplaceAll, gbConstraints);
       myCbReplaceAll.addItemListener(itemListener);
@@ -328,7 +330,7 @@ public abstract class IntroduceFieldCentralPanel {
     }
   }
 
-  protected abstract boolean updateInitializationPlaceModel(boolean initializedInsetup, boolean initializedInConstructor);
+  protected abstract boolean updateInitializationPlaceModel(boolean initializedInsetup, boolean initializedInConstructor, boolean locals);
 
   protected abstract boolean hasSetUpChoice();
 }

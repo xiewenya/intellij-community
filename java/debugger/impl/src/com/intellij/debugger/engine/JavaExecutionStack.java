@@ -1,7 +1,7 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
-import com.intellij.debugger.DebuggerBundle;
+import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.actions.AsyncStacksToggleAction;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
@@ -10,19 +10,20 @@ import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.ThreadGroupReferenceProxyImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.debugger.memory.utils.StackFrameItem;
-import com.intellij.debugger.ui.breakpoints.StackCapturingLineBreakpoint;
+import com.intellij.debugger.ui.breakpoints.BreakpointIntentionAction;
 import com.intellij.debugger.ui.impl.watch.MethodsTracker;
 import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl;
+import com.intellij.debugger.ui.tree.render.DescriptorLabelListener;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.ColoredTextContainer;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xdebugger.frame.XExecutionStack;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
-import com.sun.jdi.Location;
+import com.sun.jdi.Method;
 import com.sun.jdi.ThreadReference;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,9 +33,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-/**
- * @author egor
- */
 public class JavaExecutionStack extends XExecutionStack {
   private static final Logger LOG = Logger.getInstance(JavaExecutionStack.class);
 
@@ -89,14 +87,19 @@ public class JavaExecutionStack extends XExecutionStack {
   @NotNull
   public XStackFrame createStackFrame(@NotNull StackFrameProxyImpl stackFrameProxy) {
     StackFrameDescriptorImpl descriptor = new StackFrameDescriptorImpl(stackFrameProxy, myTracker);
-    DebugProcessImpl debugProcess = (DebugProcessImpl)descriptor.getDebugProcess();
-    Location location = descriptor.getLocation();
-    if (location != null) {
-      XStackFrame customFrame = debugProcess.getPositionManager().createStackFrame(stackFrameProxy, debugProcess, location);
-      if (customFrame != null) {
-        return customFrame;
+
+    if (descriptor.getUiIndex() == 1 && myTopFrame instanceof JavaStackFrame) {
+      Method method = descriptor.getMethod();
+      if (method != null) {
+        ((JavaStackFrame)myTopFrame).getDescriptor().putUserData(BreakpointIntentionAction.CALLER_KEY, DebuggerUtilsEx.methodKey(method));
       }
     }
+
+    XStackFrame customFrame = myDebugProcess.getPositionManager().createStackFrame(descriptor);
+    if (customFrame != null) {
+      return customFrame;
+    }
+
     return new JavaStackFrame(descriptor, true);
   }
 
@@ -119,11 +122,12 @@ public class JavaExecutionStack extends XExecutionStack {
       @Override
       public void contextAction(@NotNull SuspendContextImpl suspendContext) {
         if (container.isObsolete()) return;
-        if (!myThreadProxy.isCollected() && myDebugProcess.getSuspendManager().isSuspended(myThreadProxy)) {
-          int status = myThreadProxy.status();
-          if (!(status == ThreadReference.THREAD_STATUS_UNKNOWN) &&
-              !(status == ThreadReference.THREAD_STATUS_NOT_STARTED) &&
-              !(status == ThreadReference.THREAD_STATUS_ZOMBIE)) {
+        int status = myThreadProxy.status();
+        if (status == ThreadReference.THREAD_STATUS_ZOMBIE) {
+          container.errorOccurred(JavaDebuggerBundle.message("frame.panel.thread.finished"));
+        }
+        else if (!myThreadProxy.isCollected() && myDebugProcess.getSuspendManager().isSuspended(myThreadProxy)) {
+          if (!(status == ThreadReference.THREAD_STATUS_UNKNOWN) && !(status == ThreadReference.THREAD_STATUS_NOT_STARTED)) {
             try {
               int added = 0;
               Iterator<StackFrameProxyImpl> iterator = myThreadProxy.frames().iterator();
@@ -131,7 +135,8 @@ public class JavaExecutionStack extends XExecutionStack {
                 iterator.next();
                 added++;
               }
-              myDebugProcess.getManagerThread().schedule(new AppendFrameCommand(suspendContext, iterator, container, added, firstFrameIndex));
+              myDebugProcess.getManagerThread().schedule(
+                new AppendFrameCommand(suspendContext, iterator, container, added, firstFrameIndex, null));
             }
             catch (EvaluateException e) {
               container.errorOccurred(e.getMessage());
@@ -139,7 +144,7 @@ public class JavaExecutionStack extends XExecutionStack {
           }
         }
         else {
-          container.errorOccurred(DebuggerBundle.message("frame.panel.frames.not.available"));
+          container.errorOccurred(JavaDebuggerBundle.message("frame.panel.frames.not.available"));
         }
       }
     });
@@ -150,22 +155,31 @@ public class JavaExecutionStack extends XExecutionStack {
     private final XStackFrameContainer myContainer;
     private int myAdded;
     private final int mySkip;
+    private final List<? extends StackFrameItem> myAsyncStack;
 
-    public AppendFrameCommand(SuspendContextImpl suspendContext,
-                              Iterator<StackFrameProxyImpl> stackFramesIterator,
-                              XStackFrameContainer container,
-                              int added,
-                              int skip) {
+    AppendFrameCommand(SuspendContextImpl suspendContext,
+                       Iterator<StackFrameProxyImpl> stackFramesIterator,
+                       XStackFrameContainer container,
+                       int added,
+                       int skip,
+                       List<? extends StackFrameItem> asyncStack) {
       super(suspendContext);
       myStackFramesIterator = stackFramesIterator;
       myContainer = container;
       myAdded = added;
       mySkip = skip;
+      myAsyncStack = asyncStack;
     }
 
     @Override
     public Priority getPriority() {
-      return myAdded <= 10 ? Priority.NORMAL : Priority.LOW;
+      return myAdded <= StackFrameProxyImpl.FRAMES_BATCH_MAX? Priority.NORMAL : Priority.LOW;
+    }
+
+    private void addFrameIfNeeded(XStackFrame frame, boolean last) {
+      if (++myAdded > mySkip) {
+        myContainer.addStackFrames(Collections.singletonList(frame), last);
+      }
     }
 
     @Override
@@ -188,54 +202,68 @@ public class JavaExecutionStack extends XExecutionStack {
           }
         }
         if (first || showFrame(frame)) {
-          if (++myAdded > mySkip) {
-            myContainer.addStackFrames(Collections.singletonList(frame), false);
+          if (frame instanceof JavaStackFrame) {
+            ((JavaStackFrame)frame).getDescriptor().updateRepresentation(null, DescriptorLabelListener.DUMMY_LISTENER);
           }
+          addFrameIfNeeded(frame, false);
         }
 
         // replace the rest with the related stack (if available)
-        if (frame instanceof JavaStackFrame
-            && AsyncStacksToggleAction.isAsyncStacksEnabled((XDebugSessionImpl)myDebugProcess.getXdebugProcess().getSession())) {
-          List<StackFrameItem> relatedStack = StackCapturingLineBreakpoint.getRelatedStack(frameProxy, suspendContext, true);
-          if (!ContainerUtil.isEmpty(relatedStack)) {
-            int i = 0;
-            boolean separator = true;
-            for (StackFrameItem stackFrame : relatedStack) {
-              if (i > StackCapturingLineBreakpoint.MAX_STACK_LENGTH) {
-                myContainer.addStackFrames(Collections.singletonList(new XStackFrame() {
-                  @Override
-                  public void customizePresentation(@NotNull ColoredTextContainer component) {
-                    component.append("Too many frames, the rest is truncated...", SimpleTextAttributes.REGULAR_ITALIC_ATTRIBUTES);
-                  }
-                }), true);
-                return;
-              }
-              i++;
-              if (stackFrame == null) {
-                separator = true;
-                continue;
-              }
-              StackFrameItem.CapturedStackFrame newFrame = stackFrame.createFrame(myDebugProcess);
-              if (showFrame(newFrame)) {
-                newFrame.setWithSeparator(separator);
-                myContainer.addStackFrames(Collections.singletonList(newFrame), false);
-                separator = false;
-              }
+        if (myAsyncStack != null) {
+          appendRelatedStack(myAsyncStack);
+          return;
+        }
+
+        List<StackFrameItem> relatedStack = null;
+        if (AsyncStacksToggleAction.isAsyncStacksEnabled(
+          (XDebugSessionImpl)suspendContext.getDebugProcess().getXdebugProcess().getSession()) &&
+            frame instanceof JavaStackFrame) {
+          for (AsyncStackTraceProvider asyncStackTraceProvider : AsyncStackTraceProvider.EP.getExtensionList()) {
+            relatedStack = asyncStackTraceProvider.getAsyncStackTrace(((JavaStackFrame)frame), suspendContext);
+            if (relatedStack != null) {
+              appendRelatedStack(relatedStack);
+              return;
             }
-            myContainer.addStackFrames(Collections.emptyList(), true);
-            return;
           }
-          else {
-            ((JavaStackFrame)frame).setInsertCapturePoint(StackCapturingLineBreakpoint.getMatchingDisabledInsertionPoint(frameProxy));
-          }
+          // append agent stack after the next frame
+          relatedStack = AsyncStacksUtils.getAgentRelatedStack(frameProxy, suspendContext);
         }
 
         myDebugProcess.getManagerThread().schedule(
-          new AppendFrameCommand(suspendContext, myStackFramesIterator, myContainer, myAdded, mySkip));
+          new AppendFrameCommand(suspendContext, myStackFramesIterator, myContainer, myAdded, mySkip, relatedStack));
       }
       else {
-        myContainer.addStackFrames(Collections.<JavaStackFrame>emptyList(), true);
+        myContainer.addStackFrames(Collections.emptyList(), true);
       }
+    }
+
+    void appendRelatedStack(@NotNull List<? extends StackFrameItem> asyncStack) {
+      int i = 0;
+      boolean separator = true;
+      for (StackFrameItem stackFrame : asyncStack) {
+        if (myContainer.isObsolete()) return;
+        if (i > AsyncStacksUtils.getMaxStackLength()) {
+          addFrameIfNeeded(new XStackFrame() {
+            @Override
+            public void customizePresentation(@NotNull ColoredTextContainer component) {
+              component.append(JavaDebuggerBundle.message("label.too.many.frames.rest.truncated"), SimpleTextAttributes.REGULAR_ITALIC_ATTRIBUTES);
+            }
+          }, true);
+          return;
+        }
+        i++;
+        if (stackFrame == null) {
+          separator = true;
+          continue;
+        }
+        XStackFrame newFrame = stackFrame.createFrame(myDebugProcess);
+        if (showFrame(newFrame)) {
+          StackFrameItem.setWithSeparator(newFrame, separator);
+          addFrameIfNeeded(newFrame, false);
+          separator = false;
+        }
+      }
+      myContainer.addStackFrames(Collections.emptyList(), true);
     }
   }
 
@@ -248,7 +276,7 @@ public class JavaExecutionStack extends XExecutionStack {
     return true;
   }
 
-  private static String calcRepresentation(ThreadReferenceProxyImpl thread) {
+  private static @NlsContexts.ListItem String calcRepresentation(ThreadReferenceProxyImpl thread) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     String name = thread.name();
     ThreadGroupReferenceProxyImpl gr = thread.threadGroupProxy();
@@ -256,9 +284,9 @@ public class JavaExecutionStack extends XExecutionStack {
     final String threadStatusText = DebuggerUtilsEx.getThreadStatusText(thread.status());
     //noinspection HardCodedStringLiteral
     if (grname != null && !"SYSTEM".equalsIgnoreCase(grname)) {
-      return DebuggerBundle.message("label.thread.node.in.group", name, thread.uniqueID(), threadStatusText, grname);
+      return JavaDebuggerBundle.message("label.thread.node.in.group", name, thread.uniqueID(), threadStatusText, grname);
     }
-    return DebuggerBundle.message("label.thread.node", name, thread.uniqueID(), threadStatusText);
+    return JavaDebuggerBundle.message("label.thread.node", name, thread.uniqueID(), threadStatusText);
   }
 
   @Override

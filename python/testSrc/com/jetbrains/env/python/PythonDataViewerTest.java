@@ -20,7 +20,6 @@ import com.intellij.util.Consumer;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerTestUtil;
 import com.jetbrains.env.PyEnvTestCase;
-import com.jetbrains.env.Staging;
 import com.jetbrains.env.python.debug.PyDebuggerTask;
 import com.jetbrains.python.debugger.ArrayChunk;
 import com.jetbrains.python.debugger.PyDebugValue;
@@ -53,8 +52,8 @@ public class PythonDataViewerTest extends PyEnvTestCase {
         doTest("df3", 7, 3, arrayChunk -> {
           ArrayChunk.ColHeader header = arrayChunk.getColHeaders().get(2);
           assertEquals("Sales", header.getLabel());
-          assertEquals(16, (int)Integer.valueOf(header.getMax()));
-          assertEquals(1, (int)Integer.valueOf(header.getMin()));
+          assertEquals(16, Float.valueOf(header.getMax()).intValue());
+          assertEquals(1, Float.valueOf(header.getMin()).intValue());
         });
       }
     });
@@ -76,7 +75,6 @@ public class PythonDataViewerTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
   public void testSeries() {
     runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_series.py", ImmutableSet.of(7)) {
       @Override
@@ -89,11 +87,117 @@ public class PythonDataViewerTest extends PyEnvTestCase {
     });
   }
 
+  @Test
+  public void testPandasRepeatingColumnNames() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_pandas_repeating_column_names.py",
+                                              ImmutableSet.of(7)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("c", 10, 2, (varName, session) -> getChunk(varName, "%d", session), arrayChunk -> {
+          for (ArrayChunk.ColHeader header : arrayChunk.getColHeaders())
+            assertEquals("A", header.getLabel());
+          Object[][] data = arrayChunk.getData();
+          assertEquals("'0'", data[0][0].toString());
+          assertEquals("'0'", data[0][1].toString());
+          assertEquals("'6'", data[6][0].toString());
+          assertEquals("'9'", data[9][0].toString());
+        });
+      }
+    });
+  }
+
+  @Test
+  public void testDataFrameFloatFormatting() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_dataframe.py", ImmutableSet.of(7)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("df1", 3, 5, (varName, session) -> getChunk(varName, "%.2f", session), arrayChunk -> {
+          Object[][] data = arrayChunk.getData();
+          assertEquals("'1.10'", data[0][1].toString());
+          assertEquals("'1.22'", data[1][4].toString());
+          assertEquals("'2019.00'", data[1][2].toString());
+          assertEquals("'1.00'", data[2][3].toString());
+        });
+      }
+    });
+  }
+
+  @Test
+  public void testDataFrameDefaultFormatting() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_dataframe.py", ImmutableSet.of(7)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("df1", 3, 5, (varName, session) -> getChunk(varName, "%", session), arrayChunk -> {
+          Object[][] data = arrayChunk.getData();
+          assertEquals("'1.10000'", data[0][1].toString());
+          assertEquals("'1.22000'", data[1][4].toString());
+          assertEquals("'2019'", data[1][2].toString());
+          assertEquals("'True'", data[2][3].toString());
+        });
+      }
+    });
+  }
+
+  @Test
+  public void testSeriesFormatting() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_series.py", ImmutableSet.of(7)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("series", 4, 1, (varName, session) -> getChunk(varName, "%03d", session), arrayChunk -> {
+          Object[][] data = arrayChunk.getData();
+          assertEquals("'000'", data[0][0].toString());
+          assertEquals("'002'", data[1][0].toString());
+          assertEquals("'004'", data[2][0].toString());
+          assertEquals("'006'", data[3][0].toString());
+        });
+      }
+    });
+  }
+
+  @Test
+  public void testLabelWithPercentSign() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_dataframe.py", ImmutableSet.of(33)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("df5", 10, 1, chunk -> {
+          final List<ArrayChunk.ColHeader> labels = chunk.getColHeaders();
+          assertEquals(1, labels.size());
+          assertEquals("foo_%", labels.get(0).getLabel());
+        });
+      }
+    });
+  }
+
+  @Test
+  public void testTuples() {
+    runPythonTest(new PyDataFrameDebuggerTask(getRelativeTestDataPath(), "test_dataframe_tuple.py", ImmutableSet.of(5)) {
+      @Override
+      public void testing() throws Exception {
+        doTest("df1", 3, 3, chunk -> {
+          final Object[][] data = chunk.getData();
+
+          assertEquals("'{1: (1, 2)}'", data[0][1].toString());
+          assertEquals("'{2: (3,)}'", data[1][1].toString());
+          assertEquals("'{4: 5}'", data[2][1].toString());
+
+          assertEquals("'(1, 2, 3)'", data[0][2].toString());
+          assertEquals("'()'", data[1][2].toString());
+          assertEquals("'(4,)'", data[2][2].toString());
+        });
+      }
+    });
+  }
+
   private static class PyDataFrameDebuggerTask extends PyDebuggerTask {
 
     private final Set<Integer> myLines;
 
-    public PyDataFrameDebuggerTask(@Nullable String relativeTestDataPath, String scriptName, Set<Integer> lines) {
+    @FunctionalInterface
+    private interface ChunkSupplier {
+      ArrayChunk supply(String varName, XDebugSession session) throws PyDebuggerException;
+    }
+
+    PyDataFrameDebuggerTask(@Nullable String relativeTestDataPath, String scriptName, Set<Integer> lines) {
       super(relativeTestDataPath, scriptName);
       myLines = lines;
     }
@@ -105,13 +209,18 @@ public class PythonDataViewerTest extends PyEnvTestCase {
 
     protected void doTest(String name, int expectedRows, int expectedColumns, @Nullable Consumer<ArrayChunk> test)
       throws InterruptedException, PyDebuggerException {
-      waitForPause();
-      ArrayChunk arrayChunk = getDefaultChunk(name, mySession);
-      testShape(arrayChunk, expectedRows, expectedColumns);
-      if (test != null) {
-        test.consume(arrayChunk);
-      }
-      resume();
+      doTest(name, expectedRows, expectedColumns, PythonDataViewerTest::getDefaultChunk, test);
+    }
+
+    protected void doTest(String name, int expectedRows, int expectedColumns, @NotNull ChunkSupplier getChunk,
+                          @Nullable Consumer<ArrayChunk> test) throws InterruptedException, PyDebuggerException {
+        waitForPause();
+        ArrayChunk arrayChunk = getChunk.supply(name, mySession);
+        testShape(arrayChunk, expectedRows, expectedColumns);
+        if (test != null) {
+          test.consume(arrayChunk);
+        }
+        resume();
     }
 
     @Override
@@ -129,8 +238,12 @@ public class PythonDataViewerTest extends PyEnvTestCase {
   }
 
   private static ArrayChunk getDefaultChunk(String varName, XDebugSession session) throws PyDebuggerException {
+    return getChunk(varName, "%.5f", session);
+  }
+
+  private static ArrayChunk getChunk(String varName, String format, XDebugSession session) throws PyDebuggerException {
     PyDebugValue dbgVal = (PyDebugValue)XDebuggerTestUtil.evaluate(session, varName).first;
-    return dbgVal.getFrameAccessor().getArrayItems(dbgVal, 0, 0, -1, -1, ".%5f");
+    return dbgVal.getFrameAccessor().getArrayItems(dbgVal, 0, 0, -1, -1, format);
   }
 
   private static String getRelativeTestDataPath() {

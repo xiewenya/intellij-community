@@ -17,19 +17,19 @@ package com.intellij.refactoring.introduceVariable;
 
 import com.intellij.codeInsight.intention.impl.TypeExpression;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
+import com.intellij.java.JavaBundle;
+import com.intellij.java.refactoring.JavaRefactoringBundle;
 import com.intellij.openapi.actionSystem.Shortcut;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ScrollType;
-import com.intellij.openapi.keymap.Keymap;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
@@ -66,6 +66,7 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
   private SmartPsiElementPointer<? extends PsiElement> myPointer;
 
   private JCheckBox myCanBeFinalCb;
+  private JCheckBox myCanBeVarTypeCb;
   private final IntroduceVariableSettings mySettings;
   private final SmartPsiElementPointer<PsiElement> myChosenAnchor;
   private final boolean myCantChangeFinalModifier;
@@ -76,6 +77,7 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
   private boolean myDeleteSelf = true;
   private final boolean mySkipTypeExpressionOnStart;
   private final PsiFile myFile;
+  private final boolean myCanBeVarType;
 
   public JavaVariableInplaceIntroducer(final Project project,
                                        IntroduceVariableSettings settings, PsiElement chosenAnchor, final Editor editor,
@@ -83,7 +85,7 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
                                        final boolean cantChangeFinalModifier,
                                        final PsiExpression[] occurrences,
                                        final TypeSelectorManagerImpl selectorManager,
-                                       final String title) {
+                                       final @NlsContexts.Command String title) {
     super(project, editor, RefactoringUtil.outermostParenthesizedExpression(expr), null, occurrences, selectorManager, title);
     mySettings = settings;
     myChosenAnchor = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(chosenAnchor);
@@ -98,8 +100,10 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     final List<RangeMarker> rangeMarkers = getOccurrenceMarkers();
     editor.putUserData(ReassignVariableUtil.OCCURRENCES_KEY,
                        rangeMarkers.toArray(new RangeMarker[0]));
-    myReplaceSelf = myExpr.getParent() instanceof PsiExpressionStatement;
+    PsiElement parent = myExpr.getParent();
+    myReplaceSelf = parent instanceof PsiExpressionStatement && !(parent.getParent() instanceof PsiSwitchLabeledRuleStatement);
     mySkipTypeExpressionOnStart = !(myExpr instanceof PsiFunctionalExpression && myReplaceSelf);
+    myCanBeVarType = IntroduceVariableBase.canBeExtractedWithoutExplicitType(myExpr);
   }
 
   @Override
@@ -116,12 +120,19 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     super.beforeTemplateStart();
   }
 
+  @Override
   @Nullable
   protected PsiVariable getVariable() {
     final PsiElement declarationStatement = myPointer != null ? myPointer.getElement() : null;
     if (declarationStatement instanceof PsiDeclarationStatement) {
       PsiElement[] declaredElements = ((PsiDeclarationStatement)declarationStatement).getDeclaredElements();
       return declaredElements.length == 0 ? null : (PsiVariable)declaredElements[0];
+    }
+    else if (declarationStatement instanceof PsiInstanceOfExpression) {
+      PsiPattern pattern = ((PsiInstanceOfExpression)declarationStatement).getPattern();
+      if (pattern instanceof PsiTypeTestPattern) {
+        return ((PsiTypeTestPattern)pattern).getPatternVariable();
+      }
     }
     return declarationStatement instanceof PsiVariable ? (PsiVariable)declarationStatement : null;
   }
@@ -182,10 +193,14 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     if (psiVariable == null) {
       return;
     }
-    
+
     TypeSelectorManagerImpl.typeSelected(psiVariable.getType(), myTypeSelectorManager.getDefaultType());
     if (myCanBeFinalCb != null) {
       JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_FINALS = psiVariable.hasModifierProperty(PsiModifier.FINAL);
+    }
+
+    if (myCanBeVarTypeCb != null) {
+      JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_VAR_TYPE = myCanBeVarTypeCb.isSelected();
     }
 
     final Document document = myEditor.getDocument();
@@ -231,10 +246,13 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     return handler instanceof IntroduceVariableHandler && super.startsOnTheSameElement(handler, element);
   }
 
+  @Override
   @Nullable
   protected JComponent getComponent() {
+    if (getVariable() instanceof PsiPatternVariable) return null;
+    if (myCantChangeFinalModifier && !(myCanBeVarType && getVariable() instanceof PsiLocalVariable)) return null;
     if (!myCantChangeFinalModifier) {
-      myCanBeFinalCb = new NonFocusableCheckBox("Declare final");
+      myCanBeFinalCb = new NonFocusableCheckBox(JavaRefactoringBundle.message("declare.final"));
       myCanBeFinalCb.setSelected(createFinals());
       myCanBeFinalCb.setMnemonic('f');
       final FinalListener finalListener = new FinalListener(myEditor);
@@ -247,27 +265,57 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
             if (variable != null) {
               finalListener.perform(myCanBeFinalCb.isSelected(), variable);
             }
-            ;
           });
         }
       });
-    } else {
-      return null;
     }
+
+    if (myCanBeVarType && getVariable() instanceof PsiLocalVariable) {
+      myCanBeVarTypeCb = new NonFocusableCheckBox(JavaRefactoringBundle.message("declare.var.type"));
+      myCanBeVarTypeCb.setSelected(IntroduceVariableBase.createVarType());
+      myCanBeVarTypeCb.addActionListener(new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+           WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).withGroupId(getCommandName()).run(() -> {
+            final PsiVariable variable = getVariable();
+            if (variable != null) {
+              PsiTypeElement typeElement = variable.getTypeElement();
+              LOG.assertTrue(typeElement != null);
+              if (myCanBeVarTypeCb.isSelected()) {
+                IntroduceVariableBase.expandDiamondsAndReplaceExplicitTypeWithVar(typeElement, variable);
+              }
+              else {
+                typeElement = PsiTypesUtil.replaceWithExplicitType(typeElement);
+                if (typeElement != null) { //simplify as it was before `var`
+                  IntroduceVariableBase.simplifyVariableInitializer(variable.getInitializer(), typeElement.getType());
+                }
+              }
+            }
+          });
+        }
+      });
+    }
+
     final JPanel panel = new JPanel(new GridBagLayout());
     panel.setBorder(null);
 
+    GridBagConstraints gridBagConstraints = new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
+                                                            JBUI.insets(5), 0, 0);
     if (myCanBeFinalCb != null) {
-      panel.add(myCanBeFinalCb, new GridBagConstraints(0, 1, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
-                                                       JBUI.insets(5), 0, 0));
+      panel.add(myCanBeFinalCb, gridBagConstraints);
     }
 
-    panel.add(Box.createVerticalBox(), new GridBagConstraints(0, 2, 1, 1, 1, 1, GridBagConstraints.NORTHWEST, GridBagConstraints.BOTH,
-                                                              JBUI.emptyInsets(), 0, 0));
+    if (myCanBeVarTypeCb != null) {
+      panel.add(myCanBeVarTypeCb, gridBagConstraints);
+    }
+
+    gridBagConstraints.fill = GridBagConstraints.BOTH;
+    panel.add(Box.createVerticalBox(), gridBagConstraints);
 
     return panel;
   }
 
+  @Override
   protected void addAdditionalVariables(TemplateBuilderImpl builder) {
     final PsiVariable variable = getVariable();
     if (variable != null) {
@@ -340,7 +388,7 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     LOG.assertTrue(initializer != null);
     final PsiType type = psiVariable.getType();
     final PsiType initializerType = initializer.getType();
-    if (initializerType != null && 
+    if (initializerType != null &&
         !TypeConversionUtil.isAssignable(type, initializerType) &&
         !PsiTypesUtil.hasUnresolvedComponents(type)) {
       final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
@@ -351,21 +399,20 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
   }
 
   @Nullable
-  private static String getAdvertisementText(final PsiDeclarationStatement declaration,
-                                             final PsiType type,
-                                             final boolean hasTypeSuggestion) {
+  private static @NlsContexts.PopupAdvertisement String getAdvertisementText(final PsiDeclarationStatement declaration,
+                                                                             final PsiType type,
+                                                                             final boolean hasTypeSuggestion) {
     final VariablesProcessor processor = ReassignVariableUtil.findVariablesOfType(declaration, type);
-    final Keymap keymap = KeymapManager.getInstance().getActiveKeymap();
     if (processor.size() > 0) {
-      final Shortcut[] shortcuts = keymap.getShortcuts("IntroduceVariable");
-      if (shortcuts.length > 0) {
-        return "Press " + KeymapUtil.getShortcutText(shortcuts[0]) + " to reassign existing variable";
+      final Shortcut shortcut = KeymapUtil.getPrimaryShortcut("IntroduceVariable");
+      if (shortcut != null) {
+        return JavaBundle.message("introduce.variable.reassign.adv", KeymapUtil.getShortcutText(shortcut));
       }
     }
     if (hasTypeSuggestion) {
-      final Shortcut[] shortcuts = keymap.getShortcuts("PreviousTemplateVariable");
-      if  (shortcuts.length > 0) {
-        return "Press " + KeymapUtil.getShortcutText(shortcuts[0]) + " to change type";
+      final Shortcut shortcut = KeymapUtil.getPrimaryShortcut("PreviousTemplateVariable");
+      if (shortcut != null) {
+        return JavaBundle.message("introduce.variable.change.type.adv", KeymapUtil.getShortcutText(shortcut));
       }
     }
     return null;
@@ -395,6 +442,8 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
       variable = restoredVar;
     }
 
+    if (variable == null) return null;
+
     if (isReplaceAllOccurrences()) {
       List<RangeMarker> occurrences = new ArrayList<>();
       ReferencesSearch.search(variable).forEach(reference -> {
@@ -420,12 +469,19 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
     return variable;
   }
 
+  @Nullable
   protected PsiVariable introduceVariable() {
-    PsiVariable variable = IntroduceVariableBase
-      .introduce(myProject, myExpr, myEditor, myChosenAnchor.getElement(), getOccurrences(), mySettings);
+    PsiElement anchor = myChosenAnchor.getElement();
+    if (anchor == null) return null;
+    PsiVariable variable = VariableExtractor.introduce(myProject, myExpr, myEditor, anchor, getOccurrences(), mySettings);
     SmartPointerManager smartPointerManager = SmartPointerManager.getInstance(myProject);
-    if (variable instanceof PsiField) {
+    if (variable instanceof PsiField || variable instanceof PsiResourceVariable) {
       myPointer = smartPointerManager.createSmartPsiElementPointer(variable);
+    }
+    else if (variable instanceof PsiPatternVariable) {
+      PsiElement parent = ((PsiPatternVariable)variable).getPattern().getParent();
+      LOG.assertTrue(parent instanceof PsiInstanceOfExpression);
+      myPointer = smartPointerManager.createSmartPsiElementPointer(parent);
     }
     else {
       final PsiDeclarationStatement declarationStatement = PsiTreeUtil.getParentOfType(variable, PsiDeclarationStatement.class);
@@ -437,8 +493,9 @@ public class JavaVariableInplaceIntroducer extends AbstractJavaInplaceIntroducer
       }
     }
 
+    SmartPsiElementPointer<PsiVariable> pointer = variable == null ? null : smartPointerManager.createSmartPsiElementPointer(variable);
     PsiDocumentManager.getInstance(myProject).doPostponedOperationsAndUnblockDocument(myEditor.getDocument());
-    return variable;
+    return pointer == null ? null : pointer.getElement();
   }
 
   @Override

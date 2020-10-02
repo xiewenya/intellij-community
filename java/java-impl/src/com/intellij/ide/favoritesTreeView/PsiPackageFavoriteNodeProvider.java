@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.favoritesTreeView;
 
@@ -47,7 +33,7 @@ import java.util.Set;
 
 public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
   @Override
-  public Collection<AbstractTreeNode> getFavoriteNodes(final DataContext context, final ViewSettings viewSettings) {
+  public Collection<AbstractTreeNode<?>> getFavoriteNodes(final DataContext context, @NotNull final ViewSettings viewSettings) {
     final Project project = CommonDataKeys.PROJECT.getData(context);
     if (project == null) return null;
     PsiElement[] elements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(context);
@@ -57,7 +43,7 @@ public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
         elements = new PsiElement[]{element};
       }
     }
-    final Collection<AbstractTreeNode> result = new ArrayList<>();
+    final Collection<AbstractTreeNode<?>> result = new ArrayList<>();
     if (elements != null) {
       for (PsiElement element : elements) {
         if (element instanceof PsiPackage) {
@@ -101,9 +87,9 @@ public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
   }
 
   @Override
-  public AbstractTreeNode createNode(final Project project, final Object element, final ViewSettings viewSettings) {
+  public AbstractTreeNode createNode(final Project project, final Object element, @NotNull final ViewSettings viewSettings) {
     if (element instanceof PackageElement) {
-      return new PackageElementNode(project, element, viewSettings);
+      return new PackageElementNode(project, (PackageElement)element, viewSettings);
     }
     return super.createNode(project, element, viewSettings);
   }
@@ -113,7 +99,7 @@ public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
     if (element instanceof PackageElement) {
       final Set<Boolean> find = new HashSet<>();
       final ContentIterator contentIterator = fileOrDir -> {
-        if (fileOrDir != null && fileOrDir.getPath().equals(vFile.getPath())) {
+        if (fileOrDir.getPath().equals(vFile.getPath())) {
           find.add(Boolean.TRUE);
         }
         return true;
@@ -143,9 +129,9 @@ public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
   @Override
   public String getElementLocation(final Object element) {
     if (element instanceof PackageElement) {
-      final PackageElement packageElement = ((PackageElement)element);
+      final PackageElement packageElement = (PackageElement)element;
       final Module module = packageElement.getModule();
-      return (module != null ? (module.getName() + ":") : "") + packageElement.getPackage().getQualifiedName();
+      return (module != null ? module.getName() + ":" : "") + packageElement.getPackage().getQualifiedName();
     }
     return null;
   }
@@ -166,7 +152,6 @@ public class PsiPackageFavoriteNodeProvider extends FavoriteNodeProvider {
     if (element instanceof PackageElement) {
       PackageElement packageElement = (PackageElement)element;
       PsiPackage aPackage = packageElement.getPackage();
-      if (aPackage == null) return null;
       return aPackage.getQualifiedName();
     }
     return null;

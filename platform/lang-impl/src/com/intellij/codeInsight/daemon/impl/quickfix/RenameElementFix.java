@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
+import com.intellij.codeInspection.util.IntentionName;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -37,7 +24,7 @@ public class RenameElementFix extends LocalQuickFixAndIntentionActionOnPsiElemen
   private static final Logger LOG = Logger.getInstance(RenameElementFix.class);
 
   private final String myNewName;
-  private final String myText;
+  private final @IntentionName String myText;
 
   public RenameElementFix(@NotNull PsiNamedElement element) {
     super(element);
@@ -48,9 +35,13 @@ public class RenameElementFix extends LocalQuickFixAndIntentionActionOnPsiElemen
   }
 
   public RenameElementFix(@NotNull PsiNamedElement element, @NotNull String newName) {
+    this(element, newName, CodeInsightBundle.message("rename.named.element.text", element.getName(), newName));
+  }
+
+  public RenameElementFix(@NotNull PsiNamedElement element, @NotNull String newName, @NotNull @IntentionName String text) {
     super(element);
     myNewName = newName;
-    myText = CodeInsightBundle.message("rename.named.element.text", element.getName(), myNewName);
+    myText = text;
   }
 
   @Override
@@ -68,7 +59,7 @@ public class RenameElementFix extends LocalQuickFixAndIntentionActionOnPsiElemen
   @Override
   public void invoke(@NotNull Project project,
                      @NotNull PsiFile file,
-                     @Nullable("is null when called from inspection") Editor editor,
+                     @Nullable Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
     if (isAvailable(project, null, file)) {

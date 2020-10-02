@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.jarRepository.services.bintray;
 
 import com.google.gson.Gson;
@@ -7,7 +7,6 @@ import com.intellij.jarRepository.RemoteRepositoryDescription;
 import com.intellij.jarRepository.RepositoryArtifactDescription;
 import com.intellij.util.ThrowableConsumer;
 import com.intellij.util.io.HttpRequests;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -15,7 +14,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.HttpURLConnection;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -28,6 +29,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.intellij.openapi.util.text.StringUtil.*;
+import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 
 /**
@@ -54,7 +56,7 @@ public class BintrayEndpoint {
         request.getConnection();
       }
       catch (HttpRequests.HttpStatusException e) {
-        if (e.getStatusCode() == HttpResponseStatus.NOT_FOUND.code()) {
+        if (e.getStatusCode() == HttpURLConnection.HTTP_NOT_FOUND) {
           return null;
         }
         throw e;
@@ -81,7 +83,7 @@ public class BintrayEndpoint {
         return result;
       }
       catch (HttpRequests.HttpStatusException e) {
-        if (e.getStatusCode() == HttpResponseStatus.UNAUTHORIZED.code()) {
+        if (e.getStatusCode() == HttpURLConnection.HTTP_UNAUTHORIZED) {
           return emptyList();
         }
         throw e;
@@ -105,12 +107,7 @@ public class BintrayEndpoint {
       return emptyList();
     }
 
-    if (isNotEmpty(groupIdTemplate)) {
-      urlBuilder.append("&g=*").append(groupIdTemplate).append("*");
-    }
-    if (isNotEmpty(artifactIdTemplate)) {
-      urlBuilder.append("&a=*").append(artifactIdTemplate).append("*");
-    }
+    urlBuilder.append("&q=*").append(join(asList(groupIdTemplate, artifactIdTemplate), ":")).append("*");
 
     List<RepositoryArtifactDescription> artifacts = new ArrayList<>();
     executeRequest(urlBuilder.toString(), BintrayModel.Package[].class, packages -> {
@@ -205,7 +202,7 @@ public class BintrayEndpoint {
         if (useThreadPool) {
           ExecutorService executorService = Executors.newFixedThreadPool(threadsCount);
           for (int i = 0; i < threadsCount; i++) {
-            executorService.submit(task);
+            executorService.execute(task);
           }
           try {
             cdl.await();
@@ -229,7 +226,7 @@ public class BintrayEndpoint {
   private <Data> void handleRequest(HttpRequests.Request request, Class<Data> responseDataClass,
                                     ThrowableConsumer<Data, IOException> responseHandler) throws IOException {
     try (InputStream in = request.getInputStream();
-         Reader reader = new InputStreamReader(in)) {
+         Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
       Data data = gson.fromJson(reader, responseDataClass);
       responseHandler.consume(data);
     }

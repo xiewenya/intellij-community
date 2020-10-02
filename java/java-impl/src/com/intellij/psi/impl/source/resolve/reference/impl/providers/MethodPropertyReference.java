@@ -17,7 +17,6 @@ package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
 import com.intellij.psi.*;
 import com.intellij.psi.jsp.JspSpiUtil;
-import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
@@ -89,7 +88,7 @@ public class MethodPropertyReference extends BasicAttributeValueReference {
 
 
   @Override
-  public PsiElement handleElementRename(String _newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String _newElementName) throws IncorrectOperationException {
     String newElementName = PropertyUtilBase.getPropertyName(_newElementName);
     if (newElementName == null) newElementName = _newElementName;
 
@@ -97,8 +96,7 @@ public class MethodPropertyReference extends BasicAttributeValueReference {
   }
 
   @Override
-  @NotNull
-  public Object[] getVariants() {
+  public Object @NotNull [] getVariants() {
     return JspSpiUtil.getMethodPropertyReferenceVariants(this, resolveClass(), myReadable);
   }
 

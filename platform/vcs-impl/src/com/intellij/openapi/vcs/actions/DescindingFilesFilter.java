@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.project.Project;
@@ -25,13 +11,12 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-public class DescindingFilesFilter {
+public final class DescindingFilesFilter {
   private DescindingFilesFilter() {
   }
 
-  @NotNull
-  public static FilePath[] filterDescindingFiles(@NotNull FilePath[] roots, Project project) {
-    final List<FilePath> result = new LinkedList<>();
+  public static FilePath @NotNull [] filterDescindingFiles(FilePath @NotNull [] roots, Project project) {
+    final List<FilePath> result = new ArrayList<>();
     ProjectLevelVcsManager manager = ProjectLevelVcsManager.getInstance(project);
 
     Arrays.sort(roots, FilePathComparator.getInstance());
@@ -45,10 +30,10 @@ public class DescindingFilesFilter {
         continue;
       }
       //if (pathsFilter != null && (! pathsFilter.convert(new Pair<FilePath, AbstractVcs>(root, vcs)))) continue;
-      
+
       final List<FilePath> chain = chains.get(vcs.getKeyInstanceMethod());
       if (chain == null) {
-        final LinkedList<FilePath> newList = new LinkedList<>();
+        final List<FilePath> newList = new ArrayList<>();
         newList.add(root);
         chains.put(vcs.getKeyInstanceMethod(), newList);
       } else {
@@ -56,7 +41,7 @@ public class DescindingFilesFilter {
         for (FilePath chainedPath : chain) {
           if (VfsUtilCore.isAncestor(chainedPath.getIOFile(), root.getIOFile(), false)) {
             // do not take this root
-            failed = true;      
+            failed = true;
             break;
           }
         }
@@ -80,6 +65,7 @@ public class DescindingFilesFilter {
       return ourInstance;
     }
 
+    @Override
     public int compare(@NotNull FilePath fp1, @NotNull FilePath fp2) {
       return fp1.getPath().length() - fp2.getPath().length();
     }

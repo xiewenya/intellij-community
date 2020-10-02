@@ -17,8 +17,8 @@ package com.intellij.psi.formatter.java;
 
 import com.intellij.formatting.*;
 import com.intellij.formatting.alignment.AlignmentStrategy;
+import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
@@ -34,8 +34,9 @@ public class LabeledJavaBlock extends AbstractJavaBlock{
                           Alignment alignment,
                           Indent indent,
                           CommonCodeStyleSettings settings,
-                          JavaCodeStyleSettings javaSettings) {
-    super(node, wrap, alignment, indent, settings, javaSettings);
+                          JavaCodeStyleSettings javaSettings,
+                          @NotNull FormattingMode formattingMode) {
+    super(node, wrap, alignment, indent, settings, javaSettings, formattingMode);
   }
 
   @Override
@@ -46,7 +47,7 @@ public class LabeledJavaBlock extends AbstractJavaBlock{
     Wrap currentWrap = null;
     while (child != null) {
       if (!FormatterUtil.containsWhiteSpacesOnly(child) && child.getTextLength() > 0){
-        result.add(createJavaBlock(child, mySettings, myJavaSettings, currentIndent, currentWrap, AlignmentStrategy.getNullStrategy()));
+        result.add(createJavaBlock(child, mySettings, myJavaSettings, currentIndent, currentWrap, AlignmentStrategy.getNullStrategy(), getFormattingMode()));
         if (child.getElementType() == JavaTokenType.COLON) {
           currentIndent = Indent.getNoneIndent();
           currentWrap =Wrap.createWrap(WrapType.ALWAYS, true);
@@ -58,7 +59,7 @@ public class LabeledJavaBlock extends AbstractJavaBlock{
   }
 
   private Indent getLabelIndent() {
-    if (mySettings.getRootSettings().getIndentOptions(StdFileTypes.JAVA).LABEL_INDENT_ABSOLUTE) {
+    if (mySettings.getRootSettings().getIndentOptions(JavaFileType.INSTANCE).LABEL_INDENT_ABSOLUTE) {
       return Indent.getAbsoluteLabelIndent();
     } else {
       return Indent.getLabelIndent();

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.listeners.impl.impl;
 
@@ -26,10 +12,10 @@ import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.refactoring.listeners.RefactoringElementListenerProvider;
 import com.intellij.refactoring.listeners.UndoRefactoringElementListener;
 import com.intellij.refactoring.listeners.impl.RefactoringTransaction;
-import java.util.HashMap;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,26 +23,26 @@ import java.util.Map;
  * @author dsl
  */
 public class RefactoringTransactionImpl implements RefactoringTransaction {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.listeners.impl.impl.RefactoringTransactionImpl");
+  private static final Logger LOG = Logger.getInstance(RefactoringTransactionImpl.class);
 
   /**
    * Actions to be performed at commit.
    */
-  private final ArrayList<Runnable> myRunnables = new ArrayList<>();
-  private final List<RefactoringElementListenerProvider> myListenerProviders;
+  private final List<Runnable> myRunnables = new ArrayList<>();
+  private final List<? extends RefactoringElementListenerProvider> myListenerProviders;
   private final Project myProject;
-  private final Map<PsiElement,ArrayList<RefactoringElementListener>> myOldElementToListenerListMap = new HashMap<>();
+  private final Map<PsiElement,List<RefactoringElementListener>> myOldElementToListenerListMap = new HashMap<>();
   private final Map<PsiElement,RefactoringElementListener> myOldElementToTransactionListenerMap = new HashMap<>();
 
   public RefactoringTransactionImpl(Project project,
-                                    List<RefactoringElementListenerProvider> listenerProviders) {
+                                    List<? extends RefactoringElementListenerProvider> listenerProviders) {
     myListenerProviders = listenerProviders;
     myProject = project;
   }
 
   private void addAffectedElement(PsiElement oldElement) {
     if(myOldElementToListenerListMap.get(oldElement) != null) return;
-    ArrayList<RefactoringElementListener> listenerList = new ArrayList<>();
+    List<RefactoringElementListener> listenerList = new ArrayList<>();
     for (RefactoringElementListenerProvider provider : myListenerProviders) {
       try {
         final RefactoringElementListener listener = provider.getListener(oldElement);
@@ -73,7 +59,7 @@ public class RefactoringTransactionImpl implements RefactoringTransaction {
 
 
   @Override
-  public RefactoringElementListener getElementListener(PsiElement oldElement) {
+  public @NotNull RefactoringElementListener getElementListener(@NotNull PsiElement oldElement) {
     RefactoringElementListener listener =
       myOldElementToTransactionListenerMap.get(oldElement);
     if(listener == null) {
@@ -83,8 +69,8 @@ public class RefactoringTransactionImpl implements RefactoringTransaction {
     return listener;
   }
 
-  private class MyRefactoringElementListener implements RefactoringElementListener, UndoRefactoringElementListener {
-    private final ArrayList<RefactoringElementListener> myListenerList;
+  private final class MyRefactoringElementListener implements RefactoringElementListener, UndoRefactoringElementListener {
+    private final List<RefactoringElementListener> myListenerList;
     private MyRefactoringElementListener(PsiElement oldElement) {
       addAffectedElement(oldElement);
       myListenerList = myOldElementToListenerListMap.get(oldElement);
@@ -93,7 +79,7 @@ public class RefactoringTransactionImpl implements RefactoringTransaction {
     @Override
     public void elementMoved(@NotNull final PsiElement newElement) {
       if (!newElement.isValid()) return;
-      SmartPsiElementPointer<PsiElement> pointer = SmartPointerManager.getInstance(myProject).createSmartPsiElementPointer(newElement);
+      SmartPsiElementPointer<PsiElement> pointer = SmartPointerManager.getInstance(newElement.getProject()).createSmartPsiElementPointer(newElement);
       myRunnables.add(() -> {
         PsiElement element = pointer.getElement();
         if (element == null) {
@@ -148,6 +134,7 @@ public class RefactoringTransactionImpl implements RefactoringTransaction {
     for (Runnable runnable : myRunnables) {
       dumbService.withAlternativeResolveEnabled(runnable);
     }
+    myRunnables.clear();
   }
 
 }

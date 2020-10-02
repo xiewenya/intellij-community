@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.parameter;
 
 import com.intellij.openapi.application.WriteAction;
@@ -24,8 +10,9 @@ import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.IntroduceParameterRefactoring;
@@ -34,8 +21,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.ui.NameSuggestionsField;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.components.JBRadioButton;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
@@ -45,8 +31,9 @@ import gnu.trove.TObjectIntProcedure;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.GroovyFileType;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParametersOwner;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParameterListOwner;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
@@ -93,12 +80,14 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
   private JPanel mySignaturePanel;
   private JCheckBox myForceReturnCheckBox;
   private final Project myProject;
+  private final PsiFile myFile;
 
   private final boolean myCanIntroduceSimpleParameter;
 
   public GrIntroduceParameterDialog(IntroduceParameterInfo info) {
     super(info.getProject(), true);
     myInfo = info;
+    myFile = info.getContext().getContainingFile();
     myProject = info.getProject();
     myCanIntroduceSimpleParameter = GroovyIntroduceParameterUtil.findExpr(myInfo) != null ||
                                     GroovyIntroduceParameterUtil.findVar(myInfo) != null ||
@@ -171,7 +160,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
     if (myInfo.getToReplaceIn() instanceof GrClosableBlock) {
       myDelegateViaOverloadingMethodCheckBox.setEnabled(false);
-      myDelegateViaOverloadingMethodCheckBox.setToolTipText("Delegating is not allowed in closure context");
+      myDelegateViaOverloadingMethodCheckBox.setToolTipText(GroovyBundle.message("introduce.parameter.delegating.unavailable.tooltip"));
     }
 
 
@@ -238,16 +227,24 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
     final JPanel panel = new JPanel(new BorderLayout());
     panel.add(splitter, BorderLayout.CENTER);
-    myForceReturnCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand("Use e&xplicit return statement"));
+    myForceReturnCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.parameter.explicit.return.statement.option.label")
+    ));
     panel.add(myForceReturnCheckBox, BorderLayout.NORTH);
 
     return panel;
   }
 
   private JPanel createFieldPanel() {
-    myDoNotReplaceRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand("Do n&ot replace"));
-    myReplaceFieldsInaccessibleInRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand("Replace fields &inaccessible in usage context"));
-    myReplaceAllFieldsRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand("&Replace all fields"));
+    myDoNotReplaceRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.parameter.do.not.replace.option.label")
+    ));
+    myReplaceFieldsInaccessibleInRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.parameter.replace.inaccessible.fields.option.label")
+    ));
+    myReplaceAllFieldsRadioButton = new JBRadioButton(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.parameter.replace.all.fields.option.label")
+    ));
 
     myDoNotReplaceRadioButton.setFocusable(false);
     myReplaceFieldsInaccessibleInRadioButton.setFocusable(false);
@@ -264,7 +261,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
     panel.add(myReplaceFieldsInaccessibleInRadioButton);
     panel.add(myReplaceAllFieldsRadioButton);
 
-    panel.setBorder(IdeBorderFactory.createTitledBorder("Replace fields used in expression with their getters", true));
+    panel.setBorder(IdeBorderFactory.createTitledBorder(GroovyBundle.message("introduce.parameter.replace.fields.border.title")));
     return panel;
   }
 
@@ -272,7 +269,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
     final GridBag c = new GridBag().setDefaultAnchor(GridBagConstraints.WEST).setDefaultInsets(1, 1, 1, 1);
     final JPanel namePanel = new JPanel(new GridBagLayout());
 
-    final JLabel typeLabel = new JLabel(UIUtil.replaceMnemonicAmpersand("&Type:"));
+    final JLabel typeLabel = new JLabel(UIUtil.replaceMnemonicAmpersand(GroovyBundle.message("introduce.variable.type.label")));
     c.nextLine().next().weightx(0).fillCellNone();
     namePanel.add(typeLabel, c);
 
@@ -281,7 +278,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
     namePanel.add(myTypeComboBox, c);
     typeLabel.setLabelFor(myTypeComboBox);
 
-    final JLabel nameLabel = new JLabel(UIUtil.replaceMnemonicAmpersand("&Name:"));
+    final JLabel nameLabel = new JLabel(UIUtil.replaceMnemonicAmpersand(GroovyBundle.message("introduce.variable.name.label")));
     c.nextLine().next().weightx(0).fillCellNone();
     namePanel.add(nameLabel, c);
 
@@ -297,11 +294,14 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
 
   private void createCheckBoxes(JPanel panel) {
-    myDeclareFinalCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand("Declare &final"));
+    myDeclareFinalCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand(GroovyBundle.message(
+      "introduce.variable.declare.final.label")));
     myDeclareFinalCheckBox.setFocusable(false);
     panel.add(myDeclareFinalCheckBox);
 
-    myDelegateViaOverloadingMethodCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand("De&legate via overloading method"));
+    myDelegateViaOverloadingMethodCheckBox = new JCheckBox(UIUtil.replaceMnemonicAmpersand(
+      GroovyBundle.message("introduce.parameter.delegate.via.overload")
+    ));
     myDelegateViaOverloadingMethodCheckBox.setFocusable(false);
     panel.add(myDelegateViaOverloadingMethodCheckBox);
 
@@ -347,9 +347,9 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
     if (var != null) {
       names.add(var.getName());
     }
-    ContainerUtil.addAll(names, suggestNames());
+    names.addAll(suggestNames());
 
-    return new NameSuggestionsField(ArrayUtil.toStringArray(names), myProject, GroovyFileType.GROOVY_FILE_TYPE);
+    return new NameSuggestionsField(ArrayUtilRt.toStringArray(names), myProject, GroovyFileType.GROOVY_FILE_TYPE);
   }
 
   private void initReplaceFieldsWithGetters(JavaRefactoringSettings settings) {
@@ -425,7 +425,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
   @Nullable
   private PsiClass getContainingClass() {
-    final GrParametersOwner toReplaceIn = myInfo.getToReplaceIn();
+    final GrParameterListOwner toReplaceIn = myInfo.getToReplaceIn();
     if (toReplaceIn instanceof GrMethod) {
       return ((GrMethod)toReplaceIn).getContainingClass();
     }
@@ -436,7 +436,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
   private boolean hasFinalModifier() {
     final Boolean createFinals = JavaRefactoringSettings.getInstance().INTRODUCE_PARAMETER_CREATE_FINALS;
-    return createFinals == null ? CodeStyleSettingsManager.getSettings(myProject).GENERATE_FINAL_PARAMETERS : createFinals.booleanValue();
+    return createFinals == null ? JavaCodeStyleSettings.getInstance(myFile).GENERATE_FINAL_PARAMETERS : createFinals.booleanValue();
   }
 
   @Override
@@ -445,7 +445,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
     super.doOKAction();
 
-    final GrParametersOwner toReplaceIn = myInfo.getToReplaceIn();
+    final GrParameterListOwner toReplaceIn = myInfo.getToReplaceIn();
 
     final GrExpression expr = GroovyIntroduceParameterUtil.findExpr(myInfo);
     final GrVariable var = GroovyIntroduceParameterUtil.findVar(myInfo);

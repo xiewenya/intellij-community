@@ -22,13 +22,10 @@ import org.jetbrains.annotations.NotNull;
 
 public class GenerifyFileTest extends LightQuickFixAvailabilityTestCase {
 
-  @NotNull
   @Override
-  protected LocalInspectionTool[] configureLocalInspectionTools() {
+  protected LocalInspectionTool @NotNull [] configureLocalInspectionTools() {
     return new LocalInspectionTool[] {new UncheckedWarningLocalInspection()};
   }
-
-  public void test() { doAllTests(); }
 
   @Override
   protected String getBasePath() {

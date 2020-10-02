@@ -1,77 +1,55 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.javac;
 
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.PathUtils;
 import org.jetbrains.jps.incremental.BinaryContent;
 
-import javax.tools.*;
+import javax.tools.JavaFileManager;
 import java.io.*;
 import java.net.URI;
+import java.util.Iterator;
 
 /**
  * @author Eugene Zhuravlev
  */
-public final class OutputFileObject extends SimpleJavaFileObject {
+public final class OutputFileObject extends JpsFileObject {
   @Nullable
-  private final JavacFileManager.Context myContext;
+  private final JpsJavacFileManager.Context myContext;
   @Nullable
   private final File myOutputRoot;
   private final String myRelativePath;
   private final File myFile;
   @Nullable
   private final String myClassName;
-  @Nullable private final URI mySourceUri;
+  private final Iterable<URI> mySources;
   private volatile BinaryContent myContent;
-  private final File mySourceFile;
   private final String myEncodingName;
+  private final boolean myIsGenerated;
 
-  public OutputFileObject(@NotNull JavacFileManager.Context context,
+  public OutputFileObject(@Nullable JpsJavacFileManager.Context context,
                           @Nullable File outputRoot,
                           String relativePath,
                           @NotNull File file,
                           @NotNull Kind kind,
                           @Nullable String className,
-                          @Nullable final URI sourceUri,
-                          @Nullable final String encodingName) {
-    this(context, outputRoot, relativePath, file, kind, className, sourceUri, encodingName, null);
-  }
-
-  public OutputFileObject(@Nullable JavacFileManager.Context context,
-                          @Nullable File outputRoot,
-                          String relativePath,
-                          @NotNull File file,
-                          @NotNull Kind kind,
-                          @Nullable String className,
-                          @Nullable final URI srcUri,
-                          @Nullable final String encodingName, 
-                          @Nullable BinaryContent content) {
-    super(PathUtils.toURI(file.getPath()), kind);
+                          @NotNull final Iterable<URI> sources,
+                          @Nullable final String encodingName,
+                          @Nullable BinaryContent content,
+                          final JavaFileManager.Location location,
+                          boolean isFromGeneratedSource) {
+    super(FileUtilRt.fileToUri(file), kind, location);
     myContext = context;
-    mySourceUri = srcUri;
+    mySources = sources;
     myContent = content;
     myOutputRoot = outputRoot;
     myRelativePath = relativePath;
     myFile = file;
     myClassName = className != null? className.replace('/', '.') : null;
-    mySourceFile = srcUri != null? PathUtils.convertToFile(srcUri) : null;
     myEncodingName = encodingName;
+    myIsGenerated = isFromGeneratedSource;
   }
 
   @Nullable
@@ -93,14 +71,39 @@ public final class OutputFileObject extends SimpleJavaFileObject {
     return myClassName;
   }
 
-  @Nullable
-  public File getSourceFile() {
-    return mySourceFile;
+  public boolean isGenerated() {
+    return myIsGenerated;
   }
 
+  /**
+   * @deprecated In general, an output object may be generated from several source files. Use {@link OutputFileObject#getSourceFiles()} method instead.
+   */
+  @Deprecated
   @Nullable
-  public URI getSourceUri() {
-    return mySourceUri;
+  public File getSourceFile() {
+    final Iterator<File> it = getSourceFiles().iterator();
+    return it.hasNext()? it.next() : null;
+  }
+
+  @NotNull
+  public Iterable<File> getSourceFiles() {
+    return Iterators.filter(Iterators.map(getSourceUris(), new Function<URI, File>() {
+      @Override
+      public File fun(URI uri) {
+        return "file".equalsIgnoreCase(uri.getScheme())? new File(uri) : null;
+      }
+    }), Iterators.<File>notNullFilter());
+  }
+
+  @NotNull
+  public Iterable<URI> getSourceUris() {
+    return mySources;
+  }
+
+  @Override
+  @Nullable
+  protected String inferBinaryName(Iterable<? extends File> path, boolean caseSensitiveFS) {
+    return null; // this will cause FileManager to delegate to JVM implementation
   }
 
   @Override
@@ -135,11 +138,11 @@ public final class OutputFileObject extends SimpleJavaFileObject {
     final BinaryContent content = myContent;
     final String encoding = myEncodingName;
     if (content != null) {
-      return encoding == null? 
-             new String(content.getBuffer(), content.getOffset(), content.getLength()) : 
+      return encoding == null ?
+             new String(content.getBuffer(), content.getOffset(), content.getLength()) :
              new String(content.getBuffer(), content.getOffset(), content.getLength(), encoding);
     }
-    return FileUtilRt.loadFile(myFile, encoding, false);
+    return loadCharContent(myFile, encoding);
   }
 
   @Override
@@ -157,13 +160,4 @@ public final class OutputFileObject extends SimpleJavaFileObject {
     myContent = new BinaryContent(updatedContent, 0, updatedContent.length);
   }
 
-  @Override
-  public int hashCode() {
-    return toUri().hashCode();
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    return obj instanceof JavaFileObject && toUri().equals(((JavaFileObject)obj).toUri());
-  }
 }

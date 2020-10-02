@@ -1,25 +1,17 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.artifacts
 
+import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.PathUtil
 import com.intellij.util.io.directoryContent
+import com.intellij.util.io.systemIndependentPath
+import com.intellij.util.io.zipFile
+import org.jetbrains.jps.builders.CompileScopeTestBuilder
 import org.jetbrains.jps.incremental.artifacts.LayoutElementTestUtil.archive
 import org.jetbrains.jps.incremental.artifacts.LayoutElementTestUtil.root
+import org.jetbrains.jps.incremental.messages.BuildMessage
+import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.util.JpsPathUtil
 import java.io.BufferedOutputStream
@@ -32,9 +24,6 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
-/**
- * @author nik
- */
 class ArtifactBuilderTest : ArtifactBuilderTestCase() {
   fun testFileCopy() {
     val a = addArtifact(root().fileCopy(createFile("file.txt", "foo")))
@@ -171,9 +160,54 @@ class ArtifactBuilderTest : ArtifactBuilderTestCase() {
     assertOutput(artifact, directoryContent { file("A.class") })
   }
 
+  fun testModuleSources() {
+    val file = createFile("src/A.java", "class A{}")
+    val testFile = createFile("tests/ATest.java", "class ATest{}")
+    val m = addModule("m", PathUtil.getParentPath(file))
+    m.addSourceRoot(JpsPathUtil.pathToUrl(PathUtil.getParentPath(testFile)), JavaSourceRootType.TEST_SOURCE)
+    val a = addArtifact(root().moduleSource(m))
+    buildAll()
+    assertOutput(a, directoryContent {
+      file("A.java")
+    })
+
+    val b = createFile("src/B.java", "class B{}")
+
+    buildAll()
+    assertOutput(a, directoryContent {
+      file("A.java")
+      file("B.java")
+    })
+
+    delete(b)
+    buildAll()
+    assertOutput(a, directoryContent {
+      file("A.java")
+    })
+  }
+
+  fun testModuleSourcesWithPackagePrefix() {
+    val file = createFile("src/A.java", "class A{}")
+    val m = addModule("m", PathUtil.getParentPath(file))
+    val sourceRoot = assertOneElement(m.sourceRoots)
+    val typed = sourceRoot.asTyped(JavaSourceRootType.SOURCE)
+    assertNotNull(typed)
+    typed!!.properties.packagePrefix = "org.foo"
+
+    val a = addArtifact(root().moduleSource(m))
+    buildAll()
+    assertOutput(a, directoryContent {
+      dir("org") {
+        dir("foo") {
+          file("A.java")
+        }
+      }
+    })
+  }
+
   fun testCopyResourcesFromModuleOutput() {
     val file = createFile("src/a.xml", "")
-    JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(myProject).addResourcePattern("*.xml")
+    JpsJavaExtensionService.getInstance().getCompilerConfiguration(myProject).addResourcePattern("*.xml")
     val module = addModule("a", PathUtil.getParentPath(file))
     val artifact = addArtifact(root().module(module))
     buildArtifacts(artifact)
@@ -279,14 +313,12 @@ class ArtifactBuilderTest : ArtifactBuilderTestCase() {
   }
 
   private fun createXJarFile(): String {
-    val zipDir = directoryContent {
-      zip("x.jar") {
-        dir("dir") {
-          file("file.txt", "text")
-        }
+    val zipFile = zipFile {
+      dir("dir") {
+        file("file.txt", "text")
       }
     }.generateInTempDir()
-    return FileUtil.toSystemIndependentName(File(zipDir, "x.jar").absolutePath)
+    return zipFile.toAbsolutePath().systemIndependentPath
   }
 
   fun testSelfIncludingArtifact() {
@@ -376,6 +408,15 @@ class ArtifactBuilderTest : ArtifactBuilderTestCase() {
       assertNotNull(entry)
       assertEquals(ZipEntry.STORED, entry.method)
     }
+  }
+
+  fun testProperlyReportValueWithInvalidCrcInRepackedFile() {
+    val corruptedJar = PathManagerEx.findFileUnderCommunityHome("jps/jps-builders/testData/output/corruptedJar/incorrect-crc.jar")!!.absolutePath
+    val a = addArtifact(archive("a.jar").extractedDir(corruptedJar, ""))
+    val result = doBuild(CompileScopeTestBuilder.rebuild().artifacts(a))
+    result.assertFailed()
+    val message = result.getMessages(BuildMessage.Kind.ERROR).first()
+    assertTrue(message.messageText, message.messageText.contains("incorrect-crc.jar"));
   }
 
   fun testBuildModuleBeforeArtifactIfSomeDirectoryInsideModuleOutputIsCopiedToArtifact() {

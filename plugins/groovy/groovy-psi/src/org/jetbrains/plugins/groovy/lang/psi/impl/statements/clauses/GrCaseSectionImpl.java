@@ -1,6 +1,4 @@
-/*
- * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements.clauses;
 
@@ -36,10 +34,11 @@ public class GrCaseSectionImpl extends GroovyPsiElementImpl implements GrCaseSec
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitCaseSection(this);
   }
 
+  @Override
   public String toString() {
     return "Case section";
   }
@@ -64,9 +63,8 @@ public class GrCaseSectionImpl extends GroovyPsiElementImpl implements GrCaseSec
     return ((GrVariableDeclaration) statement);
   }
 
-  @NotNull
   @Override
-  public GrCaseLabel[] getCaseLabels() {
+  public GrCaseLabel @NotNull [] getCaseLabels() {
     final List<GrCaseLabel> labels = findChildrenByType(GroovyElementTypes.CASE_LABEL);
     return labels.toArray(new GrCaseLabel[0]);
   }
@@ -81,8 +79,7 @@ public class GrCaseSectionImpl extends GroovyPsiElementImpl implements GrCaseSec
   }
 
   @Override
-  @NotNull
-  public GrStatement[] getStatements() {
+  public GrStatement @NotNull [] getStatements() {
     return PsiImplUtil.getStatements(this);
   }
 

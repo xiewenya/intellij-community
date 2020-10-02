@@ -19,13 +19,9 @@ import com.intellij.codeInsight.daemon.quickFix.LightQuickFixParameterizedTestCa
 import com.intellij.testFramework.LightProjectDescriptor;
 import org.jetbrains.annotations.NotNull;
 
-import static com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase.JAVA_9;
+import static com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase.JAVA_9;
 
 public class WrapWithAdapterMethodCallFixTest extends LightQuickFixParameterizedTestCase {
-  public void test() {
-    doAllTests();
-  }
-
   @NotNull
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {

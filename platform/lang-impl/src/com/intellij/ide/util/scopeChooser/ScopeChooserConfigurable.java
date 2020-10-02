@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.scopeChooser;
 
@@ -6,6 +6,7 @@ import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
+import com.intellij.lang.LangBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
@@ -16,10 +17,14 @@ import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.ui.*;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.packageDependencies.DependencyValidationManager;
-import com.intellij.psi.search.scope.packageSet.*;
+import com.intellij.psi.search.scope.impl.CustomScopesAggregator;
+import com.intellij.psi.search.scope.packageSet.NamedScope;
+import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
+import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
+import com.intellij.psi.search.scope.packageSet.PackageSet;
+import com.intellij.ui.CommonActionsPanel;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.util.IconUtil;
-import java.util.HashSet;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.util.xmlb.annotations.XCollection;
@@ -34,12 +39,8 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class ScopeChooserConfigurable extends MasterDetailsComponent implements SearchableConfigurable {
   @NonNls public static final String SCOPE_CHOOSER_CONFIGURABLE_UI_KEY = "ScopeChooserConfigurable.UI";
@@ -128,10 +129,8 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
 
   private void checkForPredefinedNames() throws ConfigurationException {
     final Set<String> predefinedScopes = new HashSet<>();
-    for (CustomScopesProvider scopesProvider : myProject.getExtensions(CustomScopesProvider.CUSTOM_SCOPES_PROVIDER)) {
-      for (NamedScope namedScope : scopesProvider.getFilteredScopes()) {
-        predefinedScopes.add(namedScope.getName());
-      }
+    for (NamedScope scope : CustomScopesAggregator.getAllCustomScopes(myProject)) {
+      predefinedScopes.add(scope.getScopeId());
     }
     for (int i = 0; i < myRoot.getChildCount(); i++) {
       final MyNode node = (MyNode)myRoot.getChildAt(i);
@@ -139,7 +138,7 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
       final String name = scopeConfigurable.getDisplayName();
       if (predefinedScopes.contains(name)) {
         selectNodeInTree(node);
-        throw new ConfigurationException("Scope name equals to predefined one", ProjectBundle.message("rename.scope.title"));
+        throw new ConfigurationException(LangBundle.message("dialog.message.scope.name.equals.to.predefined.one"), ProjectBundle.message("rename.scope.title"));
       }
     }
   }
@@ -158,7 +157,7 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
       final NamedScope namedScope = scopeConfigurable.getEditableObject();
       if (order.size() <= i) return true;
       final String name = order.get(i);
-      if (!Comparing.strEqual(name, namedScope.getName())) return true;
+      if (!Comparing.strEqual(name, namedScope.getScopeId())) return true;
       if (isInitialized(scopeConfigurable)) {
         final NamedScopesHolder holder = scopeConfigurable.getHolder();
         final NamedScope scope = holder.getScope(name);
@@ -183,8 +182,8 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
         sharedScopes.add(namedScope);
       }
     }
-    myLocalScopesManager.setScopes(localScopes.toArray(new NamedScope[0]));
-    mySharedScopesManager.setScopes(sharedScopes.toArray(new NamedScope[0]));
+    myLocalScopesManager.setScopes(localScopes.toArray(NamedScope.EMPTY_ARRAY));
+    mySharedScopesManager.setScopes(sharedScopes.toArray(NamedScope.EMPTY_ARRAY));
   }
 
   private void loadStateOrder() {
@@ -240,8 +239,8 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
   protected boolean wasObjectStored(Object editableObject) {
     if (editableObject instanceof NamedScope) {
       NamedScope scope = (NamedScope)editableObject;
-      final String scopeName = scope.getName();
-      return myLocalScopesManager.getScope(scopeName) != null || mySharedScopesManager.getScope(scopeName) != null;
+      final String scopeId = scope.getScopeId();
+      return myLocalScopesManager.getScope(scopeId) != null || mySharedScopesManager.getScope(scopeId) != null;
     }
     return false;
   }
@@ -270,7 +269,7 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
   protected
   @Nullable
   String getEmptySelectionString() {
-    return "Select a scope to view or edit its details here";
+    return IdeBundle.message("scope.chooser.select.scope.text");
   }
 
   private String createUniqueName() {
@@ -285,11 +284,11 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     }
   }
 
-  private void obtainCurrentScopes(final HashSet<String> scopes) {
+  private void obtainCurrentScopes(@NotNull Set<? super String> scopes) {
     for (int i = 0; i < myRoot.getChildCount(); i++) {
       final MyNode node = (MyNode)myRoot.getChildAt(i);
       final NamedScope scope = (NamedScope)node.getConfigurable().getEditableObject();
-      scopes.add(scope.getName());
+      scopes.add(scope.getScopeId());
     }
   }
 
@@ -307,7 +306,7 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
       @Override
       public boolean checkInput(String inputString) {
         for (NamedScope scope : holder.getPredefinedScopes()) {
-          if (Comparing.strEqual(scope.getName(), inputString.trim())) {
+          if (Comparing.strEqual(scope.getScopeId(), inputString.trim())) {
             return false;
           }
         }
@@ -336,17 +335,17 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     private AnAction[] myChildren;
     private final boolean myFromPopup;
 
-    public MyAddAction(boolean fromPopup) {
+    MyAddAction(boolean fromPopup) {
       super(IdeBundle.message("add.scope.popup.title"), true);
       myFromPopup = fromPopup;
       final Presentation presentation = getTemplatePresentation();
       presentation.setIcon(IconUtil.getAddIcon());
-      setShortcutSet(CommonShortcuts.INSERT);
+      registerCustomShortcutSet(CommonActionsPanel.getCommonShortcut(CommonActionsPanel.Buttons.ADD), myTree);
     }
 
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       super.update(e);
       if (myFromPopup) {
         setPopup(false);
@@ -354,21 +353,20 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     }
 
     @Override
-    @NotNull
-    public AnAction[] getChildren(@Nullable AnActionEvent e) {
+    public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
       if (myChildren == null) {
         myChildren = new AnAction[2];
         myChildren[0] = new DumbAwareAction(IdeBundle.message("add.local.scope.action.text"), IdeBundle.message("add.local.scope.action.text"),
                                             myLocalScopesManager.getIcon()) {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             createScope(true, IdeBundle.message("add.scope.dialog.title"), null);
           }
         };
         myChildren[1] = new DumbAwareAction(IdeBundle.message("add.shared.scope.action.text"), IdeBundle.message("add.shared.scope.action.text"),
                                             mySharedScopesManager.getIcon()) {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             createScope(false, IdeBundle.message("add.scope.dialog.title"), null);
           }
         };
@@ -410,17 +408,20 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     private final int myDirection;
 
     protected MyMoveAction(String text, Icon icon, int direction) {
-      super(text, text, icon);
+      super(() -> text, icon);
+      ShortcutSet shortcutSet = direction < 0 ? CommonActionsPanel.getCommonShortcut(CommonActionsPanel.Buttons.UP)
+                                              : CommonActionsPanel.getCommonShortcut(CommonActionsPanel.Buttons.DOWN);
+      registerCustomShortcutSet(shortcutSet, myTree);
       myDirection = direction;
     }
 
     @Override
-    public void actionPerformed(final AnActionEvent e) {
+    public void actionPerformed(@NotNull final AnActionEvent e) {
       TreeUtil.moveSelectedRow(myTree, myDirection);
     }
 
     @Override
-    public void update(final AnActionEvent e) {
+    public void update(@NotNull final AnActionEvent e) {
       final Presentation presentation = e.getPresentation();
       presentation.setEnabled(false);
       final TreePath selectionPath = myTree.getSelectionPath();
@@ -439,14 +440,13 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
   }
 
   private class MyCopyAction extends AnAction {
-    public MyCopyAction() {
-      super(ExecutionBundle.message("copy.configuration.action.name"), ExecutionBundle.message("copy.configuration.action.name"),
-            COPY_ICON);
-      registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_D, InputEvent.CTRL_MASK)), myTree);
+    MyCopyAction() {
+      super(ExecutionBundle.messagePointer("copy.configuration.action.name"), COPY_ICON);
+      registerCustomShortcutSet(CommonShortcuts.getDuplicate(), myTree);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       NamedScope scope = (NamedScope)getSelectedObject();
       if (scope != null) {
         final ScopeConfigurable configurable =
@@ -458,32 +458,31 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(getSelectedObject() instanceof NamedScope);
     }
   }
 
   private class MySaveAsAction extends AnAction {
-    public MySaveAsAction() {
-      super(ExecutionBundle.message("action.name.save.as.configuration"), ExecutionBundle.message("action.name.save.as.configuration"),
-            AllIcons.Actions.Menu_saveall);
+    MySaveAsAction() {
+      super(ExecutionBundle.messagePointer("action.name.save.as.configuration"), AllIcons.Actions.MenuSaveall);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final TreePath selectionPath = myTree.getSelectionPath();
       if (selectionPath != null) {
-        final MyNode node = (MyNode)selectionPath.getLastPathComponent();
-        final NamedConfigurable configurable = node.getConfigurable();
+        MyNode node = (MyNode)selectionPath.getLastPathComponent();
+        NamedConfigurable<?> configurable = node.getConfigurable();
         if (configurable instanceof ScopeConfigurable) {
           final ScopeConfigurable scopeConfigurable = (ScopeConfigurable)configurable;
           PackageSet set = scopeConfigurable.getEditableObject().getValue();
           if (set != null) {
             if (scopeConfigurable.getHolder() == mySharedScopesManager) {
-              createScope(false, IdeBundle.message("scopes.save.dialog.title.shared"), set.createCopy());
+              createScope(true, IdeBundle.message("scopes.save.dialog.title.local"), set.createCopy());
             }
             else {
-              createScope(true, IdeBundle.message("scopes.save.dialog.title.local"), set.createCopy());
+              createScope(false, IdeBundle.message("scopes.save.dialog.title.shared"), set.createCopy());
             }
           }
         }
@@ -491,7 +490,7 @@ public class ScopeChooserConfigurable extends MasterDetailsComponent implements 
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(getSelectedObject() instanceof NamedScope);
     }
   }

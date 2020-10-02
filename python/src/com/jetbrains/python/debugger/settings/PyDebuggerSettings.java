@@ -9,6 +9,7 @@ import com.intellij.util.SmartList;
 import com.intellij.util.xmlb.XmlSerializerUtil;
 import com.intellij.xdebugger.settings.DebuggerSettingsCategory;
 import com.intellij.xdebugger.settings.XDebuggerSettings;
+import com.jetbrains.python.debugger.PyDebugValue;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,7 +27,8 @@ public class PyDebuggerSettings extends XDebuggerSettings<PyDebuggerSettings> im
   public static final String FILTERS_DIVIDER = ";";
   private boolean myWatchReturnValues = false;
   private boolean mySimplifiedView = true;
-  private boolean myLoadValuesAsync = true;
+  private volatile PyDebugValue.ValuesPolicy myValuesPolicy = PyDebugValue.ValuesPolicy.ASYNC;
+  private boolean myAlwaysDoSmartStepIntoEnabled = true;
 
   public PyDebuggerSettings() {
     super("python");
@@ -49,12 +51,12 @@ public class PyDebuggerSettings extends XDebuggerSettings<PyDebuggerSettings> im
     mySimplifiedView = simplifiedView;
   }
 
-  public boolean isLoadValuesAsync() {
-    return myLoadValuesAsync;
+  public PyDebugValue.ValuesPolicy getValuesPolicy() {
+    return myValuesPolicy;
   }
 
-  public void setLoadValuesAsync(boolean loadValuesAsync) {
-    myLoadValuesAsync = loadValuesAsync;
+  public void setValuesPolicy(PyDebugValue.ValuesPolicy valuesPolicy) {
+    myValuesPolicy = valuesPolicy;
   }
 
   public static PyDebuggerSettings getInstance() {
@@ -75,6 +77,14 @@ public class PyDebuggerSettings extends XDebuggerSettings<PyDebuggerSettings> im
 
   public void setSteppingFiltersEnabled(boolean steppingFiltersEnabled) {
     mySteppingFiltersEnabled = steppingFiltersEnabled;
+  }
+
+  public void setAlwaysDoSmartStepIntoEnabled(boolean alwaysDoSmartStepIntoEnabled) {
+    myAlwaysDoSmartStepIntoEnabled = alwaysDoSmartStepIntoEnabled;
+  }
+
+  public boolean isAlwaysDoSmartStepInto() {
+    return myAlwaysDoSmartStepIntoEnabled;
   }
 
   @NotNull
@@ -116,13 +126,11 @@ public class PyDebuggerSettings extends XDebuggerSettings<PyDebuggerSettings> im
   @NotNull
   @Override
   public Collection<? extends Configurable> createConfigurables(@NotNull DebuggerSettingsCategory category) {
-    switch (category) {
-      case STEPPING:
-        return singletonList(SimpleConfigurable.create("python.debug.configurable", "Python",
-                                                       PyDebuggerSteppingConfigurableUi.class, this));
-      default:
-        return Collections.emptyList();
+    if (category == DebuggerSettingsCategory.STEPPING) {
+      return singletonList(SimpleConfigurable.create("python.debug.configurable", "Python", //NON-NLS
+                                                     PyDebuggerSteppingConfigurableUi.class, this));
     }
+    return Collections.emptyList();
   }
 
   @Override

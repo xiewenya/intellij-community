@@ -40,7 +40,10 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Properties;
 
 class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElement> implements Debugger.StyleFrame {
 
@@ -79,7 +82,7 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
     this.addVariables(myElement, variables, variableNames[0], true);
     this.addVariables(myElement, variables, variableNames[1], false);
 
-    Collections.sort(variables, VariableComparator.INSTANCE);
+    variables.sort(VariableComparator.INSTANCE);
 
     return variables;
   }
@@ -138,12 +141,12 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
     private final Object myValue;
     private final Type myType;
 
-    public MyValue(Object value, String type) {
+    MyValue(Object value, String type) {
       myValue = value;
       myType = new ObjectType(type);
     }
 
-    public MyValue(Object value, int type) {
+    MyValue(Object value, int type) {
       myValue = value;
       myType = mapType(type);
     }
@@ -243,14 +246,16 @@ class SaxonFrameImpl extends AbstractSaxonFrame<Debugger.StyleFrame, StyleElemen
   private static class MyDummyElement extends StyleElement {
     private final StyleElement myElement;
 
-    public MyDummyElement(StyleElement element) {
+    MyDummyElement(StyleElement element) {
       myElement = element;
       substituteFor(element);
     }
 
+    @Override
     public void prepareAttributes() throws TransformerConfigurationException {
     }
 
+    @Override
     public void process(Context context) throws TransformerException {
     }
 

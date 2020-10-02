@@ -1,8 +1,8 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -13,15 +13,13 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.refactoring.RefactoringHelper;
 import com.intellij.usageView.UsageInfo;
-import com.intellij.util.containers.hash.HashSet;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import static org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyUnusedImportUtil.usedImports;
 
@@ -30,12 +28,12 @@ import static org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyUnusedImpo
  */
 public class GroovyImportOptimizerRefactoringHelper implements RefactoringHelper<Set<GroovyFile>> {
   @Override
-  public Set<GroovyFile> prepareOperation(UsageInfo[] usages) {
+  public Set<GroovyFile> prepareOperation(UsageInfo @NotNull [] usages) {
     Set<GroovyFile> files = new HashSet<>();
     for (UsageInfo usage : usages) {
       if (usage.isNonCodeUsage) continue;
       PsiFile file = usage.getFile();
-      if (file instanceof GroovyFile && file.isValid() && file.isPhysical()) {
+      if (file instanceof GroovyFile && ReadAction.compute(() -> file.isValid()) && file.isPhysical()) {
         files.add((GroovyFile)file);
       }
     }
@@ -43,7 +41,7 @@ public class GroovyImportOptimizerRefactoringHelper implements RefactoringHelper
   }
 
   @Override
-  public void performOperation(final Project project, final Set<GroovyFile> files) {
+  public void performOperation(@NotNull final Project project, final Set<GroovyFile> files) {
     final ProgressManager progressManager = ProgressManager.getInstance();
     final Map<GroovyFile, Pair<List<GrImportStatement>, Set<GrImportStatement>>> redundants = new HashMap<>();
     final Runnable findUnusedImports = () -> {
@@ -71,7 +69,7 @@ public class GroovyImportOptimizerRefactoringHelper implements RefactoringHelper
       }
     };
 
-    if (!progressManager.runProcessWithProgressSynchronously(findUnusedImports, "Optimizing imports (Groovy) ... ", false, project)) {
+    if (!progressManager.runProcessWithProgressSynchronously(findUnusedImports, GroovyBundle.message("optimize.imports.progress.title"), false, project)) {
       return;
     }
 

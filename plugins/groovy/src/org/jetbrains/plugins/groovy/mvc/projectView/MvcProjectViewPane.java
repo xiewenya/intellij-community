@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.mvc.projectView;
 
@@ -38,6 +24,7 @@ import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.actions.ModuleDeleteProvider;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindow;
@@ -55,6 +42,7 @@ import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.mvc.MvcFramework;
 
 import javax.swing.*;
@@ -129,13 +117,7 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     myAutoScrollToSourceHandler.install(getTree());
     myAutoScrollToSourceHandler.onMouseClicked(getTree());
 
-    myCopyPasteDelegator = new CopyPasteDelegator(project, myComponent) {
-      @NotNull
-      @Override
-      protected PsiElement[] getSelectedElements() {
-        return MvcProjectViewPane.this.getSelectedPSIElements();
-      }
-    };
+    myCopyPasteDelegator = new CopyPasteDelegator(project, myComponent);
     myDeletePSIElementProvider = new DeleteHandler.DefaultDeleteProvider();
   }
 
@@ -163,16 +145,18 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     TreeExpander expander = new DefaultTreeExpander(myTree);
     CommonActionsManager actionsManager = CommonActionsManager.getInstance();
     AnAction collapseAction = actionsManager.createCollapseAllAction(expander, myTree);
-    collapseAction.getTemplatePresentation().setIcon(AllIcons.General.CollapseAll);
+    collapseAction.getTemplatePresentation().setIcon(AllIcons.Actions.Collapseall);
 
-    toolWindow.setTitleActions(new AnAction[]{new ScrollFromSourceAction(), collapseAction});
+    toolWindow.setTitleActions(new ScrollFromSourceAction(), collapseAction);
   }
 
+  @NotNull
   @Override
   public String getTitle() {
     throw new UnsupportedOperationException();
   }
 
+  @NotNull
   @Override
   public Icon getIcon() {
     return myDescriptor.getFramework().getIcon();
@@ -194,6 +178,7 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     throw new UnsupportedOperationException();
   }
 
+  @NotNull
   @Override
   public SelectInTarget createSelectInTarget() {
     throw new UnsupportedOperationException();
@@ -201,7 +186,7 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
 
   @NotNull
   @Override
-  protected BaseProjectTreeBuilder createBuilder(final DefaultTreeModel treeModel) {
+  protected BaseProjectTreeBuilder createBuilder(@NotNull final DefaultTreeModel treeModel) {
     return new ProjectTreeBuilder(myProject, myTree, treeModel, null, (ProjectAbstractTreeStructureBase)myTreeStructure) {
       @Override
       protected AbstractTreeUpdater createUpdater() {
@@ -210,11 +195,11 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     };
   }
 
+  @NotNull
   @Override
   protected ProjectAbstractTreeStructureBase createStructure() {
-    final Project project = myProject;
     final String id = getId();
-    return new ProjectTreeStructure(project, id) {
+    return new ProjectTreeStructure(myProject, id) {
 
       @Override
       public boolean isHideEmptyMiddlePackages() {
@@ -222,14 +207,15 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
       }
 
       @Override
-      protected AbstractTreeNode createRoot(final Project project, ViewSettings settings) {
+      protected AbstractTreeNode createRoot(@NotNull final Project project, @NotNull ViewSettings settings) {
         return new MvcProjectNode(project, this, myDescriptor);
       }
     };
   }
 
+  @NotNull
   @Override
-  protected ProjectViewTree createTree(final DefaultTreeModel treeModel) {
+  protected ProjectViewTree createTree(@NotNull final DefaultTreeModel treeModel) {
     return new ProjectViewTree(treeModel) {
       public String toString() {
         return myDescriptor.getFramework().getDisplayName() + " " + super.toString();
@@ -237,50 +223,53 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     };
   }
 
+  @NotNull
   @Override
-  protected AbstractTreeUpdater createTreeUpdater(final AbstractTreeBuilder treeBuilder) {
-    return new AbstractTreeUpdater(treeBuilder);
+  protected AbstractTreeUpdater createTreeUpdater(@NotNull final AbstractTreeBuilder treeBuilder) {
+    return new AbstractTreeUpdater(treeBuilder) {
+      // unique class to simplify search through the logs
+    };
   }
 
   @Override
-  public Object getData(String dataId) {
-    if (DataConstants.PSI_ELEMENT.equals(dataId)) {
+  public Object getData(@NotNull String dataId) {
+    if (CommonDataKeys.PSI_ELEMENT.getName().equals(dataId)) {
       final PsiElement[] elements = getSelectedPSIElements();
       return elements.length == 1 ? elements[0] : null;
     }
-    if (DataConstants.PSI_ELEMENT_ARRAY.equals(dataId)) {
+    if (LangDataKeys.PSI_ELEMENT_ARRAY.getName().equals(dataId)) {
       return getSelectedPSIElements();
     }
-    if (DataConstants.MODULE_CONTEXT.equals(dataId)) {
+    if (LangDataKeys.MODULE_CONTEXT.getName().equals(dataId)) {
       final Object element = getSelectedElement();
       if (element instanceof Module) {
         return element;
       }
       return null;
     }
-    if (DataConstants.MODULE_CONTEXT_ARRAY.equals(dataId)) {
+    if (LangDataKeys.MODULE_CONTEXT_ARRAY.getName().equals(dataId)) {
       final List<Module> moduleList = ContainerUtil.findAll(getSelectedElements(), Module.class);
       if (!moduleList.isEmpty()) {
         return moduleList.toArray(Module.EMPTY_ARRAY);
       }
       return null;
     }
-    if (dataId.equals(DataConstants.IDE_VIEW)) {
+    if (dataId.equals(LangDataKeys.IDE_VIEW.getName())) {
       return this;
     }
-    if (dataId.equals(DataConstants.HELP_ID)) {
-      return "reference.toolwindows." + myId.toLowerCase();
+    if (dataId.equals(PlatformDataKeys.HELP_ID.getName())) {
+      return "reference.toolwindows." + StringUtil.toLowerCase(myId);
     }
-    if (DataConstants.CUT_PROVIDER.equals(dataId)) {
+    if (PlatformDataKeys.CUT_PROVIDER.getName().equals(dataId)) {
       return myCopyPasteDelegator.getCutProvider();
     }
-    if (DataConstants.COPY_PROVIDER.equals(dataId)) {
+    if (PlatformDataKeys.COPY_PROVIDER.getName().equals(dataId)) {
       return myCopyPasteDelegator.getCopyProvider();
     }
-    if (DataConstants.PASTE_PROVIDER.equals(dataId)) {
+    if (PlatformDataKeys.PASTE_PROVIDER.getName().equals(dataId)) {
       return myCopyPasteDelegator.getPasteProvider();
     }
-    if (DataConstants.DELETE_ELEMENT_PROVIDER.equals(dataId)) {
+    if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.getName().equals(dataId)) {
       for (final Object element : getSelectedElements()) {
         if (element instanceof Module) {
           return myDeleteModuleProvider;
@@ -333,9 +322,8 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     }
   }
 
-  @NotNull
   @Override
-  public PsiDirectory[] getDirectories() {
+  public PsiDirectory @NotNull [] getDirectories() {
     return getSelectedDirectories();
   }
 
@@ -459,13 +447,17 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     scrollFromSource();
   }
 
-  private class ScrollFromSourceAction extends AnAction implements DumbAware {
+  private final class ScrollFromSourceAction extends AnAction implements DumbAware {
     private ScrollFromSourceAction() {
-      super("Scroll from Source", "Select the file open in the active editor", AllIcons.General.Locate);
+      super(
+        GroovyBundle.message("scroll.from.source.action.text"),
+        GroovyBundle.message("scroll.from.source.action.description"),
+        AllIcons.General.Locate
+      );
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       scrollFromSource();
     }
   }
@@ -494,19 +486,22 @@ public class MvcProjectViewPane extends AbstractProjectViewPSIPane implements Id
     }
   }
 
-  private class HideEmptyMiddlePackagesAction extends ToggleAction implements DumbAware {
+  private final class HideEmptyMiddlePackagesAction extends ToggleAction implements DumbAware {
     private HideEmptyMiddlePackagesAction() {
-      super("Compact Empty Middle Packages", "Show/Compact Empty Middle Packages",
-            AllIcons.ObjectBrowser.CompactEmptyPackages);
+      super(
+        GroovyBundle.message("compact.empty.middle.packages.action.text"),
+        GroovyBundle.message("compact.empty.middle.packages.action.description"),
+        AllIcons.ObjectBrowser.CompactEmptyPackages
+      );
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myViewState.hideEmptyMiddlePackages;
     }
 
     @Override
-    public void setSelected(AnActionEvent event, boolean flag) {
+    public void setSelected(@NotNull AnActionEvent event, boolean flag) {
       myViewState.hideEmptyMiddlePackages = flag;
       TreeUtil.collapseAll(myTree, 1);
     }
